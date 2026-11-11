@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>FRAMEWORK</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23111214'/><text x='16' y='23' text-anchor='middle' font-family='Inter,Segoe UI,Arial,sans-serif' font-weight='600' font-size='20' fill='%235e6ad2'>E</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script>
+    // Apply saved theme/size before first paint to avoid a flash. Dark is the default look.
+    (function () {
+      var root = document.documentElement, theme = null, size = null;
+      try { theme = localStorage.getItem("theme"); size = localStorage.getItem("fontSize"); } catch (e) {}
+      root.dataset.theme = theme === "light" ? "light" : "dark";
+      root.style.setProperty("--reader-size", (parseInt(size, 10) || 16) + "px");
+      try {
+        var sidebarW = parseInt(localStorage.getItem("sidebarW"), 10);
+        if (sidebarW >= 220 && sidebarW <= 560) root.style.setProperty("--sidebar-w", sidebarW + "px");
+        if (localStorage.getItem("sidebarHidden") === "1") root.classList.add("sidebar-hidden");
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <button class="icon-btn" id="nav-toggle" title="Show or hide contents" aria-label="Show or hide contents" aria-controls="sidebar">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M6 3v10"/></svg>
+    </button>
+    <a class="brand" href="#/" aria-label="FRAMEWORK home" title="Home"><span class="brand-text" aria-hidden="true"><span class="brand-rest">FRAM</span><span class="brand-e">E</span><span class="brand-rest">WORK</span></span></a>
+    <span class="topbar-sep" aria-hidden="true">/</span>
+    <div class="title-menu" id="title-menu">
+      <button type="button" id="title-select" class="title-select" aria-haspopup="menu" aria-expanded="false" aria-controls="title-pop" title="Switch CFR title">
+        <span class="title-select-num" id="title-select-num"></span><span class="title-select-name" id="title-select-name"></span>
+        <svg class="icon title-select-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg>
+      </button>
+      <div class="title-pop" id="title-pop" role="menu" aria-label="Titles" hidden></div>
+    </div>
+    <div class="search-wrap">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3"/></svg>
+      <input id="search" type="search" placeholder="Search regulations or jump to a section…" aria-label="Search regulations" autocomplete="off" spellcheck="false">
+      <kbd class="search-kbd" aria-hidden="true">⌘K</kbd>
+      <div id="search-dropdown" class="search-dropdown" hidden></div>
+    </div>
+    <span class="edition" id="edition" title="eCFR edition loaded in this app"></span>
+    <button class="icon-btn" id="theme-toggle" title="Switch theme" aria-label="Switch between dark and light theme">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 0 1 0 11Z" fill="currentColor" stroke="none"/></svg>
+    </button>
+    <button class="btn" id="chat-toggle" title="Ask Claude" aria-controls="chat" aria-expanded="false">
+      <svg class="icon icon-accent" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.25 9.35 6.65 13.75 8 9.35 9.35 8 13.75 6.65 9.35 2.25 8 6.65 6.65Z"/></svg>
+      <span class="btn-label">Ask Claude</span>
+      <kbd id="chat-kbd" aria-hidden="true">Ctrl K</kbd>
+    </button>
+  </header>
+
+  <div class="layout" id="layout">
+    <nav class="sidebar" id="sidebar" aria-label="Title contents">
+      <div class="side-filter">
+        <input id="tree-filter" type="search" placeholder="Filter agencies, parts, sections…" autocomplete="off" spellcheck="false" aria-label="Filter parts and sections" aria-controls="tree">
+        <div class="side-nav-tabs" id="side-nav-tabs" role="tablist" aria-label="Sidebar view mode">
+          <button type="button" class="side-nav-tab active" id="tab-agencies" role="tab" aria-selected="true" data-mode="agencies">By agency</button>
+          <button type="button" class="side-nav-tab" id="tab-parts" role="tab" aria-selected="false" data-mode="all-parts">All parts</button>
+        </div>
+      </div>
+      <div class="tree" id="tree"><div class="loading">Loading contents…</div></div>
+      <div class="sidebar-resizer" id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuemin="220" aria-valuemax="560" aria-valuenow="288" tabindex="0" title="Drag to resize · double-click to reset"></div>
+    </nav>
+    <div class="nav-backdrop" id="nav-backdrop"></div>
+
+    <main class="main" id="main" tabindex="-1">
+      <div id="view-head" class="view-head" hidden></div>
+      <div id="view" class="view"></div>
+    </main>
+
+    <aside class="chat" id="chat" aria-label="Ask Claude" hidden>
+      <div class="chat-head">
+        <strong>Ask Claude</strong>
+        <select id="model-select" title="Claude model" aria-label="Claude model" hidden></select>
+        <button class="icon-btn" id="chat-new" title="New conversation" aria-label="New conversation">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8.75V12a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 12V5a1.5 1.5 0 0 1 1.5-1.5h3.25"/><path d="M11.55 2.7a1.24 1.24 0 0 1 1.75 1.75L8.6 9.15l-2.3.55.55-2.3Z"/></svg>
+        </button>
+        <button class="icon-btn" id="chat-close" title="Close" aria-label="Close chat">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>
+        </button>
+      </div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-context" id="chat-context" hidden>
+        <label><input type="checkbox" id="context-toggle" checked> Include <span id="context-label"></span></label>
+      </div>
+      <form class="chat-input" id="chat-form">
+        <textarea id="chat-text" rows="1" placeholder="Ask about this section, or anything in Title 29…" aria-label="Message Claude"></textarea>
+        <button class="send-btn" id="chat-send" type="submit" title="Send (Enter)" aria-label="Send message">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3.5M4 7l4-4 4 4"/></svg>
+        </button>
+      </form>
+    </aside>
+  </div>
+
+  <div id="ask-float" class="ask-float" hidden>
+    <button class="btn btn-small" data-ask="explain">Explain</button>
+    <button class="btn btn-small" data-ask="ask">Ask about this</button>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="/static/vendor/marked.min.js"></script>
+  <script src="/static/vendor/purify.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

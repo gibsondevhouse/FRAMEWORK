@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated URL inventories
+docs/dev/
+docs/title-29/
+docs/title-29-api/
+
+# Generated reader data
+reader/data/*.sqlite3
+reader/data/*.sqlite3-*
+reader/data/tree*.json
+reader/data/*.tmp
+
+# Windows
+Thumbs.db
+Desktop.ini
