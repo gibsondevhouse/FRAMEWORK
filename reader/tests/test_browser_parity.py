@@ -242,19 +242,20 @@ class BehaviorTests(BrowserCase):
         self.assertGreater(bars.count(), 1)
         self.assert_no_external_requests()
 
-    def test_drawer_shortcut_and_g_keys(self):
+    def test_drawer_shortcut(self):
         page = self.open_page("/section/1910.135", "#activity-rail")
-        collapsed = lambda: page.evaluate("document.documentElement.classList.contains('drawer-collapsed')")
-        before = collapsed()
+        collapsed = "document.documentElement.classList.contains('drawer-collapsed')"
+        before = page.evaluate(collapsed)
         page.keyboard.press("ControlOrMeta+b")
-        page.wait_for_function(f"document.documentElement.classList.contains('drawer-collapsed') !== {str(before).lower()}",
-                               timeout=15000)
+        page.wait_for_function(f"{collapsed} !== {str(before).lower()}", timeout=15000)
         page.keyboard.press("ControlOrMeta+b")
-        page.wait_for_function(f"document.documentElement.classList.contains('drawer-collapsed') === {str(before).lower()}",
-                               timeout=15000)
-        # Reopening the drawer focuses the panel's first control; blur so the G
-        # chord below isn't typed into that input (Windows reaches it reliably).
-        page.evaluate("document.activeElement && document.activeElement.blur()")
+        page.wait_for_function(f"{collapsed} === {str(before).lower()}", timeout=15000)
+        self.assert_no_external_requests()
+
+    def test_g_chord_navigation(self):
+        # On a fresh page so no earlier keyboard interaction has moved focus into
+        # an input (the typing guard swallows the chord there).
+        page = self.open_page("/section/1910.135", "#activity-rail")
         page.keyboard.press("g")
         page.keyboard.press("n")
         page.wait_for_selector("#news-q", timeout=15000)
