@@ -45,6 +45,12 @@ class TestLinkifier(unittest.TestCase):
         self.assertIn('href="#/title/40/part/261"', out)
         self.assertIn('class="xref xref-cross"', out)
 
+    def test_cross_title_part_is_one_link(self):
+        out = self.linkifier("Generators follow 40 CFR part 262 and § 1910.120.")
+        self.assertEqual(out.count("<a "), 2)
+        self.assertNotRegex(out, r"<a [^>]*>[^<]*<a ")   # no anchor nested in another
+        self.assertIn('href="#/title/40/part/262">40 CFR part 262</a>', out)
+
     def test_cross_title_uninstalled_fallback(self):
         # Title 21 is not installed
         text = "Food safety under 21 CFR § 101.9 rules."

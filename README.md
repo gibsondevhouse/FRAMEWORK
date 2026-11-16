@@ -1,34 +1,37 @@
-# Title 29 (Labor) Regulations Framework & Web Reader
+# FRAMEWORK — CFR Reader & Research Assistant
 
-This workspace contains an ingestion inventory and a modern, high-speed reading interface for **Title 29 of the Code of Federal Regulations (CFR)**.
+A local web reader for the Code of Federal Regulations (any of the 50 titles) with instant full-text search and a Claude research assistant grounded in the installed text. Everything runs on your machine: regulations live in SQLite databases under `reader/data/`. The only network calls are the eCFR download when you install a title and, optionally, the Anthropic API for the assistant.
 
----
+## What's here
 
-## What's in this Workspace?
+- **`reader/`** — the application. FastAPI + SQLite FTS5 backend, vanilla JS frontend. See [reader/README.md](reader/README.md) to run it and [reader/API.md](reader/API.md) for the HTTP API.
+- **`docs/plans/roadmap/`** — the *HSE Platform Roadmap*, a strategy document for where this could go (MCP server, hybrid RAG, policy linter, enterprise bots). None of it is implemented; it is not a description of the code. `phase-1_multi-title/` keeps the agent prompt and completion report from the multi-title work as a historical record.
+- **`CLAUDE.md`** — detailed architecture notes for working on the code.
 
-1. **Web Reader & Claude Assistant (`reader/`):**
-   - A complete local web application built with **FastAPI**, **SQLite FTS5**, and **Claude API**.
-   - Parses official government eCFR XML into readable, indented legal typography with linked cross-references.
-   - Built-in full-text search across all 7,374 regulations and appendices.
-   - Grounded AI research drawer powered by Claude 3.5 / 3.7.
-   - See [reader/README.md](reader/README.md) for launch instructions.
+The generated GovInfo/eCFR URL inventories (`docs/dev/`, `docs/title-29/`, `docs/title-29-api/`) are gitignored and not part of the repository; the reader never reads them.
 
-2. **Official eCFR & GovInfo API Inventory (`docs/`):**
-   - `docs/title-29/`: Complete XML rendition inventory of official GovInfo published editions across all 9 volumes (9,101 URLs).
-   - `docs/title-29-api/`: Section-by-section eCFR Versioner, Ancestry, and History endpoint mappings (26,153 endpoints).
-   - `docs/dev/`: Raw source dumps and aggregate URL catalogs.
+## Quick start
 
----
+Requires **Python 3.10 or newer**.
 
-## Quick Launch: Start the Reader
+macOS / Linux:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest
+cd reader
+../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Windows / PowerShell:
 
 ```powershell
-# Navigate into the reader directory
+python -m venv .venv
+.\.venv\Scripts\pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest
 cd reader
-
-# Run the local server
 ..\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** in your browser.
+Open **http://127.0.0.1:8000**. On first start with no titles installed, the server downloads and indexes Title 29 (Labor) from eCFR (~28 MB of XML). Install more titles, parts or single sections from inside the app (Overview → Installed titles → Download) or from the CLI with `python -m app.build --title 40`.
 
+The Claude assistant is optional. Copy `reader/.env.example` to `reader/.env` and add an `ANTHROPIC_API_KEY` to enable it; reading and search work without one.

@@ -6,27 +6,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Two unrelated halves share this workspace:
 
-- `reader/` — the only code: a local web reader + Claude research assistant for multiple CFR titles (29 Labor, 40 EPA, 49 DOT are installed; any title 1–50 can be built). FastAPI + SQLite FTS5 backend, vanilla JS frontend.
-- `docs/` — static, generated Markdown inventories of GovInfo XML download URLs (`docs/title-29/`) and eCFR API endpoints (`docs/title-29-api/`, `docs/dev/`). The reader does **not** read these at runtime; don't edit them as part of reader work. `docs/plans/` and `docs/user/` are empty placeholders.
+- `reader/` — the only code: a local web reader + Claude research assistant for multiple CFR titles (29 Labor, 40 EPA, 49 DOT are the ones the integration tests expect; any title 1–50 can be built). FastAPI + SQLite FTS5 backend, vanilla JS frontend.
+- `docs/` — `docs/plans/roadmap/HSE_PLATFORM_ROADMAP.md` is a strategy/blueprint document (MCP server, hybrid RAG, policy linter, enterprise bots, …); none of it is implemented, so don't treat it as a description of the code. The generated GovInfo/eCFR URL inventories (`docs/dev/`, `docs/title-29/`, `docs/title-29-api/`) are gitignored and absent from this clone; the reader never reads them at runtime.
 
-Not a git repo. No linter or `requirements.txt`. Tests live in `reader/tests/` — run `..\.venv\Scripts\python -m pytest tests -q` from `reader/` (install pytest into the venv if missing).
+Git repo (branch `main`). No linter, no `requirements.txt`, no `pyproject.toml`. `README.md`, `reader/README.md` and `reader/API.md` describe the multi-title reader for users and API clients (updated Nov 2026); this file is the detailed description for working on the code. `docs/plans/roadmap/phase-1_multi-title/` holds the agent prompt and completion report from the multi-title work — historical records (Windows paths, Nov 2026 counts), not current instructions.
+
+`reader/data/` (SQLite DBs + tree JSON) and `.venv/` are gitignored, so a fresh clone has neither. The server's lifespan auto-builds Title 29 on first start if no title is installed (one network download from eCFR, ~28 MB of XML).
 
 ## Commands
 
-Windows / PowerShell. The venv lives at the repo root (`.venv`, Python 3.10); commands run from `reader/` because the backend is the package `app`.
+The project was authored on Windows; this clone is on macOS. Python **3.10+** is required (the code uses `X | None` annotations; the macOS system `python3` is 3.9 and will fail at import — on this machine the venv is built from Homebrew `python3.12`). The venv lives at the repo root (`.venv`); commands run from `reader/` because the backend is the package `app`.
 
-```powershell
+macOS / Linux:
+
+```bash
+python3.12 -m venv .venv && .venv/bin/pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest   # one-time, from repo root
 cd reader
-..\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload   # run server
-..\.venv\Scripts\python -m app.build              # build default title (29) only if missing
-..\.venv\Scripts\python -m app.build --title 40   # build/install another CFR title
-..\.venv\Scripts\python -m app.build --force      # re-download latest eCFR edition and rebuild
-..\.venv\Scripts\python -m app.build --title 29 --renest   # fix subpart nesting of an installed title, no download
+../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload   # run server
+../.venv/bin/python -m app.build              # build default title (29) only if missing
+../.venv/bin/python -m app.build --title 40   # build/install another CFR title
+../.venv/bin/python -m app.build --force      # re-download latest eCFR edition and rebuild
+../.venv/bin/python -m app.build --title 29 --renest   # fix subpart nesting of an installed title, no download
+../.venv/bin/python -m pytest tests -q                       # all tests
+../.venv/bin/python -m pytest tests/test_units.py -q         # one file
+../.venv/bin/python -m pytest tests -q -k test_fixture_parse # one test
 ```
 
-Dependencies (installed by hand): `fastapi "uvicorn[standard]" httpx anthropic python-dotenv`. Titles, parts and sections can also be downloaded from inside the app (Overview → Installed titles → Download).
+Windows / PowerShell: same commands with `..\.venv\Scripts\python` in place of `../.venv/bin/python`.
 
-Config is `reader/.env` (see `.env.example`): `ANTHROPIC_API_KEY` (optional — reader and search work without it) and `ANTHROPIC_MODEL` (preferred default; if the key can't see that model, `chat.pick_default_model` falls back to the first sonnet/opus/haiku from the live `/v1/models` list).
+Tests are `unittest.TestCase` classes (pytest collects them; `python -m unittest discover tests` works too) and all run on a fresh clone with no network and no titles downloaded. `tests/fake_titles.py` builds three tiny fake titles (29, 40, 49: 29 CFR 1910.120/1910.134/1910.135/1910.1200, 40 CFR 261.2/261.3, 49 CFR 172.101/172.102) into a temp `DATA_DIR` by patching `config.DATA_DIR`, `build.fetch_json`, `build.download_stream` and `build.log`; `test_api_endpoints.py` and `test_federated_store.py` install them in `setUpClass` via `FakeTitles().install()` / `.remove()`. The real numbers are used because `DEFAULT_TITLE` is 29 and the sections mirror the cross-title citation trio (1910.120 cites 40 CFR 261.3 and 49 CFR 172.101); 1910.1200 is long enough (clauses a–j, an `(i)` after `(h)`, an embedded appendix split into chapters A.1–A.4 with a figure) to exercise units mode. `test_library.py` does the same with a fake "Title 99" for partial-scope builds. Follow either pattern for new tests that need a database; never depend on what is installed in `reader/data/`.
+
+Titles, parts and sections can also be downloaded from inside the app (Overview → Installed titles → Download). A CLI rebuild needs a server restart to be seen (see `store` caches below).
+
+Config is `reader/.env`, loaded by `app/config.py` (copy `reader/.env.example`, which is tracked): `ANTHROPIC_API_KEY` (optional — reader and search work without it) and `ANTHROPIC_MODEL` (preferred default; if the key can't see that model, `chat.pick_default_model` falls back to the first sonnet/opus/haiku from the live `/v1/models` list).
 
 ## Architecture (reader/)
 

@@ -14,7 +14,6 @@ DATA_DIR = ROOT_DIR / "data"
 load_dotenv(ROOT_DIR / ".env")
 
 DEFAULT_TITLE = 29
-TITLE = 29
 ECFR_BASE = "https://www.ecfr.gov"
 ECFR_API = f"{ECFR_BASE}/api/versioner/v1"
 
@@ -55,10 +54,6 @@ def installed_titles() -> list[int]:
     if (DATA_DIR / "title29.sqlite3").exists():
         titles.add(29)
     return sorted(titles)
-
-
-DB_PATH = db_path(29)
-TREE_PATH = tree_path(29)
 
 
 def anthropic_key() -> str | None:

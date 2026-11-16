@@ -188,6 +188,15 @@ _USC = re.compile(
 _FR = re.compile(r"\b(\d{1,3})\s*FR\s*([0-9]+)\b", re.IGNORECASE)
 _WORD_PART = re.compile(r"\b(parts?\s+(\d{1,4}))\b", re.IGNORECASE)
 _TAG_SPLIT = re.compile(r"(<[^>]+>)")
+_ANCHOR_SPLIT = re.compile(r"(<a\b[^>]*>.*?</a>)", re.IGNORECASE | re.DOTALL)
+
+
+def _outside_anchors(text: str, fn: Callable[[str], str]) -> str:
+    """Apply `fn` to the parts of `text` that are not already inside an `<a>…</a>`."""
+    if "<a" not in text:
+        return fn(text)
+    return "".join(piece if piece.lower().startswith("<a") else fn(piece)
+                   for piece in _ANCHOR_SPLIT.split(text) if piece)
 
 
 def make_linkifier(
@@ -263,7 +272,9 @@ def make_linkifier(
         return full_text
 
     def transform_text_chunk(text: str) -> str:
-        """Run all link transformations on pure text nodes outside of tags."""
+        """Run all link transformations on pure text nodes outside of tags. Each pass only
+        touches text that an earlier pass hasn't already wrapped in an anchor, so "40 CFR part 262"
+        becomes one cross-title link rather than a part link nested inside it."""
         if not text:
             return ""
 
@@ -281,7 +292,7 @@ def make_linkifier(
                 u_title, u_sec = m.group(1), m.group(2)
                 href = f"https://www.law.cornell.edu/uscode/text/{u_title}/{u_sec}"
                 return f'<a class="xref xref-usc" target="_blank" rel="noopener noreferrer" title="View {u_title} U.S.C. {u_sec} at Cornell LII" href="{href}">{m.group(0)}</a>'
-            text = _USC.sub(replace_usc, text)
+            text = _outside_anchors(text, lambda t: _USC.sub(replace_usc, t))
 
         # C. Federal Register: e.g. 39 FR 23502
         if " FR " in text:
@@ -289,19 +300,21 @@ def make_linkifier(
                 vol, page = m.group(1), m.group(2)
                 href = f"https://www.federalregister.gov/citation/{vol}-FR-{page}"
                 return f'<a class="xref xref-fr" target="_blank" rel="noopener noreferrer" title="View Federal Register citation {vol} FR {page}" href="{href}">{m.group(0)}</a>'
-            text = _FR.sub(replace_fr, text)
+            text = _outside_anchors(text, lambda t: _FR.sub(replace_fr, t))
 
         # D. Cross-Title CFR: e.g. 40 CFR § 261.3 or 49 CFR Part 172
         if "CFR" in text or "C.F.R" in text:
-            text = _CROSS_TITLE.sub(link_cross_title, text)
+            text = _outside_anchors(text, lambda t: _CROSS_TITLE.sub(link_cross_title, t))
 
         # E. Internal bare § / §§ citations for current title
         if "§" in text:
-            text = _XREF.sub(lambda m: m.group(1) + _NUM_IN_LIST.sub(link_num_current_title, m.group(2)), text)
+            text = _outside_anchors(text, lambda t: _XREF.sub(
+                lambda m: m.group(1) + _NUM_IN_LIST.sub(link_num_current_title, m.group(2)), t))
 
         # F. Word-based section citations: e.g. "section 1910.120"
         if "section" in text.lower():
-            text = _WORD_SEC.sub(lambda m: m.group(1) + _NUM_IN_LIST.sub(link_num_current_title, m.group(2)), text)
+            text = _outside_anchors(text, lambda t: _WORD_SEC.sub(
+                lambda m: m.group(1) + _NUM_IN_LIST.sub(link_num_current_title, m.group(2)), t))
 
         # G. Internal Part citations: e.g. "Part 1910"
         if "part" in text.lower():
@@ -310,7 +323,7 @@ def make_linkifier(
                 # Link if any section in this title belongs to this part
                 href = f"#/title/{title}/part/{p_num}"
                 return f'<a class="xref xref-part" href="{href}">{m.group(0)}</a>'
-            text = _WORD_PART.sub(replace_part, text)
+            text = _outside_anchors(text, lambda t: _WORD_PART.sub(replace_part, t))
 
         return text
 
