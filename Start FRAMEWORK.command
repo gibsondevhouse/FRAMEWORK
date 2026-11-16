@@ -32,7 +32,7 @@ fi
 
 cd "$ROOT/reader" || exit 1
 
-# Open the browser once the server answers (first run may download Title 29, which can take a while).
+# Open the browser once the server answers.
 (
   for _ in $(seq 1 300); do
     if curl -s -o /dev/null "$URL/"; then open "$URL"; exit 0; fi

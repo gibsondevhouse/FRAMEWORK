@@ -5,6 +5,10 @@ state.currentTitle = 29;
 
 state.installedTitles = [];
 
+state.noTitles = false;
+
+state.profilesData = null;
+
 state.treeData = null;
 
 state.currentSection = null;

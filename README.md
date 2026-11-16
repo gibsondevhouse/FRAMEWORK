@@ -47,7 +47,7 @@ cd reader
 
 Once the server is running, open **http://127.0.0.1:8000** in your browser.
 
-If you don't have any titles installed yet, FRAMEWORK will automatically download and index **Title 29 (Labor)** from eCFR on its first startup (~28 MB of XML, usually under a minute). From there, you can open the **Library** in the left rail to install other titles, specific parts, or individual sections—or use the CLI:
+On first start nothing is installed yet: FRAMEWORK asks what you work in (Safety / OSHA, Environmental, Transportation, Employment & benefits, Elections & government, Food & drugs, Finance) and downloads that profile's titles and parts from eCFR—or you can choose your own in the **Library**. The reader opens as soon as the first title lands. You can also install titles from the CLI:
 
 ```bash
 cd reader
@@ -74,6 +74,7 @@ The **News** page works out of the box for Federal Register rulemaking. To also 
   - `osha_news_interface/` — The plan behind the OSHA regulatory news page (implemented in `reader/`).
   - `roadmap/HSE_PLATFORM_ROADMAP.md` — Long-term ideas for where this could go next (MCP server, policy linter, hybrid search, team bots; not yet built).
   - `roadmap/phase-1_multi-title/` — Historical notes from when multi-title support was added.
+- **`docs/notes/`** — Lightweight dev notes for ongoing cleanup and follow-ups.
 - **`CLAUDE.md`** — Detailed technical notes for anyone working on the code.
 
 *(Generated GovInfo/eCFR URL inventories like `docs/dev/`, `docs/title-29/`, and `docs/title-29-api/` are gitignored and not part of the repository; FRAMEWORK doesn't use them at runtime.)*

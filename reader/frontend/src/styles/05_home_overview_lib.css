@@ -155,6 +155,31 @@ a.ov-tr:active { transform: scale(.98); }
 .ov-panel-head .ov-h { margin: 0; }
 .ov-partial { margin-left: 8px; font-size: 12px; font-weight: var(--w-regular); color: var(--fg-3); }
 
+/* First run: the profile picker (shown while nothing is installed) */
+.welcome { max-width: 640px; }
+.welcome-head { margin-top: 6px; }
+.welcome-head p { margin: 8px 0 0; color: var(--fg-3); font-size: 14px; line-height: 1.6; max-width: 540px; }
+.welcome-list { display: grid; gap: 8px; margin-top: 28px; }
+.welcome-card {
+  display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left;
+  padding: 13px 16px 14px; border: 1px solid var(--line); border-radius: var(--r-8); background: var(--card);
+  color: var(--fg); font: inherit; cursor: pointer; appearance: none;
+  transition: background-color var(--t-quick) var(--ease), border-color var(--t-quick) var(--ease), transform 100ms var(--ease);
+}
+.welcome-card:hover, .welcome-card:focus-visible { background: var(--card-hover); border-color: var(--line-strong); text-decoration: none; }
+.welcome-card:active { transform: scale(.995); }
+.welcome-card:disabled { opacity: .5; cursor: default; transform: none; }
+.welcome-card-name { font-size: 14px; font-weight: var(--w-medium); letter-spacing: -.006em; }
+.welcome-card-desc { font-size: 13px; line-height: 1.5; color: var(--fg-3); }
+.welcome-card-meta { margin-top: 4px; font-size: 12px; line-height: 1.6; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.welcome-card-meta .sep { margin: 0 6px; color: var(--fg-4); }
+.welcome-item-num { font-weight: var(--w-medium); color: var(--fg-2); }
+.welcome-own { background: transparent; }
+.welcome-own .welcome-card-name { color: var(--accent); }
+.welcome-progress { margin-top: 28px; }
+.welcome-job { box-shadow: var(--shadow-card); }
+.welcome-note { margin: 12px 0 0; color: var(--fg-3); font-size: 13px; line-height: 1.5; }
+
 /* ---------- Library (#/library…): download titles, parts, sections ----------
    A plain list per level, like Linear's issue lists: hairline-separated rows, a muted status
    column, and row actions that appear on hover or keyboard focus. */

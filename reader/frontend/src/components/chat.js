@@ -5,6 +5,7 @@ import { dom } from '../state_init';
 
 // --- Claude Chat Assistant ---
 export function toggleChat() {
+  if (state.noTitles) return;
   if (dom.chat.hidden) {
     openChat();
   } else {

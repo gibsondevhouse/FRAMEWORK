@@ -33,7 +33,24 @@ Every installed title.
 ]
 ```
 
-`partial` is true when only some parts/sections of the title are installed.
+`partial` is true when only some parts/sections of the title are installed. Returns `[]` on a fresh server before any title is downloaded.
+
+### `GET /api/profiles`
+Curated first-run profiles and static names for all 50 CFR titles (available before any title is installed or eCFR is reached).
+
+```json
+{
+  "profiles": [
+    {
+      "id": "safety",
+      "name": "Safety / OSHA",
+      "description": "Workplace safety and health, mine safety, and hazardous materials transport.",
+      "downloads": [{"title": 29}, {"title": 30}, {"title": 49, "part": "171"}]
+    }
+  ],
+  "title_names": {"29": "Labor", "40": "Protection of Environment"}
+}
+```
 
 ### `GET /api/{title}/meta`
 Same fields for one title (without `partial`).

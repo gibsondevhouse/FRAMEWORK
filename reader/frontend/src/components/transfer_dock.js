@@ -1,10 +1,12 @@
 import { state } from '../state';
+import { refreshModelsConfig } from '../components/env_modal';
 import { plural, switchTitle } from '../components/sidebar';
-import { fillTitleSelect } from '../components/title_switcher';
+import { fillTitleSelect, setReaderEnabled } from '../components/title_switcher';
 import { escapeHtml, icon, lsGet, lsSet, showToast } from '../dom';
 import { updateRailHome } from '../nav';
+import { handleRoute } from '../router';
 import { dom } from '../state_init';
-import { fmt, renderOverview } from '../usage';
+import { fmt, renderOverview, titleHref } from '../usage';
 import { fmtBytes, fmtSections, getJSON, pollJobs } from '../views/library';
 
 // --- Transfer dock: downloads in progress, wherever the reader is ---
@@ -205,9 +207,23 @@ export async function onDockAction(btn) {
 export async function refreshTitles(changed = []) {
   let list;
   try { list = await getJSON('/api/titles'); } catch (e) { return; }
+  const hadNone = state.noTitles;
   state.installedTitles = list;
+  state.noTitles = list.length === 0;
   fillTitleSelect();
   updateRailHome();
+  if (hadNone && list.length) {
+    // First title just landed: wake up search/chat/tree and open that title's start page.
+    setReaderEnabled(true);
+    await switchTitle(list[0].title);
+    refreshModelsConfig();
+    if (dom.view.querySelector('.welcome')) {
+      const target = titleHref(list[0].title);
+      if (window.location.hash === target) handleRoute();
+      else window.location.hash = target;
+    }
+    return;
+  }
   if (!list.some(t => t.title === state.currentTitle) && list.length) {
     await switchTitle(list[0].title);
   } else if (changed.includes(state.currentTitle)) {

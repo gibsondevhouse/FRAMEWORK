@@ -93,7 +93,8 @@ export function renderOverview() {
 
   const u = loadUsage();
   const titles = state.installedTitles.length ? state.installedTitles
-    : [{ title: state.currentTitle, name: state.metaInfo.name || `Title ${state.currentTitle}`, section_count: state.metaInfo.section_count, edition: state.metaInfo.edition }];
+    : state.metaInfo.edition ? [{ title: state.currentTitle, name: state.metaInfo.name || `Title ${state.currentTitle}`, section_count: state.metaInfo.section_count, edition: state.metaInfo.edition }]
+    : [];
   const nameOf = (t) => (titles.find(x => x.title === t) || {}).name || `Title ${t}`;
   const installed = new Set(titles.map(t => t.title));
   const split = (key) => { const i = key.indexOf('|'); return [parseInt(key.slice(0, i), 10), key.slice(i + 1)]; };

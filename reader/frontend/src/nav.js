@@ -130,7 +130,7 @@ export function applyNav() {
 
 
 export function panelMeta(panel) {
-  if (panel === 'reader') return `Title ${state.currentTitle}`;
+  if (panel === 'reader') return state.noTitles ? 'No titles installed' : `Title ${state.currentTitle}`;
   if (panel === 'projects') { const n = loadProjects().length; return n ? plural(n, 'dossier') : ''; }
   if (panel === 'library') return state.installedTitles.length ? `${state.installedTitles.length} installed` : '';
   if (panel === 'history') return 'Reading history';
@@ -220,8 +220,9 @@ export function setNavMode(mode) {
 export function syncNavToRoute(path) {
   const t = routeTarget(path);
   document.body.classList.remove('nav-open');
-  // News and Help retract a pinned drawer for the page's width, like Overview and Home.
-  state.navRetracted = t === 'overview' || t === 'home' || t === 'news' || t === 'settings';
+  // News and Help retract a pinned drawer for the page's width, like Overview and Home
+  // (and the first-run picker while no titles are installed).
+  state.navRetracted = t === 'overview' || t === 'home' || t === 'news' || t === 'settings' || (state.noTitles && t === 'reader');
   if (t === 'library' && navState.panel !== 'library') navState.panel = 'library';
   else if (t === 'projects') navState.panel = 'projects';
   else if (t === 'reader' && (navState.panel === 'history' || navState.panel === 'library')) navState.panel = 'reader';
@@ -234,6 +235,12 @@ export function syncNavToRoute(path) {
 export function updateRailHome() {
   const home = document.getElementById('ar-home');
   if (!home) return;
+  if (state.noTitles) {
+    home.href = '#/';
+    home.dataset.tip = 'Pick a profile';
+    home.setAttribute('aria-label', 'Pick a profile');
+    return;
+  }
   home.href = `#/title/${state.currentTitle}/`;
   const t = state.installedTitles.find(x => x.title === state.currentTitle);
   home.dataset.tip = `Title ${state.currentTitle} home`;

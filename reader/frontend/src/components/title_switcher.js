@@ -9,16 +9,33 @@ import { dom } from '../state_init';
 // library), then the installed titles, number in a muted column, a check on the current one.
 // Keyboard: ↓/Enter/Space opens on the current title, ↑↓ Home End move, Enter picks,
 // Esc closes and returns focus to the button, Tab closes.
+// With nothing installed the search box, chat and contents list have nothing to work on;
+// they wake back up when the first title lands.
+export function setReaderEnabled(on) {
+  dom.search.disabled = !on;
+  dom.search.placeholder = on
+    ? `Search Title ${state.currentTitle} or jump to a section…`
+    : 'Download a title to search';
+  dom.chatToggle.disabled = !on;
+  if (!on) {
+    dom.edition.textContent = '';
+    dom.tree.innerHTML = '<div class="side-empty">No titles installed yet. <a href="#/">Pick a profile</a> or open the <a href="#/library">library</a>.</div>';
+  }
+}
+
+
 export function fillTitleSelect() {
   if (!dom.titleSelect) return;
   const cur = state.installedTitles.find(t => t.title === state.currentTitle);
-  const name = cur ? cur.name : (state.metaInfo.name || '');
-  document.getElementById('title-select-num').textContent = `Title ${state.currentTitle}`;
+  const name = state.noTitles ? '' : cur ? cur.name : (state.metaInfo.name || '');
+  document.getElementById('title-select-num').textContent = state.noTitles ? 'No titles' : `Title ${state.currentTitle}`;
   document.getElementById('title-select-name').textContent = name;
-  dom.titleSelect.title = `Title ${state.currentTitle}${name ? ': ' + name : ''}. Switch title`;
+  dom.titleSelect.title = state.noTitles
+    ? 'Nothing installed yet. Download titles'
+    : `Title ${state.currentTitle}${name ? ': ' + name : ''}. Switch title`;
   dom.titlePop.innerHTML = `
     <a class="tm-item tm-download" role="menuitem" href="#/library" tabindex="-1">${icon('download')}<span class="tm-name">Download titles…</span></a>
-    <div class="tm-sep" role="separator"></div>
+    ${state.installedTitles.length ? '<div class="tm-sep" role="separator"></div>' : ''}
     ${state.installedTitles.map(t => {
       const on = t.title === state.currentTitle;
       return `<button type="button" class="tm-item${on ? ' is-current' : ''}" role="menuitemradio" aria-checked="${on}" data-title="${t.title}" tabindex="-1">

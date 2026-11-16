@@ -3,6 +3,7 @@ import './dom';
 import './router';
 import './views/core';
 import './usage';
+import './views/welcome';
 import './views/library';
 import './components/transfer_dock';
 import './components/title_switcher';
@@ -32,7 +33,7 @@ import './components/selection_tool';
 import { state } from './state';
 import { refreshModelsConfig } from './components/env_modal';
 import { ensureTreeLoaded, switchTitle } from './components/sidebar';
-import { fillTitleSelect } from './components/title_switcher';
+import { fillTitleSelect, setReaderEnabled } from './components/title_switcher';
 import { isMac } from './dom';
 import { updateRailHome } from './nav';
 import { setTheme } from './panels/settings_panel';
@@ -58,6 +59,7 @@ export async function init() {
     const titlesRes = await fetch('/api/titles');
     if (titlesRes.ok) {
       state.installedTitles = await titlesRes.json();
+      state.noTitles = state.installedTitles.length === 0;
       // Title 29 is the default, but it may have been removed in the library.
       if (state.installedTitles.length && !state.installedTitles.some(t => t.title === state.currentTitle)) {
         await switchTitle(state.installedTitles[0].title);
@@ -66,15 +68,21 @@ export async function init() {
       updateRailHome();
     }
 
-    const [metaRes] = await Promise.all([
-      fetch('/api/' + state.currentTitle + '/meta'),
-      refreshModelsConfig(),
-      ensureTreeLoaded()
-    ]);
+    if (state.noTitles) {
+      // Fresh install: no contents, metadata or models to load. The router shows the
+      // profile picker on reader/overview routes; cross-title pages stay reachable.
+      setReaderEnabled(false);
+    } else {
+      const [metaRes] = await Promise.all([
+        fetch('/api/' + state.currentTitle + '/meta'),
+        refreshModelsConfig(),
+        ensureTreeLoaded()
+      ]);
 
-    if (metaRes.ok) {
-      state.metaInfo = await metaRes.json();
-      dom.edition.textContent = `eCFR ${state.metaInfo.edition || ''}`;
+      if (metaRes.ok) {
+        state.metaInfo = await metaRes.json();
+        dom.edition.textContent = `eCFR ${state.metaInfo.edition || ''}`;
+      }
     }
   } catch (e) {
     console.warn('Initialization warnings:', e);

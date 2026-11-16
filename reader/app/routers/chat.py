@@ -39,9 +39,9 @@ async def post_title_chat(req: deps.ChatRequest, title: int = Depends(deps.valid
 
 @legacy_router.get("/api/models")
 async def models() -> dict:
-    return await title_models(_=config.DEFAULT_TITLE)
+    return await title_models(_=deps.valid_installed_title(config.DEFAULT_TITLE))
 
 
 @legacy_router.post("/api/chat")
 async def post_chat(req: deps.ChatRequest) -> StreamingResponse:
-    return await post_title_chat(req, title=config.DEFAULT_TITLE)
+    return await post_title_chat(req, title=deps.valid_installed_title(config.DEFAULT_TITLE))

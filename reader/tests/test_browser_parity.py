@@ -332,6 +332,40 @@ class BehaviorTests(BrowserCase):
         self.assertIn("Enforcement", text)
         self.assert_no_external_requests()
 
+    def test_first_run_profile_picker_when_empty(self):
+        import json as _json
+        page = self.context.new_page()
+        page.clock.set_fixed_time(FROZEN)
+        page.route("**/api/titles", lambda route: route.fulfill(
+            status=200, content_type="application/json", body=_json.dumps([])))
+        page.goto(f"{ENV.base_url}/#/")
+        page.wait_for_selector(".welcome-card[data-profile='safety']", timeout=15000)
+        self.assertIn("What do you work in?", page.inner_text("#view"))
+        self.assertEqual(page.inner_text("#title-select-num"), "No titles")
+        self.assertTrue(page.locator("#search").is_disabled())
+        self.assertTrue(page.locator("#chat-toggle").is_disabled())
+        # Cross-title verticals like News remain reachable before any title is installed.
+        page.goto(f"{ENV.base_url}/#/news")
+        page.wait_for_selector("#news-q", timeout=15000)
+        # Returning to `/` shows the picker again, and picking a profile queues its download.
+        page.route("**/api/library/download", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=_json.dumps({"id": 1, "title": 21, "kind": "title", "target": None,
+                              "label": "Title 21", "state": "queued", "phase": "Waiting",
+                              "done": None, "total": None, "error": None})))
+        page.route("**/api/library/jobs", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=_json.dumps({"current": {"id": 1, "title": 21, "kind": "title",
+                                          "label": "Title 21", "state": "running",
+                                          "phase": "Downloading text", "done": 1000, "total": 2000},
+                              "queued": [], "recent": []})))
+        page.goto(f"{ENV.base_url}/#/")
+        page.wait_for_selector(".welcome-card[data-profile='food-drugs']", timeout=15000)
+        page.click(".welcome-card[data-profile='food-drugs']")
+        page.wait_for_selector("#welcome-job-slot .welcome-progress", timeout=15000)
+        self.assertIn("Title 21", page.inner_text("#welcome-job-slot"))
+        self.assert_no_external_requests()
+
 
 class ScreenshotCase(BrowserCase):
     def assert_baseline(self, page, name: str):

@@ -112,6 +112,7 @@ document.addEventListener('keydown', (e) => {
   const active = document.activeElement;
   const typing = active && (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
   if ((e.key === '/' && !typing) || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k')) {
+    if (state.noTitles) return;
     e.preventDefault();
     dom.search.focus();
     dom.search.select();

@@ -13,6 +13,7 @@ import { renderProjects } from './views/projects';
 import { loadSection } from './views/reader';
 import { loadPart, loadPartFull } from './views/reader_part';
 import { loadSearchPage } from './views/search';
+import { renderWelcome } from './views/welcome';
 
 // --- Router ---
 export function parseHash() {
@@ -30,6 +31,13 @@ export async function handleRoute() {
 
   // Light the rail, put the drawer away where the page wants the width, close a floating one.
   syncNavToRoute(path);
+
+  // Nothing installed: every reader/overview route gives way to the first-run profile picker,
+  // while cross-title verticals (/library, /news, /projects, /settings, /help) stay reachable.
+  if (state.noTitles && !/^\/(library|news|projects|settings|help)(\/|$)/.test(path)) {
+    await renderWelcome();
+    return;
+  }
 
   let checkPath = path;
   const titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);

@@ -117,7 +117,7 @@ cd reader
 ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Open **http://127.0.0.1:8000** in your browser. If no titles are installed yet, the server will automatically download and index **Title 29 (Labor)** on first startup (~28 MB of XML, usually under a minute).
+Open **http://127.0.0.1:8000** in your browser. On first start nothing is installed yet: the workstation asks what you work in and downloads that profile's titles and parts from eCFR, or you can choose your own in the **Library**. The reader opens as soon as the first title lands.
 
 - Interactive API docs: http://127.0.0.1:8000/docs
 - Full HTTP & streaming reference: [`API.md`](API.md)
@@ -160,8 +160,8 @@ FRAMEWORK/
 └── reader/
     ├── app/
     │   ├── config.py          # Paths, .env loading, installed-title discovery
+    │   ├── profiles.py        # First-run profiles + static names for all 50 CFR titles
     │   ├── build.py           # eCFR download, streaming XML ingest, SQLite FTS5 indexer
-    │   ├── library.py         # eCFR catalog, suites, wire feed, download queue, storage
     │   ├── store.py           # Per-title SQLite connections, caches, federated search
     │   ├── render/            # XML → HTML: text, hierarchy, linkifier, units, html
     │   ├── ingest/            # Structure-tree utilities + streaming XML parse (for build.py)

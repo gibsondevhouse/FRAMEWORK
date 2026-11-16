@@ -2,6 +2,8 @@
 var state = {
 	currentTitle: void 0,
 	installedTitles: void 0,
+	noTitles: false,
+	profilesData: void 0,
 	treeData: void 0,
 	currentSection: void 0,
 	currentPart: void 0,
@@ -47,6 +49,8 @@ var state = {
 // src/state_init.js
 state.currentTitle = 29;
 state.installedTitles = [];
+state.noTitles = false;
+state.profilesData = null;
 state.treeData = null;
 state.currentSection = null;
 state.currentPart = null;
@@ -4643,12 +4647,12 @@ function renderOverview() {
 	document.title = "FRAMEWORK";
 	setViewHead("");
 	const u = loadUsage();
-	const titles = state.installedTitles.length ? state.installedTitles : [{
+	const titles = state.installedTitles.length ? state.installedTitles : state.metaInfo.edition ? [{
 		title: state.currentTitle,
 		name: state.metaInfo.name || `Title ${state.currentTitle}`,
 		section_count: state.metaInfo.section_count,
 		edition: state.metaInfo.edition
-	}];
+	}] : [];
 	const nameOf = (t) => (titles.find((x) => x.title === t) || {}).name || `Title ${t}`;
 	const installed = new Set(titles.map((t) => t.title));
 	const split = (key) => {
@@ -4814,768 +4818,6 @@ function renderOverview() {
     </div>
   `;
 	enterView();
-}
-// src/components/transfer_dock.js
-var DOCK_STEPS = [
-	["Checking eCFR", "Connecting to eCFR"],
-	["Downloading contents", "Reading the table of contents"],
-	["Downloading text", "Streaming the regulation text"],
-	["Reading text", "Extracting sections and appendices"],
-	["Indexing", "Building the search index"],
-	["Installing", "Swapping in the new edition"]
-];
-var dock = {
-	el: document.getElementById("transfer-dock"),
-	min: lsGet("dockMinimized") === "1",
-	key: "",
-	hideT: null,
-	srText: ""
-};
-var rate = {
-	id: null,
-	t: 0,
-	done: 0,
-	bps: 0
-};
-function recordJobProgress(j) {
-	const streaming = j && j.phase === "Downloading text" && j.done > 0 && (j.total == null || j.total > 1e5);
-	if (!streaming || j.id !== rate.id) {
-		Object.assign(rate, {
-			id: streaming ? j.id : null,
-			t: streaming ? performance.now() : 0,
-			done: streaming ? j.done : 0,
-			bps: 0
-		});
-		return;
-	}
-	const now = performance.now();
-	const dt = (now - rate.t) / 1e3;
-	if (dt < .5) return;
-	const delta = j.done - rate.done;
-	if (delta > 0) rate.bps = rate.bps ? rate.bps * .7 + delta / dt * .3 : delta / dt;
-	rate.t = now;
-	rate.done = j.done;
-}
-function fmtEta(seconds) {
-	if (!isFinite(seconds) || seconds <= 0) return "";
-	if (seconds < 60) return `${Math.ceil(seconds)}s left`;
-	const m = Math.floor(seconds / 60);
-	return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m}m ${Math.round(seconds % 60)}s left`;
-}
-function dockModel(j) {
-	if (!j) return {
-		step: -1,
-		label: "Starting…",
-		pct: null,
-		left: "",
-		right: ""
-	};
-	const step = DOCK_STEPS.findIndex(([phase]) => phase === j.phase);
-	const label = step >= 0 ? DOCK_STEPS[step][1] : j.phase === "Waiting" ? "Starting…" : j.phase;
-	const has = j.total != null && j.total > 0 && j.done != null;
-	const pct = has ? Math.min(99, Math.floor(j.done / j.total * 100)) : null;
-	let left = "", right = "";
-	if (j.phase === "Downloading text" && (j.total == null || j.total > 1e5) && j.done) {
-		left = j.total ? `${fmtBytes(Math.min(j.done, j.total))} of ${fmtBytes(j.total)}` : fmtBytes(j.done);
-		const speed = rate.id === j.id && rate.bps > 51200 ? `${fmtBytes(rate.bps)}/s` : "";
-		right = [speed, speed && j.total ? fmtEta((j.total - j.done) / rate.bps) : ""].filter(Boolean).join(" · ");
-	} else if (j.phase === "Downloading text" && has) left = `${fmt(j.done)} of ${plural(j.total, "file")}`;
-	else if ((j.phase === "Reading text" || j.phase === "Indexing") && has) left = `${fmt(j.done)} of ${fmtSections(j.total)}`;
-	return {
-		step,
-		label,
-		pct,
-		left,
-		right
-	};
-}
-function dockHtml(j, m) {
-	const pctText = m.pct == null ? "" : `${m.pct}%`;
-	const title = j ? escapeHtml(j.label) : "Preparing download";
-	if (dock.min) return `<button type="button" class="dock-mini" data-dock="expand" aria-label="Show download progress: ${title}">
-      <span class="stat-dot is-busy" aria-hidden="true"></span><span class="dock-mini-text">${title}</span>
-      <span class="dock-mini-pct" data-f="pct">${pctText}</span>${icon("chevronUp")}</button>`;
-	const cancelling = j && j.cancelling;
-	const locked = j && j.phase === "Installing";
-	const steps = DOCK_STEPS.map((_, i) => `<span class="${i < m.step ? "is-done" : i === m.step ? "is-now" : ""}"></span>`).join("");
-	const queued = state.jobs.queued;
-	return `<section class="dock-card" aria-label="Downloads">
-    <div class="dock-head">
-      <span class="stat-dot is-busy" aria-hidden="true"></span>
-      <span class="dock-title">${title}</span>
-      <span class="dock-pct" data-f="pct">${pctText}</span>
-      <button type="button" class="dock-icon" data-dock="minimize" title="Minimize" aria-label="Minimize downloads">${icon("chevronDown")}</button>
-    </div>
-    <div class="dock-phase">
-      <span class="dock-phase-text">${escapeHtml(cancelling ? "Cancelling…" : m.label)}</span>
-      ${m.step >= 0 ? `<span class="dock-steps" role="img" aria-label="Step ${m.step + 1} of ${DOCK_STEPS.length}">${steps}</span>` : ""}
-    </div>
-    <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
-    <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
-    <div class="dock-foot">
-      <span class="dock-queue">${queued.length ? `<span class="dock-queue-count">+${queued.length} queued</span>${escapeHtml(queued.map((q) => q.label).join(", "))}` : "Nothing queued"}</span>
-      <span class="dock-acts">
-        ${queued.length ? "<button type=\"button\" class=\"lib-act\" data-dock=\"clear\">Clear queue</button>" : ""}
-        ${j ? `<button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${cancelling || locked ? " disabled" : ""}${locked ? " title=\"Installing: almost done\"" : ""}>${cancelling ? "Cancelling" : "Cancel"}</button>` : ""}
-      </span>
-    </div>
-  </section>`;
-}
-function updateDock() {
-	const el = dock.el;
-	if (!el) return;
-	const j = state.jobs.current;
-	if (!Boolean(j || state.jobs.queued.length)) {
-		if (!el.hidden && !dock.hideT) {
-			el.classList.remove("is-visible");
-			dock.hideT = setTimeout(() => {
-				dock.hideT = null;
-				if (!state.jobs.current && !state.jobs.queued.length) {
-					el.hidden = true;
-					el.innerHTML = "";
-					dock.key = "";
-				}
-			}, 260);
-		}
-		return;
-	}
-	clearTimeout(dock.hideT);
-	dock.hideT = null;
-	recordJobProgress(j);
-	const m = dockModel(j);
-	const key = [
-		dock.min,
-		j && j.id,
-		j && j.cancelling,
-		j && j.phase === "Installing",
-		m.step,
-		m.pct == null,
-		state.jobs.queued.map((q) => q.id).join(".")
-	].join("|");
-	if (key !== dock.key) {
-		const focused = el.contains(document.activeElement) ? document.activeElement.dataset.dock : null;
-		el.innerHTML = dockHtml(j, m);
-		dock.key = key;
-		if (focused) (el.querySelector(`[data-dock="${focused}"]`) || el.querySelector("[data-dock]"))?.focus();
-	} else {
-		const set = (f, v) => {
-			const n = el.querySelector(`[data-f="${f}"]`);
-			if (n && n.textContent !== v) n.textContent = v;
-		};
-		set("pct", m.pct == null ? "" : `${m.pct}%`);
-		set("left", m.left);
-		set("right", m.right);
-		const fill = el.querySelector("[data-f=\"fill\"]");
-		if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
-	}
-	const sr = `${j ? j.label : "Download"}: ${m.label}`;
-	if (sr !== dock.srText) {
-		dock.srText = sr;
-		const live = document.getElementById("transfer-dock-live");
-		if (live) live.textContent = sr;
-	}
-	if (el.hidden) {
-		el.hidden = false;
-		requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("is-visible")));
-	} else el.classList.add("is-visible");
-	el.classList.toggle("is-min", dock.min);
-}
-if (dock.el) dock.el.addEventListener("click", (e) => {
-	const btn = e.target.closest("[data-dock]");
-	if (btn) onDockAction(btn);
-});
-async function onDockAction(btn) {
-	{
-		const act = btn.dataset.dock;
-		if (act === "minimize" || act === "expand") {
-			dock.min = act === "minimize";
-			lsSet("dockMinimized", dock.min ? "1" : "0");
-			dock.key = "";
-			updateDock();
-			dock.el.querySelector("[data-dock]")?.focus();
-			return;
-		}
-		btn.disabled = true;
-		try {
-			if (act === "cancel") await getJSON(`/api/library/jobs/${btn.dataset.id}/cancel`, { method: "POST" });
-			else if (act === "clear") {
-				const res = await getJSON("/api/library/jobs/clear", { method: "POST" });
-				for (const j of res.cancelled || []) state.jobsSeenActive.delete(j.id);
-				if (res.count) showToast(`Cleared ${plural(res.count, "queued download")}`);
-			}
-			await pollJobs();
-		} catch (err) {
-			showToast(err.message, 5e3);
-			btn.disabled = false;
-		}
-	}
-}
-async function refreshTitles(changed = []) {
-	let list;
-	try {
-		list = await getJSON("/api/titles");
-	} catch (e) {
-		return;
-	}
-	state.installedTitles = list;
-	fillTitleSelect();
-	updateRailHome();
-	if (!list.some((t) => t.title === state.currentTitle) && list.length) await switchTitle(list[0].title);
-	else if (changed.includes(state.currentTitle)) {
-		state.treeData = null;
-		const meta = list.find((t) => t.title === state.currentTitle);
-		if (meta) state.metaInfo = meta;
-		await switchTitle(state.currentTitle);
-	}
-	if (dom.view.querySelector(".ov")) renderOverview();
-}
-// src/panels/library_panel.js
-var navLib = {
-	data: null,
-	at: 0,
-	loading: null
-};
-async function ensureNavLibrary(force = false) {
-	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
-	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
-		navLib.data = d;
-		navLib.at = Date.now();
-		return d;
-	}).finally(() => {
-		navLib.loading = null;
-	});
-	return navLib.loading;
-}
-function transferHtml() {
-	const j = state.jobs.current;
-	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
-	const m = dockModel(j);
-	return (!j ? "" : `<div class="dr-job">
-      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
-      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
-      <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
-      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
-      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
-    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
-}
-state.navTransferKey = "";
-function updateNavTransfers() {
-	updateRailBadge();
-	if (navState.panel !== "library" || !drawerShown()) return;
-	const box = document.getElementById("dr-transfers");
-	if (!box) return;
-	const j = state.jobs.current;
-	const m = dockModel(j);
-	const key = [
-		j && j.id,
-		j && j.cancelling,
-		j && j.phase === "Installing",
-		m.pct == null,
-		state.jobs.queued.map((q) => q.id).join(".")
-	].join("|");
-	if (key !== state.navTransferKey) {
-		state.navTransferKey = key;
-		box.innerHTML = transferHtml();
-		const count = document.getElementById("dr-transfers-count");
-		const n = (j ? 1 : 0) + state.jobs.queued.length;
-		if (count) count.textContent = n ? String(n) : "";
-		const sec = document.getElementById("dr-transfers-sec");
-		if (sec) sec.hidden = !n;
-		return;
-	}
-	const set = (f, v) => {
-		const n = box.querySelector(`[data-f="${f}"]`);
-		if (n && n.textContent !== v) n.textContent = v;
-	};
-	set("pct", m.pct == null ? "" : `${m.pct}%`);
-	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
-	set("left", m.left);
-	set("right", m.right);
-	const fill = box.querySelector("[data-f=\"fill\"]");
-	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
-}
-function renderLibraryPanel() {
-	const d = navLib.data;
-	state.navTransferKey = "";
-	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
-	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
-	if (!d) {
-		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
-		ensureNavLibrary().then(() => {
-			if (navState.panel === "library") renderLibraryPanel();
-			updateRailBadge();
-		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
-		return;
-	}
-	const live = d.titles.filter((t) => !t.reserved);
-	const installed = live.filter((t) => t.installed);
-	const stale = installed.filter(isStale);
-	const rows = installed.map((t) => {
-		const st = titleStatus(t);
-		return `<a class="dr-row" href="#/title/${t.title}/">
-      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
-      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
-	}).join("");
-	const suites = Object.values(d.suites || {}).map((s) => {
-		const st = suiteState(s, d);
-		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
-		return `<div class="dr-suite">
-      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
-        <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
-      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>"}
-    </div>`;
-	}).join("");
-	setPanel("library", `
-    <a class="dr-cta" href="#/library">
-      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
-    </a>
-    ${transfers}
-    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
-      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
-    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
-	updateRailBadge();
-}
-// src/views/help.js
-var HELP_LOGOS = {
-	dol: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <path d="M32 8 52 16v14c0 13.5-8.6 22.8-20 26-11.4-3.2-20-12.5-20-26V16L32 8Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M32 18v24M21 24h22" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
-    <path d="m21 24-4 9h8l-4-9Zm22 0-4 9h8l-4-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-    <path d="M25 44h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-  </svg>`,
-	anthropic: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <rect x="8" y="8" width="48" height="48" rx="14" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M25.5 44 33 20l7.5 24M28.2 36.5h9.6" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M18.5 44 26 20h3.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>
-  </svg>`,
-	fr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <rect x="10" y="10" width="44" height="44" rx="10" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <circle cx="22" cy="42" r="3.2" fill="var(--accent)"/>
-    <path d="M20 31.5a12.5 12.5 0 0 1 12.5 12.5M20 22a22 22 0 0 1 22 22" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round"/>
-    <path d="M36 18h10M36 24h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".7"/>
-  </svg>`,
-	ecfr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <path d="M12 18c0-2.2 1.8-4 4-4h13c2.2 0 3 1.2 3 3v31c0-1.5-1.3-2.5-3-2.5H16c-2.2 0-4 1.8-4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M52 18c0-2.2-1.8-4-4-4H35c-2.2 0-3 1.2-3 3v31c0-1.5 1.3-2.5 3-2.5h13c2.2 0 4 1.8 4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M18 23h8M18 29h8M38 23h8M38 29h8" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
-  </svg>`
-};
-var FR_RSS_FEEDS = [{
-	label: "OSHA Published Documents RSS",
-	desc: "Final Rules, Proposed Rules, and Notices from the Federal Register.",
-	url: "https://www.federalregister.gov/api/v1/documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
-}, {
-	label: "OSHA Public Inspection RSS",
-	desc: "Pre-publication filings scheduled to appear in tomorrow’s Federal Register.",
-	url: "https://www.federalregister.gov/api/v1/public-inspection-documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
-}];
-async function loadHelp() {
-	const seq = state.routeSeq;
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	document.title = "Connections & API Keys · FRAMEWORK";
-	if (!state.navEnvStatus) {
-		dom.view.innerHTML = "<div class=\"loading\">Loading setup guide…</div>";
-		enterView();
-	}
-	try {
-		const [env, newsSt] = await Promise.all([getJSON("/api/settings/env"), getJSON("/api/news/status").catch(() => null)]);
-		if (seq !== state.routeSeq) return;
-		state.navEnvStatus = env;
-		if (newsSt) state.navNewsStatus = newsSt;
-		renderHelp(env, { enter: true });
-	} catch (e) {
-		if (seq !== state.routeSeq) return;
-		renderHelp(state.navEnvStatus || {
-			env_exists: false,
-			env_file: "reader/.env",
-			keys: {}
-		}, { enter: true });
-	}
-}
-function renderHelp(env, opts = {}) {
-	const keys = env && env.keys || {};
-	const dol = keys.DOL_API_KEY || {};
-	const ant = keys.ANTHROPIC_API_KEY || {};
-	const syncOn = keys.NEWS_SYNC ? keys.NEWS_SYNC.value : true;
-	const retDays = keys.NEWS_RETENTION_DAYS ? keys.NEWS_RETENTION_DAYS.value : 365;
-	const titleCount = state.installedTitles.length;
-	const titlesWord = `${titleCount} ${titleCount === 1 ? "title" : "titles"}`;
-	const chip = (target, state, label) => `
-    <button type="button" class="help-status-chip" data-help-jump="${target}">
-      <span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(label)}</button>`;
-	const statusStrip = `
-    <nav class="help-status" aria-label="Connection status">
-      ${chip("federal-register", syncOn ? "synced" : "stale", syncOn ? "Federal Register · On" : "Federal Register · Sync off")}
-      ${chip("ecfr", "synced", `CFR Library · ${titlesWord}`)}
-      ${chip("dol", dol.configured ? "synced" : "uninstalled", `DOL enforcement · ${dol.configured ? "On" : "Off"}`)}
-      ${chip("anthropic", ant.configured ? "synced" : "uninstalled", `Claude assistant · ${ant.configured ? "On" : "Off"}`)}
-    </nav>`;
-	const optionalCards = [{
-		id: "dol",
-		logo: HELP_LOGOS.dol,
-		provider: "U.S. Department of Labor · Free key",
-		title: "OSHA Enforcement Data",
-		pill: dol.configured ? statPill("synced", `On (${dol.masked || "key saved"})`) : statPill("uninstalled", "Off"),
-		body: `
-        <p><strong>What this key allows:</strong> Unlocks the <em>Enforcement &amp; Penalties</em> tab in <a href="#/news?cat=enforcement">News</a> and adds workplace inspection citations to the regulation timeline inside Title 29 sections.</p>
-        <p>You’ll see cited companies, city/state locations, violation severity (Willful, Repeat, Serious), cited 29 CFR standards, and current penalty totals directly from <code>apiprod.dol.gov/v4</code>.</p>`,
-		actions: `
-        <button type="button" class="btn btn-accent" data-open-env="dol_api_key">${icon("key")} ${dol.configured ? "Update DOL key" : "Add DOL key"}</button>
-        <a class="btn" href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">${icon("external")} Get a free DOL key</a>`
-	}, {
-		id: "anthropic",
-		logo: HELP_LOGOS.anthropic,
-		provider: "Anthropic · Paid key",
-		title: "Claude Regulatory Assistant",
-		pill: ant.configured ? statPill("synced", `On (${ant.masked || "key saved"})`) : statPill("uninstalled", "Off"),
-		body: `
-        <p><strong>What this key allows:</strong> Turns on the <em>Ask Claude</em> side panel so you can ask plain-English compliance questions, summarize long sections, and trace requirements across your installed CFR titles.</p>
-        <p>Reading regulations, full-text search, projects, and Federal Register news all work without it—this key is only for the AI assistant.</p>`,
-		actions: `
-        <button type="button" class="btn btn-accent" data-open-env="anthropic_api_key">${icon("key")} ${ant.configured ? "Update Anthropic key" : "Add Anthropic key"}</button>
-        <a class="btn" href="https://console.anthropic.com" target="_blank" rel="noopener">${icon("external")} Get an Anthropic key</a>`
-	}];
-	const includedCards = [{
-		id: "federal-register",
-		logo: HELP_LOGOS.fr,
-		provider: "Federal Register · No key needed",
-		title: "OSHA Rulemaking & Official RSS Feeds",
-		pill: syncOn ? statPill("synced", `On · ${retDays}d history`) : statPill("stale", "Sync off"),
-		body: `
-        <p><strong>What this source allows:</strong> Keeps the <a href="#/news">Newsroom</a> updated on business days with OSHA Final Rules, Proposed Rules, Notices, and Public Inspection filings—automatically, with no key or setup.</p>
-        <div class="help-rss-list">${FR_RSS_FEEDS.map((f) => `
-          <div class="help-rss-row">
-            <div class="help-rss-text"><strong>${escapeHtml(f.label)}</strong><span>${escapeHtml(f.desc)}</span></div>
-            <div class="help-rss-btns">
-              <button type="button" class="btn btn-sm" data-copy-url="${escapeHtml(f.url)}">${icon("copy")} Copy RSS URL</button>
-              <a class="btn btn-sm" href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${icon("rss")} Open</a>
-            </div>
-          </div>`).join("")}
-        </div>
-        <p class="help-fineprint">The same updates, as official Federal Register feeds for any external RSS reader. FRAMEWORK itself reads the richer JSON API and skips <code>osha.gov/rss</code>, which rejects automated readers.</p>`,
-		actions: `
-        <button type="button" class="btn" data-open-env="news_sync">${icon("key")} Sync settings</button>
-        <a class="btn" href="#/news">${icon("news")} Open Newsroom</a>`
-	}, {
-		id: "ecfr",
-		logo: HELP_LOGOS.ecfr,
-		provider: "eCFR · No key needed",
-		title: "Federal Regulations Library (Titles 1–50)",
-		pill: statPill("synced", `On · ${titlesWord} installed`),
-		body: `
-        <p><strong>What this source allows:</strong> Downloads full Code of Federal Regulations titles, parts, or individual sections directly from <code>ecfr.gov</code> into your local SQLite library for fast offline reading and search.</p>`,
-		actions: `
-        <a class="btn" href="#/library">${icon("book")} Browse CFR Library</a>`
-	}];
-	const cardHtml = (c) => `
-    <article class="help-card" id="help-${c.id}">
-      <div class="help-logo" aria-hidden="true">${c.logo}</div>
-      <div class="help-body">
-        <div class="help-card-top">
-          <span class="help-provider">${escapeHtml(c.provider)}</span>
-          ${c.pill}
-        </div>
-        <h3 class="help-card-title">${escapeHtml(c.title)}</h3>
-        <div class="help-card-copy">${c.body}</div>
-        <div class="help-actions">${c.actions}</div>
-      </div>
-    </article>`;
-	dom.view.innerHTML = `
-    <div class="help-front">
-      <header class="help-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK Settings · Help</div>
-          <h1 class="doc-title">Connections &amp; API Keys</h1>
-          <p class="help-lead">Reading and search work offline out of the box. The optional keys below unlock more—each is saved locally and applies instantly, with no restart.</p>
-        </div>
-        <div class="help-head-actions">
-          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
-        </div>
-      </header>
-      ${statusStrip}
-      <section class="help-group" aria-labelledby="help-group-optional">
-        <h2 class="help-group-label" id="help-group-optional">Optional keys</h2>
-        ${optionalCards.map(cardHtml).join("")}
-      </section>
-      <section class="help-group" aria-labelledby="help-group-included">
-        <h2 class="help-group-label" id="help-group-included">Included · already running</h2>
-        ${includedCards.map(cardHtml).join("")}
-      </section>
-      <footer class="help-footnote">
-        <p>Keys are stored in <code>reader/.env</code>, a private plain-text file on your computer—never shared or uploaded. ${env && env.env_exists ? "Yours exists and is active." : "It’s created the first time you save a key here."}</p>
-        <details class="help-env-details">
-          <summary>What is a .env file?</summary>
-          <p>A <strong>.env</strong> file holds environment settings—API keys and preferences—as plain <code>KEY=value</code> lines. Normally, setting one up means copying example files in a terminal; here, <em>Edit API keys</em> creates and updates <code>reader/.env</code> for you, and changes take effect right away with no restart.</p>
-          <button type="button" class="btn btn-sm" data-open-env="">${icon("key")} Open the editor</button>
-        </details>
-      </footer>
-    </div>`;
-	if (opts.enter) enterView();
-}
-// src/components/env_modal.js
-var envModalEl = document.getElementById("env-modal");
-var envModalDialog = envModalEl ? envModalEl.querySelector(".modal-dialog") : null;
-state.envModalReturnFocus = null;
-state.envModalSnapshot = null;
-function envPreviewText(form, snapshot) {
-	const keys = snapshot && snapshot.keys || {};
-	const dolInput = form.querySelector("#env-dol-key");
-	const dolClear = form.querySelector("#env-dol-clear");
-	const antInput = form.querySelector("#env-ant-key");
-	const antClear = form.querySelector("#env-ant-clear");
-	const modelInput = form.querySelector("#env-ant-model");
-	const syncInput = form.querySelector("#env-news-sync");
-	const retInput = form.querySelector("#env-news-retention");
-	const dolVal = dolClear && dolClear.checked ? "" : dolInput && dolInput.value.trim() ? "••••(new key)" : keys.DOL_API_KEY && keys.DOL_API_KEY.masked || "";
-	const antVal = antClear && antClear.checked ? "" : antInput && antInput.value.trim() ? "••••(new key)" : keys.ANTHROPIC_API_KEY && keys.ANTHROPIC_API_KEY.masked || "";
-	const modelVal = modelInput && modelInput.value.trim() || "";
-	const syncVal = syncInput && syncInput.checked ? "1" : "0";
-	const retVal = retInput && retInput.value.trim() || "365";
-	return [
-		`ANTHROPIC_API_KEY=${antVal}`,
-		`ANTHROPIC_MODEL=${modelVal}`,
-		`DOL_API_KEY=${dolVal}`,
-		`NEWS_SYNC=${syncVal}`,
-		`NEWS_RETENTION_DAYS=${retVal}`
-	].join("\n");
-}
-function renderEnvModal(env, focusKey = "") {
-	if (!envModalDialog) return;
-	const keys = env && env.keys || {};
-	const dol = keys.DOL_API_KEY || {};
-	const ant = keys.ANTHROPIC_API_KEY || {};
-	const model = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.value || "";
-	const modelDefault = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.default || "claude-sonnet-5-5";
-	const newsSync = keys.NEWS_SYNC ? Boolean(keys.NEWS_SYNC.value) : true;
-	const retDays = keys.NEWS_RETENTION_DAYS && keys.NEWS_RETENTION_DAYS.value || 365;
-	envModalDialog.innerHTML = `
-    <div class="modal-head">
-      <div>
-        <div class="doc-kicker">${env && env.env_exists ? "Update local settings" : "Create reader/.env"}</div>
-        <h2 id="env-modal-title" class="modal-title">Configure API Keys &amp; Sync Settings</h2>
-      </div>
-      <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button>
-    </div>
-    <form id="env-modal-form" class="modal-body" autocomplete="off">
-      <p class="modal-intro">Keys are saved privately to <code>reader/.env</code> on your computer and take effect immediately—no restart needed. Leave an existing key blank to keep it unchanged.</p>
-
-      <div class="env-field">
-        <div class="env-field-head">
-          <label for="env-dol-key">DOL API Key <code>DOL_API_KEY</code></label>
-          ${dol.configured ? statPill("synced", `Saved (${dol.masked || "set"})`) : statPill("uninstalled", "Not set")}
-        </div>
-        <p class="env-field-help">Free key from <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a> for OSHA inspections and penalties.</p>
-        <div class="env-secret-row">
-          <input id="env-dol-key" name="dol_api_key" type="password" placeholder="${dol.configured ? "Leave blank to keep existing key, or paste new key" : "Paste your DOL X-API-KEY"}" spellcheck="false" autocomplete="off">
-          <button type="button" class="btn btn-sm" data-env-reveal="env-dol-key" aria-label="Show or hide DOL key">${icon("eye")}</button>
-        </div>
-        ${dol.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-dol-clear" name="clear_dol_api_key"> Remove saved DOL key</label>` : ""}
-      </div>
-
-      <div class="env-field">
-        <div class="env-field-head">
-          <label for="env-ant-key">Anthropic API Key <code>ANTHROPIC_API_KEY</code></label>
-          ${ant.configured ? statPill("synced", `Saved (${ant.masked || "set"})`) : statPill("uninstalled", "Not set")}
-        </div>
-        <p class="env-field-help">From <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> to enable the Ask Claude side panel.</p>
-        <div class="env-secret-row">
-          <input id="env-ant-key" name="anthropic_api_key" type="password" placeholder="${ant.configured ? "Leave blank to keep existing key, or paste new key" : "sk-ant-…"}" spellcheck="false" autocomplete="off">
-          <button type="button" class="btn btn-sm" data-env-reveal="env-ant-key" aria-label="Show or hide Anthropic key">${icon("eye")}</button>
-        </div>
-        ${ant.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-ant-clear" name="clear_anthropic_api_key"> Remove saved Anthropic key</label>` : ""}
-      </div>
-
-      <details class="env-advanced"${focusKey === "news_sync" ? " open" : ""}>
-        <summary>Advanced options (Claude model &amp; News sync)</summary>
-        <div class="env-advanced-body">
-          <div class="env-field">
-            <label for="env-ant-model">Preferred Claude Model <code>ANTHROPIC_MODEL</code></label>
-            <input id="env-ant-model" name="anthropic_model" type="text" value="${escapeHtml(model)}" placeholder="${escapeHtml(modelDefault)}" spellcheck="false">
-          </div>
-          <div class="env-field-row">
-            <label class="env-toggle-row"><input type="checkbox" id="env-news-sync" name="news_sync"${newsSync ? " checked" : ""}> <span>Enable background news sync (<code>NEWS_SYNC</code>)</span></label>
-            <div class="env-days-field">
-              <label for="env-news-retention">Retention (days)</label>
-              <input id="env-news-retention" name="news_retention_days" type="number" min="1" max="3650" value="${Number(retDays)}">
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <div class="env-preview-wrap">
-        <span class="env-preview-label">Preview of <code>reader/.env</code></span>
-        <pre class="env-preview" id="env-preview"></pre>
-      </div>
-
-      <p class="modal-error" id="env-modal-error" hidden></p>
-
-      <div class="modal-foot">
-        <button type="button" class="btn" data-env-close>Cancel</button>
-        <button type="submit" class="btn btn-accent" id="env-modal-save">${icon("check")} Save to reader/.env</button>
-      </div>
-    </form>`;
-	const form = document.getElementById("env-modal-form");
-	const preview = document.getElementById("env-preview");
-	const syncPreview = () => {
-		if (preview) preview.textContent = envPreviewText(form, state.envModalSnapshot);
-	};
-	syncPreview();
-	form.addEventListener("input", syncPreview);
-	form.addEventListener("change", syncPreview);
-	form.addEventListener("submit", submitEnvModal);
-	requestAnimationFrame(() => {
-		const targetId = focusKey === "dol_api_key" ? "env-dol-key" : focusKey === "anthropic_api_key" ? "env-ant-key" : focusKey === "news_sync" ? "env-news-sync" : "env-dol-key";
-		(document.getElementById(targetId) || envModalDialog.querySelector("input, button"))?.focus();
-	});
-}
-async function openEnvModal(focusKey = "") {
-	if (!envModalEl || !envModalDialog) return;
-	state.envModalReturnFocus = document.activeElement;
-	envModalDialog.innerHTML = `<div class="modal-head"><h2 id="env-modal-title" class="modal-title">Configure reader/.env</h2>
-    <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button></div>
-    <div class="modal-body"><div class="loading">Loading current configuration…</div></div>`;
-	envModalEl.hidden = false;
-	try {
-		state.envModalSnapshot = await getJSON("/api/settings/env");
-		state.navEnvStatus = state.envModalSnapshot;
-		renderEnvModal(state.envModalSnapshot, focusKey);
-	} catch (err) {
-		state.envModalSnapshot = {
-			env_exists: false,
-			env_file: "reader/.env",
-			keys: {}
-		};
-		renderEnvModal(state.envModalSnapshot, focusKey);
-	}
-}
-function closeEnvModal(restoreFocus = true) {
-	if (!envModalEl || envModalEl.hidden) return;
-	envModalEl.hidden = true;
-	if (restoreFocus && state.envModalReturnFocus && document.contains(state.envModalReturnFocus)) state.envModalReturnFocus.focus();
-	state.envModalReturnFocus = null;
-}
-async function refreshModelsConfig() {
-	try {
-		const modelsRes = await fetch("/api/" + state.currentTitle + "/models");
-		if (!modelsRes.ok) return;
-		state.chatConfig = await modelsRes.json();
-		if (state.chatConfig.configured && state.chatConfig.models.length > 0) {
-			dom.modelSelect.innerHTML = state.chatConfig.models.map((m) => `
-        <option value="${escapeHtml(m.id)}" ${m.id === state.chatConfig.default ? "selected" : ""}>
-          ${escapeHtml(m.name)}
-        </option>
-      `).join("");
-			dom.modelSelect.hidden = false;
-		} else {
-			dom.modelSelect.innerHTML = "";
-			dom.modelSelect.hidden = true;
-		}
-		if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
-	} catch (e) {}
-}
-async function submitEnvModal(e) {
-	e.preventDefault();
-	const form = e.currentTarget;
-	const saveBtn = document.getElementById("env-modal-save");
-	const errEl = document.getElementById("env-modal-error");
-	if (errEl) {
-		errEl.hidden = true;
-		errEl.textContent = "";
-	}
-	if (saveBtn) saveBtn.disabled = true;
-	const payload = {
-		dol_api_key: form.dol_api_key ? form.dol_api_key.value : null,
-		clear_dol_api_key: Boolean(form.clear_dol_api_key && form.clear_dol_api_key.checked),
-		anthropic_api_key: form.anthropic_api_key ? form.anthropic_api_key.value : null,
-		clear_anthropic_api_key: Boolean(form.clear_anthropic_api_key && form.clear_anthropic_api_key.checked),
-		anthropic_model: form.anthropic_model ? form.anthropic_model.value : null,
-		news_sync: Boolean(form.news_sync && form.news_sync.checked),
-		news_retention_days: form.news_retention_days ? Number(form.news_retention_days.value) || 365 : 365
-	};
-	try {
-		const res = await getJSON("/api/settings/env", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(payload)
-		});
-		state.navEnvStatus = res.status;
-		state.envModalSnapshot = res.status;
-		const [newsSt] = await Promise.all([getJSON("/api/news/status").catch(() => null), refreshModelsConfig()]);
-		if (newsSt) state.navNewsStatus = newsSt;
-		closeEnvModal(true);
-		showToast((res.news_sync_queued || []).length > 0 ? "Saved to reader/.env · Syncing DOL enforcement data…" : "Saved to reader/.env — active immediately");
-		refreshSettingsViews();
-		if (state.activeRoute === "/help" || state.activeRoute === "/help/") renderHelp(state.navEnvStatus);
-		else if (routeTarget() === "news") handleRoute();
-	} catch (err) {
-		if (errEl) {
-			errEl.textContent = err.message || "Could not save reader/.env";
-			errEl.hidden = false;
-		}
-		if (saveBtn) saveBtn.disabled = false;
-	}
-}
-if (envModalEl) envModalEl.addEventListener("click", (e) => {
-	if (e.target === envModalEl || e.target.closest("[data-env-close]")) {
-		closeEnvModal(true);
-		return;
-	}
-	const rev = e.target.closest("[data-env-reveal]");
-	if (rev) {
-		const inp = document.getElementById(rev.dataset.envReveal);
-		if (inp) {
-			const show = inp.type === "password";
-			inp.type = show ? "text" : "password";
-			rev.innerHTML = icon(show ? "eyeOff" : "eye");
-		}
-	}
-});
-document.addEventListener("keydown", (e) => {
-	if (e.key === "Escape" && envModalEl && !envModalEl.hidden) {
-		e.preventDefault();
-		closeEnvModal(true);
-	}
-});
-document.addEventListener("click", (e) => {
-	const trigger = e.target.closest("[data-open-env]");
-	if (trigger) {
-		e.preventDefault();
-		openEnvModal(trigger.dataset.openEnv || "");
-		return;
-	}
-	const copyBtn = e.target.closest("[data-copy-url]");
-	if (copyBtn) {
-		const url = copyBtn.dataset.copyUrl;
-		if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(() => showToast("RSS feed URL copied")).catch(() => showToast(url, 5e3));
-		else showToast(url, 5e3);
-		return;
-	}
-	const jump = e.target.closest("[data-help-jump]");
-	if (jump) {
-		const el = document.getElementById("help-" + jump.dataset.helpJump);
-		if (el) el.scrollIntoView({
-			behavior: reduceMotion.matches ? "auto" : "smooth",
-			block: "start"
-		});
-	}
-});
-async function loadStorage() {
-	try {
-		state.navStorage = await getJSON("/api/library/storage");
-	} catch (e) {
-		state.navStorage = {
-			titles: [],
-			legacy_bytes: 0,
-			temp_files: 0,
-			temp_bytes: 0,
-			total_bytes: 0
-		};
-	}
-	refreshSettingsViews();
 }
 // src/components/rail.js
 function sectionHref(id, view) {
@@ -6658,6 +5900,782 @@ dom.view.addEventListener("change", (e) => {
 		dom.modelSelect.dispatchEvent(new Event("change"));
 	}
 });
+// src/views/help.js
+var HELP_LOGOS = {
+	dol: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <path d="M32 8 52 16v14c0 13.5-8.6 22.8-20 26-11.4-3.2-20-12.5-20-26V16L32 8Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M32 18v24M21 24h22" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="m21 24-4 9h8l-4-9Zm22 0-4 9h8l-4-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M25 44h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  </svg>`,
+	anthropic: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <rect x="8" y="8" width="48" height="48" rx="14" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M25.5 44 33 20l7.5 24M28.2 36.5h9.6" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M18.5 44 26 20h3.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>
+  </svg>`,
+	fr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <rect x="10" y="10" width="44" height="44" rx="10" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <circle cx="22" cy="42" r="3.2" fill="var(--accent)"/>
+    <path d="M20 31.5a12.5 12.5 0 0 1 12.5 12.5M20 22a22 22 0 0 1 22 22" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M36 18h10M36 24h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".7"/>
+  </svg>`,
+	ecfr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <path d="M12 18c0-2.2 1.8-4 4-4h13c2.2 0 3 1.2 3 3v31c0-1.5-1.3-2.5-3-2.5H16c-2.2 0-4 1.8-4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M52 18c0-2.2-1.8-4-4-4H35c-2.2 0-3 1.2-3 3v31c0-1.5 1.3-2.5 3-2.5h13c2.2 0 4 1.8 4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M18 23h8M18 29h8M38 23h8M38 29h8" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+  </svg>`
+};
+var FR_RSS_FEEDS = [{
+	label: "OSHA Published Documents RSS",
+	desc: "Final Rules, Proposed Rules, and Notices from the Federal Register.",
+	url: "https://www.federalregister.gov/api/v1/documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
+}, {
+	label: "OSHA Public Inspection RSS",
+	desc: "Pre-publication filings scheduled to appear in tomorrow’s Federal Register.",
+	url: "https://www.federalregister.gov/api/v1/public-inspection-documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
+}];
+async function loadHelp() {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = "Connections & API Keys · FRAMEWORK";
+	if (!state.navEnvStatus) {
+		dom.view.innerHTML = "<div class=\"loading\">Loading setup guide…</div>";
+		enterView();
+	}
+	try {
+		const [env, newsSt] = await Promise.all([getJSON("/api/settings/env"), getJSON("/api/news/status").catch(() => null)]);
+		if (seq !== state.routeSeq) return;
+		state.navEnvStatus = env;
+		if (newsSt) state.navNewsStatus = newsSt;
+		renderHelp(env, { enter: true });
+	} catch (e) {
+		if (seq !== state.routeSeq) return;
+		renderHelp(state.navEnvStatus || {
+			env_exists: false,
+			env_file: "reader/.env",
+			keys: {}
+		}, { enter: true });
+	}
+}
+function renderHelp(env, opts = {}) {
+	const keys = env && env.keys || {};
+	const dol = keys.DOL_API_KEY || {};
+	const ant = keys.ANTHROPIC_API_KEY || {};
+	const syncOn = keys.NEWS_SYNC ? keys.NEWS_SYNC.value : true;
+	const retDays = keys.NEWS_RETENTION_DAYS ? keys.NEWS_RETENTION_DAYS.value : 365;
+	const titleCount = state.installedTitles.length;
+	const titlesWord = `${titleCount} ${titleCount === 1 ? "title" : "titles"}`;
+	const chip = (target, state, label) => `
+    <button type="button" class="help-status-chip" data-help-jump="${target}">
+      <span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(label)}</button>`;
+	const statusStrip = `
+    <nav class="help-status" aria-label="Connection status">
+      ${chip("federal-register", syncOn ? "synced" : "stale", syncOn ? "Federal Register · On" : "Federal Register · Sync off")}
+      ${chip("ecfr", "synced", `CFR Library · ${titlesWord}`)}
+      ${chip("dol", dol.configured ? "synced" : "uninstalled", `DOL enforcement · ${dol.configured ? "On" : "Off"}`)}
+      ${chip("anthropic", ant.configured ? "synced" : "uninstalled", `Claude assistant · ${ant.configured ? "On" : "Off"}`)}
+    </nav>`;
+	const optionalCards = [{
+		id: "dol",
+		logo: HELP_LOGOS.dol,
+		provider: "U.S. Department of Labor · Free key",
+		title: "OSHA Enforcement Data",
+		pill: dol.configured ? statPill("synced", `On (${dol.masked || "key saved"})`) : statPill("uninstalled", "Off"),
+		body: `
+        <p><strong>What this key allows:</strong> Unlocks the <em>Enforcement &amp; Penalties</em> tab in <a href="#/news?cat=enforcement">News</a> and adds workplace inspection citations to the regulation timeline inside Title 29 sections.</p>
+        <p>You’ll see cited companies, city/state locations, violation severity (Willful, Repeat, Serious), cited 29 CFR standards, and current penalty totals directly from <code>apiprod.dol.gov/v4</code>.</p>`,
+		actions: `
+        <button type="button" class="btn btn-accent" data-open-env="dol_api_key">${icon("key")} ${dol.configured ? "Update DOL key" : "Add DOL key"}</button>
+        <a class="btn" href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">${icon("external")} Get a free DOL key</a>`
+	}, {
+		id: "anthropic",
+		logo: HELP_LOGOS.anthropic,
+		provider: "Anthropic · Paid key",
+		title: "Claude Regulatory Assistant",
+		pill: ant.configured ? statPill("synced", `On (${ant.masked || "key saved"})`) : statPill("uninstalled", "Off"),
+		body: `
+        <p><strong>What this key allows:</strong> Turns on the <em>Ask Claude</em> side panel so you can ask plain-English compliance questions, summarize long sections, and trace requirements across your installed CFR titles.</p>
+        <p>Reading regulations, full-text search, projects, and Federal Register news all work without it—this key is only for the AI assistant.</p>`,
+		actions: `
+        <button type="button" class="btn btn-accent" data-open-env="anthropic_api_key">${icon("key")} ${ant.configured ? "Update Anthropic key" : "Add Anthropic key"}</button>
+        <a class="btn" href="https://console.anthropic.com" target="_blank" rel="noopener">${icon("external")} Get an Anthropic key</a>`
+	}];
+	const includedCards = [{
+		id: "federal-register",
+		logo: HELP_LOGOS.fr,
+		provider: "Federal Register · No key needed",
+		title: "OSHA Rulemaking & Official RSS Feeds",
+		pill: syncOn ? statPill("synced", `On · ${retDays}d history`) : statPill("stale", "Sync off"),
+		body: `
+        <p><strong>What this source allows:</strong> Keeps the <a href="#/news">Newsroom</a> updated on business days with OSHA Final Rules, Proposed Rules, Notices, and Public Inspection filings—automatically, with no key or setup.</p>
+        <div class="help-rss-list">${FR_RSS_FEEDS.map((f) => `
+          <div class="help-rss-row">
+            <div class="help-rss-text"><strong>${escapeHtml(f.label)}</strong><span>${escapeHtml(f.desc)}</span></div>
+            <div class="help-rss-btns">
+              <button type="button" class="btn btn-sm" data-copy-url="${escapeHtml(f.url)}">${icon("copy")} Copy RSS URL</button>
+              <a class="btn btn-sm" href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${icon("rss")} Open</a>
+            </div>
+          </div>`).join("")}
+        </div>
+        <p class="help-fineprint">The same updates, as official Federal Register feeds for any external RSS reader. FRAMEWORK itself reads the richer JSON API and skips <code>osha.gov/rss</code>, which rejects automated readers.</p>`,
+		actions: `
+        <button type="button" class="btn" data-open-env="news_sync">${icon("key")} Sync settings</button>
+        <a class="btn" href="#/news">${icon("news")} Open Newsroom</a>`
+	}, {
+		id: "ecfr",
+		logo: HELP_LOGOS.ecfr,
+		provider: "eCFR · No key needed",
+		title: "Federal Regulations Library (Titles 1–50)",
+		pill: statPill("synced", `On · ${titlesWord} installed`),
+		body: `
+        <p><strong>What this source allows:</strong> Downloads full Code of Federal Regulations titles, parts, or individual sections directly from <code>ecfr.gov</code> into your local SQLite library for fast offline reading and search.</p>`,
+		actions: `
+        <a class="btn" href="#/library">${icon("book")} Browse CFR Library</a>`
+	}];
+	const cardHtml = (c) => `
+    <article class="help-card" id="help-${c.id}">
+      <div class="help-logo" aria-hidden="true">${c.logo}</div>
+      <div class="help-body">
+        <div class="help-card-top">
+          <span class="help-provider">${escapeHtml(c.provider)}</span>
+          ${c.pill}
+        </div>
+        <h3 class="help-card-title">${escapeHtml(c.title)}</h3>
+        <div class="help-card-copy">${c.body}</div>
+        <div class="help-actions">${c.actions}</div>
+      </div>
+    </article>`;
+	dom.view.innerHTML = `
+    <div class="help-front">
+      <header class="help-head">
+        <div>
+          <div class="doc-kicker">FRAMEWORK Settings · Help</div>
+          <h1 class="doc-title">Connections &amp; API Keys</h1>
+          <p class="help-lead">Reading and search work offline out of the box. The optional keys below unlock more—each is saved locally and applies instantly, with no restart.</p>
+        </div>
+        <div class="help-head-actions">
+          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
+        </div>
+      </header>
+      ${statusStrip}
+      <section class="help-group" aria-labelledby="help-group-optional">
+        <h2 class="help-group-label" id="help-group-optional">Optional keys</h2>
+        ${optionalCards.map(cardHtml).join("")}
+      </section>
+      <section class="help-group" aria-labelledby="help-group-included">
+        <h2 class="help-group-label" id="help-group-included">Included · already running</h2>
+        ${includedCards.map(cardHtml).join("")}
+      </section>
+      <footer class="help-footnote">
+        <p>Keys are stored in <code>reader/.env</code>, a private plain-text file on your computer—never shared or uploaded. ${env && env.env_exists ? "Yours exists and is active." : "It’s created the first time you save a key here."}</p>
+        <details class="help-env-details">
+          <summary>What is a .env file?</summary>
+          <p>A <strong>.env</strong> file holds environment settings—API keys and preferences—as plain <code>KEY=value</code> lines. Normally, setting one up means copying example files in a terminal; here, <em>Edit API keys</em> creates and updates <code>reader/.env</code> for you, and changes take effect right away with no restart.</p>
+          <button type="button" class="btn btn-sm" data-open-env="">${icon("key")} Open the editor</button>
+        </details>
+      </footer>
+    </div>`;
+	if (opts.enter) enterView();
+}
+// src/components/env_modal.js
+var envModalEl = document.getElementById("env-modal");
+var envModalDialog = envModalEl ? envModalEl.querySelector(".modal-dialog") : null;
+state.envModalReturnFocus = null;
+state.envModalSnapshot = null;
+function envPreviewText(form, snapshot) {
+	const keys = snapshot && snapshot.keys || {};
+	const dolInput = form.querySelector("#env-dol-key");
+	const dolClear = form.querySelector("#env-dol-clear");
+	const antInput = form.querySelector("#env-ant-key");
+	const antClear = form.querySelector("#env-ant-clear");
+	const modelInput = form.querySelector("#env-ant-model");
+	const syncInput = form.querySelector("#env-news-sync");
+	const retInput = form.querySelector("#env-news-retention");
+	const dolVal = dolClear && dolClear.checked ? "" : dolInput && dolInput.value.trim() ? "••••(new key)" : keys.DOL_API_KEY && keys.DOL_API_KEY.masked || "";
+	const antVal = antClear && antClear.checked ? "" : antInput && antInput.value.trim() ? "••••(new key)" : keys.ANTHROPIC_API_KEY && keys.ANTHROPIC_API_KEY.masked || "";
+	const modelVal = modelInput && modelInput.value.trim() || "";
+	const syncVal = syncInput && syncInput.checked ? "1" : "0";
+	const retVal = retInput && retInput.value.trim() || "365";
+	return [
+		`ANTHROPIC_API_KEY=${antVal}`,
+		`ANTHROPIC_MODEL=${modelVal}`,
+		`DOL_API_KEY=${dolVal}`,
+		`NEWS_SYNC=${syncVal}`,
+		`NEWS_RETENTION_DAYS=${retVal}`
+	].join("\n");
+}
+function renderEnvModal(env, focusKey = "") {
+	if (!envModalDialog) return;
+	const keys = env && env.keys || {};
+	const dol = keys.DOL_API_KEY || {};
+	const ant = keys.ANTHROPIC_API_KEY || {};
+	const model = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.value || "";
+	const modelDefault = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.default || "claude-sonnet-5-5";
+	const newsSync = keys.NEWS_SYNC ? Boolean(keys.NEWS_SYNC.value) : true;
+	const retDays = keys.NEWS_RETENTION_DAYS && keys.NEWS_RETENTION_DAYS.value || 365;
+	envModalDialog.innerHTML = `
+    <div class="modal-head">
+      <div>
+        <div class="doc-kicker">${env && env.env_exists ? "Update local settings" : "Create reader/.env"}</div>
+        <h2 id="env-modal-title" class="modal-title">Configure API Keys &amp; Sync Settings</h2>
+      </div>
+      <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button>
+    </div>
+    <form id="env-modal-form" class="modal-body" autocomplete="off">
+      <p class="modal-intro">Keys are saved privately to <code>reader/.env</code> on your computer and take effect immediately—no restart needed. Leave an existing key blank to keep it unchanged.</p>
+
+      <div class="env-field">
+        <div class="env-field-head">
+          <label for="env-dol-key">DOL API Key <code>DOL_API_KEY</code></label>
+          ${dol.configured ? statPill("synced", `Saved (${dol.masked || "set"})`) : statPill("uninstalled", "Not set")}
+        </div>
+        <p class="env-field-help">Free key from <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a> for OSHA inspections and penalties.</p>
+        <div class="env-secret-row">
+          <input id="env-dol-key" name="dol_api_key" type="password" placeholder="${dol.configured ? "Leave blank to keep existing key, or paste new key" : "Paste your DOL X-API-KEY"}" spellcheck="false" autocomplete="off">
+          <button type="button" class="btn btn-sm" data-env-reveal="env-dol-key" aria-label="Show or hide DOL key">${icon("eye")}</button>
+        </div>
+        ${dol.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-dol-clear" name="clear_dol_api_key"> Remove saved DOL key</label>` : ""}
+      </div>
+
+      <div class="env-field">
+        <div class="env-field-head">
+          <label for="env-ant-key">Anthropic API Key <code>ANTHROPIC_API_KEY</code></label>
+          ${ant.configured ? statPill("synced", `Saved (${ant.masked || "set"})`) : statPill("uninstalled", "Not set")}
+        </div>
+        <p class="env-field-help">From <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> to enable the Ask Claude side panel.</p>
+        <div class="env-secret-row">
+          <input id="env-ant-key" name="anthropic_api_key" type="password" placeholder="${ant.configured ? "Leave blank to keep existing key, or paste new key" : "sk-ant-…"}" spellcheck="false" autocomplete="off">
+          <button type="button" class="btn btn-sm" data-env-reveal="env-ant-key" aria-label="Show or hide Anthropic key">${icon("eye")}</button>
+        </div>
+        ${ant.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-ant-clear" name="clear_anthropic_api_key"> Remove saved Anthropic key</label>` : ""}
+      </div>
+
+      <details class="env-advanced"${focusKey === "news_sync" ? " open" : ""}>
+        <summary>Advanced options (Claude model &amp; News sync)</summary>
+        <div class="env-advanced-body">
+          <div class="env-field">
+            <label for="env-ant-model">Preferred Claude Model <code>ANTHROPIC_MODEL</code></label>
+            <input id="env-ant-model" name="anthropic_model" type="text" value="${escapeHtml(model)}" placeholder="${escapeHtml(modelDefault)}" spellcheck="false">
+          </div>
+          <div class="env-field-row">
+            <label class="env-toggle-row"><input type="checkbox" id="env-news-sync" name="news_sync"${newsSync ? " checked" : ""}> <span>Enable background news sync (<code>NEWS_SYNC</code>)</span></label>
+            <div class="env-days-field">
+              <label for="env-news-retention">Retention (days)</label>
+              <input id="env-news-retention" name="news_retention_days" type="number" min="1" max="3650" value="${Number(retDays)}">
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <div class="env-preview-wrap">
+        <span class="env-preview-label">Preview of <code>reader/.env</code></span>
+        <pre class="env-preview" id="env-preview"></pre>
+      </div>
+
+      <p class="modal-error" id="env-modal-error" hidden></p>
+
+      <div class="modal-foot">
+        <button type="button" class="btn" data-env-close>Cancel</button>
+        <button type="submit" class="btn btn-accent" id="env-modal-save">${icon("check")} Save to reader/.env</button>
+      </div>
+    </form>`;
+	const form = document.getElementById("env-modal-form");
+	const preview = document.getElementById("env-preview");
+	const syncPreview = () => {
+		if (preview) preview.textContent = envPreviewText(form, state.envModalSnapshot);
+	};
+	syncPreview();
+	form.addEventListener("input", syncPreview);
+	form.addEventListener("change", syncPreview);
+	form.addEventListener("submit", submitEnvModal);
+	requestAnimationFrame(() => {
+		const targetId = focusKey === "dol_api_key" ? "env-dol-key" : focusKey === "anthropic_api_key" ? "env-ant-key" : focusKey === "news_sync" ? "env-news-sync" : "env-dol-key";
+		(document.getElementById(targetId) || envModalDialog.querySelector("input, button"))?.focus();
+	});
+}
+async function openEnvModal(focusKey = "") {
+	if (!envModalEl || !envModalDialog) return;
+	state.envModalReturnFocus = document.activeElement;
+	envModalDialog.innerHTML = `<div class="modal-head"><h2 id="env-modal-title" class="modal-title">Configure reader/.env</h2>
+    <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button></div>
+    <div class="modal-body"><div class="loading">Loading current configuration…</div></div>`;
+	envModalEl.hidden = false;
+	try {
+		state.envModalSnapshot = await getJSON("/api/settings/env");
+		state.navEnvStatus = state.envModalSnapshot;
+		renderEnvModal(state.envModalSnapshot, focusKey);
+	} catch (err) {
+		state.envModalSnapshot = {
+			env_exists: false,
+			env_file: "reader/.env",
+			keys: {}
+		};
+		renderEnvModal(state.envModalSnapshot, focusKey);
+	}
+}
+function closeEnvModal(restoreFocus = true) {
+	if (!envModalEl || envModalEl.hidden) return;
+	envModalEl.hidden = true;
+	if (restoreFocus && state.envModalReturnFocus && document.contains(state.envModalReturnFocus)) state.envModalReturnFocus.focus();
+	state.envModalReturnFocus = null;
+}
+async function refreshModelsConfig() {
+	if (state.noTitles) return;
+	try {
+		const modelsRes = await fetch("/api/" + state.currentTitle + "/models");
+		if (!modelsRes.ok) return;
+		state.chatConfig = await modelsRes.json();
+		if (state.chatConfig.configured && state.chatConfig.models.length > 0) {
+			dom.modelSelect.innerHTML = state.chatConfig.models.map((m) => `
+        <option value="${escapeHtml(m.id)}" ${m.id === state.chatConfig.default ? "selected" : ""}>
+          ${escapeHtml(m.name)}
+        </option>
+      `).join("");
+			dom.modelSelect.hidden = false;
+		} else {
+			dom.modelSelect.innerHTML = "";
+			dom.modelSelect.hidden = true;
+		}
+		if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
+	} catch (e) {}
+}
+async function submitEnvModal(e) {
+	e.preventDefault();
+	const form = e.currentTarget;
+	const saveBtn = document.getElementById("env-modal-save");
+	const errEl = document.getElementById("env-modal-error");
+	if (errEl) {
+		errEl.hidden = true;
+		errEl.textContent = "";
+	}
+	if (saveBtn) saveBtn.disabled = true;
+	const payload = {
+		dol_api_key: form.dol_api_key ? form.dol_api_key.value : null,
+		clear_dol_api_key: Boolean(form.clear_dol_api_key && form.clear_dol_api_key.checked),
+		anthropic_api_key: form.anthropic_api_key ? form.anthropic_api_key.value : null,
+		clear_anthropic_api_key: Boolean(form.clear_anthropic_api_key && form.clear_anthropic_api_key.checked),
+		anthropic_model: form.anthropic_model ? form.anthropic_model.value : null,
+		news_sync: Boolean(form.news_sync && form.news_sync.checked),
+		news_retention_days: form.news_retention_days ? Number(form.news_retention_days.value) || 365 : 365
+	};
+	try {
+		const res = await getJSON("/api/settings/env", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload)
+		});
+		state.navEnvStatus = res.status;
+		state.envModalSnapshot = res.status;
+		const [newsSt] = await Promise.all([getJSON("/api/news/status").catch(() => null), refreshModelsConfig()]);
+		if (newsSt) state.navNewsStatus = newsSt;
+		closeEnvModal(true);
+		showToast((res.news_sync_queued || []).length > 0 ? "Saved to reader/.env · Syncing DOL enforcement data…" : "Saved to reader/.env — active immediately");
+		refreshSettingsViews();
+		if (state.activeRoute === "/help" || state.activeRoute === "/help/") renderHelp(state.navEnvStatus);
+		else if (routeTarget() === "news") handleRoute();
+	} catch (err) {
+		if (errEl) {
+			errEl.textContent = err.message || "Could not save reader/.env";
+			errEl.hidden = false;
+		}
+		if (saveBtn) saveBtn.disabled = false;
+	}
+}
+if (envModalEl) envModalEl.addEventListener("click", (e) => {
+	if (e.target === envModalEl || e.target.closest("[data-env-close]")) {
+		closeEnvModal(true);
+		return;
+	}
+	const rev = e.target.closest("[data-env-reveal]");
+	if (rev) {
+		const inp = document.getElementById(rev.dataset.envReveal);
+		if (inp) {
+			const show = inp.type === "password";
+			inp.type = show ? "text" : "password";
+			rev.innerHTML = icon(show ? "eyeOff" : "eye");
+		}
+	}
+});
+document.addEventListener("keydown", (e) => {
+	if (e.key === "Escape" && envModalEl && !envModalEl.hidden) {
+		e.preventDefault();
+		closeEnvModal(true);
+	}
+});
+document.addEventListener("click", (e) => {
+	const trigger = e.target.closest("[data-open-env]");
+	if (trigger) {
+		e.preventDefault();
+		openEnvModal(trigger.dataset.openEnv || "");
+		return;
+	}
+	const copyBtn = e.target.closest("[data-copy-url]");
+	if (copyBtn) {
+		const url = copyBtn.dataset.copyUrl;
+		if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(() => showToast("RSS feed URL copied")).catch(() => showToast(url, 5e3));
+		else showToast(url, 5e3);
+		return;
+	}
+	const jump = e.target.closest("[data-help-jump]");
+	if (jump) {
+		const el = document.getElementById("help-" + jump.dataset.helpJump);
+		if (el) el.scrollIntoView({
+			behavior: reduceMotion.matches ? "auto" : "smooth",
+			block: "start"
+		});
+	}
+});
+async function loadStorage() {
+	try {
+		state.navStorage = await getJSON("/api/library/storage");
+	} catch (e) {
+		state.navStorage = {
+			titles: [],
+			legacy_bytes: 0,
+			temp_files: 0,
+			temp_bytes: 0,
+			total_bytes: 0
+		};
+	}
+	refreshSettingsViews();
+}
+// src/components/transfer_dock.js
+var DOCK_STEPS = [
+	["Checking eCFR", "Connecting to eCFR"],
+	["Downloading contents", "Reading the table of contents"],
+	["Downloading text", "Streaming the regulation text"],
+	["Reading text", "Extracting sections and appendices"],
+	["Indexing", "Building the search index"],
+	["Installing", "Swapping in the new edition"]
+];
+var dock = {
+	el: document.getElementById("transfer-dock"),
+	min: lsGet("dockMinimized") === "1",
+	key: "",
+	hideT: null,
+	srText: ""
+};
+var rate = {
+	id: null,
+	t: 0,
+	done: 0,
+	bps: 0
+};
+function recordJobProgress(j) {
+	const streaming = j && j.phase === "Downloading text" && j.done > 0 && (j.total == null || j.total > 1e5);
+	if (!streaming || j.id !== rate.id) {
+		Object.assign(rate, {
+			id: streaming ? j.id : null,
+			t: streaming ? performance.now() : 0,
+			done: streaming ? j.done : 0,
+			bps: 0
+		});
+		return;
+	}
+	const now = performance.now();
+	const dt = (now - rate.t) / 1e3;
+	if (dt < .5) return;
+	const delta = j.done - rate.done;
+	if (delta > 0) rate.bps = rate.bps ? rate.bps * .7 + delta / dt * .3 : delta / dt;
+	rate.t = now;
+	rate.done = j.done;
+}
+function fmtEta(seconds) {
+	if (!isFinite(seconds) || seconds <= 0) return "";
+	if (seconds < 60) return `${Math.ceil(seconds)}s left`;
+	const m = Math.floor(seconds / 60);
+	return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m}m ${Math.round(seconds % 60)}s left`;
+}
+function dockModel(j) {
+	if (!j) return {
+		step: -1,
+		label: "Starting…",
+		pct: null,
+		left: "",
+		right: ""
+	};
+	const step = DOCK_STEPS.findIndex(([phase]) => phase === j.phase);
+	const label = step >= 0 ? DOCK_STEPS[step][1] : j.phase === "Waiting" ? "Starting…" : j.phase;
+	const has = j.total != null && j.total > 0 && j.done != null;
+	const pct = has ? Math.min(99, Math.floor(j.done / j.total * 100)) : null;
+	let left = "", right = "";
+	if (j.phase === "Downloading text" && (j.total == null || j.total > 1e5) && j.done) {
+		left = j.total ? `${fmtBytes(Math.min(j.done, j.total))} of ${fmtBytes(j.total)}` : fmtBytes(j.done);
+		const speed = rate.id === j.id && rate.bps > 51200 ? `${fmtBytes(rate.bps)}/s` : "";
+		right = [speed, speed && j.total ? fmtEta((j.total - j.done) / rate.bps) : ""].filter(Boolean).join(" · ");
+	} else if (j.phase === "Downloading text" && has) left = `${fmt(j.done)} of ${plural(j.total, "file")}`;
+	else if ((j.phase === "Reading text" || j.phase === "Indexing") && has) left = `${fmt(j.done)} of ${fmtSections(j.total)}`;
+	return {
+		step,
+		label,
+		pct,
+		left,
+		right
+	};
+}
+function dockHtml(j, m) {
+	const pctText = m.pct == null ? "" : `${m.pct}%`;
+	const title = j ? escapeHtml(j.label) : "Preparing download";
+	if (dock.min) return `<button type="button" class="dock-mini" data-dock="expand" aria-label="Show download progress: ${title}">
+      <span class="stat-dot is-busy" aria-hidden="true"></span><span class="dock-mini-text">${title}</span>
+      <span class="dock-mini-pct" data-f="pct">${pctText}</span>${icon("chevronUp")}</button>`;
+	const cancelling = j && j.cancelling;
+	const locked = j && j.phase === "Installing";
+	const steps = DOCK_STEPS.map((_, i) => `<span class="${i < m.step ? "is-done" : i === m.step ? "is-now" : ""}"></span>`).join("");
+	const queued = state.jobs.queued;
+	return `<section class="dock-card" aria-label="Downloads">
+    <div class="dock-head">
+      <span class="stat-dot is-busy" aria-hidden="true"></span>
+      <span class="dock-title">${title}</span>
+      <span class="dock-pct" data-f="pct">${pctText}</span>
+      <button type="button" class="dock-icon" data-dock="minimize" title="Minimize" aria-label="Minimize downloads">${icon("chevronDown")}</button>
+    </div>
+    <div class="dock-phase">
+      <span class="dock-phase-text">${escapeHtml(cancelling ? "Cancelling…" : m.label)}</span>
+      ${m.step >= 0 ? `<span class="dock-steps" role="img" aria-label="Step ${m.step + 1} of ${DOCK_STEPS.length}">${steps}</span>` : ""}
+    </div>
+    <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+    <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+    <div class="dock-foot">
+      <span class="dock-queue">${queued.length ? `<span class="dock-queue-count">+${queued.length} queued</span>${escapeHtml(queued.map((q) => q.label).join(", "))}` : "Nothing queued"}</span>
+      <span class="dock-acts">
+        ${queued.length ? "<button type=\"button\" class=\"lib-act\" data-dock=\"clear\">Clear queue</button>" : ""}
+        ${j ? `<button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${cancelling || locked ? " disabled" : ""}${locked ? " title=\"Installing: almost done\"" : ""}>${cancelling ? "Cancelling" : "Cancel"}</button>` : ""}
+      </span>
+    </div>
+  </section>`;
+}
+function updateDock() {
+	const el = dock.el;
+	if (!el) return;
+	const j = state.jobs.current;
+	if (!Boolean(j || state.jobs.queued.length)) {
+		if (!el.hidden && !dock.hideT) {
+			el.classList.remove("is-visible");
+			dock.hideT = setTimeout(() => {
+				dock.hideT = null;
+				if (!state.jobs.current && !state.jobs.queued.length) {
+					el.hidden = true;
+					el.innerHTML = "";
+					dock.key = "";
+				}
+			}, 260);
+		}
+		return;
+	}
+	clearTimeout(dock.hideT);
+	dock.hideT = null;
+	recordJobProgress(j);
+	const m = dockModel(j);
+	const key = [
+		dock.min,
+		j && j.id,
+		j && j.cancelling,
+		j && j.phase === "Installing",
+		m.step,
+		m.pct == null,
+		state.jobs.queued.map((q) => q.id).join(".")
+	].join("|");
+	if (key !== dock.key) {
+		const focused = el.contains(document.activeElement) ? document.activeElement.dataset.dock : null;
+		el.innerHTML = dockHtml(j, m);
+		dock.key = key;
+		if (focused) (el.querySelector(`[data-dock="${focused}"]`) || el.querySelector("[data-dock]"))?.focus();
+	} else {
+		const set = (f, v) => {
+			const n = el.querySelector(`[data-f="${f}"]`);
+			if (n && n.textContent !== v) n.textContent = v;
+		};
+		set("pct", m.pct == null ? "" : `${m.pct}%`);
+		set("left", m.left);
+		set("right", m.right);
+		const fill = el.querySelector("[data-f=\"fill\"]");
+		if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+	}
+	const sr = `${j ? j.label : "Download"}: ${m.label}`;
+	if (sr !== dock.srText) {
+		dock.srText = sr;
+		const live = document.getElementById("transfer-dock-live");
+		if (live) live.textContent = sr;
+	}
+	if (el.hidden) {
+		el.hidden = false;
+		requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("is-visible")));
+	} else el.classList.add("is-visible");
+	el.classList.toggle("is-min", dock.min);
+}
+if (dock.el) dock.el.addEventListener("click", (e) => {
+	const btn = e.target.closest("[data-dock]");
+	if (btn) onDockAction(btn);
+});
+async function onDockAction(btn) {
+	{
+		const act = btn.dataset.dock;
+		if (act === "minimize" || act === "expand") {
+			dock.min = act === "minimize";
+			lsSet("dockMinimized", dock.min ? "1" : "0");
+			dock.key = "";
+			updateDock();
+			dock.el.querySelector("[data-dock]")?.focus();
+			return;
+		}
+		btn.disabled = true;
+		try {
+			if (act === "cancel") await getJSON(`/api/library/jobs/${btn.dataset.id}/cancel`, { method: "POST" });
+			else if (act === "clear") {
+				const res = await getJSON("/api/library/jobs/clear", { method: "POST" });
+				for (const j of res.cancelled || []) state.jobsSeenActive.delete(j.id);
+				if (res.count) showToast(`Cleared ${plural(res.count, "queued download")}`);
+			}
+			await pollJobs();
+		} catch (err) {
+			showToast(err.message, 5e3);
+			btn.disabled = false;
+		}
+	}
+}
+async function refreshTitles(changed = []) {
+	let list;
+	try {
+		list = await getJSON("/api/titles");
+	} catch (e) {
+		return;
+	}
+	const hadNone = state.noTitles;
+	state.installedTitles = list;
+	state.noTitles = list.length === 0;
+	fillTitleSelect();
+	updateRailHome();
+	if (hadNone && list.length) {
+		setReaderEnabled(true);
+		await switchTitle(list[0].title);
+		refreshModelsConfig();
+		if (dom.view.querySelector(".welcome")) {
+			const target = titleHref(list[0].title);
+			if (window.location.hash === target) handleRoute();
+			else window.location.hash = target;
+		}
+		return;
+	}
+	if (!list.some((t) => t.title === state.currentTitle) && list.length) await switchTitle(list[0].title);
+	else if (changed.includes(state.currentTitle)) {
+		state.treeData = null;
+		const meta = list.find((t) => t.title === state.currentTitle);
+		if (meta) state.metaInfo = meta;
+		await switchTitle(state.currentTitle);
+	}
+	if (dom.view.querySelector(".ov")) renderOverview();
+}
+// src/panels/library_panel.js
+var navLib = {
+	data: null,
+	at: 0,
+	loading: null
+};
+async function ensureNavLibrary(force = false) {
+	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
+	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
+		navLib.data = d;
+		navLib.at = Date.now();
+		return d;
+	}).finally(() => {
+		navLib.loading = null;
+	});
+	return navLib.loading;
+}
+function transferHtml() {
+	const j = state.jobs.current;
+	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
+	const m = dockModel(j);
+	return (!j ? "" : `<div class="dr-job">
+      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
+      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
+      <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
+    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
+}
+state.navTransferKey = "";
+function updateNavTransfers() {
+	updateRailBadge();
+	if (navState.panel !== "library" || !drawerShown()) return;
+	const box = document.getElementById("dr-transfers");
+	if (!box) return;
+	const j = state.jobs.current;
+	const m = dockModel(j);
+	const key = [
+		j && j.id,
+		j && j.cancelling,
+		j && j.phase === "Installing",
+		m.pct == null,
+		state.jobs.queued.map((q) => q.id).join(".")
+	].join("|");
+	if (key !== state.navTransferKey) {
+		state.navTransferKey = key;
+		box.innerHTML = transferHtml();
+		const count = document.getElementById("dr-transfers-count");
+		const n = (j ? 1 : 0) + state.jobs.queued.length;
+		if (count) count.textContent = n ? String(n) : "";
+		const sec = document.getElementById("dr-transfers-sec");
+		if (sec) sec.hidden = !n;
+		return;
+	}
+	const set = (f, v) => {
+		const n = box.querySelector(`[data-f="${f}"]`);
+		if (n && n.textContent !== v) n.textContent = v;
+	};
+	set("pct", m.pct == null ? "" : `${m.pct}%`);
+	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
+	set("left", m.left);
+	set("right", m.right);
+	const fill = box.querySelector("[data-f=\"fill\"]");
+	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+}
+function renderLibraryPanel() {
+	const d = navLib.data;
+	state.navTransferKey = "";
+	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
+	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
+	if (!d) {
+		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
+		ensureNavLibrary().then(() => {
+			if (navState.panel === "library") renderLibraryPanel();
+			updateRailBadge();
+		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
+		return;
+	}
+	const live = d.titles.filter((t) => !t.reserved);
+	const installed = live.filter((t) => t.installed);
+	const stale = installed.filter(isStale);
+	const rows = installed.map((t) => {
+		const st = titleStatus(t);
+		return `<a class="dr-row" href="#/title/${t.title}/">
+      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
+      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
+	}).join("");
+	const suites = Object.values(d.suites || {}).map((s) => {
+		const st = suiteState(s, d);
+		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
+		return `<div class="dr-suite">
+      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
+        <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
+      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>"}
+    </div>`;
+	}).join("");
+	setPanel("library", `
+    <a class="dr-cta" href="#/library">
+      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
+    </a>
+    ${transfers}
+    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
+      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
+    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
+	updateRailBadge();
+}
 // src/views/core.js
 var HOME_CONTENT = {
 	29: {
@@ -6828,6 +6846,150 @@ function renderHome() {
   `;
 	enterView();
 }
+// src/views/welcome.js
+state.profilesData = null;
+function profileSummary(p, names) {
+	const groups = [];
+	for (const d of p.downloads) {
+		let g = groups.find((x) => x.title === d.title);
+		if (!g) {
+			g = {
+				title: d.title,
+				parts: []
+			};
+			groups.push(g);
+		}
+		if (d.part) g.parts.push(String(d.part));
+	}
+	const partsText = (parts) => {
+		if (!parts.length) return "";
+		if (parts.length === 1) return `Part ${parts[0]}`;
+		const nums = parts.map(Number);
+		return nums.every((n) => !isNaN(n)) && nums.every((n, i) => i === 0 || n === nums[i - 1] + 1) ? `Parts ${parts[0]}–${parts[parts.length - 1]}` : `Parts ${parts.join(", ")}`;
+	};
+	return groups.map((g) => {
+		const name = names[g.title] ? ` ${escapeHtml(names[g.title])}` : "";
+		const parts = partsText(g.parts);
+		return `<span class="welcome-item"><span class="welcome-item-num">${g.title}</span>${name}${parts ? `, ${parts}` : ""}</span>`;
+	}).join("<span class=\"sep\" aria-hidden=\"true\">·</span>");
+}
+function welcomeProgressHtml() {
+	const j = state.jobs.current;
+	const queued = state.jobs.queued || [];
+	if (!j && !queued.length) return "";
+	const m = dockModel(j);
+	const pctText = m.pct == null ? "" : `${m.pct}%`;
+	const title = j ? escapeHtml(j.label) : "Preparing download";
+	const steps = DOCK_STEPS.map((_, i) => `<span class="${i < m.step ? "is-done" : i === m.step ? "is-now" : ""}"></span>`).join("");
+	const queueText = queued.length ? `+${queued.length} queued (${queued.map((q) => q.label).join(", ")})` : "Nothing else queued";
+	return `
+    <div class="welcome-progress">
+      <section class="dock-card welcome-job" aria-label="Profile download progress">
+        <div class="dock-head">
+          <span class="stat-dot is-busy" aria-hidden="true"></span>
+          <span class="dock-title">${title}</span>
+          <span class="dock-pct">${pctText}</span>
+        </div>
+        <div class="dock-phase">
+          <span class="dock-phase-text">${escapeHtml(j && j.cancelling ? "Cancelling…" : m.label)}</span>
+          ${m.step >= 0 ? `<span class="dock-steps" aria-hidden="true">${steps}</span>` : ""}
+        </div>
+        <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+        <div class="dock-tele"><span>${escapeHtml(m.left)}</span><span>${escapeHtml(m.right)}</span></div>
+        <div class="dock-foot"><span class="dock-queue">${escapeHtml(queueText)}</span></div>
+      </section>
+      <p class="welcome-note">The reader opens as soon as the first title is ready; the rest keep downloading in the background. <a href="#/library">Open the library</a> to watch or add more.</p>
+    </div>`;
+}
+async function renderWelcome() {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	document.title = "Welcome · FRAMEWORK";
+	setViewHead("");
+	if (!state.profilesData) {
+		dom.view.innerHTML = "<div class=\"loading\">Loading…</div>";
+		try {
+			state.profilesData = await getJSON("/api/profiles");
+		} catch (err) {
+			if (seq !== state.routeSeq) return;
+			dom.view.innerHTML = `
+        <div class="empty-state">
+          <h2>Couldn’t load the profiles</h2>
+          <p>${escapeHtml(err.message)}</p>
+          <button type="button" class="btn" id="welcome-retry">Try again</button>
+        </div>`;
+			document.getElementById("welcome-retry").addEventListener("click", () => renderWelcome());
+			return;
+		}
+		if (seq !== state.routeSeq) return;
+	}
+	const names = state.profilesData.title_names || {};
+	const busy = Boolean(state.jobs.current || state.jobs.queued && state.jobs.queued.length);
+	dom.view.innerHTML = `
+    <div class="welcome">
+      <div class="doc-kicker">Welcome</div>
+      <div class="welcome-head">
+        <h1 class="doc-title">What do you work in?</h1>
+        <p>Nothing is installed yet. Pick a profile and FRAMEWORK downloads those regulations from eCFR, one title at a time. You can add or remove titles later from the library.</p>
+      </div>
+      <div id="welcome-job-slot">${welcomeProgressHtml()}</div>
+      <div class="welcome-list" id="welcome-list"${busy ? " hidden" : ""}>
+        ${state.profilesData.profiles.map((p) => `
+          <button type="button" class="welcome-card" data-profile="${escapeHtml(p.id)}">
+            <span class="welcome-card-name">${escapeHtml(p.name)}</span>
+            <span class="welcome-card-desc">${escapeHtml(p.description)}</span>
+            <span class="welcome-card-meta">${profileSummary(p, names)}</span>
+          </button>`).join("")}
+        <a class="welcome-card welcome-own" href="#/library">
+          <span class="welcome-card-name">Choose my own</span>
+          <span class="welcome-card-desc">Browse all 50 titles and download whole titles, parts or single sections.</span>
+        </a>
+      </div>
+    </div>`;
+	enterView();
+}
+function refreshWelcome() {
+	const slot = document.getElementById("welcome-job-slot");
+	const list = document.getElementById("welcome-list");
+	if (!slot || !list) return;
+	slot.innerHTML = welcomeProgressHtml();
+	const busy = Boolean(state.jobs.current || state.jobs.queued && state.jobs.queued.length);
+	list.hidden = busy;
+	if (!busy) for (const b of list.querySelectorAll("button")) b.disabled = false;
+}
+async function installProfile(p) {
+	for (const d of p.downloads) {
+		const job = await getJSON("/api/library/download", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: d.title,
+				part: d.part ? String(d.part) : null,
+				section: null,
+				kind: "section"
+			})
+		});
+		state.jobsSeenActive.add(job.id);
+	}
+}
+dom.view.addEventListener("click", async (e) => {
+	const btn = e.target.closest("button[data-profile]");
+	if (!btn || !dom.view.querySelector(".welcome")?.contains(btn)) return;
+	const profile = (state.profilesData?.profiles || []).find((x) => x.id === btn.dataset.profile);
+	if (!profile) return;
+	const list = document.getElementById("welcome-list");
+	for (const b of list.querySelectorAll("button")) b.disabled = true;
+	try {
+		await installProfile(profile);
+	} catch (err) {
+		showToast(err.message, 6e3);
+	}
+	await pollJobs();
+	refreshWelcome();
+});
 // src/views/library.js
 var lib = {
 	view: null,
@@ -7527,6 +7689,7 @@ async function pollJobs() {
 			}
 		}
 	}
+	refreshWelcome();
 	pollJobsIfActive();
 }
 // src/panels/projects_panel.js
@@ -8126,7 +8289,7 @@ function applyNav() {
 	document.body.classList.toggle("drawer-library", shown && navState.panel === "library");
 }
 function panelMeta(panel) {
-	if (panel === "reader") return `Title ${state.currentTitle}`;
+	if (panel === "reader") return state.noTitles ? "No titles installed" : `Title ${state.currentTitle}`;
 	if (panel === "projects") {
 		const n = loadProjects().length;
 		return n ? plural(n, "dossier") : "";
@@ -8201,7 +8364,7 @@ function setNavMode(mode) {
 function syncNavToRoute(path) {
 	const t = routeTarget(path);
 	document.body.classList.remove("nav-open");
-	state.navRetracted = t === "overview" || t === "home" || t === "news" || t === "settings";
+	state.navRetracted = t === "overview" || t === "home" || t === "news" || t === "settings" || state.noTitles && t === "reader";
 	if (t === "library" && navState.panel !== "library") navState.panel = "library";
 	else if (t === "projects") navState.panel = "projects";
 	else if (t === "reader" && (navState.panel === "history" || navState.panel === "library")) navState.panel = "reader";
@@ -8212,6 +8375,12 @@ function syncNavToRoute(path) {
 function updateRailHome() {
 	const home = document.getElementById("ar-home");
 	if (!home) return;
+	if (state.noTitles) {
+		home.href = "#/";
+		home.dataset.tip = "Pick a profile";
+		home.setAttribute("aria-label", "Pick a profile");
+		return;
+	}
 	home.href = `#/title/${state.currentTitle}/`;
 	const t = state.installedTitles.find((x) => x.title === state.currentTitle);
 	home.dataset.tip = `Title ${state.currentTitle} home`;
@@ -8310,6 +8479,7 @@ document.addEventListener("keydown", (e) => {
 });
 // src/components/chat.js
 function toggleChat() {
+	if (state.noTitles) return;
 	if (dom.chat.hidden) openChat();
 	else closeChat();
 }
@@ -8849,16 +9019,25 @@ function docStepHtml(partId, prevSection, nextSection) {
 	return `<nav class="doc-step" aria-label="Previous and next">${left}<span class="spacer"></span>${right}</nav>`;
 }
 // src/components/title_switcher.js
+function setReaderEnabled(on) {
+	dom.search.disabled = !on;
+	dom.search.placeholder = on ? `Search Title ${state.currentTitle} or jump to a section…` : "Download a title to search";
+	dom.chatToggle.disabled = !on;
+	if (!on) {
+		dom.edition.textContent = "";
+		dom.tree.innerHTML = "<div class=\"side-empty\">No titles installed yet. <a href=\"#/\">Pick a profile</a> or open the <a href=\"#/library\">library</a>.</div>";
+	}
+}
 function fillTitleSelect() {
 	if (!dom.titleSelect) return;
 	const cur = state.installedTitles.find((t) => t.title === state.currentTitle);
-	const name = cur ? cur.name : state.metaInfo.name || "";
-	document.getElementById("title-select-num").textContent = `Title ${state.currentTitle}`;
+	const name = state.noTitles ? "" : cur ? cur.name : state.metaInfo.name || "";
+	document.getElementById("title-select-num").textContent = state.noTitles ? "No titles" : `Title ${state.currentTitle}`;
 	document.getElementById("title-select-name").textContent = name;
-	dom.titleSelect.title = `Title ${state.currentTitle}${name ? ": " + name : ""}. Switch title`;
+	dom.titleSelect.title = state.noTitles ? "Nothing installed yet. Download titles" : `Title ${state.currentTitle}${name ? ": " + name : ""}. Switch title`;
 	dom.titlePop.innerHTML = `
     <a class="tm-item tm-download" role="menuitem" href="#/library" tabindex="-1">${icon("download")}<span class="tm-name">Download titles…</span></a>
-    <div class="tm-sep" role="separator"></div>
+    ${state.installedTitles.length ? "<div class=\"tm-sep\" role=\"separator\"></div>" : ""}
     ${state.installedTitles.map((t) => {
 		const on = t.title === state.currentTitle;
 		return `<button type="button" class="tm-item${on ? " is-current" : ""}" role="menuitemradio" aria-checked="${on}" data-title="${t.title}" tabindex="-1">
@@ -10015,6 +10194,10 @@ async function handleRoute() {
 	state.activeRoute = path;
 	const seq = ++state.routeSeq;
 	syncNavToRoute(path);
+	if (state.noTitles && !/^\/(library|news|projects|settings|help)(\/|$)/.test(path)) {
+		await renderWelcome();
+		return;
+	}
 	let checkPath = path;
 	const titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
 	if (titleMatch) {
@@ -10282,6 +10465,7 @@ document.addEventListener("keydown", (e) => {
 	const active = document.activeElement;
 	const typing = active && (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
 	if (e.key === "/" && !typing || (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "k") {
+		if (state.noTitles) return;
 		e.preventDefault();
 		dom.search.focus();
 		dom.search.select();
@@ -10376,18 +10560,22 @@ async function init() {
 		const titlesRes = await fetch("/api/titles");
 		if (titlesRes.ok) {
 			state.installedTitles = await titlesRes.json();
+			state.noTitles = state.installedTitles.length === 0;
 			if (state.installedTitles.length && !state.installedTitles.some((t) => t.title === state.currentTitle)) await switchTitle(state.installedTitles[0].title);
 			fillTitleSelect();
 			updateRailHome();
 		}
-		const [metaRes] = await Promise.all([
-			fetch("/api/" + state.currentTitle + "/meta"),
-			refreshModelsConfig(),
-			ensureTreeLoaded()
-		]);
-		if (metaRes.ok) {
-			state.metaInfo = await metaRes.json();
-			dom.edition.textContent = `eCFR ${state.metaInfo.edition || ""}`;
+		if (state.noTitles) setReaderEnabled(false);
+		else {
+			const [metaRes] = await Promise.all([
+				fetch("/api/" + state.currentTitle + "/meta"),
+				refreshModelsConfig(),
+				ensureTreeLoaded()
+			]);
+			if (metaRes.ok) {
+				state.metaInfo = await metaRes.json();
+				dom.edition.textContent = `eCFR ${state.metaInfo.edition || ""}`;
+			}
 		}
 	} catch (e) {
 		console.warn("Initialization warnings:", e);

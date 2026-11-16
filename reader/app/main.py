@@ -15,7 +15,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import build, config, news_store, news_worker, store
+from . import config, news_store, news_worker, store
 from .routers import chat as chat_routes
 from .routers import library as library_routes
 from .routers import news as news_routes
@@ -27,8 +27,9 @@ from .routers.news import news_router
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if not config.installed_titles():
-        build.build(title=config.DEFAULT_TITLE, force=True)
+    # Starts empty on a fresh install: the frontend shows the first-run profile picker when
+    # `/api/titles` is empty, and downloads queue through `/api/library/download`.
+    # (`python -m app.build` still builds a title from the CLI.)
     store.reset_connections()
     # The news worker only runs in a real server (tests never run lifespan).
     if config.news_sync_enabled():

@@ -13,7 +13,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from .. import config, store
+from .. import config, profiles, store
 from . import deps
 
 titles_router = APIRouter()
@@ -41,6 +41,12 @@ def list_titles() -> list[dict]:
     return results
 
 
+@titles_router.get("/api/profiles")
+def list_profiles() -> dict:
+    """First-run profiles (curated titles and parts) and the names of all 50 CFR titles."""
+    return {"profiles": profiles.PROFILES, "title_names": profiles.TITLE_NAMES}
+
+
 @search_router.get("/api/search")
 async def search_global(
     q: str,
@@ -49,7 +55,11 @@ async def search_global(
     limit: int = 30,
 ) -> dict:
     """Search within a specific title, or across all installed titles if title='all' or omitted."""
-    target_title = title if title else config.DEFAULT_TITLE
+    target_title: int | str = title if title else config.DEFAULT_TITLE
+    if target_title != "all":
+        if not str(target_title).isdigit() or int(target_title) not in config.installed_titles():
+            raise HTTPException(404, f"CFR Title {target_title} is not installed on this server.")
+        target_title = int(target_title)
     return await asyncio.to_thread(store.search, q, part=part, limit=limit, title=target_title)
 
 
@@ -112,26 +122,31 @@ async def search_title(
 
 # --- Legacy un-prefixed aliases for Title 29 (backward compatibility) ---
 
+def _default_title() -> int:
+    """Title 29, if installed; 404 like the prefixed routes otherwise."""
+    return deps.valid_installed_title(config.DEFAULT_TITLE)
+
+
 @legacy_router.get("/api/meta")
 def get_meta() -> dict:
-    return get_title_meta(title=config.DEFAULT_TITLE)
+    return get_title_meta(title=_default_title())
 
 
 @legacy_router.get("/api/tree")
 def get_tree() -> FileResponse:
-    return get_title_tree(title=config.DEFAULT_TITLE)
+    return get_title_tree(title=_default_title())
 
 
 @legacy_router.get("/api/section/{section_id:path}")
 def get_section(section_id: str, unit: str | None = None) -> dict:
-    return get_title_section(section_id, title=config.DEFAULT_TITLE, unit=unit)
+    return get_title_section(section_id, title=_default_title(), unit=unit)
 
 
 @legacy_router.get("/api/part/{part}")
 def get_part(part: str) -> dict:
-    return get_title_part(part, title=config.DEFAULT_TITLE)
+    return get_title_part(part, title=_default_title())
 
 
 @legacy_router.get("/api/part/{part}/full")
 def get_part_full(part: str) -> dict:
-    return get_title_part_full(part, title=config.DEFAULT_TITLE)
+    return get_title_part_full(part, title=_default_title())

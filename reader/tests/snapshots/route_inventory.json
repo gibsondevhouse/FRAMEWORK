@@ -6,6 +6,7 @@
   "- /static",
   "GET /",
   "GET /api/titles",
+  "GET /api/profiles",
   "GET /api/settings/env",
   "POST /api/settings/env",
   "GET /api/library",

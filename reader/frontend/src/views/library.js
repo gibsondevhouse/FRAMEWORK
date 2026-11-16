@@ -10,6 +10,7 @@ import { onSettingsPage, refreshSettingsViews } from '../panels/settings_panel';
 import { dom } from '../state_init';
 import { fmt } from '../usage';
 import { HOME_CONTENT } from '../views/core';
+import { refreshWelcome } from './welcome';
 
 // --- Library: download titles, parts or sections from eCFR (#/library…) ---
 // Three levels, like the sidebar: every title → one title's parts → one part's sections.
@@ -741,5 +742,6 @@ export async function pollJobs() {
       }
     }
   }
+  refreshWelcome();
   pollJobsIfActive();
 }

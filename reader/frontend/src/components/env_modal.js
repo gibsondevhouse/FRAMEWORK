@@ -172,6 +172,7 @@ export function closeEnvModal(restoreFocus = true) {
 
 
 export async function refreshModelsConfig() {
+  if (state.noTitles) return;
   try {
     const modelsRes = await fetch('/api/' + state.currentTitle + '/models');
     if (!modelsRes.ok) return;
