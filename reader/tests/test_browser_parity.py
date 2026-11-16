@@ -246,10 +246,14 @@ class BehaviorTests(BrowserCase):
         collapsed = lambda: page.evaluate("document.documentElement.classList.contains('drawer-collapsed')")
         before = collapsed()
         page.keyboard.press("ControlOrMeta+b")
-        page.wait_for_timeout(100)
-        self.assertNotEqual(collapsed(), before)
+        page.wait_for_function(f"document.documentElement.classList.contains('drawer-collapsed') !== {str(before).lower()}",
+                               timeout=15000)
         page.keyboard.press("ControlOrMeta+b")
-
+        page.wait_for_function(f"document.documentElement.classList.contains('drawer-collapsed') === {str(before).lower()}",
+                               timeout=15000)
+        # Reopening the drawer focuses the panel's first control; blur so the G
+        # chord below isn't typed into that input (Windows reaches it reliably).
+        page.evaluate("document.activeElement && document.activeElement.blur()")
         page.keyboard.press("g")
         page.keyboard.press("n")
         page.wait_for_selector("#news-q", timeout=15000)
