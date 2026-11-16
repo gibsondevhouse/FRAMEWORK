@@ -1,0 +1,122 @@
+/* ---------- Sidebar (drill-down: agencies -> parts -> sections) ---------- */
+.side-filter { padding: 8px 12px 8px; }
+#tree-filter {
+  width: 100%; height: 28px; padding: 0 9px; border-radius: var(--r-6); font: 13px/1 var(--sans);
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--fg); outline: none;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: border-color var(--t-base) var(--ease);
+}
+#tree-filter:hover { border-color: var(--line-strong); }
+#tree-filter:focus { border-color: rgba(255, 255, 255, 0.25); background: var(--panel); }
+
+.side-nav-tabs { display: flex; gap: 2px; margin-top: 8px; padding: 2px; border-radius: var(--r-6); background: var(--hover); }
+.side-nav-tab {
+  flex: 1; height: 24px; padding: 0 8px; border: 0; border-radius: var(--r-4); background: transparent;
+  color: var(--fg-3); font: 600 11px/1 var(--sans); text-transform: uppercase; letter-spacing: .06em; cursor: pointer; text-align: center;
+  transition: background-color 100ms var(--ease), color 150ms cubic-bezier(.165, .84, .44, 1);
+}
+.side-nav-tab:hover { color: var(--fg-strong); }
+.side-nav-tab.active { background: var(--active); color: var(--fg-strong); }
+
+.tree { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 40px; font-size: 13px; }
+.side-list { display: flex; flex-direction: column; gap: 1px; animation: rise-in .16s var(--ease); }
+.side-agencies-list { padding-top: 4px; }
+
+/* Agency rows: short code flush left, 12px, muted gray #888888 */
+.side-agency {
+  display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left;
+  padding: 6px 8px; border: 0; border-radius: var(--r-6); background: none; cursor: pointer;
+  font: inherit; color: var(--fg-2); line-height: 1.4;
+  transition: background-color 100ms var(--ease), color 150ms cubic-bezier(.165, .84, .44, 1), transform 100ms var(--ease);
+}
+.side-agency:hover { background: var(--hover); color: var(--fg-strong); }
+.side-agency:active { transform: scale(.98); }
+.side-agency-code { flex: 0 0 46px; font-size: 12px; font-weight: 500; letter-spacing: .02em; color: var(--fg-3); text-align: left; }
+.side-agency-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.side-agency-name { font-weight: var(--w-medium); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.side-agency-meta { font-size: 12px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+
+/* Part & section rows */
+.side-item {
+  display: flex; gap: 10px; align-items: baseline; padding: 5px 8px; border-radius: var(--r-6);
+  color: var(--fg-2); line-height: 1.4;
+  transition: background-color 100ms var(--ease), color 150ms cubic-bezier(.165, .84, .44, 1), transform 100ms var(--ease);
+}
+.side-item:hover { background: var(--hover); color: var(--fg-strong); text-decoration: none; }
+.side-item:active { transform: scale(.98); }
+.side-item:focus-visible, .side-agency:focus-visible, .side-part-title:focus-visible, .side-fulltext:focus-visible { outline-offset: -2px; }
+.side-num { flex: 0 0 auto; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.is-part .side-num { min-width: 2.6em; }
+.is-section .side-num { min-width: 4.6em; font-size: 12px; }
+.side-text { flex: 1; min-width: 0; }
+.is-part .side-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.is-section .side-text { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Selection, the same at every level:
+   .current          = the page on screen (section row, part row, or part title): filled pill
+   .ancestor-current = the part or agency that contains it: accent text, no fill */
+.side-item.current, .side-part-title.current { background: var(--active); color: var(--fg-strong); }
+.side-item.current .side-text { font-weight: var(--w-medium); }
+.side-item.current .side-num { color: var(--fg-2); }
+.side-item.ancestor-current, .side-item.ancestor-current .side-num,
+.side-agency.ancestor-current .side-agency-name, .side-agency.ancestor-current .side-agency-code { color: var(--accent); }
+/* Sections you've opened before read slightly quieter. */
+.side-item.visited:not(.current):not(:hover) .side-text { color: var(--fg-3); }
+
+/* Sticky header: one breadcrumb line, one title */
+.side-head { position: sticky; top: 0; z-index: 1; background: var(--panel); padding: 4px 0 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line-soft); }
+.side-breadcrumbs { display: flex; align-items: center; gap: 5px; padding: 0 8px 4px; font-size: 12px; color: var(--fg-3); overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+.side-breadcrumbs::-webkit-scrollbar { display: none; }
+.side-crumb { border: 0; background: none; padding: 1px 2px; margin: 0 -2px; font: inherit; color: var(--fg-3); cursor: pointer; border-radius: var(--r-4); transition: color 150ms cubic-bezier(.165, .84, .44, 1); }
+.side-crumb:hover { color: var(--fg-strong); }
+.side-sep { color: var(--fg-4); }
+.side-crumb-current { color: var(--fg-2); }
+
+.side-heading { padding: 0 8px; }
+.side-heading-title, .side-part-title { font-weight: var(--w-semibold); line-height: 1.4; color: var(--fg); letter-spacing: -.005em; }
+.side-heading-meta { font-size: 12px; color: var(--fg-3); margin-top: 1px; font-variant-numeric: tabular-nums; }
+.side-part-title { display: block; padding: 3px 8px; border-radius: var(--r-6); transition: background-color var(--t-quick) var(--ease); }
+.side-part-title:hover { text-decoration: none; background: var(--hover); }
+.side-label { padding: 16px 8px 4px; font-size: 12px; font-weight: var(--w-medium); color: var(--fg-3); line-height: 1.4; }
+.side-label.minor { padding-top: 8px; font-weight: var(--w-regular); }
+.side-label-code { color: var(--fg-2); }
+.side-list > .side-label:first-child { padding-top: 6px; }
+
+/* Foldable subparts (part view). The heading is a button styled as the label, with a
+   caret at its right edge that shows on hover and stays (turned) while folded.
+   The body folds with a grid-rows transition, then goes invisible so its rows drop out
+   of the tab order. */
+.side-group-toggle {
+  display: flex; align-items: flex-start; gap: 6px; width: 100%; margin-top: 10px; padding: 5px 6px 4px 8px;
+  border: 0; border-radius: var(--r-6); background: none; text-align: left; cursor: pointer; font-family: inherit;
+  transition: background-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
+}
+.side-list > .side-group:first-child > .side-group-toggle { margin-top: 2px; }
+.side-group-toggle:hover { background: var(--hover); color: var(--fg-2); }
+.side-group-toggle:focus-visible { outline-offset: -2px; }
+.side-group-name { flex: 1; min-width: 0; }
+.side-group-caret {
+  width: 14px; height: 14px; flex: 0 0 auto; margin-top: 1px; color: var(--fg-4); opacity: 0;
+  transition: transform var(--t-base) var(--ease-out), opacity var(--t-quick) var(--ease);
+}
+.side-group-toggle:hover .side-group-caret, .side-group-toggle:focus-visible .side-group-caret,
+.side-group.is-folded .side-group-caret { opacity: 1; }
+.side-group.is-folded .side-group-caret { transform: rotate(-90deg); }
+.side-group-body {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows var(--t-slow) var(--ease-out);
+}
+.side-group-inner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 1px; }
+.side-group.is-folded .side-group-body { grid-template-rows: 0fr; }
+.side-group.is-folded .side-group-inner { visibility: hidden; transition: visibility 0s linear var(--t-slow); }
+
+.side-empty { padding: 12px 8px 4px; color: var(--fg-3); font-size: 13px; }
+.side-fulltext { display: block; margin-top: 8px; padding: 6px 8px; border-radius: var(--r-6); font-size: 13px; transition: background-color var(--t-quick) var(--ease); }
+.side-fulltext:hover { background: var(--hover); text-decoration: none; }
+
+/* Drag handle on the sidebar's right edge (invisible until hovered) */
+.sidebar-resizer { position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: col-resize; z-index: 5; }
+.sidebar-resizer::after { content: ""; position: absolute; top: 0; bottom: var(--gutter); left: 2px; width: 2px; border-radius: 2px; background: transparent; transition: background-color var(--t-base) var(--ease); }
+.sidebar-resizer:hover::after, .sidebar-resizer.dragging::after, .sidebar-resizer:focus-visible::after { background: var(--focus); }
+.sidebar-resizer:focus-visible { outline: none; }
+body.resizing { cursor: col-resize; -webkit-user-select: none; user-select: none; }

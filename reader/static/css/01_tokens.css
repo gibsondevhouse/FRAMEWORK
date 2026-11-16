@@ -1,0 +1,137 @@
+/* ==========================================================================
+   FRAMEWORK: CFR reader
+   Design language: Linear (dark first). One sans family, a four-step grey
+   text ramp, hairline translucent borders, an indigo accent used sparingly,
+   and short ease-out motion. Tokens first; components only use tokens.
+   ========================================================================== */
+
+/* Self-hosted variable fonts (OFL licenses alongside the files in /static/fonts/).
+   Family names must match --sans below; variable axes cover weights 400/510/590. */
+@font-face {
+  font-family: "Geist";
+  src: url("/static/fonts/GeistVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter Variable";
+  src: url("/static/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("/static/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Type */
+  --sans: "Geist", "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont,
+          "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --w-regular: 400;
+  --w-medium: 510;
+  --w-semibold: 590;
+  --reader-size: 16px;
+
+  /* Shape */
+  --r-4: 4px;
+  --r-6: 6px;
+  --r-8: 8px;
+  --r-12: 12px;
+
+  /* Layout */
+  --topbar-h: 48px;
+  --bar-h: 52px;            /* the rail as a bottom bar, under 900px */
+  --sidebar-w: 288px;
+  --chat-w: 420px;
+  --gutter: 8px;
+
+  /* Motion */
+  --ease: cubic-bezier(.25, .46, .45, .94);
+  --ease-out: cubic-bezier(.165, .84, .44, 1);
+  --t-quick: .1s;
+  --t-base: .16s;
+  --t-slow: .25s;
+
+  /* Status hues (shared by both themes) */
+  --blue: #4ea7fc;
+  --yellow: #f0bf00;
+  --brand: #5e6ad2;
+  --on-brand: #fff;
+}
+/* Raised surfaces inside a panel (library cards, metric tiles): one step off the panel. */
+:root { --card: color-mix(in srgb, var(--fg) 2.5%, var(--panel)); --card-hover: color-mix(in srgb, var(--fg) 5%, var(--panel)); }
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0A0A0A;            /* Canvas background: obsidian ultra-dark */
+  --panel: #141414;         /* Card & sidebar background: charcoal */
+  --raise: #141414;         /* Cards and wells */
+  --pop: #1A1A1A;           /* Menus, popovers, dropdowns */
+  --hover: #1E1E1E;         /* Hover states */
+  --active: #252525;        /* Active / pressed states */
+  --field: #141414;         /* Input wells */
+  --line: rgba(255, 255, 255, 0.06);     /* 1px subtle border on cards */
+  --line-soft: rgba(255, 255, 255, 0.05);/* 1px horizontal line between rows */
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --fg: #EDEDED;            /* Primary text */
+  --fg-2: #CCCCCC;          /* Secondary text ramp */
+  --fg-3: #888888;          /* Muted gray secondary text */
+  --fg-4: #555555;          /* Tertiary / faint text */
+  --fg-strong: #FFFFFF;     /* Text on hover / pressed */
+  --accent: #828fff;        /* Links and accent text */
+  --brand-hover: #6e7ae0;
+  --focus: #EAEAEA;         /* High-contrast focus rings */
+  --danger: #ff8583;
+  --mark: rgba(240, 191, 0, .24);
+  --scroll: rgba(255, 255, 255, .08);
+  --scroll-hover: rgba(255, 255, 255, .18);
+  --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
+  /* Status (dot + word): installed & current, update available, partial install */
+  --ok: #4cb782;
+  --warn: #f0b33c;
+  --partial: #9ba3ff;
+  --glow: 1;                /* status dots glow in dark mode only */
+  --shadow-lift: 0 6px 18px rgba(0, 0, 0, .32);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23888888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f5f6;
+  --panel: #ffffff;
+  --raise: #f9f8f9;
+  --pop: #ffffff;
+  --hover: rgba(0, 0, 0, .04);
+  --active: rgba(0, 0, 0, .07);
+  --field: rgba(0, 0, 0, .02);
+  --line: rgba(0, 0, 0, .09);
+  --line-soft: rgba(0, 0, 0, .06);
+  --line-strong: rgba(0, 0, 0, .18);
+  --fg: #1f2126;
+  --fg-2: #3c4149;
+  --fg-3: #6b6f76;
+  --fg-4: #8f9299;
+  --fg-strong: #111318;
+  --accent: #5360cc;
+  --brand-hover: #4f5bc4;
+  --focus: #5e6ad2;
+  --danger: #c53030;
+  --mark: rgba(240, 191, 0, .36);
+  --scroll: rgba(0, 0, 0, .12);
+  --scroll-hover: rgba(0, 0, 0, .24);
+  --shadow-pop: 0 0 0 1px rgba(0, 0, 0, .04), 0 3px 12px rgba(0, 0, 0, .09), 0 7px 24px rgba(0, 0, 0, .06);
+  --ok: #23865a;
+  --warn: #9a5b00;
+  --partial: #5e6ad2;
+  --glow: 0;
+  --shadow-lift: 0 2px 10px rgba(0, 0, 0, .07);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236b6f76' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
+}

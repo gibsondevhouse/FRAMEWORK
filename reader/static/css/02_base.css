@@ -1,0 +1,139 @@
+/* ---------- Base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--w-regular) 14px/1.5 var(--sans);
+  font-feature-settings: "cv01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: .18em; }
+strong, b { font-weight: var(--w-semibold); }
+button, input, select, textarea { font-family: inherit; font-feature-settings: inherit; }
+.muted { color: var(--fg-3); }
+[hidden] { display: none !important; }
+::selection { background: color-mix(in srgb, var(--brand) 55%, transparent); color: var(--fg); }
+
+/* Custom high-contrast focus rings: crisp 2px border of #EAEAEA offset by 2px */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
+
+/* Scrollbars: thin, quiet, only as visible as they need to be. */
+* { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border: 3px solid transparent; border-radius: 99px; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-hover); }
+
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.icon { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+.loading {
+  display: flex; align-items: center; gap: 8px; padding: 24px 0; color: var(--fg-3); font-size: 13px;
+  animation: fade-in var(--t-slow) var(--ease) .15s both; /* fast loads never flash it */
+}
+.loading::before {
+  content: ""; width: 12px; height: 12px; border-radius: 50%;
+  border: 1.5px solid var(--line-strong); border-top-color: var(--fg-3); animation: spin .7s linear infinite;
+}
+.tree .loading { padding: 12px 8px; }
+
+kbd {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px;
+  font: var(--w-medium) 11px/1 var(--sans); color: var(--fg-3);
+  background: var(--active); border-radius: var(--r-4);
+}
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 10px; border-radius: var(--r-6);
+  font: var(--w-medium) 13px/1 var(--sans); white-space: nowrap; cursor: pointer;
+  color: var(--fg-2); background: var(--hover); border: 1px solid var(--line);
+  transition: background-color 100ms var(--ease), border-color 100ms var(--ease), color 150ms cubic-bezier(.165, .84, .44, 1), transform 100ms var(--ease);
+}
+.btn:hover { background: var(--active); border-color: var(--line-strong); color: var(--fg-strong); text-decoration: none; }
+.btn:active { transform: scale(.98); }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.btn .icon { color: var(--fg-3); transition: color 150ms cubic-bezier(.165, .84, .44, 1); }
+.btn:hover .icon { color: var(--fg-strong); }
+.btn .icon-accent, .btn:hover .icon-accent { color: var(--accent); }
+.btn kbd { margin-right: -4px; }
+.btn.is-active { background: var(--active); color: var(--fg-strong); }
+.btn-accent { background: var(--brand); border-color: transparent; color: var(--on-brand); }
+.btn-accent:hover { background: var(--brand-hover); border-color: transparent; color: var(--on-brand); }
+.btn-accent .icon, .btn-accent:hover .icon { color: var(--on-brand); }
+.btn-small { height: 26px; padding: 0 8px; font-size: 12px; }
+
+.icon-btn {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; flex: 0 0 auto;
+  border: 0; border-radius: var(--r-6); background: transparent; color: var(--fg-3); cursor: pointer;
+  transition: background-color 100ms var(--ease), color 150ms cubic-bezier(.165, .84, .44, 1), transform 100ms var(--ease);
+}
+.icon-btn:hover { background: var(--hover); color: var(--fg-strong); }
+.icon-btn:active { transform: scale(.98); background: var(--active); }
+.link-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--fg-3); cursor: pointer; transition: color 150ms cubic-bezier(.165, .84, .44, 1); }
+.link-btn:hover { color: var(--fg-strong); }
+
+/* Native select (the model picker), dressed as a ghost button */
+#model-select {
+  -webkit-appearance: none; appearance: none; field-sizing: content; height: 28px; padding: 0 26px 0 8px; max-width: 240px;
+  font: var(--w-medium) 13px/1 var(--sans); color: var(--fg-2); text-overflow: ellipsis; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--r-6);
+  background: transparent var(--chevron) no-repeat right 6px center;
+  transition: background-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
+}
+#model-select:hover { background-color: var(--hover); color: var(--fg); }
+#model-select:focus-visible { border-color: var(--focus); }
+select option { background: var(--pop); color: var(--fg); }
+
+/* Title switcher: a ghost button ("Title 26  Internal Revenue ⌄") opening a Linear-style menu. */
+.title-menu { position: relative; min-width: 0; }
+.title-select {
+  display: flex; align-items: center; gap: 6px; height: 28px; max-width: 280px; padding: 0 6px 0 8px;
+  border: 1px solid transparent; border-radius: var(--r-6); background: transparent; cursor: pointer;
+  font: var(--w-medium) 13px/1 var(--sans); color: var(--fg-2); white-space: nowrap;
+  transition: background-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
+}
+.title-select:hover, .title-select[aria-expanded="true"] { background: var(--hover); color: var(--fg); }
+.title-select:focus-visible { outline: none; border-color: var(--focus); }
+.title-select-num { flex: 0 0 auto; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.title-select-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.title-select-caret { flex: 0 0 auto; color: var(--fg-3); transition: transform var(--t-base) var(--ease); }
+.title-select[aria-expanded="true"] .title-select-caret { transform: rotate(180deg); }
+
+.title-pop {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; width: 300px; max-height: min(420px, calc(100vh - 80px));
+  overflow-y: auto; padding: 4px; border-radius: 10px;
+  background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow-pop);
+  animation: pop-in .12s var(--ease-out); transform-origin: top left;
+}
+.title-pop[hidden] { display: none; }
+.tm-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 8px;
+  border: 0; border-radius: var(--r-6); background: none; text-align: left; cursor: pointer;
+  font: var(--w-regular) 13px/1 var(--sans); color: var(--fg-2);
+}
+.tm-item:hover, .tm-item:focus-visible { background: var(--active); color: var(--fg); outline: none; text-decoration: none; }
+.tm-item:focus:not(:focus-visible) { outline: none; }
+.tm-num { flex: 0 0 22px; color: var(--fg-3); font-variant-numeric: tabular-nums; text-align: right; }
+.tm-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-item.is-current { color: var(--fg); }
+.tm-item.is-current .tm-name { font-weight: var(--w-medium); }
+.tm-meta { flex: 0 0 auto; font-size: 12px; color: var(--fg-3); }
+.tm-check { flex: 0 0 16px; width: 16px; height: 16px; color: var(--accent); }
+.tm-download { color: var(--fg); }
+.tm-download .icon { flex: 0 0 22px; color: var(--fg-3); }
+.tm-download:hover .icon, .tm-download:focus-visible .icon { color: var(--fg); }
+.tm-sep { height: 1px; margin: 4px -4px; background: var(--line-soft); }

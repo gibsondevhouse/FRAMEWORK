@@ -9,6 +9,7 @@ from pathlib import Path
 from app import news
 from tests.news_fixtures import CITATION_CASES
 from tests.base import HermeticTestCase
+from tests.frontend_sources import combined_css
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -44,7 +45,7 @@ class NewsMarkupContractTests(HermeticTestCase):
     def setUpClass(cls):
         cls.js = (STATIC / "app.js").read_text(encoding="utf-8")
         cls.html = (STATIC / "index.html").read_text(encoding="utf-8")
-        cls.css = (STATIC / "styles.css").read_text(encoding="utf-8")
+        cls.css = combined_css()
 
     def test_route_and_loader_exist(self):
         self.assertIn("checkPath === '/news'", self.js)
