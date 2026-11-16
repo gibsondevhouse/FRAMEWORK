@@ -1,36 +1,45 @@
-# Stage 5: Frontend Plain ES Modules -> Vite -> Incremental TypeScript
+# Stage 5: Vite Wrap -> Legacy Cleanup -> ES Module Split -> Incremental TypeScript
 
 ## Goal
-Decompose the 5,950-line `reader/static/app.js` monolith into clean, maintainable modules built by Vite into a committed `reader/static/dist/` bundle, followed by incremental module-by-module TypeScript adoption.
+Migrate `reader/static/app.js` (5,950 lines) into a modular, Vite-built, TypeScript-ready frontend committed to `reader/static/dist/`—verifying every step independently against the Playwright parity harness.
 
 ## Phased Sub-Steps
 
-### Phase 5A: Plain ES Module Split with Shared State Object
-- **Shared State (`src/state.js`)**: Extract the **43 top-level `let`/`var` variables** (`currentTitle`, `installedTitles`, `treeData`, `currentSection`, `routeSeq`, `railObserver`, `isGenerating`, etc.) into one shared mutable state object (`export const state = { ... }`) so modules can mutate fields (e.g., `state.routeSeq++`) without ES module read-only binding compile errors.
-- **Circular Call Resolution (`src/nav_bridge.js`)**: Break hoisted circular calls (`syncNavToRoute` ↔ view loaders) with an explicit lightweight dispatcher/registry, avoiding a reactive framework rewrite and keeping intentional in-place DOM updates (transfer dock counters, `refreshSettingsViews`) intact.
-- **Module Tree (`reader/frontend/src/`)**:
-  - `main.js`, `state.js`, `dom.js`, `api.js`, `router.js`, `nav_bridge.js`
-  - `components/`: `rail.js`, `chat.js`, `transfer_dock.js`, `search_bar.js`, `palette.js`, `pin_pop.js`, `env_modal.js`
-  - `views/`: `overview.js`, `reader.js`, `search.js`, `library.js`, `projects.js`, `news.js`, `help.js`, `settings.js`
+### Phase 5A: Vite Baseline Wrap (Before Splitting)
+1. Initialize `reader/frontend/` with `package.json` and `vite.config.js`:
+   - Configure `base: '/static/dist/'` and `outDir: '../static/dist'`.
+   - Emit **fixed, unminified** filenames (`app.js`, `app.css`, `index.html`) so committed diffs in `reader/static/dist/` stay readable and work cleanly with `RevalidatedStaticFiles` (`Cache-Control: no-cache`).
+   - Write `reader/static/dist/build-stamp.json` containing a SHA-256 hash of `reader/frontend/src/` and `reader/frontend/index.html`.
+2. Move `reader/static/css/` once into `reader/frontend/src/styles/` and wrap the **unchanged** `app.js` as Vite's single entry (`<script type="module">` is safe because `app.js` already uses `'use strict'` and exports no `window.*` globals).
+3. Keep the `<head>` pre-paint theme and `railState` script **inline and blocking** in `reader/frontend/index.html`.
+4. Install pinned `marked` and `dompurify` via npm inside `reader/frontend/`.
+5. Update `reader/app/main.py:90` (`index()`) to serve `config.STATIC_DIR / "dist" / "index.html"`.
+6. Add a zero-Node Python test (`reader/tests/test_build_stamp.py`) that recomputes the hash of `frontend/src/` + `frontend/index.html` and fails if it differs from `dist/build-stamp.json`.
+7. **Verify**: Run `npm run build` and verify the Stage 1 Playwright + Pillow suite passes on the untouched Vite-wrapped bundle.
 
-### Phase 5B: `index.html`, Local Fonts & Vite Build Setup
-- Initialize `reader/frontend/` with `package.json` and `vite.config.js` (`base: '/static/dist/'`, `outDir: '../static/dist'`).
-- **Inline `<head>` Pre-Paint Script**: Keep the blocking inline script in `index.html` `<head>` that applies `theme`, `--reader-size`, `--sidebar-w`, `drawer-fly`, `drawer-collapsed`, and `drawer-retracted` before first paint.
-- **Local Fonts**: Download and self-host **Geist** and **Inter** font files under `reader/frontend/public/fonts/` instead of Google Fonts CDN (`index.html:9-11`), achieving true offline/local-first parity.
-- **Vendored Libraries**: Install pinned `marked` and `dompurify` via npm inside `reader/frontend/` (removing manual `static/vendor/` scripts or bundling them cleanly).
-- **FastAPI Integration**: Update `reader/app/main.py:90` (`index()`) to serve `config.STATIC_DIR / "dist" / "index.html"`.
-- **Committed Distribution**: Run `npm run build` and **commit `reader/static/dist/`** to Git so Python-only users and Windows machines require zero Node.js installation.
-- **Dev Server Safety**: Run uvicorn with `--reload-dir app` so `reader/frontend/node_modules/` does not stall file watching.
+### Phase 5B: Remove Legacy Files & Repoint Markup Tests
+1. Delete legacy `reader/static/app.js`, `reader/static/styles.css`, `reader/static/index.html`, and `reader/static/vendor/` so stale duplicates cannot remain served or drift.
+2. Update markup assertions (`test_sidebar_rail.py`, `test_settings_env.py`, `test_news_frontend.py`) to inspect `reader/frontend/index.html` and modular CSS/JS paths.
+3. Retire brittle JS function-slicing assertions (`split("function renderSettingsPanel(")`) in favor of the Stage 1 Playwright suite.
 
-### Phase 5C: Frontend Test Transition
-- Retire brittle string-slicing tests in `test_settings_env.py`, `test_sidebar_rail.py`, and `test_news_frontend.py` (which slice between `function renderHelp(` / `renderSettingsPanel(`) in favor of the Stage 1 Playwright suite.
-- Retain `NEWS_CITE_RE` regex parity testing by pointing it directly at `reader/frontend/src/views/news.js` (or `src/citations.js`) and handling both `.js` and optional `: RegExp` TS syntax cleanly.
+### Phase 5C: Plain ES Module Split (`reader/frontend/src/`)
+1. **Shared State Object (`src/state.js`)**: Move all **43 top-level `let`/`var` variables** (`currentTitle`, `installedTitles`, `treeData`, `currentSection`, `routeSeq`, `railObserver`, `isGenerating`, etc.) into a single mutable `export const state = { ... }` object so imported modules never hit ES module read-only binding errors (`state.routeSeq++`).
+2. **Circular Call Bridge (`src/nav_bridge.js`)**: Break hoisted circular calls (`syncNavToRoute` ↔ view loaders) with a lightweight callback/event bridge. Keep deliberate in-place DOM patching (transfer dock counters, `refreshSettingsViews`) intact rather than rewriting into a reactive framework.
+3. **Target Layout (`reader/frontend/src/`)**:
+   - `main.js`, `state.js`, `dom.js`, `api.js`, `router.js`, `nav_bridge.js`
+   - `components/`: `rail.js`, `chat.js`, `transfer_dock.js`, `search_bar.js`, `palette.js`, `pin_pop.js`, `env_modal.js`
+   - `views/`: `overview.js`, `reader.js`, `search.js`, `library.js`, `projects.js`, `news.js`, `help.js`, `settings.js`
+4. Rebuild `reader/static/dist/` and verify Playwright + Pillow screenshot baselines pass.
 
 ### Phase 5D: Incremental TypeScript Migration
-- Add `tsconfig.json` with `allowJs: true` and `checkJs: true`.
-- Migrate modules from `.js` -> `.ts` incrementally: `types/` -> `state.ts` -> `api/` -> `router.ts` -> components -> views.
+1. Add `tsconfig.json` with `allowJs: true` and `checkJs: true`.
+2. Split `src/api.js` -> `src/api/` (per domain) and add `src/types/` as modules are converted from `.js` to `.ts` one by one.
+3. Ensure the `NEWS_CITE_RE` regex parity test in `test_news_frontend.py` handles optional `: RegExp` TS annotations cleanly.
+
+## Dev Loop & Build Hygiene
+- **Standard Dev Loop**: Run `npm run watch` (`vite build --watch`) alongside `uvicorn app.main:app --reload --reload-dir app` so `node_modules` never triggers Python reloader stalls and development matches production single-origin serving.
+- **Docs Sync**: Update `CLAUDE.md` immediately upon stage completion.
 
 ## Exit Gate
-- `npm run build` succeeds cleanly and committed `reader/static/dist/` serves the full app with Node completely absent from the Python runtime path.
-- All Playwright behavioral & screenshot tests pass.
-- All Python tests pass.
+- Committed `reader/static/dist/` passes `test_build_stamp.py` and runs with zero Node.js dependency at runtime.
+- All Python tests and Playwright + Pillow parity tests pass.
