@@ -1865,35 +1865,40 @@ a:hover > .tl-title { color: var(--fg-strong); text-decoration: underline; }
 .help-lead { margin: 0; max-width: 60ch; color: var(--fg-2); font-size: 14px; line-height: 1.6; }
 .help-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-.help-cards { display: flex; flex-direction: column; gap: 22px; }
+/* One glance: what's running, what's optional and off. Chips are buttons (the app
+   routes on the hash, so #anchors are off the table) that scroll to their card. */
+.help-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 28px; }
+.help-status-chip {
+  display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+  color: var(--fg-2); font: var(--w-medium) 12px/1 var(--sans); cursor: pointer;
+  transition: background-color var(--t-quick) var(--ease), border-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
+}
+.help-status-chip:hover { background: var(--card-hover); border-color: var(--line-strong); color: var(--fg-strong); }
+.help-status-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.help-group { margin-bottom: 30px; }
+.help-group-label {
+  margin: 0 0 12px; font-size: 11px; font-weight: var(--w-semibold); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--fg-3);
+}
+.help-group .help-card + .help-card { margin-top: 14px; }
+
+/* One card anatomy: icon left, text left-aligned, actions bottom-left. */
 .help-card {
-  display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 24px; align-items: center;
-  width: min(100%, 880px); padding: 24px 26px;
+  display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 20px; align-items: start;
+  padding: 20px 22px; scroll-margin-top: 20px;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--r-12);
   transition: background-color var(--t-quick) var(--ease), border-color var(--t-quick) var(--ease);
 }
 .help-card:hover { background: var(--card-hover); border-color: var(--line-strong); }
-.help-card.is-left {
-  margin-right: auto;
-  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 6%, var(--card)), var(--card) 240px);
-}
-.help-card.is-right {
-  margin-left: auto;
-  grid-template-columns: minmax(0, 1fr) 156px;
-  background: linear-gradient(240deg, color-mix(in srgb, var(--accent) 6%, var(--card)), var(--card) 240px);
-}
-.help-card.is-right .help-logo { order: 2; }
-.help-card.is-right .help-body { order: 1; text-align: right; }
-.help-card.is-right .help-card-top { justify-content: flex-end; }
-.help-card.is-right .help-actions { justify-content: flex-end; }
-.help-card.is-right .help-rss-list { text-align: left; }
 
 .help-logo {
-  display: grid; place-items: center; width: 156px; height: 156px;
+  display: grid; place-items: center; width: 96px; height: 96px;
   border-radius: var(--r-12); border: 1px solid var(--line-strong);
   background: var(--panel); color: var(--fg);
 }
-.help-logo-svg { width: 84px; height: 84px; display: block; }
+.help-logo-svg { width: 56px; height: 56px; display: block; }
 
 .help-body { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .help-card-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -1901,8 +1906,8 @@ a:hover > .tl-title { color: var(--fg-strong); text-decoration: underline; }
   font-size: 11px; font-weight: var(--w-semibold); letter-spacing: .06em; text-transform: uppercase;
   color: var(--fg-3);
 }
-.help-card-title { margin: 0; font: var(--w-semibold) 20px/1.25 var(--sans); letter-spacing: -.018em; color: var(--fg); }
-.help-card-copy { font-size: 13.5px; line-height: 1.6; color: var(--fg-2); }
+.help-card-title { margin: 0; font: var(--w-semibold) 17px/1.3 var(--sans); letter-spacing: -.012em; color: var(--fg); }
+.help-card-copy { font-size: 13.5px; line-height: 1.6; color: var(--fg-2); max-width: 70ch; }
 .help-card-copy p { margin: 0 0 8px; }
 .help-card-copy p:last-child { margin-bottom: 0; }
 .help-card-copy code {
@@ -1921,16 +1926,70 @@ a:hover > .tl-title { color: var(--fg-strong); text-decoration: underline; }
 .help-rss-text strong { font-size: 12.5px; font-weight: var(--w-semibold); color: var(--fg); }
 .help-rss-text span { font-size: 12px; color: var(--fg-3); }
 .help-rss-btns { display: flex; align-items: center; gap: 6px; flex: none; }
+.help-fineprint { font-size: 12px; color: var(--fg-3); }
+
+/* The .env mechanics live here, out of the way; the page body stays about outcomes. */
+.help-footnote {
+  padding-top: 18px; border-top: 1px solid var(--line-soft);
+  font-size: 12.5px; line-height: 1.6; color: var(--fg-3);
+}
+.help-footnote p { margin: 0 0 8px; max-width: 76ch; }
+.help-footnote code, .help-env-details code {
+  font: 11.5px var(--mono); padding: 1px 5px; border-radius: var(--r-4);
+  background: var(--active); color: var(--fg-2);
+}
+.help-env-details summary { cursor: pointer; color: var(--fg-2); font-weight: var(--w-medium); }
+.help-env-details summary:hover { color: var(--fg); }
+.help-env-details[open] summary { margin-bottom: 8px; }
+.help-env-details .btn { margin-top: 2px; }
 
 @container help (max-width: 680px) {
-  .help-card, .help-card.is-right {
-    grid-template-columns: minmax(0, 1fr); margin-left: 0; margin-right: 0; width: 100%; padding: 18px;
-  }
-  .help-card.is-right .help-logo { order: 0; }
-  .help-card.is-right .help-body { order: 0; text-align: left; }
-  .help-card.is-right .help-card-top, .help-card.is-right .help-actions { justify-content: flex-start; }
-  .help-logo { width: 96px; height: 96px; }
-  .help-logo-svg { width: 56px; height: 56px; }
+  .help-card { grid-template-columns: minmax(0, 1fr); padding: 18px; }
+  .help-logo { display: none; }
+  .help-head { align-items: flex-start; }
+}
+
+/* ---------- Settings: light drawer panel + full page (#/settings) ---------- */
+
+/* Quick panel: A−/A+ stepper and one-click action rows. */
+.set-quick-size { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r-8); background: var(--field); }
+.set-quick-size button {
+  height: 22px; min-width: 30px; padding: 0 6px; border: 0; border-radius: var(--r-6);
+  background: transparent; color: var(--fg-2); font: var(--w-medium) 12px/1 var(--sans); cursor: pointer;
+  transition: background-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
+}
+.set-quick-size button:hover { background: var(--active); color: var(--fg-strong); }
+.set-quick-size button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.set-quick-size .set-val { min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
+
+.set-quick-acts { display: flex; flex-direction: column; gap: 2px; }
+.dr-act {
+  display: flex; align-items: center; gap: 9px; width: 100%; height: 30px; padding: 0 8px;
+  border: 0; border-radius: var(--r-6); background: transparent; text-align: left;
+  color: var(--fg-2); font: var(--w-medium) 13px/1 var(--sans); cursor: pointer; text-decoration: none;
+  transition: background-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
+}
+.dr-act:hover { background: var(--active); color: var(--fg-strong); text-decoration: none; }
+.dr-act:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.dr-act .icon { color: var(--fg-3); }
+.dr-act:hover .icon { color: var(--fg-strong); }
+
+/* The full page: the drawer's former sections as cards on a grid. */
+.view:has(> .settings-front) { max-width: 1060px; }
+.settings-front { container: settings / inline-size; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.set-card {
+  display: flex; flex-direction: column; gap: 10px; padding: 18px 20px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-12);
+}
+.set-card-wide { grid-column: 1 / -1; }
+.set-card-label {
+  margin: 0 0 2px; font-size: 11px; font-weight: var(--w-semibold); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--fg-3);
+}
+.set-card .set-keys { padding: 0; }
+@container settings (max-width: 720px) {
+  .settings-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Settings drawer Help links */

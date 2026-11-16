@@ -127,23 +127,58 @@ class HelpAndModalContractTests(unittest.TestCase):
         news_empty_block = self.js.split("function newsEmptyHtml(", 1)[1].split("function renderNews(", 1)[0]
         self.assertIn("#/help", news_empty_block)
         self.assertIn('data-open-env="dol_api_key"', news_empty_block)
-        settings_block = self.js.split("function renderSettingsPanel(", 1)[1].split("async function loadStorage(", 1)[0]
-        self.assertIn("Help & API Keys", settings_block)
+        settings_block = self.js.split("function renderSettingsPanel(", 1)[1].split("function renderSettingsPage(", 1)[0]
         self.assertIn("#/help", settings_block)
 
-    def test_help_cards_alternate_and_include_logos_and_rss(self):
+    def test_settings_drawer_is_light_with_quick_actions_and_full_page(self):
+        """The drawer panel holds quick settings/actions plus one 'Open settings' CTA; the
+        heavy sections (Claude, News, Storage, Keyboard) live on the #/settings page."""
+        panel = self.js.split("function renderSettingsPanel(", 1)[1].split("function renderSettingsPage(", 1)[0]
+        self.assertIn("Quick settings", panel)
+        self.assertIn("Quick actions", panel)
+        self.assertIn("Open settings", panel)
+        self.assertIn('href="#/settings"', panel)
+        for heavy in ("drLabel('Storage')", "drLabel('Keyboard')", "set-keys",
+                      "settingsStorageHtml", "newsSettingsHtml", "settingsClaudeHtml"):
+            self.assertNotIn(heavy, panel)
+        page = self.js.split("function renderSettingsPage(", 1)[1].split("const onSettingsPage", 1)[0]
+        for section in ("Appearance", "Claude", "News", "Storage", "Keyboard"):
+            self.assertIn(section, page)
+        self.assertIn("checkPath === '/settings'", self.js)
+        self.assertRegex(self.js, r"rest\.startsWith\('/settings'\)")
+
+    def test_rail_settings_icon_is_a_gear_not_a_sun(self):
+        settings_btn = self.html.split('data-target="settings"', 1)[1].split("</button>", 1)[0]
+        # The old glyph was a circle with detached rays (reads as a dark/light toggle).
+        self.assertNotIn('M8 1.75v1.5M8 12.75v1.5', settings_btn)
+        self.assertIn('19.4 15', settings_btn)        # the gear outline path
+        self.assertIn('<circle cx="12" cy="12" r="3"', settings_btn)
+
+    def test_help_page_is_outcome_framed(self):
+        """One uniform card anatomy under a status strip; the .env explainer is a footnote,
+        not a lead card, and the zig-zag layout stays gone."""
         self.assertIn("HELP_LOGOS", self.js)
-        self.assertIn("is-left", self.js)
-        self.assertIn("is-right", self.js)
-        self.assertIn("What is a .env file?", self.js)
+        self.assertIn("help-status-chip", self.js)
+        self.assertIn("data-help-jump", self.js)
+        self.assertIn("Optional keys", self.js)
+        self.assertIn("Included · already running", self.js)
+        self.assertIn("Connections &amp; API Keys", self.js)
+        self.assertIn("help-footnote", self.js)
+        self.assertIn("What is a .env file?", self.js)        # demoted to <details>
         self.assertIn("documents.rss", self.js)
         self.assertIn("public-inspection-documents.rss", self.js)
+        help_block = self.js.split("function renderHelp(", 1)[1].split("const envModalEl", 1)[0]
+        self.assertNotIn("is-left", help_block)
+        self.assertNotIn("is-right", help_block)
 
     def test_help_and_modal_styles_use_tokens_only(self):
         block = self.css.split("/* ---------- Help & Setup Guide (#/help)", 1)[1]
         self.assertNotRegex(block, r"#[0-9a-fA-F]{3,6}\b")
-        for cls in (".help-card.is-left", ".help-card.is-right", ".help-logo", ".modal-backdrop", ".modal-dialog"):
+        for cls in (".help-card", ".help-logo", ".help-status-chip", ".help-group-label",
+                    ".help-footnote", ".modal-backdrop", ".modal-dialog"):
             self.assertIn(cls, block)
+        self.assertNotIn(".help-card.is-left", block)
+        self.assertNotIn(".help-card.is-right", block)
 
 
 if __name__ == "__main__":

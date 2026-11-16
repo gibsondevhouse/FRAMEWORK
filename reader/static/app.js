@@ -190,6 +190,8 @@
       await loadNews(params);
     } else if (!titleMatch && (checkPath === '/help' || checkPath === '/help/')) {
       await loadHelp(params);
+    } else if (!titleMatch && (checkPath === '/settings' || checkPath === '/settings/')) {
+      renderSettingsPage({ enter: true });
     } else if (checkPath.startsWith('/search')) {
       const q = params.get('q') || '';
       dom.search.value = q;
@@ -1209,7 +1211,7 @@
       navLib.at = 0;
       navStorage = null;
       if (drawerShown() && navState.panel === 'library') ensureNavLibrary(true).then(renderLibraryPanel).catch(() => {});
-      if (drawerShown() && navState.panel === 'settings') renderSettingsPanel();
+      if (drawerShown() || onSettingsPage()) refreshSettingsViews();
     }
     if (dom.view.querySelector('.lib')) {
       if (finished.length) await refreshLibrary();
@@ -1910,13 +1912,19 @@
     fig.innerHTML = `${icon('external')}<span>Figure — view on eCFR</span>`;
   }, true);
 
-  function adjustFontSize(delta) {
-    let current = parseInt(lsGet('fontSize'), 10) || 16;
-    current = Math.max(13, Math.min(24, current + delta));
-    lsSet('fontSize', String(current));
-    document.documentElement.style.setProperty('--reader-size', current + 'px');
+  // One writer for the reading size: the reader's A−/A+, the drawer's quick buttons and
+  // the settings page's range all go through here, and every visible readout follows.
+  function applyFontSize(v) {
+    const size = Math.max(13, Math.min(24, Number(v) || 16));
+    lsSet('fontSize', String(size));
+    document.documentElement.style.setProperty('--reader-size', size + 'px');
+    for (const out of document.querySelectorAll('[data-size-val]')) out.textContent = `${size} px`;
     const range = document.getElementById('set-size');
-    if (range) { range.value = String(current); document.getElementById('set-size-val').textContent = `${current} px`; }
+    if (range && Number(range.value) !== size) range.value = String(size);
+  }
+
+  function adjustFontSize(delta) {
+    applyFontSize((parseInt(lsGet('fontSize'), 10) || 16) + delta);
   }
 
   // --- Load Part Table of Contents ---
@@ -3995,8 +4003,8 @@
         then save <code>DOL_API_KEY</code> in <code>reader/.env</code> using the setup guide or in-app editor.
         Federal Register news works without it.</p>
         <div class="news-setup-actions">
-          <a class="btn btn-sm btn-accent" href="#/help">${icon('help')} Setup &amp; API Key Guide</a>
-          <button type="button" class="btn btn-sm" data-open-env="dol_api_key">${icon('key')} Enter DOL Key</button>
+          <button type="button" class="btn btn-sm btn-accent" data-open-env="dol_api_key">${icon('key')} Add DOL key</button>
+          <a class="btn btn-sm" href="#/help">${icon('help')} Connections &amp; API keys</a>
         </div></div>`;
     }
     if (view.q) {
@@ -4330,7 +4338,8 @@
       ['Open contents', 'cmd:reader', 'G C'], ['Open projects', 'cmd:projects', 'G P'], ['All projects', '#/projects', ''],
       ['Go to News', '#/news', 'G N'], ['Refresh news', 'cmd:news-refresh', ''],
       ['New dossier', 'cmd:new-project', ''], ['Open the library', '#/library', ''], ['Library drawer', 'cmd:library', 'G L'],
-      ['Settings', 'cmd:settings', 'G S'], ['API Keys & RSS guide', '#/help', ''], ['Configure .env keys', 'cmd:env-modal', ''],
+      ['Settings', 'cmd:settings', 'G S'], ['All settings', '#/settings', ''],
+      ['Connections & API keys', '#/help', ''], ['Edit API keys', 'cmd:env-modal', ''],
       ['Show or hide the drawer', 'cmd:drawer', `${mod}B`], ['Ask Claude', 'cmd:chat', `${mod}J`],
       [`Switch to ${document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'} theme`, 'cmd:theme', ''],
       ...loadProjects().map(p => [`Project: ${p.name}`, `#/projects/${encodeURIComponent(p.id)}`, '']),
@@ -4415,7 +4424,7 @@
     if (rest.startsWith('/library')) return 'library';
     if (rest.startsWith('/projects')) return 'projects';
     if (rest.startsWith('/news')) return 'news';
-    if (rest.startsWith('/help')) return 'settings';
+    if (rest.startsWith('/help') || rest.startsWith('/settings')) return 'settings';
     return 'reader';
   }
 
@@ -4534,7 +4543,7 @@
     if (navState.mode === 'pinned') navState.collapsed = false;
     saveNav();
     applyNav();
-    if (navState.panel === 'settings') renderSettingsPanel();
+    refreshSettingsViews();
   }
 
   // Route changes: light the landmark, put a pinned drawer away on Overview and Home, close a
@@ -4766,7 +4775,7 @@
 
   async function loadEnvStatus() {
     try { navEnvStatus = await getJSON('/api/settings/env'); } catch (e) { navEnvStatus = null; }
-    if (navState.panel === 'settings') renderSettingsPanel();
+    if (navEnvStatus) refreshSettingsViews();
   }
 
   // "in 12m" / "in 3h" for next-check and backoff times in Settings.
@@ -4800,32 +4809,29 @@
 
   async function loadNewsSettings() {
     try { navNewsStatus = await getJSON('/api/news/status'); } catch (e) { navNewsStatus = { sync_enabled: false, sources: {}, dol_configured: false }; }
-    if (navState.panel === 'settings') renderSettingsPanel();
+    refreshSettingsViews();
   }
   function setTheme(next) {
     document.documentElement.dataset.theme = next;
     lsSet('theme', next);
-    if (navState.panel === 'settings') renderSettingsPanel();
+    refreshSettingsViews();
   }
 
-  function renderSettingsPanel() {
-    const theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
-    const size = parseInt(lsGet('fontSize'), 10) || 16;
-    const seg = (name, value, opts) => `<div class="lib-seg" role="group" aria-label="${name}">${opts.map(([v, label]) =>
-      `<button type="button" data-set="${name}" data-value="${v}" aria-pressed="${value === v}">${label}</button>`).join('')}</div>`;
-    const models = chatConfig.configured && chatConfig.models.length
+  // Shared builders for the light drawer panel and the full #/settings page.
+  const settingSeg = (name, value, opts) => `<div class="lib-seg" role="group" aria-label="${name}">${opts.map(([v, label]) =>
+    `<button type="button" data-set="${name}" data-value="${v}" aria-pressed="${value === v}">${label}</button>`).join('')}</div>`;
+
+  function settingsClaudeHtml() {
+    return chatConfig.configured && chatConfig.models.length
       ? `<select class="set-select" data-set-model aria-label="Claude model">${chatConfig.models.map(m =>
           `<option value="${escapeHtml(m.id)}"${(dom.modelSelect.value || chatConfig.default) === m.id ? ' selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}</select>`
       : '<p class="dr-note">Claude requires an <code>ANTHROPIC_API_KEY</code>. <a class="dr-inline-link" href="#/help">Open setup guide</a> or <button type="button" class="dr-inline-btn" data-open-env="anthropic_api_key">enter key</button>.</p>';
-    const envKeys = navEnvStatus && navEnvStatus.keys;
-    const configuredKeysCount = envKeys
-      ? (envKeys.DOL_API_KEY.configured ? 1 : 0) + (envKeys.ANTHROPIC_API_KEY.configured ? 1 : 0)
-      : null;
-    const helpMeta = !navEnvStatus ? 'API keys & RSS feeds'
-      : navEnvStatus.env_exists ? `reader/.env active · ${configuredKeysCount} of 2 keys set`
-      : 'reader/.env not created yet';
+  }
+
+  function settingsStorageHtml() {
     const st = navStorage;
-    const storage = !st ? '<div class="loading">Measuring…</div>' : `
+    if (!st) return '<div class="loading">Measuring…</div>';
+    return `
       <div class="set-total"><span class="set-total-val">${fmtBytes(st.total_bytes) || '0 KB'}</span><span class="set-total-sub">on disk in ${plural(st.titles.length, 'title')}</span></div>
       ${st.titles.map(t => {
         const meta = installedTitles.find(x => x.title === t.title);
@@ -4836,6 +4842,9 @@
         <span class="set-name">Temporary files<span class="set-sub">${st.temp_files ? `${plural(st.temp_files, 'file')} from unfinished downloads` : 'None left over'}</span></span>
         <button type="button" class="lib-act" data-set-act="prune"${st.temp_files ? '' : ' disabled'}>${st.temp_files ? `Clean up ${fmtBytes(st.temp_bytes)}` : 'Clean'}</button>
       </div>`;
+  }
+
+  function settingsKeysHtml() {
     const mod = isMac ? '⌘' : 'Ctrl';
     const keys = [
       [`${mod} K`, 'Search or jump to a section'], ['/', 'Search'], ['>', 'Commands, in search'],
@@ -4843,47 +4852,154 @@
       ['G O', 'Overview'], ['G H', 'Title home'], ['G C', 'Contents'], ['G P', 'Projects'], ['G N', 'News'], ['G L', 'Library'], ['G S', 'Settings'],
       [isMac ? '⌥ 1–7' : 'Alt 1–7', 'Rail items in order'], ['Esc', 'Close the floating drawer'],
     ];
+    return `<dl class="set-keys">${keys.map(([k, v]) => `<div><dt>${k.split(' ').map(x => `<kbd>${escapeHtml(x)}</kbd>`).join('')}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>`;
+  }
+
+  // The drawer panel stays light: the quick adjustments people actually flip mid-reading,
+  // a few one-click actions, and one way into the full page. Everything deeper (Claude
+  // model, News status, Storage, Keyboard) lives at #/settings.
+  function renderSettingsPanel() {
+    const theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+    const size = parseInt(lsGet('fontSize'), 10) || 16;
+    const envKeys = navEnvStatus && navEnvStatus.keys;
+    const configuredKeysCount = envKeys
+      ? (envKeys.DOL_API_KEY.configured ? 1 : 0) + (envKeys.ANTHROPIC_API_KEY.configured ? 1 : 0)
+      : null;
+    const settingsMeta = configuredKeysCount == null ? 'Claude · News · Storage · Keyboard'
+      : `${configuredKeysCount} of 2 optional keys set`;
     setPanel('settings', `
-      <section class="dr-sec">${drLabel('Help & API Keys')}
-        <a class="dr-cta" href="#/help">
-          <span class="dr-cta-text"><span class="dr-cta-title">API Keys &amp; Subscriptions Guide</span><span class="dr-cta-meta">${escapeHtml(helpMeta)}</span></span>${icon('chevronRight')}
-        </a>
-        <div class="set-help-actions">
-          <button type="button" class="btn btn-sm" data-open-env="">${icon('key')} Configure .env Keys</button>
+      <section class="dr-sec">${drLabel('Quick settings')}
+        <div class="set-row"><span class="set-name">Theme</span>${settingSeg('theme', theme, [['dark', 'Dark'], ['light', 'Light']])}</div>
+        <div class="set-row"><span class="set-name">Reading text</span>
+          <span class="set-quick-size" role="group" aria-label="Reading text size">
+            <button type="button" data-set-act="font-dec" aria-label="Smaller text">A−</button>
+            <span class="set-val" data-size-val>${size} px</span>
+            <button type="button" data-set-act="font-inc" aria-label="Larger text">A+</button>
+          </span></div>
+        <div class="set-row"><span class="set-name">Drawer</span>${settingSeg('mode', navState.mode, [['pinned', 'Pinned'], ['flyout', 'Overlay']])}</div>
+      </section>
+      <section class="dr-sec">${drLabel('Quick actions')}
+        <div class="set-quick-acts">
+          <button type="button" class="dr-act" data-open-env="">${icon('key')} Edit API keys</button>
+          <button type="button" class="dr-act" data-set-act="news-refresh">${icon('news')} Check for news</button>
+          <a class="dr-act" href="#/help">${icon('external')} Connections &amp; API keys</a>
         </div>
       </section>
-      <section class="dr-sec">${drLabel('Appearance')}
-        <div class="set-row"><span class="set-name">Theme</span>${seg('theme', theme, [['dark', 'Dark'], ['light', 'Light']])}</div>
-        <div class="set-row set-col">
-          <div class="set-row-head"><label class="set-name" for="set-size">Reading text</label><span class="set-val" id="set-size-val">${size} px</span></div>
-          <input type="range" class="set-range" id="set-size" min="13" max="24" step="1" value="${size}">
+      <a class="dr-cta" href="#/settings">
+        <span class="dr-cta-text"><span class="dr-cta-title">Open settings</span><span class="dr-cta-meta">${escapeHtml(settingsMeta)}</span></span>${icon('chevronRight')}
+      </a>`);
+    if (!navEnvStatus) loadEnvStatus();
+  }
+
+  // The full settings page (#/settings): everything the light drawer panel links to.
+  function renderSettingsPage(opts = {}) {
+    currentSection = null;
+    currentPart = null;
+    clearTreeSelection();
+    updateChatContext();
+    setViewHead('');
+    document.title = 'Settings · FRAMEWORK';
+    const theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+    const size = parseInt(lsGet('fontSize'), 10) || 16;
+    const top = dom.main.scrollTop;
+    dom.view.innerHTML = `
+      <div class="settings-front">
+        <header class="help-head">
+          <div>
+            <div class="doc-kicker">FRAMEWORK</div>
+            <h1 class="doc-title">Settings</h1>
+            <p class="help-lead">Appearance, Claude, news sync, storage and keyboard shortcuts. API keys and data sources live in <a href="#/help">Connections &amp; API Keys</a>.</p>
+          </div>
+          <div class="help-head-actions">
+            <button type="button" class="btn" data-open-env="">${icon('key')} Edit API keys</button>
+          </div>
+        </header>
+        <div class="settings-grid">
+          <section class="set-card">
+            <h2 class="set-card-label">Appearance</h2>
+            <div class="set-row"><span class="set-name">Theme</span>${settingSeg('theme', theme, [['dark', 'Dark'], ['light', 'Light']])}</div>
+            <div class="set-row set-col">
+              <div class="set-row-head"><label class="set-name" for="set-size">Reading text</label><span class="set-val" id="set-size-val" data-size-val>${size} px</span></div>
+              <input type="range" class="set-range" id="set-size" min="13" max="24" step="1" value="${size}">
+            </div>
+            <div class="set-row"><span class="set-name">Drawer</span>${settingSeg('mode', navState.mode, [['pinned', 'Pinned'], ['flyout', 'Overlay']])}</div>
+            <p class="dr-note">Pinned sits beside the page. Overlay slides over it and closes once you pick something.</p>
+          </section>
+          <section class="set-card">
+            <h2 class="set-card-label">Claude</h2>
+            ${settingsClaudeHtml()}
+          </section>
+          <section class="set-card">
+            <h2 class="set-card-label">News</h2>
+            ${newsSettingsHtml()}
+          </section>
+          <section class="set-card">
+            <h2 class="set-card-label">Storage</h2>
+            ${settingsStorageHtml()}
+          </section>
+          <section class="set-card set-card-wide">
+            <h2 class="set-card-label">Keyboard</h2>
+            ${settingsKeysHtml()}
+          </section>
         </div>
-      </section>
-      <section class="dr-sec">${drLabel('Drawer')}
-        <div class="set-row"><span class="set-name">Mode</span>${seg('mode', navState.mode, [['pinned', 'Pinned'], ['flyout', 'Overlay']])}</div>
-        <p class="dr-note">Pinned sits beside the page. Overlay slides over it and closes once you pick something.</p>
-      </section>
-      <section class="dr-sec">${drLabel('Claude')}${models}</section>
-      <section class="dr-sec">${drLabel('News')}${newsSettingsHtml()}</section>
-      <section class="dr-sec">${drLabel('Storage')}${storage}</section>
-      <section class="dr-sec">${drLabel('Keyboard')}
-        <dl class="set-keys">${keys.map(([k, v]) => `<div><dt>${k.split(' ').map(x => `<kbd>${escapeHtml(x)}</kbd>`).join('')}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>
-      </section>`);
-    if (!st) loadStorage();
+      </div>`;
+    if (opts.enter) enterView();
+    else dom.main.scrollTop = top;
+    if (!navStorage) loadStorage();
     if (!navNewsStatus) loadNewsSettings();
     if (!navEnvStatus) loadEnvStatus();
   }
 
+  const onSettingsPage = () => activeRoute === '/settings' || activeRoute === '/settings/';
+
+  // Settings state is shown in two places (the quick panel and the page); refresh whichever
+  // is on screen after a change or a lazy load lands.
+  function refreshSettingsViews() {
+    if (navState.panel === 'settings') renderSettingsPanel();
+    if (onSettingsPage()) renderSettingsPage();
+  }
+
+  // One dispatcher for [data-set-act] buttons, wherever they render (drawer or page).
+  async function runSettingsAction(btn) {
+    const act = btn.dataset.setAct;
+    if (act === 'font-dec') adjustFontSize(-1);
+    else if (act === 'font-inc') adjustFontSize(1);
+    else if (act === 'news-refresh') refreshNewsCommand();
+    else if (act === 'prune') {
+      btn.disabled = true;
+      try {
+        const res = await getJSON('/api/library/storage/prune', { method: 'POST' });
+        showToast(res.removed ? `Removed ${plural(res.removed, 'temporary file')} (${fmtBytes(res.freed_bytes)})` : 'Nothing to clean up');
+      } catch (err) { showToast(err.message, 5000); }
+      navStorage = null;
+      refreshSettingsViews();
+    }
+  }
+
+  // Settings page controls (delegated on the view, mirroring the drawer's handlers).
+  dom.view.addEventListener('click', (e) => {
+    const set = e.target.closest('[data-set]');
+    if (set) {
+      if (set.dataset.set === 'theme') setTheme(set.dataset.value);
+      else if (set.dataset.set === 'mode') setNavMode(set.dataset.value);
+      return;
+    }
+    const setAct = e.target.closest('[data-set-act]');
+    if (setAct) runSettingsAction(setAct);
+  });
+  dom.view.addEventListener('input', (e) => {
+    if (e.target.id === 'set-size') applyFontSize(e.target.value);
+  });
+  dom.view.addEventListener('change', (e) => {
+    if (e.target.matches('[data-set-model]')) {
+      dom.modelSelect.value = e.target.value;
+      dom.modelSelect.dispatchEvent(new Event('change'));
+    }
+  });
+
   // --- Help & Setup Guide (#/help) + .env Editor Modal ---
   // Custom inline SVG provider emblems (tokens-only, offline-safe).
   const HELP_LOGOS = {
-    env: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-      <rect x="8" y="10" width="48" height="44" rx="10" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-      <path d="M18 23h28M18 32h18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
-      <circle cx="43" cy="39" r="6" stroke="var(--accent)" stroke-width="2.4"/>
-      <path d="M49 39h5M52 39v4" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round"/>
-      <text x="18" y="45" font-family="var(--mono)" font-size="10" font-weight="600" fill="currentColor" opacity=".8">.env</text>
-    </svg>`,
     dol: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
       <path d="M32 8 52 16v14c0 13.5-8.6 22.8-20 26-11.4-3.2-20-12.5-20-26V16L32 8Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
       <path d="M32 18v24M21 24h22" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
@@ -4928,7 +5044,7 @@
     clearTreeSelection();
     updateChatContext();
     setViewHead('');
-    document.title = 'Help & API Keys · FRAMEWORK';
+    document.title = 'Connections & API Keys · FRAMEWORK';
     if (!navEnvStatus) {
       dom.view.innerHTML = '<div class="loading">Loading setup guide…</div>';
       enterView();
@@ -4948,71 +5064,68 @@
     }
   }
 
+  // The page is framed around outcomes (which connections are on), not mechanisms: the
+  // .env explainer lives in a footer footnote, actionable key cards come first under a
+  // status strip, and cards share one left-aligned anatomy (no zig-zag).
   function renderHelp(env, opts = {}) {
     const keys = (env && env.keys) || {};
     const dol = keys.DOL_API_KEY || {};
     const ant = keys.ANTHROPIC_API_KEY || {};
     const syncOn = keys.NEWS_SYNC ? keys.NEWS_SYNC.value : true;
     const retDays = keys.NEWS_RETENTION_DAYS ? keys.NEWS_RETENTION_DAYS.value : 365;
-    const configuredCount = (dol.configured ? 1 : 0) + (ant.configured ? 1 : 0);
+    const titleCount = installedTitles.length;
+    const titlesWord = `${titleCount} ${titleCount === 1 ? 'title' : 'titles'}`;
 
-    const envPill = env && env.env_exists
-      ? statPill('synced', `reader/.env active · ${configuredCount} of 2 keys set`)
-      : statPill('stale', 'reader/.env not created yet');
+    // The status strip answers "what's running?" in one glance and jumps to each card.
+    const chip = (target, state, label) => `
+      <button type="button" class="help-status-chip" data-help-jump="${target}">
+        <span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(label)}</button>`;
+    const statusStrip = `
+      <nav class="help-status" aria-label="Connection status">
+        ${chip('federal-register', syncOn ? 'synced' : 'stale', syncOn ? 'Federal Register · On' : 'Federal Register · Sync off')}
+        ${chip('ecfr', 'synced', `CFR Library · ${titlesWord}`)}
+        ${chip('dol', dol.configured ? 'synced' : 'uninstalled', `DOL enforcement · ${dol.configured ? 'On' : 'Off'}`)}
+        ${chip('anthropic', ant.configured ? 'synced' : 'uninstalled', `Claude assistant · ${ant.configured ? 'On' : 'Off'}`)}
+      </nav>`;
 
-    const cards = [
-      {
-        id: 'env',
-        side: 'is-left',
-        logo: HELP_LOGOS.env,
-        provider: 'Local Configuration · Step 1',
-        title: 'What is a .env file?',
-        pill: env && env.env_exists ? statPill('synced', 'Created on disk') : statPill('stale', 'Not created yet'),
-        body: `
-          <p>A <strong>.env</strong> file is a simple, private text file stored only on your computer (<code>reader/.env</code>) that holds your personal API keys and preferences—never shared or uploaded anywhere.</p>
-          <p>Normally, setting one up means copying example files in a terminal. Here, you can create and update <code>reader/.env</code> directly inside FRAMEWORK—and changes take effect right away with no restart.</p>`,
-        actions: `
-          <button type="button" class="btn btn-accent" data-open-env="">${icon('key')} ${env && env.env_exists ? 'Edit .env Keys' : 'Create & Fill .env'}</button>
-          <a class="btn" href="#/news">${icon('news')} Back to News</a>`,
-      },
+    const optionalCards = [
       {
         id: 'dol',
-        side: 'is-right',
         logo: HELP_LOGOS.dol,
-        provider: 'U.S. Department of Labor · Free Key',
-        title: 'DOL Open Data API (OSHA Enforcement)',
-        pill: dol.configured ? statPill('synced', `Configured (${dol.masked || 'set'})`) : statPill('uninstalled', 'Optional · Not set'),
+        provider: 'U.S. Department of Labor · Free key',
+        title: 'OSHA Enforcement Data',
+        pill: dol.configured ? statPill('synced', `On (${dol.masked || 'key saved'})`) : statPill('uninstalled', 'Off'),
         body: `
           <p><strong>What this key allows:</strong> Unlocks the <em>Enforcement &amp; Penalties</em> tab in <a href="#/news?cat=enforcement">News</a> and adds workplace inspection citations to the regulation timeline inside Title 29 sections.</p>
           <p>You’ll see cited companies, city/state locations, violation severity (Willful, Repeat, Serious), cited 29 CFR standards, and current penalty totals directly from <code>apiprod.dol.gov/v4</code>.</p>`,
         actions: `
-          <button type="button" class="btn btn-accent" data-open-env="dol_api_key">${icon('key')} ${dol.configured ? 'Update DOL Key' : 'Enter DOL Key'}</button>
-          <a class="btn" href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">${icon('external')} Get Free DOL Key</a>`,
+          <button type="button" class="btn btn-accent" data-open-env="dol_api_key">${icon('key')} ${dol.configured ? 'Update DOL key' : 'Add DOL key'}</button>
+          <a class="btn" href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">${icon('external')} Get a free DOL key</a>`,
       },
       {
         id: 'anthropic',
-        side: 'is-left',
         logo: HELP_LOGOS.anthropic,
-        provider: 'Anthropic · Paid API Key',
+        provider: 'Anthropic · Paid key',
         title: 'Claude Regulatory Assistant',
-        pill: ant.configured ? statPill('synced', `Configured (${ant.masked || 'set'})`) : statPill('uninstalled', 'Optional · Not set'),
+        pill: ant.configured ? statPill('synced', `On (${ant.masked || 'key saved'})`) : statPill('uninstalled', 'Off'),
         body: `
           <p><strong>What this key allows:</strong> Turns on the <em>Ask Claude</em> side panel so you can ask plain-English compliance questions, summarize long sections, and trace requirements across your installed CFR titles.</p>
           <p>Reading regulations, full-text search, projects, and Federal Register news all work without it—this key is only for the AI assistant.</p>`,
         actions: `
-          <button type="button" class="btn btn-accent" data-open-env="anthropic_api_key">${icon('key')} ${ant.configured ? 'Update Anthropic Key' : 'Enter Anthropic Key'}</button>
-          <a class="btn" href="https://console.anthropic.com" target="_blank" rel="noopener">${icon('external')} Get Anthropic Key</a>`,
+          <button type="button" class="btn btn-accent" data-open-env="anthropic_api_key">${icon('key')} ${ant.configured ? 'Update Anthropic key' : 'Add Anthropic key'}</button>
+          <a class="btn" href="https://console.anthropic.com" target="_blank" rel="noopener">${icon('external')} Get an Anthropic key</a>`,
       },
+    ];
+
+    const includedCards = [
       {
         id: 'federal-register',
-        side: 'is-right',
         logo: HELP_LOGOS.fr,
-        provider: 'Federal Register · Automatic + RSS Feeds',
-        title: 'Rulemaking API & Official RSS Subscriptions',
-        pill: syncOn ? statPill('synced', `Auto-sync on · ${retDays}d history`) : statPill('stale', 'Background sync off'),
+        provider: 'Federal Register · No key needed',
+        title: 'OSHA Rulemaking & Official RSS Feeds',
+        pill: syncOn ? statPill('synced', `On · ${retDays}d history`) : statPill('stale', 'Sync off'),
         body: `
-          <p><strong>What this subscription allows:</strong> Keeps FRAMEWORK updated on business days with OSHA Final Rules, Proposed Rules, Notices, and Public Inspection filings—with <strong>no API key required</strong>.</p>
-          <p>Want these updates in an external RSS reader too? Subscribe to the official Federal Register OSHA feeds below (FRAMEWORK skips <code>osha.gov/rss</code> because it blocks automated readers with 403 errors).</p>
+          <p><strong>What this source allows:</strong> Keeps the <a href="#/news">Newsroom</a> updated on business days with OSHA Final Rules, Proposed Rules, Notices, and Public Inspection filings—automatically, with no key or setup.</p>
           <div class="help-rss-list">${FR_RSS_FEEDS.map(f => `
             <div class="help-rss-row">
               <div class="help-rss-text"><strong>${escapeHtml(f.label)}</strong><span>${escapeHtml(f.desc)}</span></div>
@@ -5021,54 +5134,68 @@
                 <a class="btn btn-sm" href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${icon('rss')} Open</a>
               </div>
             </div>`).join('')}
-          </div>`,
+          </div>
+          <p class="help-fineprint">The same updates, as official Federal Register feeds for any external RSS reader. FRAMEWORK itself reads the richer JSON API and skips <code>osha.gov/rss</code>, which rejects automated readers.</p>`,
         actions: `
-          <button type="button" class="btn" data-open-env="news_sync">${icon('key')} Sync Settings</button>
+          <button type="button" class="btn" data-open-env="news_sync">${icon('key')} Sync settings</button>
           <a class="btn" href="#/news">${icon('news')} Open Newsroom</a>`,
       },
       {
         id: 'ecfr',
-        side: 'is-left',
         logo: HELP_LOGOS.ecfr,
-        provider: 'eCFR Versioner API · Built-in',
+        provider: 'eCFR · No key needed',
         title: 'Federal Regulations Library (Titles 1–50)',
-        pill: statPill('synced', `${installedTitles.length} ${installedTitles.length === 1 ? 'title' : 'titles'} installed`),
+        pill: statPill('synced', `On · ${titlesWord} installed`),
         body: `
-          <p><strong>What this source allows:</strong> Downloads full Code of Federal Regulations titles, parts, or individual sections directly from <code>ecfr.gov</code> into your local SQLite library for fast offline reading and search.</p>
-          <p>Everything here works automatically out of the box—no API key or subscription is needed.</p>`,
+          <p><strong>What this source allows:</strong> Downloads full Code of Federal Regulations titles, parts, or individual sections directly from <code>ecfr.gov</code> into your local SQLite library for fast offline reading and search.</p>`,
         actions: `
-          <a class="btn btn-accent" href="#/library">${icon('book')} Browse CFR Library</a>`,
+          <a class="btn" href="#/library">${icon('book')} Browse CFR Library</a>`,
       },
     ];
+
+    const cardHtml = (c) => `
+      <article class="help-card" id="help-${c.id}">
+        <div class="help-logo" aria-hidden="true">${c.logo}</div>
+        <div class="help-body">
+          <div class="help-card-top">
+            <span class="help-provider">${escapeHtml(c.provider)}</span>
+            ${c.pill}
+          </div>
+          <h3 class="help-card-title">${escapeHtml(c.title)}</h3>
+          <div class="help-card-copy">${c.body}</div>
+          <div class="help-actions">${c.actions}</div>
+        </div>
+      </article>`;
 
     dom.view.innerHTML = `
       <div class="help-front">
         <header class="help-head">
           <div>
             <div class="doc-kicker">FRAMEWORK Settings · Help</div>
-            <h1 class="doc-title">API Keys, .env Setup &amp; Subscriptions</h1>
-            <p class="help-lead">FRAMEWORK works offline for reading and search out of the box. Connect optional keys below—or subscribe to official RSS feeds—directly from this page.</p>
+            <h1 class="doc-title">Connections &amp; API Keys</h1>
+            <p class="help-lead">Reading and search work offline out of the box. The optional keys below unlock more—each is saved locally and applies instantly, with no restart.</p>
           </div>
           <div class="help-head-actions">
-            ${envPill}
-            <button type="button" class="btn btn-accent" data-open-env="">${icon('key')} Configure .env</button>
+            <button type="button" class="btn" data-open-env="">${icon('key')} Edit API keys</button>
           </div>
         </header>
-        <div class="help-cards">
-          ${cards.map(c => `
-            <article class="help-card ${c.side}" id="help-${c.id}">
-              <div class="help-logo" aria-hidden="true">${c.logo}</div>
-              <div class="help-body">
-                <div class="help-card-top">
-                  <span class="help-provider">${escapeHtml(c.provider)}</span>
-                  ${c.pill}
-                </div>
-                <h2 class="help-card-title">${escapeHtml(c.title)}</h2>
-                <div class="help-card-copy">${c.body}</div>
-                <div class="help-actions">${c.actions}</div>
-              </div>
-            </article>`).join('')}
-        </div>
+        ${statusStrip}
+        <section class="help-group" aria-labelledby="help-group-optional">
+          <h2 class="help-group-label" id="help-group-optional">Optional keys</h2>
+          ${optionalCards.map(cardHtml).join('')}
+        </section>
+        <section class="help-group" aria-labelledby="help-group-included">
+          <h2 class="help-group-label" id="help-group-included">Included · already running</h2>
+          ${includedCards.map(cardHtml).join('')}
+        </section>
+        <footer class="help-footnote">
+          <p>Keys are stored in <code>reader/.env</code>, a private plain-text file on your computer—never shared or uploaded. ${env && env.env_exists ? 'Yours exists and is active.' : 'It’s created the first time you save a key here.'}</p>
+          <details class="help-env-details">
+            <summary>What is a .env file?</summary>
+            <p>A <strong>.env</strong> file holds environment settings—API keys and preferences—as plain <code>KEY=value</code> lines. Normally, setting one up means copying example files in a terminal; here, <em>Edit API keys</em> creates and updates <code>reader/.env</code> for you, and changes take effect right away with no restart.</p>
+            <button type="button" class="btn btn-sm" data-open-env="">${icon('key')} Open the editor</button>
+          </details>
+        </footer>
       </div>`;
     if (opts.enter) enterView();
   }
@@ -5282,7 +5409,7 @@
       closeEnvModal(true);
       const queued = (res.news_sync_queued || []).length > 0;
       showToast(queued ? 'Saved to reader/.env · Syncing DOL enforcement data…' : 'Saved to reader/.env — active immediately');
-      if (navState.panel === 'settings') renderSettingsPanel();
+      refreshSettingsViews();
       if (activeRoute === '/help' || activeRoute === '/help/') renderHelp(navEnvStatus);
       else if (routeTarget() === 'news') handleRoute();
     } catch (err) {
@@ -5329,12 +5456,19 @@
       } else {
         showToast(url, 5000);
       }
+      return;
+    }
+    // Status-strip chips scroll to their card (buttons, not #anchors: the app routes on hash).
+    const jump = e.target.closest('[data-help-jump]');
+    if (jump) {
+      const el = document.getElementById('help-' + jump.dataset.helpJump);
+      if (el) el.scrollIntoView({ behavior: reduceMotion.matches ? 'auto' : 'smooth', block: 'start' });
     }
   });
 
   async function loadStorage() {
     try { navStorage = await getJSON('/api/library/storage'); } catch (e) { navStorage = { titles: [], legacy_bytes: 0, temp_files: 0, temp_bytes: 0, total_bytes: 0 }; }
-    if (navState.panel === 'settings') renderSettingsPanel();
+    refreshSettingsViews();
   }
 
   // --- Recent panel (re-click Overview or Home): reading history and recent pins ---
@@ -5374,17 +5508,8 @@
     }
     const navAct = e.target.closest('[data-nav-act]');
     if (navAct && navAct.dataset.navAct === 'new-project') { showNewProjectForm(); return; }
-    const prune = e.target.closest('[data-set-act="prune"]');
-    if (prune) {
-      prune.disabled = true;
-      try {
-        const res = await getJSON('/api/library/storage/prune', { method: 'POST' });
-        showToast(res.removed ? `Removed ${plural(res.removed, 'temporary file')} (${fmtBytes(res.freed_bytes)})` : 'Nothing to clean up');
-      } catch (err) { showToast(err.message, 5000); }
-      navStorage = null;
-      renderSettingsPanel();
-      return;
-    }
+    const setAct = e.target.closest('[data-set-act]');
+    if (setAct) { runSettingsAction(setAct); return; }
     const dockBtn = e.target.closest('[data-dock]');
     if (dockBtn) { onDockAction(dockBtn); return; }
     const act = e.target.closest('button[data-act]');
@@ -5398,13 +5523,7 @@
   });
 
   dom.sidebar.addEventListener('input', (e) => {
-    if (e.target.id === 'set-size') {
-      const v = Number(e.target.value);
-      lsSet('fontSize', String(v));
-      document.documentElement.style.setProperty('--reader-size', v + 'px');
-      const out = document.getElementById('set-size-val');
-      if (out) out.textContent = `${v} px`;
-    }
+    if (e.target.id === 'set-size') applyFontSize(e.target.value);
   });
   dom.sidebar.addEventListener('change', (e) => {
     if (e.target.matches('[data-set-model]')) {
