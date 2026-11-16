@@ -23,7 +23,7 @@ if [ ! -x "$ROOT/.venv/bin/python" ]; then
   fi
   echo "First run: setting up Python environment (one time)..."
   "$PY" -m venv "$ROOT/.venv" &&
-    "$ROOT/.venv/bin/pip" install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest || {
+    "$ROOT/.venv/bin/pip" install -r "$ROOT/reader/requirements.txt" || {
       echo "Setup failed."
       read -n 1 -s -r -p "Press any key to close."
       exit 1

@@ -300,6 +300,16 @@ part-level references to its part; a part matches everything inside it.
 
 ---
 
+## Settings (reader/.env)
+
+### `GET /api/settings/env`
+Status of `reader/.env` without exposing secrets: `{"env_exists", "env_file", "keys": {"DOL_API_KEY": {"configured", "masked"}, "ANTHROPIC_API_KEY": {…}}, …}`. Masked previews show only the key's tail (e.g. `sk-ant-••••1234`). `Cache-Control: no-store`.
+
+### `POST /api/settings/env`
+Create or update `reader/.env` and apply the change live (no restart). Body fields, all optional: `dol_api_key`, `clear_dol_api_key`, `anthropic_api_key`, `clear_anthropic_api_key`, `anthropic_model`, `news_sync` (bool), `news_retention_days` (1–3650). Values containing newlines are rejected with `400`. Returns `{"status": <the GET payload>, "news_sync_queued": [sources]}` — setting a DOL key queues a news sync when one isn't already running.
+
+---
+
 ## Claude assistant
 
 ### `GET /api/{title}/models`
