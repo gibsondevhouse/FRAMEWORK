@@ -24,8 +24,34 @@ def combined_css() -> str:
     return "\n".join((manifest_path.parent / p).read_text(encoding="utf-8") for p in paths)
 
 
+_SIDE_IMPORT = re.compile(r"^import '\./(.+?)';$", re.MULTILINE)
+
+
+def _resolve(spec: str) -> Path:
+    base = FRONTEND / "src" / spec
+    for cand in (base, base.with_suffix(base.suffix + ".js"), base.with_suffix(base.suffix + ".ts")):
+        if cand.is_file():
+            return cand
+    raise FileNotFoundError(spec)
+
+
 def app_js() -> str:
-    return (FRONTEND / "src" / "app.js").read_text(encoding="utf-8")
+    """The frontend source as one string: every module in main.js's side-effect
+    import order (the original app.js source order), then any remaining src
+    modules (sorted), then main.js itself, so slice-based contract assertions
+    keep their relative positions."""
+    main_path = FRONTEND / "src" / "main.js"
+    main = main_path.read_text(encoding="utf-8")
+    ordered = [_resolve(p) for p in _SIDE_IMPORT.findall(main)]
+    seen = {main_path, *ordered}
+    extras = sorted(p for p in (FRONTEND / "src").rglob("*")
+                    if p.suffix in (".js", ".ts") and "styles" not in p.parts and p not in seen)
+    parts = [p.read_text(encoding="utf-8") for p in ordered + extras]
+    parts.append(main)
+    return "\n".join(parts)
+
+
+combined_js = app_js
 
 
 def index_html() -> str:

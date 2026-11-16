@@ -307,6 +307,24 @@ class BehaviorTests(BrowserCase):
         self.assertIsNotNone(page.locator("#transfer-dock").get_attribute("hidden"))
         self.assert_no_external_requests()
 
+    def test_chat_panel_toggle(self):
+        page = self.open_page("/section/1910.135", "#chat-toggle")
+        page.click("#chat-toggle")
+        page.wait_for_selector("#chat:not([hidden])", timeout=15000)
+        page.click("#chat-close")
+        page.wait_for_selector("#chat[hidden]", timeout=15000, state="attached")
+        self.assert_no_external_requests()
+
+    def test_projects_page_and_pin_roundtrip(self):
+        page = self.open_page("/section/1910.135", "#btn-pin")
+        page.click("#btn-pin")
+        page.wait_for_selector("#pin-pop:not([hidden]) input", timeout=15000)
+        page.fill("#pin-pop input", "Helmet audit")
+        page.keyboard.press("Enter")
+        page.goto(f"{ENV.base_url}/#/projects")
+        page.wait_for_selector("text=Helmet audit", timeout=15000)
+        self.assert_no_external_requests()
+
     def test_news_page_masthead_and_tabs(self):
         page = self.open_page("/news", "#news-q")
         text = page.inner_text("#view")

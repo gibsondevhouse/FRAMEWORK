@@ -18,8 +18,10 @@ class NewsCiteRegexParityTests(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
         cls.js = app_js()
-        m = re.search(r"const NEWS_CITE_RE = /(.+)/gi;", cls.js)
-        assert m, "NEWS_CITE_RE not found in app.js"
+        # Lives in frontend/src/citations.ts; tolerate the export keyword and an
+        # optional TypeScript type annotation.
+        m = re.search(r"const NEWS_CITE_RE(?:\s*:\s*RegExp)?\s*=\s*/(.+)/gi;", cls.js)
+        assert m, "NEWS_CITE_RE not found in the frontend sources"
         cls.js_pattern = m.group(1)
 
     def test_js_regex_is_the_agreed_pattern(self):
