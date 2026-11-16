@@ -42,7 +42,8 @@ except ImportError:
 
 import uvicorn
 
-from app import config, news_api, news_store, news_worker
+from app import config, news_store, news_worker
+from app.routers import news as news_api
 from app.main import app
 from fake_titles import FakeTitles
 from tests.base import TRACKED_KEYS

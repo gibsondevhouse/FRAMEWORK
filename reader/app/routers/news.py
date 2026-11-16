@@ -15,8 +15,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
-from . import config, news_schedule as sched, news_store, news_worker
-from . import store as reg_store
+from .. import config, news_schedule as sched, news_store, news_worker
+from .. import store as reg_store
 
 
 def _no_store(response: Response) -> None:
