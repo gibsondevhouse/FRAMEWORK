@@ -2,10 +2,12 @@
 import unittest
 
 from app.render import make_linkifier
+from tests.base import HermeticTestCase
 
 
-class TestLinkifier(unittest.TestCase):
+class TestLinkifier(HermeticTestCase):
     def setUp(self):
+        super().setUp()
         # Known IDs fixture
         known_sections = {
             29: {"1910.120", "1910.134", "541.100"},

@@ -6,9 +6,10 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from fake_titles import FakeTitles
+from tests.base import HermeticTestCase
 
 
-class TestApiEndpoints(unittest.TestCase):
+class TestApiEndpoints(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
         cls.fake = FakeTitles()

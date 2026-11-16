@@ -8,11 +8,12 @@ from pathlib import Path
 
 from app import news
 from tests.news_fixtures import CITATION_CASES
+from tests.base import HermeticTestCase
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
 
-class NewsCiteRegexParityTests(unittest.TestCase):
+class NewsCiteRegexParityTests(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
         cls.js = (STATIC / "app.js").read_text(encoding="utf-8")
@@ -38,7 +39,7 @@ class NewsCiteRegexParityTests(unittest.TestCase):
                 self.assertEqual(py_ids, want_sections)
 
 
-class NewsMarkupContractTests(unittest.TestCase):
+class NewsMarkupContractTests(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
         cls.js = (STATIC / "app.js").read_text(encoding="utf-8")

@@ -1,5 +1,4 @@
 """Tests for reader/.env inspection/editing endpoints and the #/help + modal frontend contract."""
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,28 +8,19 @@ from fastapi.testclient import TestClient
 
 from app import config, news_worker
 from app.main import app
+from tests.base import HermeticTestCase
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
-TRACKED_KEYS = ("DOL_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "NEWS_AGENCIES", "NEWS_SYNC", "NEWS_RETENTION_DAYS")
 
 
-class SettingsEnvEndpointTests(unittest.TestCase):
+class SettingsEnvEndpointTests(HermeticTestCase):
     def setUp(self):
+        super().setUp()  # HermeticTestCase pops and restores the TRACKED_KEYS
         self.tmp = Path(tempfile.mkdtemp())
-        self.saved_env = {k: os.environ.get(k) for k in TRACKED_KEYS}
-        for k in TRACKED_KEYS:
-            os.environ.pop(k, None)
         self.root_patch = mock.patch.object(config, "ROOT_DIR", self.tmp)
         self.root_patch.start()
+        self.addCleanup(self.root_patch.stop)
         self.client = TestClient(app)
-
-    def tearDown(self):
-        self.root_patch.stop()
-        for k, v in self.saved_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
 
     def test_get_env_when_missing(self):
         res = self.client.get("/api/settings/env")
@@ -108,7 +98,7 @@ class SettingsEnvEndpointTests(unittest.TestCase):
         self.assertFalse((self.tmp / ".env").exists())
 
 
-class HelpAndModalContractTests(unittest.TestCase):
+class HelpAndModalContractTests(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
         cls.html = (STATIC / "index.html").read_text(encoding="utf-8")

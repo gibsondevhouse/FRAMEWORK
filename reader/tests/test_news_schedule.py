@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from app import news_schedule as sched
+from tests.base import HermeticTestCase
 
 ET = sched.ET
 
@@ -13,7 +14,7 @@ def et(year, month, day, hour=0, minute=0):
 
 
 # 2026-11-16 is a Monday; 2026-11-13 is a Friday.
-class FederalRegisterWindowTests(unittest.TestCase):
+class FederalRegisterWindowTests(HermeticTestCase):
     def test_fresh_until_next_business_day_0615(self):
         ok = et(2026, 11, 16, 6, 20)                       # Monday, after the window
         self.assertFalse(sched.is_stale("federal_register", ok, et(2026, 11, 17, 6, 14)))
@@ -51,7 +52,7 @@ class FederalRegisterWindowTests(unittest.TestCase):
                          datetime(2026, 7, 6, 10, 15, tzinfo=timezone.utc))
 
 
-class PublicInspectionWindowTests(unittest.TestCase):
+class PublicInspectionWindowTests(HermeticTestCase):
     def test_three_windows_in_turn(self):
         ok = et(2026, 11, 16, 9, 5)                        # Monday, after the 09:00 window
         self.assertFalse(sched.is_stale("federal_register_pi", ok, et(2026, 11, 16, 11, 29)))
@@ -68,7 +69,7 @@ class PublicInspectionWindowTests(unittest.TestCase):
         self.assertTrue(sched.is_stale("federal_register_pi", ok, et(2026, 11, 16, 9, 0)))
 
 
-class DolAndCommonTests(unittest.TestCase):
+class DolAndCommonTests(HermeticTestCase):
     def test_dol_stale_after_24h_weekends_included(self):
         ok = et(2026, 11, 14, 12, 0)                       # Saturday
         self.assertFalse(sched.is_stale("dol_osha", ok, ok + timedelta(hours=23, minutes=59)))

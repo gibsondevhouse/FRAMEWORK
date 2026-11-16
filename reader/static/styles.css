@@ -5,6 +5,30 @@
    and short ease-out motion. Tokens first; components only use tokens.
    ========================================================================== */
 
+/* Self-hosted variable fonts (OFL licenses alongside the files in /static/fonts/).
+   Family names must match --sans below; variable axes cover weights 400/510/590. */
+@font-face {
+  font-family: "Geist";
+  src: url("/static/fonts/GeistVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter Variable";
+  src: url("/static/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("/static/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* Type */
   --sans: "Geist", "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont,

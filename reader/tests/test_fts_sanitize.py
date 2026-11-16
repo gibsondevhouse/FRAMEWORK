@@ -2,9 +2,10 @@
 import unittest
 
 from app.store import fts_query
+from tests.base import HermeticTestCase
 
 
-class TestFtsSanitize(unittest.TestCase):
+class TestFtsSanitize(HermeticTestCase):
     def test_basic_token(self):
         q = "respirator"
         out = fts_query(q)
