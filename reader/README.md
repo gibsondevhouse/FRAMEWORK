@@ -68,7 +68,7 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a lightw
 ## Getting started
 
 ### 1. What you'll need
-- **Python 3.10 or newer** (the code uses `X | None` type annotations).
+- **Python 3.10 or newer** (the code uses `X | None` type annotations). No Node.js is needed to run the app: the frontend ships pre-built in `reader/static/dist/` with self-hosted fonts.
 - **Optional:** An Anthropic API key from [console.anthropic.com](https://console.anthropic.com) if you want to use the Claude assistant.
 
 ### 2. Install dependencies
@@ -78,13 +78,13 @@ From the repository root:
 ```bash
 # macOS / Linux
 python3 -m venv .venv
-.venv/bin/pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest tzdata
+.venv/bin/pip install -r reader/requirements.txt
 ```
 
 ```powershell
 # Windows / PowerShell
 python -m venv .venv
-.\.venv\Scripts\pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest tzdata
+.\.venv\Scripts\pip install -r reader\requirements.txt
 ```
 
 *(On macOS, you can also just double-click `Start FRAMEWORK.command` in the repo root to handle setup and launch automatically.)*
@@ -163,21 +163,24 @@ FRAMEWORK/
     │   ├── build.py           # eCFR download, streaming XML ingest, SQLite FTS5 indexer
     │   ├── library.py         # eCFR catalog, suites, wire feed, download queue, storage
     │   ├── store.py           # Per-title SQLite connections, caches, federated search
-    │   ├── render.py          # XML → HTML, paragraph indentation, linkifier, reading units
+    │   ├── render/            # XML → HTML: text, hierarchy, linkifier, units, html
+    │   ├── ingest/            # Structure-tree utilities + streaming XML parse (for build.py)
+    │   ├── library/           # eCFR client, suites, disk, job queue, views
     │   ├── news.py            # Federal Register + DOL fetchers, citations, takeaway bullets
     │   ├── news_store.py      # osha_news.sqlite3: articles, citations, FTS5, sync status
     │   ├── news_schedule.py   # Publication windows, staleness, backoff (pure functions)
     │   ├── news_worker.py     # Schedule-gated background sync thread
-    │   ├── news_api.py        # /api/news… router (registered before /api/{title})
+    │   ├── routers/           # Domain routers: settings, library, news, reader, chat (+deps)
     │   ├── chat.py            # Claude streaming tool-use loop
-    │   ├── main.py            # FastAPI routes (title-scoped + legacy Title 29 aliases)
+    │   ├── main.py            # App init + router mounting (order is a contract)
     │   └── title_blurbs.json  # Editorial summaries, desks, agencies, and size estimates
     ├── data/                  # title-{N}.sqlite3 + tree-{N}.json per title (gitignored)
-    ├── static/
+    ├── frontend/              # Frontend sources (Node 20+ only for contributors)
     │   ├── index.html         # App shell, activity rail, drawer, and transfer dock
-    │   ├── styles.css         # Design tokens, dark/light themes, layout & animations
-    │   ├── app.js             # Router, rail/drawer, reader, projects, library, search, chat
-    │   └── vendor/            # marked, DOMPurify (bundled for offline use)
+    │   └── src/               # ES modules + TypeScript: state.ts, views/, components/, panels/, styles/
+    ├── static/
+    │   ├── dist/              # Committed Vite build: index.html, app.js, app.css, build-stamp.json
+    │   └── fonts/             # Self-hosted variable Geist + Inter (.woff2, OFL licenses)
     ├── tests/                 # Self-contained unit & integration tests
     ├── .env.example
     ├── API.md

@@ -6,6 +6,7 @@ import unittest
 from unittest import mock
 
 from app import library
+from tests.base import HermeticTestCase
 
 FAKE_ECFR = [
     {"number": 29, "name": "Labor", "latest_amended_on": "2026-11-10", "up_to_date_as_of": "2026-11-12", "reserved": False},
@@ -14,8 +15,9 @@ FAKE_ECFR = [
 ]
 
 
-class BlurbContentTests(unittest.TestCase):
+class BlurbContentTests(HermeticTestCase):
     def setUp(self):
+        super().setUp()
         self.blurbs = library._BLURBS
 
     def test_every_title_has_a_summary_and_a_known_desk(self):
@@ -36,7 +38,7 @@ class BlurbContentTests(unittest.TestCase):
         self.assertEqual(featured, [29, 40, 49])
 
 
-class CatalogTests(unittest.TestCase):
+class CatalogTests(HermeticTestCase):
     def rows(self):
         with mock.patch.object(library, "ecfr_titles", lambda refresh=False: FAKE_ECFR), \
                 mock.patch.object(library, "installed", lambda n: None):

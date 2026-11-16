@@ -15,16 +15,18 @@ from fastapi.testclient import TestClient
 
 from app import config, library
 from app.main import app
+from tests.base import HermeticTestCase
+from tests.frontend_sources import app_js, combined_css, index_html
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
 
-class RailMarkupTests(unittest.TestCase):
+class RailMarkupTests(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
-        cls.html = (STATIC / "index.html").read_text(encoding="utf-8")
-        cls.css = (STATIC / "styles.css").read_text(encoding="utf-8")
-        cls.js = (STATIC / "app.js").read_text(encoding="utf-8")
+        cls.html = index_html()
+        cls.css = combined_css()
+        cls.js = app_js()
 
     def test_rail_and_drawer_containers_exist(self):
         for id_ in ("activity-rail", "sidebar", "drawer-title", "drawer-close", "drawer-mode", "tree", "tree-filter", "pin-pop"):
@@ -77,8 +79,9 @@ class RailMarkupTests(unittest.TestCase):
         self.assertNotRegex(block, r"#[0-9a-fA-F]{3,6}\b")
 
 
-class StorageEndpointTests(unittest.TestCase):
+class StorageEndpointTests(HermeticTestCase):
     def setUp(self):
+        super().setUp()
         self.tmp = Path(tempfile.mkdtemp())
         (self.tmp / "title-40.sqlite3").write_bytes(b"x" * 3000)
         (self.tmp / "tree-40.json").write_bytes(b"{}")

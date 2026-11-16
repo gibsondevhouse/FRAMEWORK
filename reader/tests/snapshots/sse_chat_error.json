@@ -1,0 +1,6 @@
+[
+  {
+    "message": "Couldn't reach the Anthropic API. Check your internet connection.",
+    "type": "error"
+  }
+]

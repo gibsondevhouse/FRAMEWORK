@@ -1,0 +1,36 @@
+{
+  "c": [
+    {
+      "c": [
+        {
+          "c": [
+            {
+              "d": "Definition of solid waste.",
+              "id": "261.2",
+              "l": "§ 261.2",
+              "t": "section"
+            },
+            {
+              "d": "Definition of hazardous waste.",
+              "id": "261.3",
+              "l": "§ 261.3",
+              "t": "section"
+            }
+          ],
+          "d": "Identification and Listing of Hazardous Waste",
+          "id": "261",
+          "l": "Part 261",
+          "t": "part"
+        }
+      ],
+      "d": "Environmental Protection Agency",
+      "id": "I",
+      "l": "Chapter I",
+      "t": "chapter"
+    }
+  ],
+  "d": "Protection of Environment",
+  "id": "40",
+  "l": "Title 40",
+  "t": "title"
+}

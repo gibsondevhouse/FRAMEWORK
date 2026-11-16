@@ -6,19 +6,19 @@ phase-2 part-2 §2). Re-check them against a live call whenever a fetcher change
 update this date.
 
 `FakeAPI` fakes FR/DOL HTTP with `httpx.MockTransport`, routed on path, and records
-every request so tests can assert on headers and params. `NetworkGuardTestCase` patches
-the real `httpx.HTTPTransport` to raise, so no news test can ever reach the network
-(MockTransport is unaffected).
+every request so tests can assert on headers and params. `NetworkGuardTestCase` is the
+shared `tests.base.HermeticTestCase` (env pop-and-restore + sync/async network guard),
+kept under its historical name for the news suites (MockTransport is unaffected).
 """
 from __future__ import annotations
 
 import json
-import unittest
 from unittest import mock
 
 import httpx
 
 from app import news
+from tests.base import HermeticTestCase
 
 # --- Federal Register published documents (observed live for 2026-17726) -------------
 
@@ -254,13 +254,5 @@ class FakeAPI:
         return mock.patch.object(news, "client", fake_client)
 
 
-class NetworkGuardTestCase(unittest.TestCase):
-    """Base class for news tests: any request through a real transport raises."""
-
-    def setUp(self):
-        super().setUp()
-        guard = mock.patch.object(
-            httpx.HTTPTransport, "handle_request",
-            side_effect=AssertionError("a news test attempted real network access"))
-        guard.start()
-        self.addCleanup(guard.stop)
+class NetworkGuardTestCase(HermeticTestCase):
+    """Historical name for the news suites; the guard lives in tests.base."""

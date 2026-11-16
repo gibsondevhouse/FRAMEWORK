@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app import build, config, library
 from app.main import app
+from tests.base import HermeticTestCase
 
 FAKE_ECFR = [
     {"number": 12, "name": "Banks and Banking", "up_to_date_as_of": "2026-11-12", "latest_amended_on": "2026-11-09", "reserved": False},
@@ -25,7 +26,7 @@ def inst(edition, scope=None):
     return {"edition": edition, "section_count": 10, "scope": scope}
 
 
-class SuiteCatalogTests(unittest.TestCase):
+class SuiteCatalogTests(HermeticTestCase):
     def test_suites_are_well_formed(self):
         suites = library.suites()
         self.assertEqual(suites["ehs"]["titles"], [29, 40, 49])
@@ -65,10 +66,11 @@ class SuiteCatalogTests(unittest.TestCase):
                 self.assertGreater(b["sections"], 0)
 
 
-class BatchTests(unittest.TestCase):
+class BatchTests(HermeticTestCase):
     """queue_titles / update_all decide what to queue; the queue itself never runs a job."""
 
     def setUp(self):
+        super().setUp()
         self.q = library.Queue()
         self.q._ensure_worker = lambda: None  # keep jobs pending
         self.patches = [
@@ -138,7 +140,7 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(self.client.post(f"/api/library/jobs/{a['id']}/cancel").status_code, 404)
 
 
-class RunningCancelTests(unittest.TestCase):
+class RunningCancelTests(HermeticTestCase):
     """A running job stops at its next progress report, except while installing."""
 
     def run_queue(self, fake_run_job, cancel_at_phase):
@@ -187,7 +189,7 @@ class RunningCancelTests(unittest.TestCase):
         cleanup.assert_not_called()
 
 
-class WireTests(unittest.TestCase):
+class WireTests(HermeticTestCase):
     VERSIONS = {"content_versions": [
         {"identifier": "141.2", "name": "§ 141.2   Definitions.", "part": "141", "amendment_date": "2026-11-12", "substantive": True, "removed": False},
         {"identifier": "141.80", "name": "§ 141.80 General.", "part": "141", "amendment_date": "2026-11-12", "substantive": True, "removed": False},
@@ -196,6 +198,7 @@ class WireTests(unittest.TestCase):
     ]}
 
     def setUp(self):
+        super().setUp()
         library._changes.clear()
 
     def test_changes_counts_the_days_amendments(self):

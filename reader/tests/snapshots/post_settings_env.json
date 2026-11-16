@@ -1,0 +1,36 @@
+{
+  "news_sync_queued": [
+    "dol_osha"
+  ],
+  "status": {
+    "env_exists": true,
+    "env_file": "reader/.env",
+    "keys": {
+      "ANTHROPIC_API_KEY": {
+        "configured": true,
+        "masked": "sk-ant-••••1234"
+      },
+      "ANTHROPIC_MODEL": {
+        "default": "claude-sonnet-5-5",
+        "value": "claude-sonnet-5-5"
+      },
+      "DOL_API_KEY": {
+        "configured": true,
+        "masked": "dol_••••9876"
+      },
+      "NEWS_AGENCIES": {
+        "default": "occupational-safety-and-health-administration",
+        "value": "occupational-safety-and-health-administration"
+      },
+      "NEWS_RETENTION_DAYS": {
+        "default": 365,
+        "value": 180
+      },
+      "NEWS_SYNC": {
+        "default": true,
+        "raw": "1",
+        "value": true
+      }
+    }
+  }
+}

@@ -3,6 +3,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from app.render import compute_levels, image_urls, marker_tokens, section_doc
+from tests.base import HermeticTestCase
 
 
 def doc(body: str):
@@ -16,7 +17,7 @@ def levels_by_text(body: str) -> dict[str, int]:
     return {(e.text or "").strip()[:12]: levels[id(e)] for e in root.iter() if marker_tokens(e)}
 
 
-class LevelTests(unittest.TestCase):
+class LevelTests(HermeticTestCase):
     def test_letter_i_after_h_is_a_clause(self):
         lv = levels_by_text(
             "<P>(h) <I>Training.</I></P><P>(1) One.</P><P>(2) Two.</P><P>(3) Three.</P>"
@@ -38,7 +39,7 @@ class LevelTests(unittest.TestCase):
         self.assertEqual(lv["(v) e"], 3)
 
 
-class UnitTests(unittest.TestCase):
+class UnitTests(HermeticTestCase):
     BODY = (
         "<P>Applies to everyone.</P>"
         "<P>(a) <I>Purpose.</I> Why.</P><P>(1) Detail.</P>"
@@ -92,7 +93,7 @@ class UnitTests(unittest.TestCase):
         self.assertEqual(d.find("zz")["key"], "a")
 
 
-class ImageTests(unittest.TestCase):
+class ImageTests(HermeticTestCase):
     def test_federal_register_figures(self):
         show, full = image_urls("/graphics/er08ja26.000.gif")
         self.assertEqual(show, "https://img.federalregister.gov/ER08JA26.000/ER08JA26.000_large.png")

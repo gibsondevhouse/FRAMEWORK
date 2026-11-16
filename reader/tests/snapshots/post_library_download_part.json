@@ -1,0 +1,16 @@
+{
+  "done": null,
+  "error": null,
+  "finished_at": null,
+  "id": 2,
+  "kind": "part",
+  "label": "Part 1910 · Title 29",
+  "phase": "Waiting",
+  "queued_at": "«int»",
+  "state": "queued",
+  "target": {
+    "part": "1910"
+  },
+  "title": 29,
+  "total": null
+}

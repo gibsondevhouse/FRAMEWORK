@@ -1,0 +1,54 @@
+{
+  "current": null,
+  "queued": [
+    {
+      "done": null,
+      "error": null,
+      "finished_at": null,
+      "id": 1,
+      "kind": "title",
+      "label": "Title 40",
+      "phase": "Waiting",
+      "queued_at": "«int»",
+      "state": "queued",
+      "target": null,
+      "title": 40,
+      "total": null
+    },
+    {
+      "done": null,
+      "error": null,
+      "finished_at": null,
+      "id": 2,
+      "kind": "part",
+      "label": "Part 1910 · Title 29",
+      "phase": "Waiting",
+      "queued_at": "«int»",
+      "state": "queued",
+      "target": {
+        "part": "1910"
+      },
+      "title": 29,
+      "total": null
+    },
+    {
+      "done": null,
+      "error": null,
+      "finished_at": null,
+      "id": 3,
+      "kind": "section",
+      "label": "§ 172.101 · Title 49",
+      "phase": "Waiting",
+      "queued_at": "«int»",
+      "state": "queued",
+      "target": {
+        "id": "172.101",
+        "part": "172",
+        "t": "section"
+      },
+      "title": 49,
+      "total": null
+    }
+  ],
+  "recent": []
+}

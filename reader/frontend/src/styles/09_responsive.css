@@ -1,0 +1,81 @@
+/* ---------- Responsive ---------- */
+@media (max-width: 1200px) {
+  .edition { display: none; }
+}
+@media (max-width: 900px) {
+  .topbar { border-bottom: 1px solid var(--line); }
+  /* The rail becomes a bottom bar; the drawer slides over the page above it. */
+  .layout, .layout.chat-open { --rail-w: 0px; --drawer-col: 0px; --chat-col: 0px; padding-bottom: var(--bar-h); }
+  .main, .layout.chat-open .main, html.drawer-fly .main { margin: 0; border: 0; border-radius: 0; }
+  .activity-rail {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 28; height: var(--bar-h); flex-direction: row; justify-content: center;
+    padding: 0 8px env(safe-area-inset-bottom); border-right: 0; border-top: 1px solid var(--line);
+  }
+  .ar-group { flex-direction: row; gap: 2px; }
+  .ar-bottom { margin-left: 2px; }
+  .ar-sep { width: 1px; height: 18px; margin: 0 6px; }
+  .ar-btn { width: 44px; height: 40px; }
+  .ar-btn::before { left: 50%; top: auto; bottom: -5px; width: 16px; height: 3px; border-radius: 2px 2px 0 0; transform: translateX(-50%) scaleX(0); }
+  .ar-btn.is-active::before { transform: translateX(-50%) scaleX(1); }
+  .ar-btn::after { display: none; }
+  html.drawer-fly .sidebar { left: 0; bottom: var(--bar-h); width: min(88vw, 340px); }
+  .nav-backdrop { inset: var(--topbar-h) 0 var(--bar-h) 0; }
+  .sidebar-resizer { display: none; }
+  .chat { bottom: var(--bar-h); }
+  .transfer-dock { bottom: calc(var(--bar-h) + 12px); }
+  .toast { bottom: calc(var(--bar-h) + 16px); }
+  .side-item, .side-agency { padding-top: 8px; padding-bottom: 8px; }
+  .doc-step-btn { height: 32px; }
+  .chat { position: fixed; top: var(--topbar-h); bottom: 0; right: 0; width: min(100vw, 480px); z-index: 26; margin: 0; border-width: 0 0 0 1px; border-radius: 0; box-shadow: var(--shadow-pop); }
+  .view { padding: 24px 18px 96px; }
+  .view-head:not([hidden]) + .view { padding-top: 14px; }
+  .doc-step { padding: 0 12px; }
+  .topbar-sep, .btn kbd, .search-kbd { display: none; }
+  .title-select { max-width: 180px; }
+  .reg-p.lvl-2 { margin-left: .6em; } .reg-p.lvl-3 { margin-left: 1.2em; } .reg-p.lvl-4 { margin-left: 1.8em; }
+  .reg-p.lvl-5 { margin-left: 2.4em; } .reg-p.lvl-6 { margin-left: 3em; }
+  .home-hero h1, .ov-head h1 { font-size: 24px; }
+  .ov-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ov-grid { grid-template-columns: minmax(0, 1fr); }
+  .doc-title { font-size: 22px; }
+  .result a.result-title { flex-wrap: wrap; }
+  .result .result-part { margin-left: 0; padding-left: 0; flex-basis: 100%; }
+}
+@media (max-width: 700px) {
+  /* Three portrait cards stacked would be three screens tall; on phones they keep their
+     content and drop the fixed shape. */
+  .ov-cards { grid-template-columns: minmax(0, 1fr); }
+  .ov-card { aspect-ratio: auto; gap: 18px; }
+  .ov-card-foot { min-height: 0; }
+}
+@media (max-width: 600px) {
+  .brand-rest, #chat-toggle .btn-label { display: none; } /* the wordmark shrinks to its E */
+  .ov-tr { grid-template-columns: 40px minmax(0, 1fr) 72px 52px; }
+  .ov-tr > :nth-child(5) { display: none; }
+  .topbar { gap: 4px; padding: 0 8px; }
+  .title-select { max-width: 132px; }
+  .title-select-num { display: none; } /* name only on phones */
+  .title-pop { width: min(300px, calc(100vw - 24px)); }
+  .search-wrap { margin: 0 4px; }
+  #chat-toggle { width: 30px; padding: 0; }
+  .doc-step .step-word, .doc-step-sep { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  .dock-fill.is-indeterminate { animation: none; left: 0; width: 100% !important; opacity: .45; }
+  .stat-dot.is-busy::after, .wire-badge::before { animation: none; }
+  .stat-dot.is-busy::after, .ar-badge.is-busy::after { display: none; }
+  .wire-pending { animation: none; }
+}
+
+@media print {
+  .topbar, .sidebar, .activity-rail, .chat, .nav-backdrop, .ask-float, .toast, .doc-actions, .view-head, .transfer-dock, .pin-pop, .news-pop, .modal-backdrop { display: none !important; }
+  html, body, .layout { height: auto; }
+  .layout { display: block; padding: 0; }
+  .main { margin: 0; border: 0; overflow: visible; background: #fff; }
+  .view { max-width: none; padding: 0; }
+  body, .reg-body, .doc-title, .reg-body strong, .runin { color: #000; background: #fff; }
+  .pmark, .doc-kicker { color: #444; }
+  a { color: inherit; }
+}

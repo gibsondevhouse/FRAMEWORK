@@ -1,0 +1,6 @@
+# Development/test dependencies. Browser tests additionally need a one-time
+#   python -m playwright install chromium     (~150 MB download)
+-r requirements.txt
+pytest
+playwright==1.65.2
+Pillow==13.0.0

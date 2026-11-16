@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from app import build, config, library, store
+from tests.base import HermeticTestCase
 
 # A tiny title: Part 1 (two sections + an appendix) and Part 2 (one section, one reserved).
 STRUCTURE = {
@@ -59,7 +60,7 @@ def fake_download(_client, url, dest, on_bytes=None):
         on_bytes(10, 10)
 
 
-class ScopeTests(unittest.TestCase):
+class ScopeTests(HermeticTestCase):
     def test_sections_inside_a_selected_part_drop(self):
         s = build.normalize_scope({"parts": ["1"], "sections": [
             {"t": "section", "id": "1.2", "part": "1"}, {"t": "section", "id": "2.1", "part": "2"},
@@ -85,8 +86,9 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(build.count_leaves(pruned), 1)
 
 
-class PartialBuildTests(unittest.TestCase):
+class PartialBuildTests(HermeticTestCase):
     def setUp(self):
+        super().setUp()
         self.tmp = Path(tempfile.mkdtemp())
         self.patches = [
             mock.patch.object(config, "DATA_DIR", self.tmp),
@@ -164,8 +166,9 @@ class PartialBuildTests(unittest.TestCase):
         self.assertFalse((self.tmp / "tree-99.json").exists())
 
 
-class LibraryApiGuardTests(unittest.TestCase):
+class LibraryApiGuardTests(HermeticTestCase):
     def setUp(self):
+        super().setUp()
         from fastapi.testclient import TestClient
         from app.main import app
         self.client = TestClient(app)

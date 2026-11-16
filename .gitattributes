@@ -1,0 +1,7 @@
+# Cross-platform safety: the Stage 5 build-stamp hash is computed over
+# LF-normalized sources, so frontend sources must check out as LF on Windows.
+reader/frontend/** text eol=lf
+
+# Binary assets must never be eol-mangled.
+*.png binary
+*.woff2 binary

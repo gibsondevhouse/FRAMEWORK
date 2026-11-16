@@ -9,21 +9,23 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import html
 import json
 import re
 import sqlite3
 import sys
 import time
 import tracemalloc
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import quote
 
 import httpx
 
 from . import config
-from .render import element_to_text
+from .ingest import (LEAF_TYPES, count_leaves, ecfr_path, front_matter_xml,  # noqa: F401
+                     leaf_paths, merge_scope, nest_loose_sections,
+                     normalize_scope, prune_tree, stream_parse_xml, trim_tree)
+from .ingest import tree as _tree
+from .ingest.tree import _crumb  # noqa: F401  (used by build()'s walk)
 
 # The eCFR API rejects requests that don't accept compressed responses (HTTP 406).
 HEADERS = {"Accept-Encoding": "gzip, deflate", "User-Agent": "cfr-reader/2.0"}
@@ -50,9 +52,6 @@ CREATE VIRTUAL TABLE sections_fts USING fts5(
     id UNINDEXED, label, title, text, tokenize = 'porter unicode61'
 );
 """
-
-LEAF_TYPES = {"section", "appendix"}
-
 
 def log(msg: str) -> None:
     print(f"[build] {msg}", flush=True)
@@ -103,107 +102,6 @@ def download_stream(client: httpx.Client, url: str, dest_path: Path, on_bytes=No
     raise RuntimeError("unreachable")
 
 
-def trim_tree(node: dict) -> dict:
-    out = {
-        "t": node["type"],
-        "id": node.get("identifier"),
-        "l": node.get("label_level") or node.get("label") or "",
-        "d": (node.get("label_description") or "").strip(),
-    }
-    if node.get("reserved"):
-        out["r"] = 1
-    if node.get("descendant_range"):
-        out["range"] = node["descendant_range"]
-    kids = [trim_tree(c) for c in node.get("children") or []]
-    if kids:
-        out["c"] = kids
-    return out
-
-
-def nest_loose_sections(node: dict) -> dict:
-    """eCFR's structure sometimes lists a subpart as an empty heading followed by its sections
-    as siblings (29 CFR 1910 Subpart Z, Part 2520 Subparts D-F, 49 CFR 1201 Subpart B).
-    Move those sections inside the subpart. An appendix is adopted only when its title names
-    that subpart ("Appendix A to Subpart F of Part 2520"); "Appendix I to Part 1201" belongs
-    to the part. Mutates and returns `node`."""
-    kids = node.get("c")
-    if not kids:
-        return node
-    out: list[dict] = []
-    holder: dict | None = None   # the subpart just passed
-    holder_was_empty = False     # only an empty heading adopts the plain sections after it
-    for c in kids:
-        if holder is not None and ((holder_was_empty and c["t"] == "section") or _appendix_of(c, holder)):
-            holder.setdefault("c", []).append(c)
-            continue
-        if c["t"] == "subpart" and not c.get("r"):
-            holder, holder_was_empty = c, not c.get("c")
-        else:
-            holder = None
-        out.append(nest_loose_sections(c))
-    node["c"] = out
-    return node
-
-
-def _appendix_of(node: dict, subpart: dict) -> bool:
-    if node["t"] != "appendix":
-        return False
-    m = re.search(r"\bto Subpart\s+([A-Z0-9-]+)\b", f'{node.get("id") or ""} {node.get("l") or ""}')
-    return bool(m) and m.group(1) == str(subpart.get("id"))
-
-
-def normalize_scope(scope: dict | None) -> dict | None:
-    """A partial install is {"parts": [ids], "sections": [{"t", "id", "part"}]}; None is the
-    whole title. Sections inside a selected part are dropped (the part already holds them),
-    duplicates collapse, and the lists are sorted so equal scopes compare equal."""
-    if scope is None:
-        return None
-    parts = sorted({str(p) for p in scope.get("parts") or []})
-    seen: dict[tuple[str, str], dict] = {}
-    for s in scope.get("sections") or []:
-        t, sid, part = s.get("t", "section"), str(s["id"]), str(s.get("part") or "")
-        if t not in LEAF_TYPES or part in parts:
-            continue
-        seen[(t, sid)] = {"t": t, "id": sid, "part": part}
-    return {"parts": parts, "sections": [seen[k] for k in sorted(seen)]}
-
-
-def merge_scope(current: dict | None, add: dict | None) -> dict | None:
-    """Union of two scopes; either being the whole title (None) makes the whole title."""
-    if current is None or add is None:
-        return None
-    return normalize_scope({
-        "parts": [*current.get("parts", []), *add.get("parts", [])],
-        "sections": [*current.get("sections", []), *add.get("sections", [])],
-    })
-
-
-def prune_tree(tree: dict, scope: dict) -> dict:
-    """Keep only the selected parts (whole) and sections (with their ancestors)."""
-    parts = set(scope.get("parts") or [])
-    leaves = {(s["t"], s["id"]) for s in scope.get("sections") or []}
-
-    def keep(node: dict) -> dict | None:
-        if node["t"] == "part" and str(node["id"]) in parts:
-            return node
-        if node["t"] in LEAF_TYPES:
-            return node if (node["t"], str(node["id"])) in leaves else None
-        kids = [k for k in (keep(c) for c in node.get("c", [])) if k is not None]
-        if not kids:
-            return None
-        out = {k: v for k, v in node.items() if k != "c"}
-        out["c"] = kids
-        return out
-
-    return keep(tree) or {k: v for k, v in tree.items() if k != "c"}
-
-
-def count_leaves(node: dict) -> int:
-    if node["t"] in LEAF_TYPES:
-        return 1
-    return sum(count_leaves(c) for c in node.get("c", []))
-
-
 def _replace_with_retry(src: Path, dest: Path, before=None, attempts: int = 40) -> None:
     """Windows won't replace a file another handle has open (the server's SQLite connections
     and tree responses). `before()` asks those holders to let go; retry briefly until they do."""
@@ -219,128 +117,10 @@ def _replace_with_retry(src: Path, dest: Path, before=None, attempts: int = 40) 
             time.sleep(0.25)
 
 
-def _crumb(node: dict) -> dict:
-    return {"t": node["t"], "id": node["id"], "l": node["l"], "d": node["d"]}
-
-
-def leaf_paths(tree: dict) -> list[tuple[str, str]]:
-    """(path JSON, id) for every leaf: the breadcrumb stored in sections.path."""
-    out: list[tuple[str, str]] = []
-
-    def walk(node: dict, ancestors: list[dict]) -> None:
-        if node["t"] in LEAF_TYPES:
-            out.append((json.dumps(ancestors), node["id"]))
-            return
-        nxt = ancestors + [_crumb(node)] if node["t"] != "title" else ancestors
-        for child in node.get("c", []):
-            walk(child, nxt)
-
-    walk(tree, [])
-    return out
-
-
 def renest(title: int) -> int:
-    """Apply `nest_loose_sections` to an installed title without downloading: rewrite its
-    tree JSON and the breadcrumbs in its database. Returns the number of breadcrumbs changed."""
-    tree_file = config.tree_path(title)
-    db_file = config.db_path(title)
-    if not tree_file.exists() or not db_file.exists():
-        raise ValueError(f"Title {title} is not installed")
-    tree = nest_loose_sections(json.loads(tree_file.read_text(encoding="utf-8")))
-    con = sqlite3.connect(db_file)
-    current = dict(con.execute("SELECT id, path FROM sections"))
-    changed = [(p, i) for p, i in leaf_paths(tree) if current.get(i) not in (None, p)]
-    con.executemany("UPDATE sections SET path = ? WHERE id = ?", changed)
-    con.commit()
-    con.close()
-    payload = json.dumps(tree, separators=(",", ":"))
-    tree_file.write_text(payload, encoding="utf-8")
-    legacy = config.DATA_DIR / "tree.json"
-    if title == 29 and legacy.exists() and legacy != tree_file:
-        legacy.write_text(payload, encoding="utf-8")
-    log(f"Title {title}: re-nested contents, {len(changed)} section breadcrumbs updated")
-    return len(changed)
-
-
-def ecfr_path(el: ET.Element) -> str | None:
-    meta = el.get("hierarchy_metadata")
-    if not meta:
-        return None
-    try:
-        data = json.loads(html.unescape(html.unescape(meta)))
-        return data.get("path", "").replace("/on/_SUBSTITUTE_DATE_", "/current") or None
-    except (ValueError, AttributeError):
-        return None
-
-
-def front_matter_xml(el: ET.Element) -> str:
-    """Authority, source, and notes that sit directly under a part or subpart."""
-    keep = [c for c in el if not c.tag.startswith("DIV") and c.tag != "HEAD"]
-    wrapper = ET.Element("FRONT")
-    for c in keep:
-        wrapper.append(c)
-    return ET.tostring(wrapper, encoding="unicode") if keep else ""
-
-
-def stream_parse_xml(xml_path: Path, con: sqlite3.Connection, on_leaf=None) -> dict[str, str]:
-    """Parse XML with iterparse, streaming sections to staging SQLite table and flatlining RAM.
-    Can be called once per downloaded piece; leaves accumulate in the same staging table.
-    `on_leaf()` is called after each section or appendix (for progress)."""
-    front: dict[str, str] = {}
-    stack: list[ET.Element] = []
-    batch: list[tuple] = []
-
-    con.execute(
-        "CREATE TEMP TABLE IF NOT EXISTS staging_leaves (kind TEXT, id TEXT, ecfr_path TEXT, xml TEXT, text TEXT, PRIMARY KEY(kind, id))"
-    )
-
-    with open(xml_path, "rb") as xml_file:
-        context = ET.iterparse(xml_file, events=("start", "end"))
-        for event, elem in context:
-            if event == "start":
-                stack.append(elem)
-            elif event == "end":
-                stack.pop()
-                parent = stack[-1] if stack else None
-
-                if elem.tag in ("DIV8", "DIV9"):
-                    kind = "section" if elem.tag == "DIV8" else "appendix"
-                    ident = elem.get("N")
-                    elem.tail = None
-                    p = ecfr_path(elem)
-                    x = ET.tostring(elem, encoding="unicode")
-                    t = element_to_text(elem)
-                    batch.append((kind, ident, p, x, t))
-                    if on_leaf:
-                        on_leaf()
-                    if len(batch) >= 500:
-                        con.executemany("INSERT OR REPLACE INTO staging_leaves VALUES (?,?,?,?,?)", batch)
-                        batch.clear()
-                    elem.clear()
-                    if parent is not None:
-                        parent.remove(elem)
-                elif elem.tag == "DIV6":
-                    subpart = elem.get("N")
-                    part = next((e.get("N") for e in reversed(stack) if e.tag == "DIV5"), None)
-                    if part:
-                        front[f"part/{part}/subpart/{subpart}"] = front_matter_xml(elem)
-                    elem.clear()
-                    if parent is not None:
-                        parent.remove(elem)
-                elif elem.tag == "DIV5":
-                    part = elem.get("N")
-                    front[f"part/{part}"] = front_matter_xml(elem)
-                    elem.clear()
-                    if parent is not None:
-                        parent.remove(elem)
-
-        del context
-
-    if batch:
-        con.executemany("INSERT OR REPLACE INTO staging_leaves VALUES (?,?,?,?,?)", batch)
-        batch.clear()
-
-    return front
+    """In-place re-nest of an installed title (see ingest.tree.renest); passes the
+    patchable `log` so fake-title tests stay silent."""
+    return _tree.renest(title, log=log)
 
 
 def build(

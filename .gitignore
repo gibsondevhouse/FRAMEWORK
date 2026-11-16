@@ -29,6 +29,9 @@ reader/data/*.sqlite3-*
 reader/data/tree*.json
 reader/data/*.tmp
 
+# Frontend toolchain (reader/static/dist/ is committed on purpose)
+reader/frontend/node_modules/
+
 # Windows
 Thumbs.db
 Desktop.ini

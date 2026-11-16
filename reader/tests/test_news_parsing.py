@@ -3,6 +3,7 @@ enforcement building, item mapping and the fixed takeaway bullets. No DB, no net
 import unittest
 
 from app import news
+from tests.base import HermeticTestCase
 from tests.news_fixtures import (
     CITATION_CASES, CITATION_CASES_PY_ONLY, DOL_INSPECTIONS, DOL_VIOLATIONS,
     FR_DOC_NOTICE, FR_DOC_PROPOSED, FR_DOC_RULE, PI_DOC_ONLY, PI_DOC_SHARED,
@@ -11,7 +12,7 @@ from tests.news_fixtures import (
 AGENCY = "occupational-safety-and-health-administration"
 
 
-class DolStandardTests(unittest.TestCase):
+class DolStandardTests(HermeticTestCase):
     def test_normalize_dol_standard(self):
         cases = {
             "19101030 G02   IIA": "1910.1030",
@@ -43,7 +44,7 @@ class DolStandardTests(unittest.TestCase):
         self.assertNotIn("8359.50", art["sections"])
 
 
-class ExtractCitationsTests(unittest.TestCase):
+class ExtractCitationsTests(HermeticTestCase):
     def test_shared_cases(self):
         for text, want_secs, want_parts in CITATION_CASES + CITATION_CASES_PY_ONLY:
             with self.subTest(text=text):
@@ -57,7 +58,7 @@ class ExtractCitationsTests(unittest.TestCase):
         self.assertEqual(news.extract_citations(None), ([], []))
 
 
-class GroupViolationsTests(unittest.TestCase):
+class GroupViolationsTests(HermeticTestCase):
     def test_drops_deleted_and_groups(self):
         groups = news.group_violations(DOL_VIOLATIONS, 50)
         self.assertEqual(set(groups), {306953084, 307000001})
@@ -73,8 +74,9 @@ class GroupViolationsTests(unittest.TestCase):
         self.assertEqual(groups, {})
 
 
-class BuildEnforcementTests(unittest.TestCase):
+class BuildEnforcementTests(HermeticTestCase):
     def setUp(self):
+        super().setUp()
         self.groups = news.group_violations(DOL_VIOLATIONS, 50)
         self.art = news.build_enforcement_article(DOL_INSPECTIONS[0], self.groups[306953084])
 
@@ -116,7 +118,7 @@ class BuildEnforcementTests(unittest.TestCase):
         self.assertIsNone(art["penalty_usd"])
 
 
-class ItemMappingTests(unittest.TestCase):
+class ItemMappingTests(HermeticTestCase):
     def test_same_guid_for_pi_and_published(self):
         pub = news.fr_document_item(FR_DOC_NOTICE, AGENCY)
         pi = news.pi_item(PI_DOC_SHARED, AGENCY)
@@ -151,7 +153,7 @@ class ItemMappingTests(unittest.TestCase):
         self.assertEqual(news.fr_document_item(FR_DOC_NOTICE, AGENCY)["category"], "notices")
 
 
-class TakeawaysTests(unittest.TestCase):
+class TakeawaysTests(HermeticTestCase):
     def kinds(self):
         return {
             "rule": news.enrich_item(news.fr_document_item(FR_DOC_RULE, AGENCY)),
@@ -235,7 +237,7 @@ class TakeawaysTests(unittest.TestCase):
         self.assertIn("+2 more", t["Standards"])
 
 
-class EnrichTests(unittest.TestCase):
+class EnrichTests(HermeticTestCase):
     def test_merges_prose_and_structured_citations(self):
         item = news.enrich_item(news.fr_document_item(FR_DOC_PROPOSED, AGENCY))
         self.assertEqual(item["cfr_parts"], [{"title": 29, "part": "1910"}])

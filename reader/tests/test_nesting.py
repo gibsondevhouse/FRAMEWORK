@@ -2,6 +2,7 @@
 import unittest
 
 from app.build import leaf_paths, nest_loose_sections
+from tests.base import HermeticTestCase
 
 
 def node(t, id, c=None, **kw):
@@ -12,7 +13,7 @@ def node(t, id, c=None, **kw):
     return n
 
 
-class NestingTests(unittest.TestCase):
+class NestingTests(HermeticTestCase):
     def tree(self):
         return node("title", "29", [node("part", "1910", [
             node("subpart", "U", [node("section", "1910.501")]),

@@ -1,0 +1,199 @@
+{
+  "ecfr_url": "https://www.ecfr.gov/current/title-29/part-1910",
+  "html": "<div class=\"reg-body\"><p class=\"reg-p lvl-1\" id=\"p1\"><span class=\"pmark\">(a)</span> <strong class=\"runin\">Purpose.</strong> a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 a32 a33 a34 a35 a36 a37 a38 a39.</p><p class=\"reg-p lvl-2\" id=\"p2\"><span class=\"pmark\">(1)</span> ax0 ax1 ax2 ax3 ax4 ax5 ax6 ax7 ax8 ax9 ax10 ax11 ax12 ax13 ax14 ax15 ax16 ax17 ax18 ax19 ax20 ax21 ax22 ax23 ax24 ax25 ax26 ax27 ax28 ax29.</p><p class=\"reg-p lvl-2\" id=\"p3\"><span class=\"pmark\">(2)</span> ay0 ay1 ay2 ay3 ay4 ay5 ay6 ay7 ay8 ay9 ay10 ay11 ay12 ay13 ay14 ay15 ay16 ay17 ay18 ay19 ay20 ay21 ay22 ay23 ay24 ay25 ay26 ay27 ay28 ay29.</p></div>",
+  "id": "1910.1200",
+  "kind": "section",
+  "label": "§ 1910.1200",
+  "mode": "units",
+  "next": null,
+  "outline": [
+    {
+      "chars": 451,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "a",
+      "kind": "clause",
+      "label": "(a)",
+      "title": "Purpose"
+    },
+    {
+      "chars": 465,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "b",
+      "kind": "clause",
+      "label": "(b)",
+      "title": "Scope and application"
+    },
+    {
+      "chars": 455,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "c",
+      "kind": "clause",
+      "label": "(c)",
+      "title": "Definitions"
+    },
+    {
+      "chars": 480,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "d",
+      "kind": "clause",
+      "label": "(d)",
+      "title": "Written hazard communication program"
+    },
+    {
+      "chars": 477,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "e",
+      "kind": "clause",
+      "label": "(e)",
+      "title": "Labels and other forms of warning"
+    },
+    {
+      "chars": 462,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "f",
+      "kind": "clause",
+      "label": "(f)",
+      "title": "Safety data sheets"
+    },
+    {
+      "chars": 477,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "g",
+      "kind": "clause",
+      "label": "(g)",
+      "title": "Employee information and training"
+    },
+    {
+      "chars": 452,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "h",
+      "kind": "clause",
+      "label": "(h)",
+      "title": "Training"
+    },
+    {
+      "chars": 162,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "i",
+      "kind": "clause",
+      "label": "(i)",
+      "title": "Trade secrets"
+    },
+    {
+      "chars": 67,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "j",
+      "kind": "clause",
+      "label": "(j)",
+      "title": "Effective dates"
+    },
+    {
+      "chars": 4210,
+      "group": "appendix-a",
+      "group_label": "Appendix A",
+      "group_title": "Health Hazard Criteria (Mandatory)",
+      "key": "appendix-a-a-1",
+      "kind": "chapter",
+      "label": "A.1",
+      "title": "Acute Toxicity"
+    },
+    {
+      "chars": 4108,
+      "group": "appendix-a",
+      "group_label": "Appendix A",
+      "group_title": "Health Hazard Criteria (Mandatory)",
+      "key": "appendix-a-a-2",
+      "kind": "chapter",
+      "label": "A.2",
+      "title": "Skin Corrosion"
+    },
+    {
+      "chars": 4104,
+      "group": "appendix-a",
+      "group_label": "Appendix A",
+      "group_title": "Health Hazard Criteria (Mandatory)",
+      "key": "appendix-a-a-3",
+      "kind": "chapter",
+      "label": "A.3",
+      "title": "Eye Damage"
+    },
+    {
+      "chars": 4119,
+      "group": "appendix-a",
+      "group_label": "Appendix A",
+      "group_title": "Health Hazard Criteria (Mandatory)",
+      "key": "appendix-a-a-4",
+      "kind": "chapter",
+      "label": "A.4",
+      "title": "Respiratory Sensitization"
+    }
+  ],
+  "part": "1910",
+  "path": [
+    {
+      "d": "Regulations Relating to Labor",
+      "id": "B",
+      "l": "Subtitle B",
+      "t": "subtitle"
+    },
+    {
+      "d": "Occupational Safety and Health Administration, Department of Labor",
+      "id": "XVII",
+      "l": "Chapter XVII",
+      "t": "chapter"
+    },
+    {
+      "d": "Occupational Safety and Health Standards",
+      "id": "1910",
+      "l": "Part 1910",
+      "t": "part"
+    },
+    {
+      "d": "Toxic and Hazardous Substances",
+      "id": "Z",
+      "l": "Subpart Z",
+      "t": "subpart"
+    }
+  ],
+  "prev": {
+    "id": "1910.135",
+    "label": "§ 1910.135",
+    "title": "Head protection."
+  },
+  "reserved": false,
+  "section_title": "Hazard communication.",
+  "title": 29,
+  "title_label": "Hazard communication.",
+  "unit": "a",
+  "unit_next": {
+    "chars": 465,
+    "group": null,
+    "group_label": null,
+    "group_title": null,
+    "key": "b",
+    "kind": "clause",
+    "label": "(b)",
+    "title": "Scope and application"
+  },
+  "unit_prev": null
+}

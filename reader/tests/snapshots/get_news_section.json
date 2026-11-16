@@ -1,0 +1,114 @@
+{
+  "articles": [
+    {
+      "action": null,
+      "agency": "occupational-safety-and-health-administration",
+      "category": "enforcement",
+      "cfr_parts": [],
+      "citation": null,
+      "city": "Salem",
+      "comments_close_on": null,
+      "company": "Christmas Tree Shops",
+      "description": "",
+      "doc_type": "Follow-up inspection",
+      "docket_ids": [],
+      "effective_on": null,
+      "general_duty": 1,
+      "guid": "dol-insp:306953084",
+      "link": "https://www.osha.gov/ords/imis/establishment.inspection_detail?id=306953084",
+      "naics": "455219",
+      "pdf_url": null,
+      "penalty_usd": 30000.0,
+      "published_at": "2026-11-10",
+      "scheduled_on": null,
+      "sections": [
+        "1910.1030",
+        "1926.501"
+      ],
+      "snippet": null,
+      "source": "dol_osha",
+      "state": "NH",
+      "takeaways": [
+        {
+          "key": "incident",
+          "label": "Incident",
+          "text": "Follow-up inspection at Christmas Tree Shops, Salem, NH · NAICS 455219 · opened Sep 15, 2026"
+        },
+        {
+          "key": "standards",
+          "label": "Standards",
+          "text": "§ 1910.1030, § 1926.501 · General Duty Clause ×1 · 1 state-plan standards"
+        },
+        {
+          "key": "penalty",
+          "label": "Penalty",
+          "text": "$30,000 current penalty · 1 Willful, 2 Serious, 1 Other-than-Serious · issued Nov 10, 2026"
+        }
+      ],
+      "title": "Christmas Tree Shops cited after follow-up inspection in Salem, NH",
+      "unmapped_standards": 1,
+      "violation_types": [
+        "O",
+        "S",
+        "W"
+      ]
+    },
+    {
+      "action": "Proposed rule; request for comments.",
+      "agency": "occupational-safety-and-health-administration",
+      "category": "rulemaking",
+      "cfr_parts": [
+        {
+          "part": "1910",
+          "title": 29
+        }
+      ],
+      "citation": "91 FR 60123",
+      "city": null,
+      "comments_close_on": "2026-12-15",
+      "company": null,
+      "description": "OSHA proposes to amend 29 CFR 1910.1200(a)(1) to align label elements. Comments are requested.",
+      "doc_type": "Proposed Rule",
+      "docket_ids": [
+        "OSHA-2026-0007"
+      ],
+      "effective_on": null,
+      "general_duty": 0,
+      "guid": "fr:2026-20001",
+      "link": "https://www.federalregister.gov/documents/2026/11/02/2026-20001/hazcom",
+      "naics": null,
+      "pdf_url": "https://www.govinfo.gov/content/pkg/FR-2026-11-02/pdf/2026-20001.pdf",
+      "penalty_usd": null,
+      "published_at": "2026-11-02",
+      "scheduled_on": null,
+      "sections": [
+        "1910.1200"
+      ],
+      "snippet": null,
+      "source": "federal_register",
+      "state": null,
+      "takeaways": [
+        {
+          "key": "action",
+          "label": "Action",
+          "text": "Proposed rule; request for comments. OSHA proposes to amend 29 CFR 1910.1200(a)(1) to align label elements."
+        },
+        {
+          "key": "cfr",
+          "label": "CFR",
+          "text": "29 CFR Part 1910 · § 1910.1200"
+        },
+        {
+          "key": "dates",
+          "label": "Dates",
+          "text": "Comments close Dec 15, 2026 · Docket OSHA-2026-0007"
+        }
+      ],
+      "title": "Hazard Communication: Proposed Amendments",
+      "unmapped_standards": 0,
+      "violation_types": []
+    }
+  ],
+  "count": 2,
+  "section_id": "1910.1030"
+}

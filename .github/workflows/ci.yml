@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "stage-*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      record_baselines:
+        description: "Record visual baselines for this OS matrix and upload them as artifacts (instead of comparing)"
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: reader/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r reader/requirements-dev.txt
+
+      - name: Install Chromium
+        run: python -m playwright install chromium
+
+      - name: Run tests (strict browser gate)
+        if: ${{ !inputs.record_baselines }}
+        working-directory: reader
+        env:
+          REQUIRE_BROWSER: "1"
+        run: python -m pytest tests -q
+
+      - name: Record visual baselines
+        if: ${{ inputs.record_baselines }}
+        working-directory: reader
+        env:
+          REQUIRE_BROWSER: "1"
+          UPDATE_BASELINES: "1"
+        run: python -m pytest tests/test_browser_parity.py -q
+
+      - name: Upload recorded baselines
+        if: ${{ inputs.record_baselines }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: baselines-${{ matrix.os }}
+          path: reader/tests/baselines/
+
+      - name: Upload failing screenshots
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: failing-screens-${{ matrix.os }}
+          path: reader/tests/baselines/**/*.actual.png
+          if-no-files-found: ignore

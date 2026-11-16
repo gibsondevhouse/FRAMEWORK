@@ -5,9 +5,10 @@ import unittest
 
 from app import config, store
 from fake_titles import FakeTitles
+from tests.base import HermeticTestCase
 
 
-class TestFederatedStore(unittest.TestCase):
+class TestFederatedStore(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
         cls.fake = FakeTitles()

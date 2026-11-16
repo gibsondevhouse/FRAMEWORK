@@ -1,0 +1,193 @@
+{
+  "ecfr_url": "https://www.ecfr.gov/current/title-29/part-1910",
+  "html": {
+    "chars": 24485,
+    "«sha256»": "0f18374aac0e9c4a7e290984100f9027eec3ec422877886cf868034da6f335c9"
+  },
+  "id": "1910.1200",
+  "kind": "section",
+  "label": "§ 1910.1200",
+  "mode": "units",
+  "next": null,
+  "outline": [
+    {
+      "chars": 451,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "a",
+      "kind": "clause",
+      "label": "(a)",
+      "title": "Purpose"
+    },
+    {
+      "chars": 465,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "b",
+      "kind": "clause",
+      "label": "(b)",
+      "title": "Scope and application"
+    },
+    {
+      "chars": 455,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "c",
+      "kind": "clause",
+      "label": "(c)",
+      "title": "Definitions"
+    },
+    {
+      "chars": 480,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "d",
+      "kind": "clause",
+      "label": "(d)",
+      "title": "Written hazard communication program"
+    },
+    {
+      "chars": 477,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "e",
+      "kind": "clause",
+      "label": "(e)",
+      "title": "Labels and other forms of warning"
+    },
+    {
+      "chars": 462,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "f",
+      "kind": "clause",
+      "label": "(f)",
+      "title": "Safety data sheets"
+    },
+    {
+      "chars": 477,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "g",
+      "kind": "clause",
+      "label": "(g)",
+      "title": "Employee information and training"
+    },
+    {
+      "chars": 452,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "h",
+      "kind": "clause",
+      "label": "(h)",
+      "title": "Training"
+    },
+    {
+      "chars": 162,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "i",
+      "kind": "clause",
+      "label": "(i)",
+      "title": "Trade secrets"
+    },
+    {
+      "chars": 67,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "j",
+      "kind": "clause",
+      "label": "(j)",
+      "title": "Effective dates"
+    },
+    {
+      "chars": 4210,
+      "group": "appendix-a",
+      "group_label": "Appendix A",
+      "group_title": "Health Hazard Criteria (Mandatory)",
+      "key": "appendix-a-a-1",
+      "kind": "chapter",
+      "label": "A.1",
+      "title": "Acute Toxicity"
+    },
+    {
+      "chars": 4108,
+      "group": "appendix-a",
+      "group_label": "Appendix A",
+      "group_title": "Health Hazard Criteria (Mandatory)",
+      "key": "appendix-a-a-2",
+      "kind": "chapter",
+      "label": "A.2",
+      "title": "Skin Corrosion"
+    },
+    {
+      "chars": 4104,
+      "group": "appendix-a",
+      "group_label": "Appendix A",
+      "group_title": "Health Hazard Criteria (Mandatory)",
+      "key": "appendix-a-a-3",
+      "kind": "chapter",
+      "label": "A.3",
+      "title": "Eye Damage"
+    },
+    {
+      "chars": 4119,
+      "group": "appendix-a",
+      "group_label": "Appendix A",
+      "group_title": "Health Hazard Criteria (Mandatory)",
+      "key": "appendix-a-a-4",
+      "kind": "chapter",
+      "label": "A.4",
+      "title": "Respiratory Sensitization"
+    }
+  ],
+  "part": "1910",
+  "path": [
+    {
+      "d": "Regulations Relating to Labor",
+      "id": "B",
+      "l": "Subtitle B",
+      "t": "subtitle"
+    },
+    {
+      "d": "Occupational Safety and Health Administration, Department of Labor",
+      "id": "XVII",
+      "l": "Chapter XVII",
+      "t": "chapter"
+    },
+    {
+      "d": "Occupational Safety and Health Standards",
+      "id": "1910",
+      "l": "Part 1910",
+      "t": "part"
+    },
+    {
+      "d": "Toxic and Hazardous Substances",
+      "id": "Z",
+      "l": "Subpart Z",
+      "t": "subpart"
+    }
+  ],
+  "prev": {
+    "id": "1910.135",
+    "label": "§ 1910.135",
+    "title": "Head protection."
+  },
+  "reserved": false,
+  "section_title": "Hazard communication.",
+  "title": 29,
+  "title_label": "Hazard communication.",
+  "unit": null,
+  "unit_next": null,
+  "unit_prev": null
+}

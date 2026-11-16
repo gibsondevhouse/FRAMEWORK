@@ -1,0 +1,29 @@
+[
+  {
+    "ai_configured": false,
+    "built_at": "«normalized»",
+    "edition": "2026-01-02",
+    "name": "Labor",
+    "partial": false,
+    "section_count": 4,
+    "title": 29
+  },
+  {
+    "ai_configured": false,
+    "built_at": "«normalized»",
+    "edition": "2026-01-02",
+    "name": "Protection of Environment",
+    "partial": false,
+    "section_count": 2,
+    "title": 40
+  },
+  {
+    "ai_configured": false,
+    "built_at": "«normalized»",
+    "edition": "2026-01-02",
+    "name": "Transportation",
+    "partial": false,
+    "section_count": 2,
+    "title": 49
+  }
+]

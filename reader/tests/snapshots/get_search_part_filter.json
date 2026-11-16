@@ -1,0 +1,30 @@
+{
+  "ms": "«int»",
+  "query": "protection",
+  "results": [
+    {
+      "exact": false,
+      "id": "1910.135",
+      "kind": "section",
+      "label": "§ 1910.135",
+      "part": "1910",
+      "score": -2.1127892476098108e-06,
+      "snippet": "§ 1910.135 Head \u0002protection\u0003.\n(a) General requirements. The employer shall ensure that each affected employee wears a \u0002protective\u0003 helmet.\n(b) Criteria. Helmets shall comply with ANSI Z89.1.",
+      "title": 29,
+      "title_label": "Head protection."
+    },
+    {
+      "exact": false,
+      "id": "1910.134",
+      "kind": "section",
+      "label": "§ 1910.134",
+      "part": "1910",
+      "score": -2.105503270974406e-06,
+      "snippet": "§ 1910.134 Respiratory \u0002protection\u0003.\n(a) Permissible practice. Respirators shall be provided.",
+      "title": 29,
+      "title_label": "Respiratory protection."
+    }
+  ],
+  "title": 29,
+  "total": 2
+}

@@ -6,9 +6,10 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from fake_titles import FakeTitles
+from tests.base import HermeticTestCase
 
 
-class TestApiEndpoints(unittest.TestCase):
+class TestApiEndpoints(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
         cls.fake = FakeTitles()
@@ -119,6 +120,13 @@ class TestApiEndpoints(unittest.TestCase):
 
     def test_out_of_range_title_422(self):
         self.assertEqual(self.client.get("/api/99/meta").status_code, 422)
+
+    def test_fixed_prefix_routes_precede_title_router(self):
+        """If a fixed-prefix router were mounted after /api/{title}, these would all
+        be captured as a (non-integer) title and 422."""
+        for url in ("/api/settings/env", "/api/library/jobs", "/api/library/storage", "/api/news/status"):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
 
     def test_chat_without_key_is_400(self):
         from unittest import mock

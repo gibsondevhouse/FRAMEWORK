@@ -1,0 +1,14 @@
+{
+  "done": null,
+  "error": null,
+  "finished_at": null,
+  "id": 1,
+  "kind": "title",
+  "label": "Title 40",
+  "phase": "Waiting",
+  "queued_at": "«int»",
+  "state": "queued",
+  "target": null,
+  "title": 40,
+  "total": null
+}

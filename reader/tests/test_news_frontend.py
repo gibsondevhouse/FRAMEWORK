@@ -8,16 +8,20 @@ from pathlib import Path
 
 from app import news
 from tests.news_fixtures import CITATION_CASES
+from tests.base import HermeticTestCase
+from tests.frontend_sources import app_js, combined_css, index_html
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
 
-class NewsCiteRegexParityTests(unittest.TestCase):
+class NewsCiteRegexParityTests(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
-        cls.js = (STATIC / "app.js").read_text(encoding="utf-8")
-        m = re.search(r"const NEWS_CITE_RE = /(.+)/gi;", cls.js)
-        assert m, "NEWS_CITE_RE not found in app.js"
+        cls.js = app_js()
+        # Lives in frontend/src/citations.ts; tolerate the export keyword and an
+        # optional TypeScript type annotation.
+        m = re.search(r"const NEWS_CITE_RE(?:\s*:\s*RegExp)?\s*=\s*/(.+)/gi;", cls.js)
+        assert m, "NEWS_CITE_RE not found in the frontend sources"
         cls.js_pattern = m.group(1)
 
     def test_js_regex_is_the_agreed_pattern(self):
@@ -38,12 +42,12 @@ class NewsCiteRegexParityTests(unittest.TestCase):
                 self.assertEqual(py_ids, want_sections)
 
 
-class NewsMarkupContractTests(unittest.TestCase):
+class NewsMarkupContractTests(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
-        cls.js = (STATIC / "app.js").read_text(encoding="utf-8")
-        cls.html = (STATIC / "index.html").read_text(encoding="utf-8")
-        cls.css = (STATIC / "styles.css").read_text(encoding="utf-8")
+        cls.js = app_js()
+        cls.html = index_html()
+        cls.css = combined_css()
 
     def test_route_and_loader_exist(self):
         self.assertIn("checkPath === '/news'", self.js)

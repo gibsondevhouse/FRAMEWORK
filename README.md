@@ -22,7 +22,7 @@ The only times FRAMEWORK reaches out to the internet are when you choose to down
 
 ## Getting started
 
-You'll need **Python 3.10 or newer**.
+You'll need **Python 3.10 or newer** — and nothing else at runtime. The web frontend ships pre-built (committed in `reader/static/dist/`, fonts self-hosted), so **no Node.js is required** to run FRAMEWORK.
 
 ### The easy way on macOS
 Double-click **`Start FRAMEWORK.command`** in the repository root. On the first run, it creates a `.venv` for you, installs the dependencies, starts the server, and opens your browser.
@@ -31,7 +31,7 @@ Double-click **`Start FRAMEWORK.command`** in the repository root. On the first 
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest tzdata
+.venv/bin/pip install -r reader/requirements.txt
 cd reader
 ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
@@ -40,7 +40,7 @@ cd reader
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest tzdata
+.\.venv\Scripts\pip install -r reader\requirements.txt
 cd reader
 ..\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
@@ -66,7 +66,9 @@ The **News** page works out of the box for Federal Register rulemaking. To also 
 
 ## Where everything lives
 
-- **`reader/`** — The workstation itself: a FastAPI + SQLite FTS5 backend and a vanilla JavaScript frontend. See [`reader/README.md`](reader/README.md) for the full user guide and [`reader/API.md`](reader/API.md) if you want to use the HTTP API directly.
+- **`reader/`** — The workstation itself: a FastAPI + SQLite FTS5 backend and a vanilla-JS/TypeScript frontend (sources in `reader/frontend/`, built by Vite into the committed `reader/static/dist/`). See [`reader/README.md`](reader/README.md) for the full user guide and [`reader/API.md`](reader/API.md) if you want to use the HTTP API directly.
+
+  Contributing to the frontend (only then do you need Node 20+): `cd reader/frontend && npm install && npm run watch` beside the uvicorn dev server, then commit the rebuilt `reader/static/dist/` (`.nvmrc` pins the Node version; `tests/test_build_stamp.py` fails if sources and the committed build drift apart).
 - **`docs/plans/`** — Design notes and roadmaps:
   - `editorial_download_refactor/` & `sliding_rail_sidebar/` — Blueprints for the newsroom library, transfer dock, activity rail, and project dossiers (implemented in `reader/`).
   - `osha_news_interface/` — The plan behind the OSHA regulatory news page (implemented in `reader/`).

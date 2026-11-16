@@ -5,6 +5,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from app.build import front_matter_xml, stream_parse_xml
+from tests.base import HermeticTestCase
 
 SAMPLE_CFR_XML = """<DIV1 N="29">
   <DIV5 N="1910">
@@ -30,7 +31,7 @@ SAMPLE_CFR_XML = """<DIV1 N="29">
 </DIV1>"""
 
 
-class TestIterparse(unittest.TestCase):
+class TestIterparse(HermeticTestCase):
     def test_fixture_parse(self):
         con = sqlite3.connect(":memory:")
         import tempfile
