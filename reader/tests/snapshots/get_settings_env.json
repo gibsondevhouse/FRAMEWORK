@@ -1,0 +1,31 @@
+{
+  "env_exists": false,
+  "env_file": "reader/.env",
+  "keys": {
+    "ANTHROPIC_API_KEY": {
+      "configured": false,
+      "masked": null
+    },
+    "ANTHROPIC_MODEL": {
+      "default": "claude-sonnet-5-5",
+      "value": ""
+    },
+    "DOL_API_KEY": {
+      "configured": false,
+      "masked": null
+    },
+    "NEWS_AGENCIES": {
+      "default": "occupational-safety-and-health-administration",
+      "value": "occupational-safety-and-health-administration"
+    },
+    "NEWS_RETENTION_DAYS": {
+      "default": 365,
+      "value": 365
+    },
+    "NEWS_SYNC": {
+      "default": true,
+      "raw": "1",
+      "value": true
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "legacy_bytes": "«int»",
+  "temp_bytes": "«int»",
+  "temp_files": 0,
+  "titles": [
+    {
+      "bytes": "«int»",
+      "title": 29
+    },
+    {
+      "bytes": "«int»",
+      "title": 40
+    },
+    {
+      "bytes": "«int»",
+      "title": 49
+    }
+  ],
+  "total_bytes": "«int»"
+}

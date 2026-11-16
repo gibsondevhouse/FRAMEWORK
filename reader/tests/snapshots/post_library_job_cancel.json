@@ -1,0 +1,14 @@
+{
+  "done": null,
+  "error": null,
+  "finished_at": "«int»",
+  "id": 1,
+  "kind": "update",
+  "label": "Update Title 29",
+  "phase": "Cancelled",
+  "queued_at": "«int»",
+  "state": "cancelled",
+  "target": null,
+  "title": 29,
+  "total": null
+}

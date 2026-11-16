@@ -1,0 +1,18 @@
+{
+  "done": null,
+  "error": null,
+  "finished_at": null,
+  "id": 3,
+  "kind": "section",
+  "label": "§ 172.101 · Title 49",
+  "phase": "Waiting",
+  "queued_at": "«int»",
+  "state": "queued",
+  "target": {
+    "id": "172.101",
+    "part": "172",
+    "t": "section"
+  },
+  "title": 49,
+  "total": null
+}

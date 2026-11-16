@@ -1,0 +1,19 @@
+{
+  "ms": 0,
+  "query": "hazardous",
+  "results": [
+    {
+      "exact": false,
+      "id": "172.101",
+      "kind": "section",
+      "label": "§ 172.101",
+      "part": "172",
+      "score": -1.876390605686032e-06,
+      "snippet": "§ 172.101 Purpose and use of \u0002hazardous\u0003 materials table.\n(a) The \u0002Hazardous\u0003 Materials Table designates the materials listed as \u0002hazardous\u0003 materials for transportation.",
+      "title": 49,
+      "title_label": "Purpose and use of hazardous materials table."
+    }
+  ],
+  "title": 49,
+  "total": 1
+}

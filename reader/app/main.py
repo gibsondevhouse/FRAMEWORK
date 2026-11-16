@@ -445,7 +445,7 @@ def get_part_full(part: str) -> dict:
 
 @app.get("/api/models")
 async def models() -> dict:
-    return await title_models(title=config.DEFAULT_TITLE)
+    return await title_models(_=config.DEFAULT_TITLE)
 
 
 @app.post("/api/chat")

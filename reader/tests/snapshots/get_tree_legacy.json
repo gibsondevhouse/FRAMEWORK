@@ -1,0 +1,80 @@
+{
+  "c": [
+    {
+      "c": [
+        {
+          "c": [
+            {
+              "c": [
+                {
+                  "c": [
+                    {
+                      "d": "Hazardous waste operations and emergency response.",
+                      "id": "1910.120",
+                      "l": "§ 1910.120",
+                      "t": "section"
+                    }
+                  ],
+                  "d": "Hazardous Materials",
+                  "id": "H",
+                  "l": "Subpart H",
+                  "t": "subpart"
+                },
+                {
+                  "c": [
+                    {
+                      "d": "Respiratory protection.",
+                      "id": "1910.134",
+                      "l": "§ 1910.134",
+                      "t": "section"
+                    },
+                    {
+                      "d": "Head protection.",
+                      "id": "1910.135",
+                      "l": "§ 1910.135",
+                      "t": "section"
+                    }
+                  ],
+                  "d": "Personal Protective Equipment",
+                  "id": "I",
+                  "l": "Subpart I",
+                  "t": "subpart"
+                },
+                {
+                  "c": [
+                    {
+                      "d": "Hazard communication.",
+                      "id": "1910.1200",
+                      "l": "§ 1910.1200",
+                      "t": "section"
+                    }
+                  ],
+                  "d": "Toxic and Hazardous Substances",
+                  "id": "Z",
+                  "l": "Subpart Z",
+                  "t": "subpart"
+                }
+              ],
+              "d": "Occupational Safety and Health Standards",
+              "id": "1910",
+              "l": "Part 1910",
+              "t": "part"
+            }
+          ],
+          "d": "Occupational Safety and Health Administration, Department of Labor",
+          "id": "XVII",
+          "l": "Chapter XVII",
+          "t": "chapter"
+        }
+      ],
+      "d": "Regulations Relating to Labor",
+      "id": "B",
+      "l": "Subtitle B",
+      "t": "subtitle"
+    }
+  ],
+  "d": "Labor",
+  "id": "29",
+  "l": "Title 29",
+  "t": "title"
+}

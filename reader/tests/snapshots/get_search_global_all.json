@@ -1,0 +1,41 @@
+{
+  "ms": 1,
+  "query": "waste",
+  "results": [
+    {
+      "exact": false,
+      "id": "1910.120",
+      "kind": "section",
+      "label": "§ 1910.120",
+      "part": "1910",
+      "score": -1.795174346435623,
+      "snippet": "§ 1910.120 Hazardous \u0002waste\u0003 operations and emergency response.\n(a) Scope. This section covers hazardous \u0002waste\u0003 operations. \u0002Waste\u0003 defined under 40 CFR 261.3 and materials listed in 49 … ",
+      "title": 29,
+      "title_label": "Hazardous waste operations and emergency response."
+    },
+    {
+      "exact": false,
+      "id": "261.2",
+      "kind": "section",
+      "label": "§ 261.2",
+      "part": "261",
+      "score": -1.9705362404242786e-06,
+      "snippet": "§ 261.2 Definition of solid \u0002waste\u0003.\n(a) A solid \u0002waste\u0003 is any discarded material.",
+      "title": 40,
+      "title_label": "Definition of solid waste."
+    },
+    {
+      "exact": false,
+      "id": "261.3",
+      "kind": "section",
+      "label": "§ 261.3",
+      "part": "261",
+      "score": -1.8914027149321268e-06,
+      "snippet": "§ 261.3 Definition of hazardous \u0002waste\u0003.\n(a) A solid \u0002waste\u0003 is a hazardous \u0002waste\u0003 if it is listed in subpart D or exhibits a characteristic. Generators follow 40 … ",
+      "title": 40,
+      "title_label": "Definition of hazardous waste."
+    }
+  ],
+  "title": "all",
+  "total": 3
+}

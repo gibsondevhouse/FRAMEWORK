@@ -1,0 +1,16 @@
+{
+  "detail": [
+    {
+      "ctx": {
+        "pattern": "^(all|rules|rulemaking|notices|public_inspection|enforcement)$"
+      },
+      "input": "bogus",
+      "loc": [
+        "query",
+        "category"
+      ],
+      "msg": "String should match pattern '^(all|rules|rulemaking|notices|public_inspection|enforcement)$'",
+      "type": "string_pattern_mismatch"
+    }
+  ]
+}

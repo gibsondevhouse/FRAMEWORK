@@ -1,0 +1,74 @@
+{
+  "ecfr_url": "https://www.ecfr.gov/current/title-29/part-1910",
+  "html": "<section class=\"reg-unit\" id=\"u-a\" data-unit=\"a\"><div class=\"reg-body\"><p class=\"reg-p lvl-1\" id=\"p1\"><span class=\"pmark\">(a)</span> <strong class=\"runin\">General requirements.</strong> The employer shall ensure that each affected employee wears a protective helmet.</p></div></section><section class=\"reg-unit\" id=\"u-b\" data-unit=\"b\"><div class=\"reg-body\"><p class=\"reg-p lvl-1\" id=\"p2\"><span class=\"pmark\">(b)</span> <strong class=\"runin\">Criteria.</strong> Helmets shall comply with ANSI Z89.1.</p></div></section>",
+  "id": "1910.135",
+  "kind": "section",
+  "label": "§ 1910.135",
+  "mode": "page",
+  "next": {
+    "id": "1910.1200",
+    "label": "§ 1910.1200",
+    "title": "Hazard communication."
+  },
+  "outline": [
+    {
+      "chars": 106,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "a",
+      "kind": "clause",
+      "label": "(a)",
+      "title": "General requirements"
+    },
+    {
+      "chars": 51,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "b",
+      "kind": "clause",
+      "label": "(b)",
+      "title": "Criteria"
+    }
+  ],
+  "part": "1910",
+  "path": [
+    {
+      "d": "Regulations Relating to Labor",
+      "id": "B",
+      "l": "Subtitle B",
+      "t": "subtitle"
+    },
+    {
+      "d": "Occupational Safety and Health Administration, Department of Labor",
+      "id": "XVII",
+      "l": "Chapter XVII",
+      "t": "chapter"
+    },
+    {
+      "d": "Occupational Safety and Health Standards",
+      "id": "1910",
+      "l": "Part 1910",
+      "t": "part"
+    },
+    {
+      "d": "Personal Protective Equipment",
+      "id": "I",
+      "l": "Subpart I",
+      "t": "subpart"
+    }
+  ],
+  "prev": {
+    "id": "1910.134",
+    "label": "§ 1910.134",
+    "title": "Respiratory protection."
+  },
+  "reserved": false,
+  "section_title": "Head protection.",
+  "title": 29,
+  "title_label": "Head protection.",
+  "unit": null,
+  "unit_next": null,
+  "unit_prev": null
+}

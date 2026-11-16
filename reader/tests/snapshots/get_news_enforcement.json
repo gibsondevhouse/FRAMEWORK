@@ -1,0 +1,109 @@
+{
+  "articles": [
+    {
+      "action": null,
+      "agency": "occupational-safety-and-health-administration",
+      "category": "enforcement",
+      "cfr_parts": [],
+      "citation": null,
+      "city": "Salem",
+      "comments_close_on": null,
+      "company": "Christmas Tree Shops",
+      "description": "",
+      "doc_type": "Follow-up inspection",
+      "docket_ids": [],
+      "effective_on": null,
+      "general_duty": 1,
+      "guid": "dol-insp:306953084",
+      "link": "https://www.osha.gov/ords/imis/establishment.inspection_detail?id=306953084",
+      "naics": "455219",
+      "pdf_url": null,
+      "penalty_usd": 30000.0,
+      "published_at": "2026-11-10",
+      "scheduled_on": null,
+      "sections": [
+        "1910.1030",
+        "1926.501"
+      ],
+      "snippet": null,
+      "source": "dol_osha",
+      "state": "NH",
+      "takeaways": [
+        {
+          "key": "incident",
+          "label": "Incident",
+          "text": "Follow-up inspection at Christmas Tree Shops, Salem, NH · NAICS 455219 · opened Sep 15, 2026"
+        },
+        {
+          "key": "standards",
+          "label": "Standards",
+          "text": "§ 1910.1030, § 1926.501 · General Duty Clause ×1 · 1 state-plan standards"
+        },
+        {
+          "key": "penalty",
+          "label": "Penalty",
+          "text": "$30,000 current penalty · 1 Willful, 2 Serious, 1 Other-than-Serious · issued Nov 10, 2026"
+        }
+      ],
+      "title": "Christmas Tree Shops cited after follow-up inspection in Salem, NH",
+      "unmapped_standards": 1,
+      "violation_types": [
+        "O",
+        "S",
+        "W"
+      ]
+    },
+    {
+      "action": null,
+      "agency": "occupational-safety-and-health-administration",
+      "category": "enforcement",
+      "cfr_parts": [],
+      "citation": null,
+      "city": "Houston",
+      "comments_close_on": null,
+      "company": "Acme Foundry Llc",
+      "description": "",
+      "doc_type": "Accident investigation",
+      "docket_ids": [],
+      "effective_on": null,
+      "general_duty": 0,
+      "guid": "dol-insp:307000001",
+      "link": "https://www.osha.gov/ords/imis/establishment.inspection_detail?id=307000001",
+      "naics": "331511",
+      "pdf_url": null,
+      "penalty_usd": 25000.0,
+      "published_at": "2026-10-20",
+      "scheduled_on": null,
+      "sections": [
+        "1910.134"
+      ],
+      "snippet": null,
+      "source": "dol_osha",
+      "state": "TX",
+      "takeaways": [
+        {
+          "key": "incident",
+          "label": "Incident",
+          "text": "Accident investigation at Acme Foundry Llc, Houston, TX · NAICS 331511 · opened Aug 1, 2026"
+        },
+        {
+          "key": "standards",
+          "label": "Standards",
+          "text": "§ 1910.134"
+        },
+        {
+          "key": "penalty",
+          "label": "Penalty",
+          "text": "$25,000 current penalty · 1 Repeat · issued Oct 20, 2026"
+        }
+      ],
+      "title": "Acme Foundry Llc cited after accident investigation in Houston, TX",
+      "unmapped_standards": 0,
+      "violation_types": [
+        "R"
+      ]
+    }
+  ],
+  "offset": 0,
+  "total": 2
+}

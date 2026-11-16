@@ -1,0 +1,56 @@
+{
+  "d": "Occupational Safety and Health Standards",
+  "groups": [
+    {
+      "label": "Subpart H — Hazardous Materials",
+      "sections": [
+        {
+          "d": "Hazardous waste operations and emergency response.",
+          "id": "1910.120",
+          "installed": true,
+          "l": "§ 1910.120",
+          "r": false,
+          "t": "section"
+        }
+      ]
+    },
+    {
+      "label": "Subpart I — Personal Protective Equipment",
+      "sections": [
+        {
+          "d": "Respiratory protection.",
+          "id": "1910.134",
+          "installed": true,
+          "l": "§ 1910.134",
+          "r": false,
+          "t": "section"
+        },
+        {
+          "d": "Head protection.",
+          "id": "1910.135",
+          "installed": true,
+          "l": "§ 1910.135",
+          "r": false,
+          "t": "section"
+        }
+      ]
+    },
+    {
+      "label": "Subpart Z — Toxic and Hazardous Substances",
+      "sections": [
+        {
+          "d": "Hazard communication.",
+          "id": "1910.1200",
+          "installed": true,
+          "l": "§ 1910.1200",
+          "r": false,
+          "t": "section"
+        }
+      ]
+    }
+  ],
+  "installed": "all",
+  "l": "Part 1910",
+  "part": "1910",
+  "title": 29
+}

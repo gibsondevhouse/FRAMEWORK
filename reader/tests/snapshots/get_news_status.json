@@ -1,0 +1,52 @@
+{
+  "agencies": [
+    "occupational-safety-and-health-administration"
+  ],
+  "counts": {
+    "all": 6,
+    "enforcement": 2,
+    "notices": 1,
+    "public_inspection": 1,
+    "rulemaking": 1,
+    "rules": 1
+  },
+  "dol_configured": false,
+  "due": true,
+  "sources": {
+    "dol_osha": {
+      "enabled": false,
+      "fail_count": 0,
+      "last_count": null,
+      "last_error": null,
+      "last_error_at": null,
+      "last_ok_at": null,
+      "next_due_at": null,
+      "retry_after": null,
+      "stale": false
+    },
+    "federal_register": {
+      "enabled": true,
+      "fail_count": 0,
+      "last_count": null,
+      "last_error": null,
+      "last_error_at": null,
+      "last_ok_at": null,
+      "next_due_at": "«normalized»",
+      "retry_after": null,
+      "stale": true
+    },
+    "federal_register_pi": {
+      "enabled": true,
+      "fail_count": 0,
+      "last_count": null,
+      "last_error": null,
+      "last_error_at": null,
+      "last_ok_at": null,
+      "next_due_at": "«normalized»",
+      "retry_after": null,
+      "stale": true
+    }
+  },
+  "sync_enabled": true,
+  "syncing": false
+}

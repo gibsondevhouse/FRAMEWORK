@@ -1,0 +1,140 @@
+{
+  "checked_at": null,
+  "desks": [
+    "Workplace & Labor",
+    "Environment & Energy",
+    "Transportation",
+    "Health, Education & Welfare",
+    "Agriculture & Natural Resources",
+    "Business, Finance & Trade",
+    "Security & Foreign Affairs",
+    "Government & Law"
+  ],
+  "jobs": {
+    "current": null,
+    "queued": [],
+    "recent": []
+  },
+  "suites": {
+    "ehs": {
+      "badge": "Core compliance",
+      "featured": true,
+      "id": "ehs",
+      "name": "Environment, Health & Safety",
+      "sections": 40935,
+      "size_mb": 212.4,
+      "summary": "Workplace safety and health (OSHA), environmental protection (EPA) and hazardous materials transport (DOT): the baseline an EHS program is audited against.",
+      "titles": [
+        29,
+        40,
+        49
+      ]
+    },
+    "govcon": {
+      "badge": "Government",
+      "featured": false,
+      "id": "govcon",
+      "name": "Federal Contracting",
+      "sections": 14093,
+      "size_mb": 25.3,
+      "summary": "The Federal Acquisition Regulation and agency supplements, with GSA property and travel rules.",
+      "titles": [
+        41,
+        48
+      ]
+    },
+    "trade": {
+      "badge": "Financial markets",
+      "featured": false,
+      "id": "trade",
+      "name": "Commerce, Banking & Securities",
+      "sections": 12942,
+      "size_mb": 67.4,
+      "summary": "Bank and credit union rules, Commerce export controls, and SEC and CFTC market regulation.",
+      "titles": [
+        12,
+        15,
+        17
+      ]
+    }
+  },
+  "titles": [
+    {
+      "agencies": [
+        "OSHA",
+        "WHD",
+        "EBSA",
+        "NLRB"
+      ],
+      "amended": null,
+      "desk": "Workplace & Labor",
+      "featured": true,
+      "installed": {
+        "bytes": "«int»",
+        "edition": "2026-01-02",
+        "parts": null,
+        "section_count": 4,
+        "sections": null,
+        "whole": true
+      },
+      "latest": "2026-01-02",
+      "name": "Labor",
+      "reserved": false,
+      "sections": 7200,
+      "size_mb": 27.7,
+      "summary": "Workplace safety (OSHA), wages and hours, family and medical leave, and employee benefit plans (ERISA).",
+      "title": 29
+    },
+    {
+      "agencies": [
+        "EPA",
+        "CEQ",
+        "CSB"
+      ],
+      "amended": null,
+      "desk": "Environment & Energy",
+      "featured": true,
+      "installed": {
+        "bytes": "«int»",
+        "edition": "2026-01-02",
+        "parts": null,
+        "section_count": 2,
+        "sections": null,
+        "whole": true
+      },
+      "latest": "2026-01-02",
+      "name": "Protection of Environment",
+      "reserved": false,
+      "sections": 24741,
+      "size_mb": 153.2,
+      "summary": "EPA rules on air and water quality, hazardous waste, chemicals and pesticides, with permits and release reporting.",
+      "title": 40
+    },
+    {
+      "agencies": [
+        "PHMSA",
+        "FMCSA",
+        "FRA",
+        "NHTSA"
+      ],
+      "amended": null,
+      "desk": "Transportation",
+      "featured": true,
+      "installed": {
+        "bytes": "«int»",
+        "edition": "2026-01-02",
+        "parts": null,
+        "section_count": 2,
+        "sections": null,
+        "whole": true
+      },
+      "latest": "2026-01-02",
+      "name": "Transportation",
+      "reserved": false,
+      "sections": 8994,
+      "size_mb": 31.5,
+      "summary": "DOT rules: hazardous materials, motor carriers and drivers, rail, pipelines and vehicle safety.",
+      "title": 49
+    }
+  ]
+}

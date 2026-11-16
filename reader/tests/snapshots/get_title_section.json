@@ -1,0 +1,48 @@
+{
+  "ecfr_url": "https://www.ecfr.gov/current/title-40/section-261.3",
+  "html": "<section class=\"reg-unit\" id=\"u-a\" data-unit=\"a\"><div class=\"reg-body\"><p class=\"reg-p lvl-1\" id=\"p1\"><span class=\"pmark\">(a)</span> A solid waste is a hazardous waste if it is listed in subpart D or exhibits a characteristic. Generators follow <a class=\"xref xref-cross\" href=\"#/title/40/part/262\">40 CFR part 262</a>.</p></div></section>",
+  "id": "261.3",
+  "kind": "section",
+  "label": "§ 261.3",
+  "mode": "page",
+  "next": null,
+  "outline": [
+    {
+      "chars": 132,
+      "group": null,
+      "group_label": null,
+      "group_title": null,
+      "key": "a",
+      "kind": "clause",
+      "label": "(a)",
+      "title": "A solid waste is a hazardous waste if…"
+    }
+  ],
+  "part": "261",
+  "path": [
+    {
+      "d": "Environmental Protection Agency",
+      "id": "I",
+      "l": "Chapter I",
+      "t": "chapter"
+    },
+    {
+      "d": "Identification and Listing of Hazardous Waste",
+      "id": "261",
+      "l": "Part 261",
+      "t": "part"
+    }
+  ],
+  "prev": {
+    "id": "261.2",
+    "label": "§ 261.2",
+    "title": "Definition of solid waste."
+  },
+  "reserved": false,
+  "section_title": "Definition of hazardous waste.",
+  "title": 40,
+  "title_label": "Definition of hazardous waste.",
+  "unit": null,
+  "unit_next": null,
+  "unit_prev": null
+}

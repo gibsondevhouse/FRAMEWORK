@@ -1,0 +1,30 @@
+{
+  "groups": [
+    {
+      "label": "Chapter XVII — Occupational Safety and Health Administration, Department of Labor",
+      "parts": [
+        {
+          "d": "Occupational Safety and Health Standards",
+          "id": "1910",
+          "installed": "all",
+          "installed_sections": 0,
+          "l": "Part 1910",
+          "leaves": 4,
+          "r": false
+        }
+      ]
+    }
+  ],
+  "installed": {
+    "bytes": "«int»",
+    "edition": "2026-01-02",
+    "parts": null,
+    "section_count": 4,
+    "sections": null,
+    "whole": true
+  },
+  "latest": "2026-01-02",
+  "name": "Labor",
+  "reserved": false,
+  "title": 29
+}
