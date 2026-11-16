@@ -27,6 +27,7 @@ VOLATILE_KEYS = {
     "queued_at", "started_at", "finished_at",
     "last_ok_at", "last_error_at", "next_due_at", "retry_after",
     "bytes", "legacy_bytes", "temp_bytes", "total_bytes", "freed_bytes",
+    "ms",  # search timing
 }
 
 HASH_OVER_CHARS = 4000
