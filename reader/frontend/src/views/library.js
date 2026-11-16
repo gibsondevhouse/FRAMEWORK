@@ -10,6 +10,7 @@ import { onSettingsPage, refreshSettingsViews } from '../panels/settings_panel';
 import { dom } from '../state_init';
 import { fmt } from '../usage';
 import { HOME_CONTENT } from '../views/core';
+import { refreshHomeIfActive } from '../views/home';
 import { refreshWelcome } from './welcome';
 
 // --- Library: download titles, parts or sections from eCFR (#/library…) ---
@@ -434,7 +435,7 @@ export function libFrontHtml(d) {
   const lead = suites.find(s => s.featured) || suites[0];
   const others = suites.filter(s => s !== lead);
   return `<div class="lib lib-front">
-    <div class="doc-kicker"><a href="#/">Overview</a></div>
+    <div class="doc-kicker"><a href="#/">Home</a></div>
     <header class="lib-masthead">
       <h1 class="doc-title">Library</h1>
       <p class="lib-sub">${sub}</p>
@@ -485,7 +486,7 @@ export function renderLibrary(fresh) {
   if (!part) {
     document.title = `Title ${title} · Library · FRAMEWORK`;
     const inst = d.installed;
-    crumbs = `<a href="#/">Overview</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a>`;
+    crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a>`;
     heading = `Title ${title} — ${d.name}`;
     sub = inst
       ? (inst.whole ? `Installed · ${fmtDate(inst.edition)} · ${fmt(inst.section_count)} sections`
@@ -511,7 +512,7 @@ export function renderLibrary(fresh) {
       }).join('')}`).join('');
   } else {
     document.title = `Part ${part} · Library · FRAMEWORK`;
-    crumbs = `<a href="#/">Overview</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a><span class="sep" aria-hidden="true">›</span><a href="${libHref(title)}">Title ${title}</a>`;
+    crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a><span class="sep" aria-hidden="true">›</span><a href="${libHref(title)}">Title ${title}</a>`;
     heading = `${d.l} — ${d.d}`;
     const count = d.groups.reduce((a, g) => a + g.sections.filter(s => !s.r).length, 0);
     const countText = fmtSections(count) || '0 sections';
@@ -743,5 +744,6 @@ export async function pollJobs() {
     }
   }
   refreshWelcome();
+  refreshHomeIfActive();
   pollJobsIfActive();
 }

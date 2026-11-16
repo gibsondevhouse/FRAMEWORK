@@ -1,5 +1,5 @@
 {
-  "sha256": "d527a17bb2fd1ad655d6860404dffdcc3cf8395128df0c1490cb87b4d433fe90",
+  "sha256": "2dadebd9f253fe883f0806527daf8c6ebcbc173aa032953bb30a24a92f736ea9",
   "files": [
     "index.html",
     "src/citations.ts",
@@ -42,6 +42,7 @@
     "src/usage.js",
     "src/views/core.js",
     "src/views/help.js",
+    "src/views/home.js",
     "src/views/library.js",
     "src/views/news.js",
     "src/views/projects.js",

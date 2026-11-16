@@ -103,8 +103,8 @@ export function settingsKeysHtml() {
   const mod = isMac ? '⌘' : 'Ctrl';
   const keys = [
     [`${mod} K`, 'Search or jump to a section'], ['/', 'Search'], ['>', 'Commands, in search'],
-    [`${mod} B`, 'Show or hide the drawer'], [`${mod} J`, 'Ask Claude'], [`${mod} D`, 'Pin the section to a project'],
-    ['G O', 'Overview'], ['G H', 'Title home'], ['G C', 'Contents'], ['G P', 'Projects'], ['G N', 'News'], ['G L', 'Library'], ['G S', 'Settings'],
+    [`${mod} B`, 'Show or hide the drawer'], [`${mod} J`, 'Ask Claude'], [`${mod} D`, 'Pin section to a workspace'],
+    ['G H', 'Home'], ['G T', 'Title start'], ['G C', 'Contents'], ['G P', 'Projects'], ['G N', 'News'], ['G L', 'Library'], ['G S', 'Settings'],
     [isMac ? '⌥ 1–7' : 'Alt 1–7', 'Rail items in order'], ['Esc', 'Close the floating drawer'],
   ];
   return `<dl class="set-keys">${keys.map(([k, v]) => `<div><dt>${k.split(' ').map(x => `<kbd>${escapeHtml(x)}</kbd>`).join('')}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>`;

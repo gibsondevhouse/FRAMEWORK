@@ -131,7 +131,7 @@ export function applyNav() {
 
 export function panelMeta(panel) {
   if (panel === 'reader') return state.noTitles ? 'No titles installed' : `Title ${state.currentTitle}`;
-  if (panel === 'projects') { const n = loadProjects().length; return n ? plural(n, 'dossier') : ''; }
+  if (panel === 'projects') { const n = loadProjects().length; return n ? plural(n, 'workspace') : ''; }
   if (panel === 'library') return state.installedTitles.length ? `${state.installedTitles.length} installed` : '';
   if (panel === 'history') return 'Reading history';
   return '';
@@ -139,7 +139,7 @@ export function panelMeta(panel) {
 
 
 export function panelActions(panel) {
-  if (panel === 'projects') return `<button type="button" class="icon-btn drawer-icon" data-nav-act="new-project" title="New dossier" aria-label="New dossier">${icon('plus')}</button>`;
+  if (panel === 'projects') return `<button type="button" class="icon-btn drawer-icon" data-nav-act="new-project" title="New workspace" aria-label="New workspace">${icon('plus')}</button>`;
   if (panel === 'library') return `<a class="icon-btn drawer-icon" href="#/library" title="Open the library" aria-label="Open the library">${icon('external')}</a>`;
   return '';
 }
@@ -243,8 +243,8 @@ export function updateRailHome() {
   }
   home.href = `#/title/${state.currentTitle}/`;
   const t = state.installedTitles.find(x => x.title === state.currentTitle);
-  home.dataset.tip = `Title ${state.currentTitle} home`;
-  home.setAttribute('aria-label', `Title ${state.currentTitle}${t ? ' ' + t.name : ''} home`);
+  home.dataset.tip = `Title ${state.currentTitle} start`;
+  home.setAttribute('aria-label', `Title ${state.currentTitle}${t ? ' ' + t.name : ''} start`);
 }
 
 
@@ -307,7 +307,7 @@ for (const mq of [mqMobile, mqNarrow]) mq.addEventListener('change', () => apply
 // Hotkeys. "G then a letter" waits 1.2s for the letter; typing in a field never triggers it.
 state.goPending = 0;
 
-export const GO_KEYS = { o: 'overview', h: 'home', c: 'reader', p: 'projects', n: 'news', l: 'library', s: 'settings' };
+export const GO_KEYS = { h: 'overview', o: 'overview', t: 'home', c: 'reader', p: 'projects', n: 'news', l: 'library', s: 'settings' };
 
 document.addEventListener('keydown', (e) => {
   const active = document.activeElement;

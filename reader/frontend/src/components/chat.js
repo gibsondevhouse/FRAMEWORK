@@ -50,6 +50,37 @@ export function updateChatContext() {
 }
 
 
+export const HOME_PROMPTS = {
+  29: [
+    'How do overtime exemptions work under Part 541?',
+    'What are OSHA’s main hazard communication rules?',
+    'What are employer responsibilities under FMLA?',
+  ],
+  40: [
+    'What makes a waste “hazardous” under RCRA?',
+    'When does a facility need a Title V operating permit?',
+    'What has to be reported after a chemical spill, and to whom?',
+  ],
+  49: [
+    'What are the placarding rules for hazmat shipments?',
+    'Who needs a CDL, and what disqualifies a driver?',
+    'Which carriers are subject to the FMCSA safety regulations?',
+  ],
+};
+
+
+export function launchChatPrompt(prompt, { submit = true } = {}) {
+  if (state.noTitles) return;
+  openChat();
+  if (!state.chatConfig.configured || state.chatConfig.error || state.isGenerating) return;
+  dom.chatText.value = prompt;
+  dom.chatText.style.height = 'auto';
+  dom.chatText.style.height = Math.min(dom.chatText.scrollHeight, 120) + 'px';
+  if (submit) submitChat();
+  else dom.chatText.focus();
+}
+
+
 export function renderChatWelcome() {
   if (!state.chatConfig.configured) {
     dom.chatMessages.innerHTML = `
@@ -80,24 +111,6 @@ export function renderChatWelcome() {
     `;
     return;
   }
-
-  const HOME_PROMPTS = {
-    29: [
-      'How do overtime exemptions work under Part 541?',
-      'What are OSHA’s main hazard communication rules?',
-      'What are employer responsibilities under FMLA?',
-    ],
-    40: [
-      'What makes a waste “hazardous” under RCRA?',
-      'When does a facility need a Title V operating permit?',
-      'What has to be reported after a chemical spill, and to whom?',
-    ],
-    49: [
-      'What are the placarding rules for hazmat shipments?',
-      'Who needs a CDL, and what disqualifies a driver?',
-      'Which carriers are subject to the FMCSA safety regulations?',
-    ],
-  };
 
   let prompts = [
     'What are the key requirements in this section?',

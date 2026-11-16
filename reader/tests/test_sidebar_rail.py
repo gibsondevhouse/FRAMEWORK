@@ -60,7 +60,7 @@ class RailMarkupTests(HermeticTestCase):
             tag = m.group(0)
             with self.subTest(tag=tag[:60]):
                 self.assertIn("aria-label=", tag)
-                self.assertRegex(tag, r'data-keys="G [OHCPNLS]"')
+                self.assertRegex(tag, r'data-keys="G [HTCPNLS]"')
 
     def test_layout_tokens_and_states(self):
         self.assertIn("--rail-w: 48px", self.css)

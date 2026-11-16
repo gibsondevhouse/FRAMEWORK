@@ -4,8 +4,8 @@ import { renderNotFound } from './components/title_switcher';
 import { syncNavToRoute } from './nav';
 import { renderSettingsPage } from './panels/settings_panel';
 import { dom } from './state_init';
-import { renderOverview } from './usage';
 import { renderHome } from './views/core';
+import { renderHomeScreen } from './views/home';
 import { loadHelp } from './views/help';
 import { loadLibrary } from './views/library';
 import { loadNews } from './views/news';
@@ -51,9 +51,9 @@ export async function handleRoute() {
   }
 
   if (checkPath === '/' || checkPath === '') {
-    // `#/` is the FRAMEWORK overview across every title; `#/title/N/` is that title's start page.
+    // `#/` is the FRAMEWORK Home screen across every title; `#/title/N/` is that title's start page.
     if (titleMatch) renderHome();
-    else renderOverview();
+    else renderHomeScreen();
   } else if (checkPath.startsWith('/section/')) {
     // /section/{id}, /section/{id}/{unit}, /section/{id}/full. Ids never contain "/".
     const rest = checkPath.slice('/section/'.length);

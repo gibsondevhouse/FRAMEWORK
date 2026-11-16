@@ -8,7 +8,7 @@ export const pinPop = document.getElementById('pin-pop');
 
 export function pinButtonHtml() {
   const n = state.currentSection ? projectsWith(state.currentTitle, state.currentSection.id).length : 0;
-  return `<button type="button" class="btn${n ? ' is-pinned' : ''}" id="btn-pin" aria-haspopup="dialog" aria-expanded="false" title="Pin to a project (${isMac ? '⌘' : 'Ctrl '}D)">${icon(n ? 'bookmarkFilled' : 'bookmark')} ${n ? 'Pinned' : 'Pin'}</button>`;
+  return `<button type="button" class="btn${n ? ' is-pinned' : ''}" id="btn-pin" aria-haspopup="dialog" aria-expanded="false" title="Pin to a workspace (${isMac ? '⌘' : 'Ctrl '}D)">${icon(n ? 'bookmarkFilled' : 'bookmark')} ${n ? 'Pinned' : 'Pin'}</button>`;
 }
 
 export function updatePinButton() {
@@ -22,12 +22,12 @@ export function renderPinMenu() {
   if (!sec) return;
   const list = loadProjects();
   pinPop.innerHTML = `<div class="pin-head">Pin <strong>${escapeHtml(sec.label)}</strong> to</div>
-    ${list.length ? `<div class="pin-list" role="group" aria-label="Dossiers">${list.map(p => {
+    ${list.length ? `<div class="pin-list" role="group" aria-label="Workspaces">${list.map(p => {
       const on = p.sections.some(s => s.title === sec.title && s.id === sec.id);
       return `<button type="button" class="pin-opt" role="menuitemcheckbox" aria-checked="${on}" data-proj="${escapeHtml(p.id)}">
         <span class="pin-check">${on ? icon('check') : ''}</span>${projDot(p)}<span class="pin-name">${escapeHtml(p.name)}</span><span class="pin-count">${p.sections.length}</span></button>`;
-    }).join('')}</div>` : '<p class="pin-none">No dossiers yet. Name one to start.</p>'}
-    <form class="pin-new"><input class="dr-input" name="name" placeholder="New dossier…" maxlength="80" autocomplete="off" aria-label="New dossier name"></form>`;
+    }).join('')}</div>` : '<p class="pin-none">No workspaces yet. Name one to start.</p>'}
+    <form class="pin-new"><input class="dr-input" name="name" placeholder="New workspace…" maxlength="80" autocomplete="off" aria-label="New workspace name"></form>`;
 }
 
 

@@ -29,18 +29,18 @@ export function renderProjectsPanel() {
   const list = loadProjects();
   const current = projectRouteId();
   const form = state.newProjectOpen ? `<form class="dr-new" id="dr-new-project">
-      <input class="dr-input" id="dr-new-name" name="name" placeholder="Dossier name" maxlength="80" autocomplete="off" aria-label="New dossier name">
+      <input class="dr-input" id="dr-new-name" name="name" placeholder="Workspace name" maxlength="80" autocomplete="off" aria-label="New workspace name">
       <button type="submit" class="lib-act is-primary">Create</button></form>` : '';
   const rows = list.map(p => `<a class="dr-proj${p.id === current ? ' is-current' : ''}" href="#/projects/${encodeURIComponent(p.id)}"${p.id === current ? ' aria-current="page"' : ''}>
       ${projDot(p)}<span class="dr-proj-text"><span class="dr-name">${escapeHtml(p.name)}</span>
       <span class="dr-proj-meta">${joinSep([plural(p.sections.length, 'section'), escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))])}</span></span></a>`).join('');
   const mod = isMac ? '⌘' : 'Ctrl ';
   setPanel('projects', `${form}
-    ${list.length ? `<section class="dr-sec">${drLabel('Dossiers', `<span class="dr-count">${list.length}</span>`)}${rows}</section>`
-      : drEmpty('No dossiers yet', `Group the sections you need for an audit, a permit or a review. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>.`)
-        + (state.newProjectOpen ? '' : '<button type="button" class="btn dr-empty-btn" data-nav-act="new-project">New dossier</button>')}
+    ${list.length ? `<section class="dr-sec">${drLabel('Workspaces', `<span class="dr-count">${list.length}</span>`)}${rows}</section>`
+      : drEmpty('No workspaces yet', `Organize sections for program compliance, an audit, or a review. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>.`)
+        + (state.newProjectOpen ? '' : '<button type="button" class="btn dr-empty-btn" data-nav-act="new-project">New workspace</button>')}
     <div class="dr-foot">
-      <a class="dr-link" href="#/projects">All projects</a>
+      <a class="dr-link" href="#/projects">All workspaces</a>
       <span class="dr-foot-acts"><button type="button" class="dr-link" data-proj-act="export"${list.length ? '' : ' disabled'}>Export</button><button type="button" class="dr-link" data-proj-act="import">Import</button></span>
     </div>`);
 }

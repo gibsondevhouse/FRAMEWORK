@@ -12,15 +12,15 @@ import { loadProjects } from '../views/projects';
 export function commandList() {
   const mod = isMac ? '⌘' : 'Ctrl ';
   return [
-    ['Go to Overview', '#/', 'G O'], [`Go to Title ${state.currentTitle} home`, `#/title/${state.currentTitle}/`, 'G H'],
-    ['Open contents', 'cmd:reader', 'G C'], ['Open projects', 'cmd:projects', 'G P'], ['All projects', '#/projects', ''],
+    ['Go to Home', '#/', 'G H'], [`Go to Title ${state.currentTitle} start`, `#/title/${state.currentTitle}/`, 'G T'],
+    ['Open contents', 'cmd:reader', 'G C'], ['Open projects', 'cmd:projects', 'G P'], ['All workspaces', '#/projects', ''],
     ['Go to News', '#/news', 'G N'], ['Refresh news', 'cmd:news-refresh', ''],
-    ['New dossier', 'cmd:new-project', ''], ['Open the library', '#/library', ''], ['Library drawer', 'cmd:library', 'G L'],
+    ['New workspace', 'cmd:new-project', ''], ['Open the library', '#/library', ''], ['Library drawer', 'cmd:library', 'G L'],
     ['Settings', 'cmd:settings', 'G S'], ['All settings', '#/settings', ''],
     ['Connections & API keys', '#/help', ''], ['Edit API keys', 'cmd:env-modal', ''],
     ['Show or hide the drawer', 'cmd:drawer', `${mod}B`], ['Ask Claude', 'cmd:chat', `${mod}J`],
     [`Switch to ${document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'} theme`, 'cmd:theme', ''],
-    ...loadProjects().map(p => [`Project: ${p.name}`, `#/projects/${encodeURIComponent(p.id)}`, '']),
+    ...loadProjects().map(p => [`Workspace: ${p.name}`, `#/projects/${encodeURIComponent(p.id)}`, '']),
     ...state.installedTitles.filter(t => t.title !== state.currentTitle).map(t => [`Switch to Title ${t.title} ${t.name}`, `#/title/${t.title}/`, '']),
   ];
 }

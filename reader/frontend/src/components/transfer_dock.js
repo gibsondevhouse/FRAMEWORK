@@ -6,7 +6,8 @@ import { escapeHtml, icon, lsGet, lsSet, showToast } from '../dom';
 import { updateRailHome } from '../nav';
 import { handleRoute } from '../router';
 import { dom } from '../state_init';
-import { fmt, renderOverview, titleHref } from '../usage';
+import { fmt, titleHref } from '../usage';
+import { renderHomeScreen } from '../views/home';
 import { fmtBytes, fmtSections, getJSON, pollJobs } from '../views/library';
 
 // --- Transfer dock: downloads in progress, wherever the reader is ---
@@ -232,5 +233,5 @@ export async function refreshTitles(changed = []) {
     if (meta) state.metaInfo = meta;
     await switchTitle(state.currentTitle);
   }
-  if (dom.view.querySelector('.ov')) renderOverview();
+  if (dom.view.querySelector('.hm')) renderHomeScreen({ enter: false });
 }

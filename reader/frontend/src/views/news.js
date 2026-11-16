@@ -324,7 +324,7 @@ export async function refreshNewsCommand() {
 
 // --- Newsroom rendering ---
 
-export function newsHeadStatusHtml(status) {
+export function newsStatusPillHtml(status) {
   if (!status) return '';
   if (!status.sync_enabled) return statPill('stale', 'News sync is off');
   if (status.syncing) return statPill('busy', 'Checking for news…');
@@ -332,11 +332,21 @@ export function newsHeadStatusHtml(status) {
   const lastOk = enabled.map(s => s.last_ok_at).filter(Boolean).sort().pop();
   const failed = enabled.find(s => s.last_error);
   if (failed && lastOk) {
-    return statPill('stale', `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`, { title: failed.last_error || '' })
-      + ` <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
+    return statPill('stale', `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`, { title: failed.last_error || '' });
   }
-  const updated = lastOk ? statPill('synced', `Updated ${timeAgo(Date.parse(lastOk))}`) : '';
-  return `${updated} <button type="button" class="btn btn-sm" data-news-act="refresh">Refresh</button>`;
+  return lastOk ? statPill('synced', `Updated ${timeAgo(Date.parse(lastOk))}`) : '';
+}
+
+
+export function newsHeadStatusHtml(status) {
+  if (!status) return '';
+  const pill = newsStatusPillHtml(status);
+  if (!status.sync_enabled || status.syncing) return pill;
+  const enabled = Object.values(status.sources || {}).filter(s => s.enabled);
+  const lastOk = enabled.map(s => s.last_ok_at).filter(Boolean).sort().pop();
+  const failed = enabled.find(s => s.last_error);
+  if (failed && lastOk) return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
+  return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Refresh</button>`;
 }
 
 

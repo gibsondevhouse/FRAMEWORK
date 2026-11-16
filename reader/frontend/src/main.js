@@ -3,6 +3,7 @@ import './dom';
 import './router';
 import './views/core';
 import './usage';
+import './views/home';
 import './views/welcome';
 import './views/library';
 import './components/transfer_dock';

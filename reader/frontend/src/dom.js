@@ -67,6 +67,8 @@ export const ICON_PATHS = {
   close: '<path d="m4 4 8 8M12 4l-8 8"/>',
   eye: '<path d="M1.75 8S4 4.25 8 4.25 14.25 8 14.25 8 12 11.75 8 11.75 1.75 8 1.75 8Z"/><circle cx="8" cy="8" r="1.75"/>',
   eyeOff: '<path d="M2.5 2.5 13.5 13.5M6.4 4.45A6.6 6.6 0 0 1 8 4.25C12 4.25 14.25 8 14.25 8a10.4 10.4 0 0 1-2.2 2.55M4.1 5.65A10.6 10.6 0 0 0 1.75 8s2.25 3.75 6.25 3.75c.9 0 1.75-.18 2.5-.48"/>',
+  search: '<circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3"/>',
+  arrowRight: '<path d="M3.25 8h9.5M9 4.25 12.75 8 9 11.75"/>',
 };
 
 export function icon(name, extraClass = '') {

@@ -8,12 +8,13 @@ import { drawerEl, navState, panelMeta, renderPanel, routeTarget } from '../nav'
 import { projectRouteId, renderProjectsPanel } from '../panels/projects_panel';
 import { dom } from '../state_init';
 import { timeAgo } from '../usage';
+import { refreshHomeIfActive } from '../views/home';
 import { SEP, fmtDate, joinSep, shortDate } from '../views/library';
 
-// --- Projects: dossiers of pinned sections (per browser, `localStorage` `framework_projects_v1`) ---
-// A dossier: {id, name, description, tags[], created_at, updated_at, sections[]}, each
+// --- Projects: workspaces of pinned sections (per browser, `localStorage` `framework_projects_v1`) ---
+// A workspace: {id, name, description, tags[], created_at, updated_at, sections[]}, each
 // section {title, id, label, heading, part, pinned_at, note}. Pin the open section with the
-// Pin button or ⌘D; `#/projects` lists dossiers and `#/projects/{id}` is one dossier, edited
+// Pin button or ⌘D; `#/projects` lists workspaces and `#/projects/{id}` is one workspace, edited
 // in place (name, description, tags, a note per section). Export/Import moves them as JSON.
 export const PROJECTS_KEY = 'framework_projects_v1';
 
@@ -36,6 +37,7 @@ export function saveProjects(list, { quiet = false } = {}) {
   if (navState.panel === 'projects' || navState.panel === 'history') renderPanel(navState.panel);
   if (navState.panel === 'projects') drawerEl.meta.textContent = panelMeta('projects');
   if (!quiet && routeTarget() === 'projects') renderProjects(projectRouteId());
+  if (!quiet && routeTarget() === 'overview') refreshHomeIfActive();
   updatePinButton();
 }
 
@@ -46,7 +48,7 @@ export function createProject(name, extra = {}) {
   const list = loadProjects();
   const p = {
     id: `proj_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-    name: (name || '').trim() || 'Untitled dossier', description: '', tags: [],
+    name: (name || '').trim() || 'Untitled workspace', description: '', tags: [],
     created_at: nowIso(), updated_at: nowIso(), sections: [], ...extra,
   };
   list.unshift(p);
@@ -121,7 +123,7 @@ importInput.addEventListener('change', async () => {
   try {
     const raw = JSON.parse(await file.text());
     const incoming = (Array.isArray(raw) ? raw : raw.projects || []).filter(validProject);
-    if (!incoming.length) throw new Error('No dossiers in that file');
+    if (!incoming.length) throw new Error('No workspaces in that file');
     const list = loadProjects();
     for (const p of incoming) {
       const i = list.findIndex(x => x.id === p.id);
@@ -129,29 +131,33 @@ importInput.addEventListener('change', async () => {
       else if ((p.updated_at || '') >= (list[i].updated_at || '')) list[i] = p; // keep the newer copy
     }
     saveProjects(list);
-    showToast(`Imported ${plural(incoming.length, 'dossier')}`);
+    showToast(`Imported ${plural(incoming.length, 'workspace')}`);
   } catch (err) {
     showToast(`Couldn’t import: ${err.message}`, 5000);
   }
 });
 
 
+export function startNewWorkspace() {
+  const p = createProject('Untitled workspace');
+  window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
+  requestAnimationFrame(() => setTimeout(() => { const n = dom.view.querySelector('.proj-name'); if (n) { n.focus(); n.select(); } }, 60));
+}
+
+
 export function onProjectAction(btn) {
   const act = btn.dataset.projAct;
   if (act === 'export') exportProjects(loadProjects());
   else if (act === 'import') importInput.click();
-  else if (act === 'new') {
-    const p = createProject('Untitled dossier');
-    window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
-    requestAnimationFrame(() => setTimeout(() => { const n = dom.view.querySelector('.proj-name'); if (n) { n.focus(); n.select(); } }, 60));
-  } else if (act === 'export-one') {
+  else if (act === 'new') startNewWorkspace();
+  else if (act === 'export-one') {
     const p = loadProjects().find(x => x.id === btn.dataset.id);
-    if (p) exportProjects([p], `${p.name.replace(/[^\w-]+/g, '-').toLowerCase() || 'dossier'}.json`);
+    if (p) exportProjects([p], `${p.name.replace(/[^\w-]+/g, '-').toLowerCase() || 'workspace'}.json`);
   } else if (act === 'delete' || act === 'unpin') {
     if (!btn.classList.contains('is-armed')) {
       const label = btn.textContent;
       btn.classList.add('is-armed');
-      btn.textContent = act === 'delete' ? 'Delete dossier?' : 'Remove?';
+      btn.textContent = act === 'delete' ? 'Delete workspace?' : 'Remove?';
       clearTimeout(btn._t);
       btn._t = setTimeout(() => { btn.classList.remove('is-armed'); btn.textContent = label; }, 4000);
       return;
@@ -160,7 +166,7 @@ export function onProjectAction(btn) {
       const list = loadProjects().filter(x => x.id !== btn.dataset.id);
       window.location.hash = '#/projects';
       saveProjects(list);
-      showToast('Dossier deleted');
+      showToast('Workspace deleted');
     } else {
       const [title, ...rest] = btn.dataset.sec.split('|');
       updateProject(projectRouteId(), (p) => { p.sections = p.sections.filter(s => !(s.title === Number(title) && s.id === rest.join('|'))); });
@@ -170,7 +176,7 @@ export function onProjectAction(btn) {
 
 dom.sidebar.addEventListener('click', (e) => { const b = e.target.closest('[data-proj-act]'); if (b) onProjectAction(b); });
 
-dom.view.addEventListener('click', (e) => { const b = e.target.closest('[data-proj-act]'); if (b && dom.view.querySelector('.proj-page')) onProjectAction(b); });
+dom.view.addEventListener('click', (e) => { const b = e.target.closest('[data-proj-act]'); if (b && dom.view.querySelector('.proj-page, .hm')) onProjectAction(b); });
 
 
 // --- Pages: #/projects and #/projects/{id} ---
@@ -192,7 +198,7 @@ export function renderProjects(id) {
   if (!id) {
     document.title = 'Projects · FRAMEWORK';
     const cards = list.map(p => `<article class="lib-story proj-card">
-        <div class="story-top"><span class="story-kicker">${projDot(p)}Dossier${SEP}Updated ${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</span></div>
+        <div class="story-top"><span class="story-kicker">${projDot(p)}Workspace${SEP}Updated ${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</span></div>
         <h3 class="story-name"><a href="#/projects/${encodeURIComponent(p.id)}">${escapeHtml(p.name)}</a></h3>
         ${p.description ? `<p class="story-dek">${escapeHtml(p.description)}</p>` : ''}
         ${p.tags && p.tags.length ? `<div class="proj-tags">${p.tags.map(t => `<span class="proj-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
@@ -200,17 +206,17 @@ export function renderProjects(id) {
       </article>`).join('');
     const mod = isMac ? '⌘' : 'Ctrl ';
     dom.view.innerHTML = `<div class="lib lib-front proj-page" data-id="">
-      <div class="doc-kicker"><a href="#/">Overview</a></div>
+      <div class="doc-kicker"><a href="#/">Home</a></div>
       <div class="lib-head">
         <div class="lib-head-text"><h1 class="doc-title">Projects</h1>
-          <p class="lib-sub">${joinSep(['Dossiers of pinned sections for an audit, a permit or a review', plural(list.length, 'dossier'), plural(sections, 'section')])}</p></div>
-        <button type="button" class="btn" data-proj-act="new">${icon('plus')} New dossier</button>
+          <p class="lib-sub">${joinSep(['Workspaces of pinned sections for program compliance, audits, or reviews', plural(list.length, 'workspace'), plural(sections, 'section')])}</p></div>
+        <button type="button" class="btn" data-proj-act="new">${icon('plus')} New workspace</button>
       </div>
-      ${list.length ? `<div class="lib-desk"><header class="lib-desk-header"><h2 class="lib-desk-name">All dossiers</h2><span class="lib-desk-count">${plural(list.length, 'dossier')}</span></header>
+      ${list.length ? `<div class="lib-desk"><header class="lib-desk-header"><h2 class="lib-desk-name">All workspaces</h2><span class="lib-desk-count">${plural(list.length, 'workspace')}</span></header>
         <div class="lib-stories">${cards}</div></div>`
-        : `<div class="proj-empty"><div class="dr-empty-title">Start a dossier</div>
-            <p>Collect the sections an audit or a permit review turns on, with a note on each. Open any section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>, or start an empty dossier here.</p>
-            <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon('plus')} New dossier</button><button type="button" class="btn" data-proj-act="import">Import JSON</button></span></div>`}
+        : `<div class="proj-empty"><div class="dr-empty-title">Start a workspace</div>
+            <p>Collect the sections a compliance program, audit, or permit review turns on, with a note on each. Open any section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>, or start an empty workspace here.</p>
+            <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon('plus')} New workspace</button><button type="button" class="btn" data-proj-act="import">Import JSON</button></span></div>`}
     </div>`;
     if (fresh) enterView();
     return;
@@ -218,7 +224,7 @@ export function renderProjects(id) {
   const p = list.find(x => x.id === id);
   if (!p) {
     document.title = 'Projects · FRAMEWORK';
-    dom.view.innerHTML = `<div class="empty-state proj-page" data-id="${escapeHtml(id)}"><h2>No such dossier</h2><p>It may have been deleted, or it lives in another browser.</p><a class="btn" href="#/projects">All projects</a></div>`;
+    dom.view.innerHTML = `<div class="empty-state proj-page" data-id="${escapeHtml(id)}"><h2>No such workspace</h2><p>It may have been deleted, or it lives in another browser.</p><a class="btn" href="#/projects">All workspaces</a></div>`;
     return;
   }
   document.title = `${p.name} · Projects · FRAMEWORK`;
@@ -240,7 +246,7 @@ export function renderProjects(id) {
     <div class="doc-kicker"><a href="#/projects">Projects</a></div>
     <div class="proj-head">
       <span class="proj-icon" style="--hue: var(${projectHue(p)})" aria-hidden="true">${icon('folder')}</span>
-      <input class="proj-name" value="${escapeHtml(p.name)}" maxlength="80" aria-label="Dossier name" spellcheck="false">
+      <input class="proj-name" value="${escapeHtml(p.name)}" maxlength="80" aria-label="Workspace name" spellcheck="false">
       <span class="proj-head-acts">
         <button type="button" class="lib-act" data-proj-act="export-one" data-id="${escapeHtml(p.id)}">Export</button>
         <button type="button" class="lib-act is-danger" data-proj-act="delete" data-id="${escapeHtml(p.id)}">Delete</button>
@@ -282,7 +288,7 @@ dom.view.addEventListener('input', (e) => {
   clearTimeout(state.projEditT);
   state.projEditT = setTimeout(() => {
     updateProject(id, (p) => {
-      if (t.matches('.proj-name')) p.name = t.value.trim() || 'Untitled dossier';
+      if (t.matches('.proj-name')) p.name = t.value.trim() || 'Untitled workspace';
       else if (t.matches('.proj-desc')) p.description = t.value;
       else if (t.matches('.proj-tags-input')) p.tags = t.value.split(',').map(x => x.trim()).filter(Boolean).slice(0, 12);
       else if (t.matches('.proj-note')) {
@@ -292,7 +298,7 @@ dom.view.addEventListener('input', (e) => {
     }, { quiet: true });
     const upd = page.querySelector('[data-f="updated"]');
     if (upd) upd.textContent = 'just now';
-    if (t.matches('.proj-name')) document.title = `${t.value.trim() || 'Untitled dossier'} · Projects · FRAMEWORK`;
+    if (t.matches('.proj-name')) document.title = `${t.value.trim() || 'Untitled workspace'} · Projects · FRAMEWORK`;
   }, 300);
 });
 

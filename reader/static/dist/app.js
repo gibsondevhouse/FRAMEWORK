@@ -4539,7 +4539,9 @@ var ICON_PATHS = {
 	copy: "<rect x=\"5.5\" y=\"5.5\" width=\"7.5\" height=\"7.5\" rx=\"1.5\"/><path d=\"M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5\"/>",
 	close: "<path d=\"m4 4 8 8M12 4l-8 8\"/>",
 	eye: "<path d=\"M1.75 8S4 4.25 8 4.25 14.25 8 14.25 8 12 11.75 8 11.75 1.75 8 1.75 8Z\"/><circle cx=\"8\" cy=\"8\" r=\"1.75\"/>",
-	eyeOff: "<path d=\"M2.5 2.5 13.5 13.5M6.4 4.45A6.6 6.6 0 0 1 8 4.25C12 4.25 14.25 8 14.25 8a10.4 10.4 0 0 1-2.2 2.55M4.1 5.65A10.6 10.6 0 0 0 1.75 8s2.25 3.75 6.25 3.75c.9 0 1.75-.18 2.5-.48\"/>"
+	eyeOff: "<path d=\"M2.5 2.5 13.5 13.5M6.4 4.45A6.6 6.6 0 0 1 8 4.25C12 4.25 14.25 8 14.25 8a10.4 10.4 0 0 1-2.2 2.55M4.1 5.65A10.6 10.6 0 0 0 1.75 8s2.25 3.75 6.25 3.75c.9 0 1.75-.18 2.5-.48\"/>",
+	search: "<circle cx=\"7\" cy=\"7\" r=\"4.25\"/><path d=\"m10.2 10.2 3.3 3.3\"/>",
+	arrowRight: "<path d=\"M3.25 8h9.5M9 4.25 12.75 8 9 11.75\"/>"
 };
 function icon(name, extraClass = "") {
 	return `<svg class="icon${extraClass ? " " + extraClass : ""}" viewBox="0 0 16 16" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
@@ -4595,7 +4597,7 @@ function bumpPart(u, title, part, heading, now) {
 	e.t = now;
 	if (heading) e.h = String(heading).trim();
 }
-function recordSectionVisit(data) {
+function recordSectionVisit(data, unitInfo = null) {
 	if (!data || !data.id) return;
 	const u = loadUsage();
 	const now = Date.now();
@@ -4606,8 +4608,31 @@ function recordSectionVisit(data) {
 	e.l = data.label || data.id;
 	e.h = data.section_title || data.title_label || "";
 	e.p = data.part || "";
+	if (unitInfo && unitInfo.key) {
+		e.u = unitInfo.key;
+		e.ul = unitInfo.label || unitInfo.key;
+	} else {
+		delete e.u;
+		delete e.ul;
+	}
 	const partNode = data.part && state.treeData ? findPartInTree(state.treeData, data.part) : null;
 	bumpPart(u, state.currentTitle, data.part, partNode && partNode.d, now);
+	lsSet(USAGE_KEY, JSON.stringify(u));
+}
+function recordSectionUnit(sectionId, unitInfo = null) {
+	if (!sectionId) return;
+	const u = loadUsage();
+	const key = state.currentTitle + "|" + sectionId;
+	const e = u.s[key];
+	if (!e) return;
+	e.t = Date.now();
+	if (unitInfo && unitInfo.key) {
+		e.u = unitInfo.key;
+		e.ul = unitInfo.label || unitInfo.key;
+	} else {
+		delete e.u;
+		delete e.ul;
+	}
 	lsSet(USAGE_KEY, JSON.stringify(u));
 }
 function recordPartVisit(partId, heading) {
@@ -4639,186 +4664,6 @@ function timeAgo(ms) {
 }
 var fmt = (n) => Number(n || 0).toLocaleString();
 var titleHref = (t, rest) => `#/title/${t}/${rest || ""}`;
-function renderOverview() {
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	document.title = "FRAMEWORK";
-	setViewHead("");
-	const u = loadUsage();
-	const titles = state.installedTitles.length ? state.installedTitles : state.metaInfo.edition ? [{
-		title: state.currentTitle,
-		name: state.metaInfo.name || `Title ${state.currentTitle}`,
-		section_count: state.metaInfo.section_count,
-		edition: state.metaInfo.edition
-	}] : [];
-	const nameOf = (t) => (titles.find((x) => x.title === t) || {}).name || `Title ${t}`;
-	const installed = new Set(titles.map((t) => t.title));
-	const split = (key) => {
-		const i = key.indexOf("|");
-		return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
-	};
-	const entries = (map) => Object.entries(map).map(([k, e]) => {
-		const [ti, id] = split(k);
-		return {
-			...e,
-			ti,
-			id
-		};
-	}).filter((e) => installed.has(e.ti));
-	const sections = entries(u.s);
-	const parts = entries(u.p);
-	const byTitle = /* @__PURE__ */ new Map();
-	for (const p of parts) byTitle.set(p.ti, (byTitle.get(p.ti) || 0) + p.n);
-	const totalVisits = [...byTitle.values()].reduce((a, b) => a + b, 0);
-	const totalSections = titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
-	const readByTitle = new Map(titles.map((t) => [t.title, visitedCountFor(t.title)]));
-	const totalRead = [...readByTitle.values()].reduce((a, b) => a + b, 0);
-	const recent = [...sections].sort((a, b) => b.t - a.t);
-	const last = recent[0];
-	const sectionLink = (e, inner) => `<a class="ov-row" href="${titleHref(e.ti, "section/" + encodeURIComponent(e.id))}">${inner}</a>`;
-	const tag = (t) => `<span class="ov-tag" title="${escapeHtml(nameOf(t))}">${t} CFR</span>`;
-	const secNum = (e) => escapeHtml(String(e.l).replace(/^§\s*/, ""));
-	const topCards = `
-    <div class="ov-cards">
-      ${[...titles].sort((a, b) => (byTitle.get(b.title) || 0) - (byTitle.get(a.title) || 0) || a.title - b.title).slice(0, 3).map((t) => {
-		const n = byTitle.get(t.title) || 0;
-		const read = readByTitle.get(t.title) || 0;
-		const top = sections.filter((e) => e.ti === t.title).sort((a, b) => b.n - a.n || b.t - a.t).slice(0, 4);
-		const share = totalVisits ? Math.round(n / totalVisits * 100) : 0;
-		return `
-          <article class="ov-card">
-            <a class="ov-card-head" href="${titleHref(t.title)}">
-              <span class="ov-card-kicker">Title</span>
-              <span class="ov-card-num">${t.title}</span>
-              <span class="ov-card-name">${escapeHtml(t.name)}</span>
-              <span class="ov-card-meta">${n ? `${fmt(n)} ${n === 1 ? "visit" : "visits"} · ${share}%` : "Not opened yet"}<span class="sep" aria-hidden="true">·</span>${fmt(read)} of ${fmt(t.section_count)} read</span>
-            </a>
-            <div class="ov-card-foot">
-              <div class="ov-card-label">Most read</div>
-              ${top.length ? top.map((e) => sectionLink(e, `
-                <span class="ov-row-num">${secNum(e)}</span>
-                <span class="ov-row-text">${escapeHtml(e.h)}</span>
-                <span class="ov-row-val">${fmt(e.n)}</span>`)).join("") : `
-                <div class="ov-card-empty">
-                  <svg class="ov-card-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-                  </svg>
-                  <div class="ov-card-empty-text">No sections read yet</div>
-                  <a class="ov-card-empty-link" href="${titleHref(t.title)}">Start reading Title ${t.title} →</a>
-                </div>`}
-            </div>
-          </article>`;
-	}).join("")}
-    </div>`;
-	const barList = (rows, max) => rows.map((r) => `
-    <a class="ov-row ov-bar-row" href="${r.href}">
-      ${r.ti ? tag(r.ti) : ""}<span class="ov-row-num">${escapeHtml(r.num)}</span>
-      <span class="ov-row-text">${escapeHtml(r.text)}</span>
-      <span class="ov-row-val">${escapeHtml(r.val)}</span>
-      <span class="ov-bar" aria-hidden="true"><span style="width:${Math.max(2, Math.round(r.value / max * 100))}%"></span></span>
-    </a>`).join("");
-	const titleRows = titles.map((t) => ({
-		t: t.title,
-		n: byTitle.get(t.title) || 0
-	})).filter((r) => r.n).sort((a, b) => b.n - a.n).map((r) => ({
-		href: titleHref(r.t),
-		num: String(r.t),
-		text: nameOf(r.t),
-		value: r.n,
-		val: `${Math.round(r.n / totalVisits * 100)}%`
-	}));
-	const partRows = [...parts].sort((a, b) => b.n - a.n || b.t - a.t).slice(0, 5).map((p) => ({
-		href: titleHref(p.ti, "part/" + encodeURIComponent(p.id)),
-		num: p.id,
-		text: p.h || `Part ${p.id}`,
-		value: p.n,
-		val: fmt(p.n),
-		ti: p.ti
-	}));
-	const topSections = [...sections].sort((a, b) => b.n - a.n || b.t - a.t).slice(0, 5);
-	const metric = (label, value, sub, href) => {
-		const inner = `<div class="ov-metric-label">${label}</div><div class="ov-metric-value">${value}</div><div class="ov-metric-sub">${sub}</div>`;
-		return href ? `<a class="ov-metric is-link" href="${href}">${inner}</a>` : `<div class="ov-metric">${inner}</div>`;
-	};
-	const metrics = `
-    <div class="ov-metrics">
-      ${metric("Titles installed", fmt(titles.length), escapeHtml(titles.map((t) => t.title).join(" · ")))}
-      ${metric("Sections read", fmt(totalRead), `of ${fmt(totalSections)}`)}
-      ${metric("Visits", fmt(totalVisits), `since ${escapeHtml(new Date(u.since).toLocaleDateString(void 0, {
-		month: "short",
-		day: "numeric"
-	}))}`)}
-      ${last ? metric("Last read", escapeHtml(last.l), `${last.ti} CFR · ${escapeHtml(timeAgo(last.t))}`, titleHref(last.ti, "section/" + encodeURIComponent(last.id))) : metric("Last read", "—", "Nothing yet")}
-    </div>`;
-	const panel = (heading, body) => `<section class="ov-panel"><h2 class="ov-h">${heading}</h2><div class="ov-list">${body}</div></section>`;
-	const activity = !sections.length && !parts.length ? `
-    <div class="ov-empty">
-      <div class="ov-empty-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-        </svg>
-      </div>
-      <div class="ov-empty-title">Nothing read yet</div>
-      <p>Your most visited titles, parts and sections will show up here as you read. Pick a title below to start.</p>
-    </div>` : `
-    <div class="ov-grid">
-      ${panel("Most visited titles", barList(titleRows, titleRows.length ? titleRows[0].value : 1))}
-      ${panel("Most visited parts", barList(partRows, partRows.length ? partRows[0].value : 1) || "<div class=\"ov-none\"><svg class=\"ov-none-icon\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h12M2 8h8M2 12h5\"/></svg><span>No parts yet</span></div>")}
-      ${panel("Most visited sections", topSections.map((e) => sectionLink(e, `
-        ${tag(e.ti)}<span class="ov-row-num">${secNum(e)}</span>
-        <span class="ov-row-text">${escapeHtml(e.h)}</span>
-        <span class="ov-row-val">${fmt(e.n)}</span>`)).join("") || "<div class=\"ov-none\"><svg class=\"ov-none-icon\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h12M2 8h8M2 12h5\"/></svg><span>No sections yet</span></div>")}
-      ${panel("Recently read", recent.slice(0, 5).map((e) => sectionLink(e, `
-        ${tag(e.ti)}<span class="ov-row-num">${secNum(e)}</span>
-        <span class="ov-row-text">${escapeHtml(e.h)}</span>
-        <span class="ov-row-val">${escapeHtml(timeAgo(e.t))}</span>`)).join("") || "<div class=\"ov-none\"><svg class=\"ov-none-icon\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h12M2 8h8M2 12h5\"/></svg><span>No sections yet</span></div>")}
-    </div>`;
-	const table = `
-    <section class="ov-panel ov-titles">
-      <div class="ov-panel-head">
-        <h2 class="ov-h">Installed titles</h2>
-        <a class="btn btn-sm btn-download" href="#/library" title="Download titles, parts or sections from eCFR">${icon("download")} Download</a>
-      </div>
-      <div class="ov-table" role="table" aria-label="Installed titles">
-        <div class="ov-tr ov-thead" role="row">
-          <span role="columnheader">Title</span><span role="columnheader">Name</span>
-          <span role="columnheader" class="num">Sections</span><span role="columnheader" class="num">Read</span>
-          <span role="columnheader" class="num">Edition</span>
-        </div>
-        ${titles.map((t) => {
-		const read = readByTitle.get(t.title) || 0;
-		const count = Number(t.section_count || 0);
-		const pct = count ? read / count * 100 : 0;
-		const pctText = !read ? "—" : pct < .1 ? "<0.1%" : `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
-		return `
-            <a class="ov-tr" role="row" href="${titleHref(t.title)}">
-              <span role="cell" class="ov-title-num">${t.title}</span>
-              <span role="cell" class="ov-title-name">${escapeHtml(t.name)}${t.partial ? "<span class=\"ov-partial\">Partial</span>" : ""}</span>
-              <span role="cell" class="num">${fmt(count)}</span>
-              <span role="cell" class="num" title="${fmt(read)} of ${fmt(count)} sections">${pctText}</span>
-              <span role="cell" class="num muted">${escapeHtml(t.edition || "—")}</span>
-            </a>`;
-	}).join("")}
-      </div>
-    </section>`;
-	dom.view.innerHTML = `
-    <div class="ov">
-      <div class="ov-head">
-        <h1>Overview</h1>
-        <p>Your reading across ${titles.length === 1 ? "one installed title" : `${fmt(titles.length)} installed titles`}. Kept in this browser only.</p>
-      </div>
-      ${topCards}
-      ${metrics}
-      ${activity}
-      ${table}
-    </div>
-  `;
-	enterView();
-}
 // src/components/rail.js
 function sectionHref(id, view) {
 	return `#/section/${encodeURIComponent(id)}${view ? "/" + encodeURIComponent(view) : ""}`;
@@ -5379,15 +5224,24 @@ async function refreshNewsCommand() {
 		showToast(/already running/i.test(m) ? "Already checking for news" : /sync is off/i.test(m) ? "News sync is off" : m);
 	}
 }
-function newsHeadStatusHtml(status) {
+function newsStatusPillHtml(status) {
 	if (!status) return "";
 	if (!status.sync_enabled) return statPill("stale", "News sync is off");
 	if (status.syncing) return statPill("busy", "Checking for news…");
 	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
 	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
 	const failed = enabled.find((s) => s.last_error);
-	if (failed && lastOk) return statPill("stale", `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`, { title: failed.last_error || "" }) + ` <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
-	return `${lastOk ? statPill("synced", `Updated ${timeAgo(Date.parse(lastOk))}`) : ""} <button type="button" class="btn btn-sm" data-news-act="refresh">Refresh</button>`;
+	if (failed && lastOk) return statPill("stale", `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`, { title: failed.last_error || "" });
+	return lastOk ? statPill("synced", `Updated ${timeAgo(Date.parse(lastOk))}`) : "";
+}
+function newsHeadStatusHtml(status) {
+	if (!status) return "";
+	const pill = newsStatusPillHtml(status);
+	if (!status.sync_enabled || status.syncing) return pill;
+	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
+	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
+	if (enabled.find((s) => s.last_error) && lastOk) return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
+	return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Refresh</button>`;
 }
 function newsBreakingHtml(articles) {
 	const today = Date.now();
@@ -5762,9 +5616,9 @@ function settingsKeysHtml() {
 		[">", "Commands, in search"],
 		[`${mod} B`, "Show or hide the drawer"],
 		[`${mod} J`, "Ask Claude"],
-		[`${mod} D`, "Pin the section to a project"],
-		["G O", "Overview"],
-		["G H", "Title home"],
+		[`${mod} D`, "Pin section to a workspace"],
+		["G H", "Home"],
+		["G T", "Title start"],
 		["G C", "Contents"],
 		["G P", "Projects"],
 		["G N", "News"],
@@ -6082,6 +5936,745 @@ function renderHelp(env, opts = {}) {
     </div>`;
 	if (opts.enter) enterView();
 }
+// src/panels/library_panel.js
+var navLib = {
+	data: null,
+	at: 0,
+	loading: null
+};
+async function ensureNavLibrary(force = false) {
+	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
+	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
+		navLib.data = d;
+		navLib.at = Date.now();
+		return d;
+	}).finally(() => {
+		navLib.loading = null;
+	});
+	return navLib.loading;
+}
+function transferHtml() {
+	const j = state.jobs.current;
+	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
+	const m = dockModel(j);
+	return (!j ? "" : `<div class="dr-job">
+      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
+      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
+      <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
+    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
+}
+state.navTransferKey = "";
+function updateNavTransfers() {
+	updateRailBadge();
+	if (navState.panel !== "library" || !drawerShown()) return;
+	const box = document.getElementById("dr-transfers");
+	if (!box) return;
+	const j = state.jobs.current;
+	const m = dockModel(j);
+	const key = [
+		j && j.id,
+		j && j.cancelling,
+		j && j.phase === "Installing",
+		m.pct == null,
+		state.jobs.queued.map((q) => q.id).join(".")
+	].join("|");
+	if (key !== state.navTransferKey) {
+		state.navTransferKey = key;
+		box.innerHTML = transferHtml();
+		const count = document.getElementById("dr-transfers-count");
+		const n = (j ? 1 : 0) + state.jobs.queued.length;
+		if (count) count.textContent = n ? String(n) : "";
+		const sec = document.getElementById("dr-transfers-sec");
+		if (sec) sec.hidden = !n;
+		return;
+	}
+	const set = (f, v) => {
+		const n = box.querySelector(`[data-f="${f}"]`);
+		if (n && n.textContent !== v) n.textContent = v;
+	};
+	set("pct", m.pct == null ? "" : `${m.pct}%`);
+	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
+	set("left", m.left);
+	set("right", m.right);
+	const fill = box.querySelector("[data-f=\"fill\"]");
+	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+}
+function renderLibraryPanel() {
+	const d = navLib.data;
+	state.navTransferKey = "";
+	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
+	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
+	if (!d) {
+		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
+		ensureNavLibrary().then(() => {
+			if (navState.panel === "library") renderLibraryPanel();
+			updateRailBadge();
+		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
+		return;
+	}
+	const live = d.titles.filter((t) => !t.reserved);
+	const installed = live.filter((t) => t.installed);
+	const stale = installed.filter(isStale);
+	const rows = installed.map((t) => {
+		const st = titleStatus(t);
+		return `<a class="dr-row" href="#/title/${t.title}/">
+      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
+      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
+	}).join("");
+	const suites = Object.values(d.suites || {}).map((s) => {
+		const st = suiteState(s, d);
+		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
+		return `<div class="dr-suite">
+      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
+        <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
+      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>"}
+    </div>`;
+	}).join("");
+	setPanel("library", `
+    <a class="dr-cta" href="#/library">
+      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
+    </a>
+    ${transfers}
+    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
+      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
+    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
+	updateRailBadge();
+}
+// src/views/core.js
+var HOME_CONTENT = {
+	29: {
+		tagline: "Federal labor regulations — workplace safety, wages and hours, leave, and employee benefits — with local search and Claude.",
+		cards: [
+			{
+				part: "1910",
+				kicker: "OSHA Safety",
+				title: "Part 1910 — General Industry",
+				desc: "PPE, hazard communication, walking-working surfaces, fire protection, and machinery."
+			},
+			{
+				part: "1926",
+				kicker: "OSHA Safety",
+				title: "Part 1926 — Construction",
+				desc: "Scaffolds, fall protection, cranes, excavations, and electrical safety on sites."
+			},
+			{
+				part: "541",
+				kicker: "Wage & Hour",
+				title: "Part 541 — Overtime Exemptions",
+				desc: "Executive, administrative, professional, computer, and outside sales exemptions (FLSA)."
+			},
+			{
+				part: "825",
+				kicker: "Leave & Family",
+				title: "Part 825 — Family & Medical Leave",
+				desc: "FMLA employee eligibility, employer notice obligations, leave duration, and certification."
+			},
+			{
+				part: "1904",
+				kicker: "Recordkeeping",
+				title: "Part 1904 — Injury Recording",
+				desc: "Recording and reporting occupational injuries, illnesses, and severe incidents."
+			},
+			{
+				part: "2560",
+				kicker: "Employee Benefits",
+				title: "Part 2560 — ERISA Administration",
+				desc: "Claims procedures, participant remedies, and retirement plan fiduciaries."
+			}
+		]
+	},
+	40: {
+		tagline: "EPA regulations — air and water quality, hazardous waste, permits, and chemical releases — with local search and Claude.",
+		cards: [
+			{
+				part: "50",
+				kicker: "Air",
+				title: "Part 50 — Air Quality Standards",
+				desc: "National ambient air quality standards (NAAQS) for ozone, particulates, lead, and more."
+			},
+			{
+				part: "70",
+				kicker: "Air Permits",
+				title: "Part 70 — Operating Permits",
+				desc: "State operating permit programs for major stationary sources (Title V)."
+			},
+			{
+				part: "122",
+				kicker: "Water",
+				title: "Part 122 — NPDES Permits",
+				desc: "The discharge permit program for point sources under the Clean Water Act."
+			},
+			{
+				part: "136",
+				kicker: "Water",
+				title: "Part 136 — Test Procedures",
+				desc: "Approved analytical methods for pollutant monitoring and compliance."
+			},
+			{
+				part: "261",
+				kicker: "Hazardous Waste",
+				title: "Part 261 — Waste Identification",
+				desc: "What counts as a solid and hazardous waste under RCRA: listings and characteristics."
+			},
+			{
+				part: "302",
+				kicker: "Emergencies",
+				title: "Part 302 — Reportable Quantities",
+				desc: "CERCLA hazardous substance designations and release notification thresholds."
+			}
+		]
+	},
+	49: {
+		tagline: "DOT regulations — hazardous materials, motor carriers, drivers, and vehicle safety — with local search and Claude.",
+		cards: [
+			{
+				part: "172",
+				kicker: "Hazmat",
+				title: "Part 172 — Hazmat Table & Communication",
+				desc: "The hazardous materials table, shipping papers, marking, labeling, and placarding."
+			},
+			{
+				part: "173",
+				kicker: "Hazmat",
+				title: "Part 173 — Packaging Requirements",
+				desc: "General shipment and packaging requirements by hazard class."
+			},
+			{
+				part: "390",
+				kicker: "Motor Carriers",
+				title: "Part 390 — FMCSA General",
+				desc: "Who the federal motor carrier safety regulations apply to, and general duties."
+			},
+			{
+				part: "391",
+				kicker: "Drivers",
+				title: "Part 391 — Driver Qualifications",
+				desc: "Qualification files, medical certification, and disqualifying offenses."
+			},
+			{
+				part: "383",
+				kicker: "Drivers",
+				title: "Part 383 — Commercial Driver’s License",
+				desc: "CDL standards: who needs one, testing, endorsements, and disqualifications."
+			},
+			{
+				part: "571",
+				kicker: "Vehicles",
+				title: "Part 571 — Vehicle Safety Standards",
+				desc: "Federal motor vehicle safety standards (FMVSS) for cars, trucks, and buses."
+			}
+		]
+	}
+};
+function renderHome() {
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	document.title = `Title ${state.currentTitle} · FRAMEWORK`;
+	setViewHead("");
+	const name = state.metaInfo.name || "";
+	const content = HOME_CONTENT[state.currentTitle];
+	const tagline = content ? content.tagline : `Read, search, and ask questions about Title ${state.currentTitle} of the Code of Federal Regulations.`;
+	const count = Number(state.metaInfo.section_count || 0);
+	const metaLine = [count ? `${count.toLocaleString()} sections` : "", state.metaInfo.edition ? `current as of ${state.metaInfo.edition}` : ""].filter(Boolean).join(" · ");
+	const cardsHtml = content ? `
+    <div class="card-grid">
+      ${content.cards.map((c) => `
+        <a class="card" href="#/part/${encodeURIComponent(c.part)}">
+          <span class="card-kicker">${escapeHtml(c.kicker)}</span>
+          <div class="card-title">${escapeHtml(c.title)}</div>
+          <div class="card-desc">${escapeHtml(c.desc)}</div>
+        </a>
+      `).join("")}
+    </div>
+  ` : "";
+	dom.view.innerHTML = `
+    <div class="home-hero">
+      <div class="doc-kicker"><a href="#/">Home</a><span class="sep" aria-hidden="true">›</span>Title ${state.currentTitle} start</div>
+      <h1>Title ${state.currentTitle}${name ? " — " + escapeHtml(name) : ""}</h1>
+      <p>${escapeHtml(tagline)}</p>
+      ${metaLine ? `<p class="home-meta">${escapeHtml(metaLine)}</p>` : ""}
+      <div class="home-hero-acts">
+        <button type="button" class="btn btn-sm" id="home-open-contents">${icon("book")} Browse contents</button>
+        <a class="btn btn-sm" href="#/library/${state.currentTitle}">Manage in Library</a>
+      </div>
+    </div>
+
+    ${cardsHtml}
+
+    <div class="home">
+      <h2>Getting around</h2>
+      <ul class="tips">
+        <li><span class="tip-keys"><kbd>/</kbd></span><span>Search the full text, or jump straight to a section number</span></li>
+        <li><span class="tip-keys"><kbd>${isMac ? "⌘" : "Ctrl"}</kbd><kbd>J</kbd></span><span>Open Ask Claude</span></li>
+        <li><span class="tip-keys"><kbd>↑</kbd><kbd>↓</kbd></span><span>Move through the contents list or search suggestions</span></li>
+        <li><span class="tip-keys"><kbd>Esc</kbd></span><span>Clear the contents filter or close suggestions</span></li>
+      </ul>
+    </div>
+  `;
+	document.getElementById("home-open-contents")?.addEventListener("click", () => openPanel("reader", { focus: true }));
+	enterView();
+}
+// src/views/home.js
+var HOME_NEWS_CACHE = "newsCache:v1:all";
+var HOME_STATUS_CACHE = "newsCache:v1:status";
+var CITE_JUMP_RE = /^(?:(\d+)\s*c\.?f\.?r\.?\s*)?(?:§§?\s*)?(\d{1,4}\.\d+[a-z0-9-]*)$/i;
+function installedList() {
+	if (state.installedTitles.length) return state.installedTitles;
+	if (state.metaInfo.edition) return [{
+		title: state.currentTitle,
+		name: state.metaInfo.name || `Title ${state.currentTitle}`,
+		section_count: state.metaInfo.section_count,
+		edition: state.metaInfo.edition
+	}];
+	return [];
+}
+function sectionLinkHref(e) {
+	return titleHref(e.ti, "section/" + encodeURIComponent(e.id) + (e.u ? "/" + encodeURIComponent(e.u) : ""));
+}
+function activeTransfersHtml() {
+	const j = state.jobs.current;
+	const queued = state.jobs.queued || [];
+	if (!j && !queued.length) return "";
+	const pill = statPill("busy", j ? j.state === "running" ? j.phase || "Downloading" : "Queued" : "Queued");
+	const text = j ? j.label : "Preparing download";
+	const more = queued.length ? ` · +${queued.length} queued` : "";
+	return `
+    <a class="hm-transfer" href="#/library">
+      ${pill}
+      <span class="hm-transfer-text">${escapeHtml(text)}${escapeHtml(more)}</span>
+      <span class="hm-transfer-cta">Watch in Library ${icon("chevronRight")}</span>
+    </a>`;
+}
+function resumeCardHtml(recent, titles) {
+	if (recent.length) {
+		const last = recent[0];
+		const href = sectionLinkHref(last);
+		const trail = recent.slice(1, 4);
+		return `
+      <section class="hm-card hm-resume" aria-label="Continue reading">
+        <div class="hm-card-top">
+          <span class="hm-kicker">Continue reading</span>
+          <span class="hm-time">${escapeHtml(timeAgo(last.t))}</span>
+        </div>
+        <div class="hm-resume-loc">
+          <span>${last.ti} CFR</span>
+          ${last.p ? `${SEP}<a href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
+          ${last.ul ? `${SEP}<span class="hm-unit-badge">${escapeHtml(last.ul)}</span>` : ""}
+        </div>
+        <a class="hm-resume-title" href="${href}">${escapeHtml(last.l)} ${escapeHtml(last.h || "")}</a>
+        <div class="hm-resume-acts">
+          <a class="btn btn-sm btn-accent" href="${href}">Resume reading ${icon("chevronRight")}</a>
+          ${last.p ? `<a class="btn btn-sm" href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
+          <button type="button" class="btn btn-sm" data-hm-act="open-contents" data-title="${last.ti}">${icon("book")} Contents</button>
+        </div>
+        ${trail.length ? `
+          <div class="hm-trail">
+            <div class="hm-trail-head">
+              <span class="hm-kicker">Recently opened</span>
+              <button type="button" class="hm-inline-link" data-hm-act="open-history">Full history</button>
+            </div>
+            <div class="hm-trail-list">
+              ${trail.map((e) => `
+                <a class="hm-trail-row" href="${sectionLinkHref(e)}">
+                  <span class="hm-tag">${e.ti} CFR</span>
+                  <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
+                  <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
+                  <span class="hm-row-val">${escapeHtml(timeAgo(e.t))}</span>
+                </a>`).join("")}
+            </div>
+          </div>` : ""}
+      </section>`;
+	}
+	const starters = [];
+	for (const t of titles) {
+		const c = HOME_CONTENT[t.title];
+		if (!c) continue;
+		for (const card of c.cards.slice(0, 2)) {
+			starters.push({
+				ti: t.title,
+				part: card.part,
+				kicker: card.kicker,
+				title: card.title
+			});
+			if (starters.length >= 4) break;
+		}
+		if (starters.length >= 4) break;
+	}
+	return `
+    <section class="hm-card hm-resume" aria-label="Start reading">
+      <div class="hm-card-top">
+        <span class="hm-kicker">Start reading</span>
+      </div>
+      <div class="hm-resume-title is-static">Jump into your installed regulations</div>
+      <p class="hm-muted">Open a key part below, search by section number, or browse the table of contents.</p>
+      ${starters.length ? `
+        <div class="hm-starter-grid">
+          ${starters.map((s) => `
+            <a class="hm-starter" href="${titleHref(s.ti, "part/" + encodeURIComponent(s.part))}">
+              <span class="hm-starter-kicker">${s.ti} CFR${SEP}${escapeHtml(s.kicker)}</span>
+              <span class="hm-starter-name">${escapeHtml(s.title)}</span>
+            </a>`).join("")}
+        </div>` : ""}
+      <div class="hm-resume-acts">
+        <button type="button" class="btn btn-sm btn-accent" data-hm-act="open-contents" data-title="${state.currentTitle}">${icon("book")} Browse Contents</button>
+        <a class="btn btn-sm" href="${titleHref(state.currentTitle)}">Title ${state.currentTitle} start</a>
+      </div>
+    </section>`;
+}
+function quickLaunchHtml(last) {
+	const configured = state.chatConfig && state.chatConfig.configured;
+	const chatError = state.chatConfig && state.chatConfig.error;
+	let claudeBody = "";
+	if (configured && !chatError) {
+		const basePrompts = HOME_PROMPTS[state.currentTitle] || [
+			"What does this title cover, at a high level?",
+			"What are the most important definitions in this title?",
+			"Find the penalty and enforcement provisions in this title."
+		];
+		claudeBody = `
+      <div class="hm-prompts">
+        ${(last ? [`Summarize the key duties and exceptions in ${last.l}`, ...basePrompts.slice(0, 2)] : basePrompts.slice(0, 3)).map((p) => `<button type="button" class="hm-prompt-btn" data-hm-prompt="${escapeHtml(p)}">${escapeHtml(p)}</button>`).join("")}
+      </div>`;
+	} else if (chatError) claudeBody = `
+      <p class="hm-muted">${escapeHtml(chatError)}</p>
+      <div class="hm-claude-acts">
+        <a class="btn btn-sm" href="#/help">${icon("help")} Check connection</a>
+      </div>`;
+	else claudeBody = `
+      <p class="hm-muted">Ask questions, summarize provisions, or draft compliance checklists grounded in your local CFR text.</p>
+      <div class="hm-claude-acts">
+        <button type="button" class="btn btn-sm" data-open-env="anthropic_api_key">${icon("key")} Connect Claude</button>
+        <a class="btn btn-sm" href="#/help">Setup guide</a>
+      </div>`;
+	return `
+    <section class="hm-card hm-launch" aria-label="Quick jump and Claude">
+      <div class="hm-card-top">
+        <span class="hm-kicker">Quick jump &amp; search</span>
+        <kbd aria-hidden="true">/</kbd>
+      </div>
+      <form class="hm-jump-form" id="hm-jump-form">
+        <div class="hm-jump-wrap">
+          ${icon("search")}
+          <input id="hm-jump-input" class="hm-jump-input" type="search"
+            placeholder="Jump to § 1910.1200 or search all titles…"
+            aria-label="Jump to section or search all installed titles" autocomplete="off" spellcheck="false">
+        </div>
+        <button type="submit" class="btn btn-sm">Go</button>
+      </form>
+      <div class="hm-quick-links">
+        <button type="button" class="hm-chip-btn" data-hm-act="open-contents">${icon("book")} Contents</button>
+        <button type="button" class="hm-chip-btn" data-hm-act="open-palette">${icon("list")} Commands</button>
+        <a class="hm-chip-btn" href="#/help">${icon("key")} Connections</a>
+      </div>
+      <div class="hm-claude">
+        <div class="hm-claude-head">
+          <span class="hm-claude-title">${icon("sparkle", "icon-accent")} Ask Claude</span>
+          <span class="hm-claude-state">${configured && !chatError ? "Ready" : chatError ? "Unavailable" : "Optional"}</span>
+        </div>
+        ${claudeBody}
+      </div>
+    </section>`;
+}
+function workspacesCardHtml(projects) {
+	const sorted = [...projects].sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || "")).slice(0, 4);
+	const body = sorted.length ? `
+    <div class="hm-ws-list">
+      ${sorted.map((p) => {
+		const chips = (p.sections || []).slice(0, 3).map((s) => {
+			const ok = titleInstalled(s.title);
+			const href = ok ? `#/title/${s.title}/section/${encodeURIComponent(s.id)}` : `#/library/${s.title}`;
+			const tip = ok ? "" : ` title="Title ${s.title} isn’t installed. Open the library"`;
+			return `<a class="citation-chip${ok ? "" : " is-dim"}" href="${href}"${tip}>${escapeHtml(s.label || "§ " + s.id)}</a>`;
+		}).join("");
+		const extra = (p.sections || []).length - 3;
+		return `
+          <article class="hm-ws-item">
+            <div class="hm-ws-top">
+              <a class="hm-ws-name" href="#/projects/${encodeURIComponent(p.id)}">${projDot(p)}<span>${escapeHtml(p.name)}</span></a>
+              <span class="hm-ws-meta">${joinSep([plural(p.sections.length, "section"), escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))])}</span>
+            </div>
+            ${p.description ? `<p class="hm-ws-desc">${escapeHtml(p.description)}</p>` : ""}
+            ${chips ? `<div class="hm-ws-chips">${chips}${extra > 0 ? `<a class="hm-more-chip" href="#/projects/${encodeURIComponent(p.id)}">+${extra}</a>` : ""}</div>` : ""}
+          </article>`;
+	}).join("")}
+    </div>` : `
+    <div class="hm-empty-block">
+      <div class="hm-empty-title">Organize program compliance</div>
+      <p class="hm-muted">Group pinned regulations and notes for a safety program, facility audit, or permit review.</p>
+      <div class="hm-empty-acts">
+        <button type="button" class="btn btn-sm btn-accent" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
+        <button type="button" class="btn btn-sm" data-proj-act="import">Import JSON</button>
+      </div>
+      <p class="hm-empty-tip">Tip: Press <kbd>${isMac ? "⌘" : "Ctrl "}D</kbd> while reading any section to pin it to a workspace.</p>
+    </div>`;
+	return `
+    <section class="hm-card hm-ws" aria-label="Workspaces">
+      <div class="hm-panel-head">
+        <h2 class="hm-panel-title">${icon("folder")} Workspaces${projects.length ? ` <span class="hm-count">${projects.length}</span>` : ""}</h2>
+        <div class="hm-panel-acts">
+          <button type="button" class="hm-inline-link" data-hm-act="new-workspace">+ New</button>
+          <a class="hm-inline-link" href="#/projects">All workspaces</a>
+        </div>
+      </div>
+      ${body}
+    </section>`;
+}
+function pulseChipsHtml(a) {
+	const chips = [];
+	for (const r of (a.cfr_parts || []).slice(0, 2)) {
+		const ok = titleInstalled(r.title);
+		chips.push(`<a class="citation-chip${ok ? "" : " is-dim"}" href="${newsPartHref(r.title, r.part)}">${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
+	}
+	for (const s of (a.sections || []).slice(0, Math.max(0, 3 - chips.length))) {
+		const ok = titleInstalled(29);
+		chips.push(`<a class="citation-chip${ok ? "" : " is-dim"}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`);
+	}
+	return chips.length ? `<div class="hm-news-chips">${chips.join("")}</div>` : "";
+}
+function newsCardBodyHtml(data, status) {
+	const articles = data && data.articles || [];
+	if (!articles.length) return `
+      <div class="hm-empty-block">
+        <div class="hm-empty-title">No local OSHA news yet</div>
+        <p class="hm-muted">Check the Federal Register feed or open Newsroom to inspect rulemaking and enforcement activity.</p>
+        <div class="hm-empty-acts">
+          <button type="button" class="btn btn-sm" data-hm-act="refresh-news">Check news</button>
+          <a class="btn btn-sm" href="#/news">Open Newsroom</a>
+        </div>
+      </div>`;
+	return `<div class="hm-news-list">${articles.slice(0, 3).map((a) => `
+    <article class="hm-news-item">
+      <div class="hm-news-top">
+        <span class="hm-news-kicker">${escapeHtml(newsKicker(a))}</span>
+        <span class="hm-news-right">
+          ${a.penalty_usd ? `<span class="hm-news-fig">${escapeHtml(fmtMoney(a.penalty_usd))}</span>` : ""}
+          <time class="hm-news-date">${escapeHtml(shortDate(a.published_at))}</time>
+        </span>
+      </div>
+      <a class="hm-news-title" href="#/news?cat=${encodeURIComponent(a.category)}">${escapeHtml(a.title)}</a>
+      ${pulseChipsHtml(a)}
+    </article>`).join("")}</div>${status && !status.dol_configured ? `<div class="hm-news-foot"><span>DOL inspection sync is off</span>${SEP}<button type="button" class="hm-inline-link" data-open-env="dol_api_key">Add free DOL key</button></div>` : ""}`;
+}
+function newsPanelHtml(cachedData, cachedStatus) {
+	const pill = newsStatusPillHtml(cachedStatus);
+	return `
+    <section class="hm-card hm-news" id="hm-news" aria-label="Regulatory Pulse">
+      <div class="hm-panel-head">
+        <h2 class="hm-panel-title">${icon("news")} Regulatory Pulse</h2>
+        <div class="hm-panel-acts">
+          <span id="hm-news-pill">${pill}</span>
+          <a class="hm-inline-link" href="#/news">Newsroom</a>
+        </div>
+      </div>
+      <div id="hm-news-body">${newsCardBodyHtml(cachedData, cachedStatus)}</div>
+    </section>`;
+}
+function titlesBandHtml(titles, readByTitle, totalSections, totalRead) {
+	const staleSet = new Set((navLib.data && navLib.data.titles || []).filter(isStale).map((t) => t.title));
+	const cards = titles.map((t) => {
+		const read = readByTitle.get(t.title) || 0;
+		const count = Number(t.section_count || 0);
+		const pct = count ? Math.min(100, read / count * 100) : 0;
+		const pctText = !read ? "" : pct < .1 ? "<0.1%" : `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
+		const parts = ((HOME_CONTENT[t.title] || {}).cards || []).slice(0, 3);
+		const status = t.partial ? statPill("partial", "Partial", { bare: true }) : staleSet.has(t.title) ? statPill("stale", "Update available", { bare: true }) : `<span class="hm-title-ed">${escapeHtml(shortDate(t.edition) || "Local")}</span>`;
+		return `
+      <article class="hm-title-card">
+        <div class="hm-title-top">
+          <span class="hm-title-kicker">${t.title} CFR</span>
+          ${status}
+        </div>
+        <h3 class="hm-title-name"><a href="${titleHref(t.title)}">${escapeHtml(t.name)}</a></h3>
+        <div class="hm-title-prog">
+          <span>${fmt(count)} sections${SEP}${read ? `${fmt(read)} read (${pctText})` : "Not started"}</span>
+          <div class="hm-prog-track" aria-hidden="true"><span style="width:${read ? Math.max(2, Math.round(pct)) : 0}%"></span></div>
+        </div>
+        ${parts.length ? `
+          <div class="hm-title-parts">
+            ${parts.map((c) => {
+			const label = c.title.replace(/^Part\s+\d+\s*[—–-]\s*/, "");
+			return `<a class="hm-part-chip" href="${titleHref(t.title, "part/" + encodeURIComponent(c.part))}"><span class="hm-part-num">${escapeHtml(c.part)}</span><span>${escapeHtml(label)}</span></a>`;
+		}).join("")}
+          </div>` : ""}
+        <div class="hm-title-acts">
+          <a class="lib-act" href="${titleHref(t.title)}">Title start</a>
+          <button type="button" class="lib-act" data-hm-act="open-contents" data-title="${t.title}">Contents</button>
+          ${t.partial ? `<a class="lib-act" href="#/library/${t.title}">Complete</a>` : staleSet.has(t.title) ? "<a class=\"lib-act\" href=\"#/library\">Update</a>" : ""}
+        </div>
+      </article>`;
+	}).join("");
+	return `
+    <section class="hm-titles" aria-label="Installed titles">
+      <div class="hm-sec-head">
+        <div class="hm-sec-head-left">
+          <h2 class="hm-sec-title">Installed Titles</h2>
+          <span class="hm-sec-meta">${joinSep([
+		plural(titles.length, "title"),
+		`${fmt(totalSections)} sections`,
+		totalRead ? `${fmt(totalRead)} read` : ""
+	])}</span>
+        </div>
+        <a class="hm-inline-link" href="#/library">Browse all 50 titles ${icon("chevronRight")}</a>
+      </div>
+      <div class="hm-title-grid">${cards}</div>
+    </section>`;
+}
+async function hydrateHomeNews(seq) {
+	if (!document.getElementById("hm-news")) return;
+	try {
+		const [data, status] = await Promise.all([getJSON("/api/news?limit=4"), getJSON("/api/news/status")]);
+		if (seq !== state.routeSeq) return;
+		if (!document.getElementById("hm-news")) return;
+		const body = document.getElementById("hm-news-body");
+		const pill = document.getElementById("hm-news-pill");
+		if (body) body.innerHTML = newsCardBodyHtml(data, status);
+		if (pill) pill.innerHTML = newsStatusPillHtml(status);
+		if (data && data.articles && data.articles.length) lsSetJSON(HOME_NEWS_CACHE, {
+			t: Date.now(),
+			data: {
+				articles: data.articles.slice(0, 30),
+				total: data.total,
+				offset: 0
+			}
+		});
+		if (status) lsSetJSON(HOME_STATUS_CACHE, {
+			t: Date.now(),
+			data: status
+		});
+	} catch (e) {} finally {
+		const el = document.getElementById("hm-news");
+		if (el && seq === state.routeSeq) el.dataset.newsLoaded = "1";
+	}
+}
+function renderHomeScreen({ enter = true } = {}) {
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	document.title = "Home · FRAMEWORK";
+	setViewHead("");
+	const u = loadUsage();
+	const titles = installedList();
+	const installed = new Set(titles.map((t) => t.title));
+	const split = (key) => {
+		const i = key.indexOf("|");
+		return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
+	};
+	const recent = [...Object.entries(u.s).map(([k, e]) => {
+		const [ti, id] = split(k);
+		return {
+			...e,
+			ti,
+			id
+		};
+	}).filter((e) => installed.has(e.ti))].sort((a, b) => (b.t || 0) - (a.t || 0));
+	const last = recent[0] || null;
+	const projects = loadProjects();
+	const totalSections = titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
+	const readByTitle = new Map(titles.map((t) => [t.title, visitedCountFor(t.title)]));
+	const totalRead = [...readByTitle.values()].reduce((a, b) => a + b, 0);
+	const cachedNews = lsGetJSON(HOME_NEWS_CACHE);
+	const cachedStatus = lsGetJSON(HOME_STATUS_CACHE);
+	const sub = joinSep([
+		escapeHtml(plural(titles.length, "installed title")),
+		projects.length ? escapeHtml(plural(projects.length, "workspace")) : "",
+		state.metaInfo.edition ? `eCFR ${escapeHtml(shortDate(state.metaInfo.edition))}` : ""
+	]);
+	const scrollTop = dom.main.scrollTop;
+	dom.view.innerHTML = `
+    <div class="hm">
+      <header class="hm-head">
+        <div>
+          <div class="doc-kicker">FRAMEWORK</div>
+          <h1 class="doc-title">Home</h1>
+          <p class="hm-sub">${sub}</p>
+        </div>
+        <div class="hm-head-acts">
+          <button type="button" class="btn btn-sm" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
+          <a class="btn btn-sm" href="#/library">${icon("download")} Library</a>
+        </div>
+      </header>
+      ${activeTransfersHtml()}
+      <div class="hm-hero">
+        ${resumeCardHtml(recent, titles)}
+        ${quickLaunchHtml(last)}
+      </div>
+      <div class="hm-mid">
+        ${workspacesCardHtml(projects)}
+        ${newsPanelHtml(cachedNews && cachedNews.data, cachedStatus && cachedStatus.data)}
+      </div>
+      ${titlesBandHtml(titles, readByTitle, totalSections, totalRead)}
+    </div>`;
+	if (enter) enterView();
+	else dom.main.scrollTop = scrollTop;
+	hydrateHomeNews(state.routeSeq);
+}
+function refreshHomeIfActive() {
+	if (routeTarget() === "overview" && dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
+}
+dom.view.addEventListener("click", async (e) => {
+	if (!dom.view.querySelector(".hm")) return;
+	const promptBtn = e.target.closest("[data-hm-prompt]");
+	if (promptBtn) {
+		launchChatPrompt(promptBtn.dataset.hmPrompt, { submit: true });
+		return;
+	}
+	const actEl = e.target.closest("[data-hm-act]");
+	if (!actEl) return;
+	const act = actEl.dataset.hmAct;
+	if (act === "new-workspace") startNewWorkspace();
+	else if (act === "open-history") {
+		state.historyFor = "overview";
+		openPanel("history", { focus: e.detail === 0 });
+	} else if (act === "open-contents") {
+		const t = Number(actEl.dataset.title);
+		if (t && t !== state.currentTitle) await switchTitle(t);
+		openPanel("reader", { focus: true });
+	} else if (act === "open-palette") {
+		dom.search.value = ">";
+		dom.search.focus();
+		dom.search.dispatchEvent(new Event("input"));
+	} else if (act === "refresh-news") {
+		await refreshNewsCommand();
+		hydrateHomeNews(state.routeSeq);
+	}
+});
+dom.view.addEventListener("submit", async (e) => {
+	if (e.target.id !== "hm-jump-form") return;
+	e.preventDefault();
+	const input = document.getElementById("hm-jump-input");
+	const q = (input && input.value || "").trim();
+	if (!q) {
+		dom.search.focus();
+		return;
+	}
+	if (q.startsWith(">")) {
+		dom.search.value = q;
+		dom.search.focus();
+		dom.search.dispatchEvent(new Event("input"));
+		return;
+	}
+	const cite = CITE_JUMP_RE.exec(q);
+	if (cite) {
+		const targetTitle = cite[1] ? Number(cite[1]) : null;
+		const secId = cite[2];
+		const searchTitle = targetTitle && titleInstalled(targetTitle) ? String(targetTitle) : "all";
+		try {
+			const data = await getJSON(`/api/search?q=${encodeURIComponent(secId)}&title=${searchTitle}&limit=1`);
+			const hit = data && data.results && data.results[0];
+			if (hit && String(hit.id).toLowerCase() === secId.toLowerCase()) {
+				window.location.hash = `#/title/${hit.title || state.currentTitle}/section/${encodeURIComponent(hit.id)}`;
+				return;
+			}
+		} catch (err) {}
+	}
+	const scope = state.installedTitles.length > 1 ? "&scope=all" : "";
+	window.location.hash = `#/search?q=${encodeURIComponent(q)}${scope}`;
+});
 // src/components/env_modal.js
 var envModalEl = document.getElementById("env-modal");
 var envModalDialog = envModalEl ? envModalEl.querySelector(".modal-dialog") : null;
@@ -6276,6 +6869,7 @@ async function submitEnvModal(e) {
 		closeEnvModal(true);
 		showToast((res.news_sync_queued || []).length > 0 ? "Saved to reader/.env · Syncing DOL enforcement data…" : "Saved to reader/.env — active immediately");
 		refreshSettingsViews();
+		refreshHomeIfActive();
 		if (state.activeRoute === "/help" || state.activeRoute === "/help/") renderHelp(state.navEnvStatus);
 		else if (routeTarget() === "news") handleRoute();
 	} catch (err) {
@@ -6569,283 +7163,7 @@ async function refreshTitles(changed = []) {
 		if (meta) state.metaInfo = meta;
 		await switchTitle(state.currentTitle);
 	}
-	if (dom.view.querySelector(".ov")) renderOverview();
-}
-// src/panels/library_panel.js
-var navLib = {
-	data: null,
-	at: 0,
-	loading: null
-};
-async function ensureNavLibrary(force = false) {
-	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
-	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
-		navLib.data = d;
-		navLib.at = Date.now();
-		return d;
-	}).finally(() => {
-		navLib.loading = null;
-	});
-	return navLib.loading;
-}
-function transferHtml() {
-	const j = state.jobs.current;
-	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
-	const m = dockModel(j);
-	return (!j ? "" : `<div class="dr-job">
-      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
-      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
-      <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
-      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
-      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
-    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
-}
-state.navTransferKey = "";
-function updateNavTransfers() {
-	updateRailBadge();
-	if (navState.panel !== "library" || !drawerShown()) return;
-	const box = document.getElementById("dr-transfers");
-	if (!box) return;
-	const j = state.jobs.current;
-	const m = dockModel(j);
-	const key = [
-		j && j.id,
-		j && j.cancelling,
-		j && j.phase === "Installing",
-		m.pct == null,
-		state.jobs.queued.map((q) => q.id).join(".")
-	].join("|");
-	if (key !== state.navTransferKey) {
-		state.navTransferKey = key;
-		box.innerHTML = transferHtml();
-		const count = document.getElementById("dr-transfers-count");
-		const n = (j ? 1 : 0) + state.jobs.queued.length;
-		if (count) count.textContent = n ? String(n) : "";
-		const sec = document.getElementById("dr-transfers-sec");
-		if (sec) sec.hidden = !n;
-		return;
-	}
-	const set = (f, v) => {
-		const n = box.querySelector(`[data-f="${f}"]`);
-		if (n && n.textContent !== v) n.textContent = v;
-	};
-	set("pct", m.pct == null ? "" : `${m.pct}%`);
-	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
-	set("left", m.left);
-	set("right", m.right);
-	const fill = box.querySelector("[data-f=\"fill\"]");
-	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
-}
-function renderLibraryPanel() {
-	const d = navLib.data;
-	state.navTransferKey = "";
-	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
-	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
-	if (!d) {
-		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
-		ensureNavLibrary().then(() => {
-			if (navState.panel === "library") renderLibraryPanel();
-			updateRailBadge();
-		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
-		return;
-	}
-	const live = d.titles.filter((t) => !t.reserved);
-	const installed = live.filter((t) => t.installed);
-	const stale = installed.filter(isStale);
-	const rows = installed.map((t) => {
-		const st = titleStatus(t);
-		return `<a class="dr-row" href="#/title/${t.title}/">
-      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
-      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
-	}).join("");
-	const suites = Object.values(d.suites || {}).map((s) => {
-		const st = suiteState(s, d);
-		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
-		return `<div class="dr-suite">
-      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
-        <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
-      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>"}
-    </div>`;
-	}).join("");
-	setPanel("library", `
-    <a class="dr-cta" href="#/library">
-      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
-    </a>
-    ${transfers}
-    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
-      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
-    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
-	updateRailBadge();
-}
-// src/views/core.js
-var HOME_CONTENT = {
-	29: {
-		tagline: "Federal labor regulations — workplace safety, wages and hours, leave, and employee benefits — with local search and Claude.",
-		cards: [
-			{
-				part: "1910",
-				kicker: "OSHA Safety",
-				title: "Part 1910 — General Industry",
-				desc: "PPE, hazard communication, walking-working surfaces, fire protection, and machinery."
-			},
-			{
-				part: "1926",
-				kicker: "OSHA Safety",
-				title: "Part 1926 — Construction",
-				desc: "Scaffolds, fall protection, cranes, excavations, and electrical safety on sites."
-			},
-			{
-				part: "541",
-				kicker: "Wage & Hour",
-				title: "Part 541 — Overtime Exemptions",
-				desc: "Executive, administrative, professional, computer, and outside sales exemptions (FLSA)."
-			},
-			{
-				part: "825",
-				kicker: "Leave & Family",
-				title: "Part 825 — Family & Medical Leave",
-				desc: "FMLA employee eligibility, employer notice obligations, leave duration, and certification."
-			},
-			{
-				part: "1904",
-				kicker: "Recordkeeping",
-				title: "Part 1904 — Injury Recording",
-				desc: "Recording and reporting occupational injuries, illnesses, and severe incidents."
-			},
-			{
-				part: "2560",
-				kicker: "Employee Benefits",
-				title: "Part 2560 — ERISA Administration",
-				desc: "Claims procedures, participant remedies, and retirement plan fiduciaries."
-			}
-		]
-	},
-	40: {
-		tagline: "EPA regulations — air and water quality, hazardous waste, permits, and chemical releases — with local search and Claude.",
-		cards: [
-			{
-				part: "50",
-				kicker: "Air",
-				title: "Part 50 — Air Quality Standards",
-				desc: "National ambient air quality standards (NAAQS) for ozone, particulates, lead, and more."
-			},
-			{
-				part: "70",
-				kicker: "Air Permits",
-				title: "Part 70 — Operating Permits",
-				desc: "State operating permit programs for major stationary sources (Title V)."
-			},
-			{
-				part: "122",
-				kicker: "Water",
-				title: "Part 122 — NPDES Permits",
-				desc: "The discharge permit program for point sources under the Clean Water Act."
-			},
-			{
-				part: "136",
-				kicker: "Water",
-				title: "Part 136 — Test Procedures",
-				desc: "Approved analytical methods for pollutant monitoring and compliance."
-			},
-			{
-				part: "261",
-				kicker: "Hazardous Waste",
-				title: "Part 261 — Waste Identification",
-				desc: "What counts as a solid and hazardous waste under RCRA: listings and characteristics."
-			},
-			{
-				part: "302",
-				kicker: "Emergencies",
-				title: "Part 302 — Reportable Quantities",
-				desc: "CERCLA hazardous substance designations and release notification thresholds."
-			}
-		]
-	},
-	49: {
-		tagline: "DOT regulations — hazardous materials, motor carriers, drivers, and vehicle safety — with local search and Claude.",
-		cards: [
-			{
-				part: "172",
-				kicker: "Hazmat",
-				title: "Part 172 — Hazmat Table & Communication",
-				desc: "The hazardous materials table, shipping papers, marking, labeling, and placarding."
-			},
-			{
-				part: "173",
-				kicker: "Hazmat",
-				title: "Part 173 — Packaging Requirements",
-				desc: "General shipment and packaging requirements by hazard class."
-			},
-			{
-				part: "390",
-				kicker: "Motor Carriers",
-				title: "Part 390 — FMCSA General",
-				desc: "Who the federal motor carrier safety regulations apply to, and general duties."
-			},
-			{
-				part: "391",
-				kicker: "Drivers",
-				title: "Part 391 — Driver Qualifications",
-				desc: "Qualification files, medical certification, and disqualifying offenses."
-			},
-			{
-				part: "383",
-				kicker: "Drivers",
-				title: "Part 383 — Commercial Driver’s License",
-				desc: "CDL standards: who needs one, testing, endorsements, and disqualifications."
-			},
-			{
-				part: "571",
-				kicker: "Vehicles",
-				title: "Part 571 — Vehicle Safety Standards",
-				desc: "Federal motor vehicle safety standards (FMVSS) for cars, trucks, and buses."
-			}
-		]
-	}
-};
-function renderHome() {
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	document.title = `Title ${state.currentTitle} · FRAMEWORK`;
-	setViewHead("");
-	const name = state.metaInfo.name || "";
-	const content = HOME_CONTENT[state.currentTitle];
-	const tagline = content ? content.tagline : `Read, search, and ask questions about Title ${state.currentTitle} of the Code of Federal Regulations.`;
-	const count = Number(state.metaInfo.section_count || 0);
-	const metaLine = [count ? `${count.toLocaleString()} sections` : "", state.metaInfo.edition ? `current as of ${state.metaInfo.edition}` : ""].filter(Boolean).join(" · ");
-	const cardsHtml = content ? `
-    <div class="card-grid">
-      ${content.cards.map((c) => `
-        <a class="card" href="#/part/${encodeURIComponent(c.part)}">
-          <span class="card-kicker">${escapeHtml(c.kicker)}</span>
-          <div class="card-title">${escapeHtml(c.title)}</div>
-          <div class="card-desc">${escapeHtml(c.desc)}</div>
-        </a>
-      `).join("")}
-    </div>
-  ` : "";
-	dom.view.innerHTML = `
-    <div class="home-hero">
-      <h1>Title ${state.currentTitle}${name ? " — " + escapeHtml(name) : ""}</h1>
-      <p>${escapeHtml(tagline)}</p>
-      ${metaLine ? `<p class="home-meta">${escapeHtml(metaLine)}</p>` : ""}
-    </div>
-
-    ${cardsHtml}
-
-    <div class="home">
-      <h2>Getting around</h2>
-      <ul class="tips">
-        <li><span class="tip-keys"><kbd>/</kbd></span><span>Search the full text, or jump straight to a section number</span></li>
-        <li><span class="tip-keys"><kbd>${isMac ? "⌘" : "Ctrl"}</kbd><kbd>K</kbd></span><span>Open Ask Claude</span></li>
-        <li><span class="tip-keys"><kbd>↑</kbd><kbd>↓</kbd></span><span>Move through the contents list or search suggestions</span></li>
-        <li><span class="tip-keys"><kbd>Esc</kbd></span><span>Clear the contents filter or close suggestions</span></li>
-      </ul>
-    </div>
-  `;
-	enterView();
+	if (dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
 }
 // src/views/welcome.js
 state.profilesData = null;
@@ -7388,7 +7706,7 @@ function libFrontHtml(d) {
 	const lead = suites.find((s) => s.featured) || suites[0];
 	const others = suites.filter((s) => s !== lead);
 	return `<div class="lib lib-front">
-    <div class="doc-kicker"><a href="#/">Overview</a></div>
+    <div class="doc-kicker"><a href="#/">Home</a></div>
     <header class="lib-masthead">
       <h1 class="doc-title">Library</h1>
       <p class="lib-sub">${sub}</p>
@@ -7432,7 +7750,7 @@ function renderLibrary(fresh) {
 	if (!part) {
 		document.title = `Title ${title} · Library · FRAMEWORK`;
 		const inst = d.installed;
-		crumbs = `<a href="#/">Overview</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a>`;
+		crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a>`;
 		heading = `Title ${title} — ${d.name}`;
 		sub = inst ? inst.whole ? `Installed · ${fmtDate(inst.edition)} · ${fmt(inst.section_count)} sections` : `Partly installed · ${fmt(inst.section_count)} ${inst.section_count === 1 ? "section" : "sections"}` : `Not installed · eCFR edition ${fmtDate(d.latest)}`;
 		placeholder = "Filter parts";
@@ -7464,7 +7782,7 @@ function renderLibrary(fresh) {
 		}).join("")}`).join("");
 	} else {
 		document.title = `Part ${part} · Library · FRAMEWORK`;
-		crumbs = `<a href="#/">Overview</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a><span class="sep" aria-hidden="true">›</span><a href="${libHref(title)}">Title ${title}</a>`;
+		crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a><span class="sep" aria-hidden="true">›</span><a href="${libHref(title)}">Title ${title}</a>`;
 		heading = `${d.l} — ${d.d}`;
 		const countText = fmtSections(d.groups.reduce((a, g) => a + g.sections.filter((s) => !s.r).length, 0)) || "0 sections";
 		sub = d.installed === "all" ? `Installed · ${countText}` : d.installed === "some" ? `Partly installed · ${countText}` : countText;
@@ -7691,6 +8009,7 @@ async function pollJobs() {
 		}
 	}
 	refreshWelcome();
+	refreshHomeIfActive();
 	pollJobsIfActive();
 }
 // src/panels/projects_panel.js
@@ -7709,16 +8028,16 @@ function renderProjectsPanel() {
 	const list = loadProjects();
 	const current = projectRouteId();
 	const form = state.newProjectOpen ? `<form class="dr-new" id="dr-new-project">
-      <input class="dr-input" id="dr-new-name" name="name" placeholder="Dossier name" maxlength="80" autocomplete="off" aria-label="New dossier name">
+      <input class="dr-input" id="dr-new-name" name="name" placeholder="Workspace name" maxlength="80" autocomplete="off" aria-label="New workspace name">
       <button type="submit" class="lib-act is-primary">Create</button></form>` : "";
 	const rows = list.map((p) => `<a class="dr-proj${p.id === current ? " is-current" : ""}" href="#/projects/${encodeURIComponent(p.id)}"${p.id === current ? " aria-current=\"page\"" : ""}>
       ${projDot(p)}<span class="dr-proj-text"><span class="dr-name">${escapeHtml(p.name)}</span>
       <span class="dr-proj-meta">${joinSep([plural(p.sections.length, "section"), escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))])}</span></span></a>`).join("");
 	const mod = isMac ? "⌘" : "Ctrl ";
 	setPanel("projects", `${form}
-    ${list.length ? `<section class="dr-sec">${drLabel("Dossiers", `<span class="dr-count">${list.length}</span>`)}${rows}</section>` : drEmpty("No dossiers yet", `Group the sections you need for an audit, a permit or a review. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>.`) + (state.newProjectOpen ? "" : "<button type=\"button\" class=\"btn dr-empty-btn\" data-nav-act=\"new-project\">New dossier</button>")}
+    ${list.length ? `<section class="dr-sec">${drLabel("Workspaces", `<span class="dr-count">${list.length}</span>`)}${rows}</section>` : drEmpty("No workspaces yet", `Organize sections for program compliance, an audit, or a review. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>.`) + (state.newProjectOpen ? "" : "<button type=\"button\" class=\"btn dr-empty-btn\" data-nav-act=\"new-project\">New workspace</button>")}
     <div class="dr-foot">
-      <a class="dr-link" href="#/projects">All projects</a>
+      <a class="dr-link" href="#/projects">All workspaces</a>
       <span class="dr-foot-acts"><button type="button" class="dr-link" data-proj-act="export"${list.length ? "" : " disabled"}>Export</button><button type="button" class="dr-link" data-proj-act="import">Import</button></span>
     </div>`);
 }
@@ -7762,6 +8081,7 @@ function saveProjects(list, { quiet = false } = {}) {
 	if (navState.panel === "projects" || navState.panel === "history") renderPanel(navState.panel);
 	if (navState.panel === "projects") drawerEl.meta.textContent = panelMeta("projects");
 	if (!quiet && routeTarget() === "projects") renderProjects(projectRouteId());
+	if (!quiet && routeTarget() === "overview") refreshHomeIfActive();
 	updatePinButton();
 }
 var nowIso = () => (/* @__PURE__ */ new Date()).toISOString();
@@ -7769,7 +8089,7 @@ function createProject(name, extra = {}) {
 	const list = loadProjects();
 	const p = {
 		id: `proj_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-		name: (name || "").trim() || "Untitled dossier",
+		name: (name || "").trim() || "Untitled workspace",
 		description: "",
 		tags: [],
 		created_at: nowIso(),
@@ -7849,7 +8169,7 @@ importInput.addEventListener("change", async () => {
 	try {
 		const raw = JSON.parse(await file.text());
 		const incoming = (Array.isArray(raw) ? raw : raw.projects || []).filter(validProject);
-		if (!incoming.length) throw new Error("No dossiers in that file");
+		if (!incoming.length) throw new Error("No workspaces in that file");
 		const list = loadProjects();
 		for (const p of incoming) {
 			const i = list.findIndex((x) => x.id === p.id);
@@ -7857,33 +8177,35 @@ importInput.addEventListener("change", async () => {
 			else if ((p.updated_at || "") >= (list[i].updated_at || "")) list[i] = p;
 		}
 		saveProjects(list);
-		showToast(`Imported ${plural(incoming.length, "dossier")}`);
+		showToast(`Imported ${plural(incoming.length, "workspace")}`);
 	} catch (err) {
 		showToast(`Couldn’t import: ${err.message}`, 5e3);
 	}
 });
+function startNewWorkspace() {
+	const p = createProject("Untitled workspace");
+	window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
+	requestAnimationFrame(() => setTimeout(() => {
+		const n = dom.view.querySelector(".proj-name");
+		if (n) {
+			n.focus();
+			n.select();
+		}
+	}, 60));
+}
 function onProjectAction(btn) {
 	const act = btn.dataset.projAct;
 	if (act === "export") exportProjects(loadProjects());
 	else if (act === "import") importInput.click();
-	else if (act === "new") {
-		const p = createProject("Untitled dossier");
-		window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
-		requestAnimationFrame(() => setTimeout(() => {
-			const n = dom.view.querySelector(".proj-name");
-			if (n) {
-				n.focus();
-				n.select();
-			}
-		}, 60));
-	} else if (act === "export-one") {
+	else if (act === "new") startNewWorkspace();
+	else if (act === "export-one") {
 		const p = loadProjects().find((x) => x.id === btn.dataset.id);
-		if (p) exportProjects([p], `${p.name.replace(/[^\w-]+/g, "-").toLowerCase() || "dossier"}.json`);
+		if (p) exportProjects([p], `${p.name.replace(/[^\w-]+/g, "-").toLowerCase() || "workspace"}.json`);
 	} else if (act === "delete" || act === "unpin") {
 		if (!btn.classList.contains("is-armed")) {
 			const label = btn.textContent;
 			btn.classList.add("is-armed");
-			btn.textContent = act === "delete" ? "Delete dossier?" : "Remove?";
+			btn.textContent = act === "delete" ? "Delete workspace?" : "Remove?";
 			clearTimeout(btn._t);
 			btn._t = setTimeout(() => {
 				btn.classList.remove("is-armed");
@@ -7895,7 +8217,7 @@ function onProjectAction(btn) {
 			const list = loadProjects().filter((x) => x.id !== btn.dataset.id);
 			window.location.hash = "#/projects";
 			saveProjects(list);
-			showToast("Dossier deleted");
+			showToast("Workspace deleted");
 		} else {
 			const [title, ...rest] = btn.dataset.sec.split("|");
 			updateProject(projectRouteId(), (p) => {
@@ -7910,7 +8232,7 @@ dom.sidebar.addEventListener("click", (e) => {
 });
 dom.view.addEventListener("click", (e) => {
 	const b = e.target.closest("[data-proj-act]");
-	if (b && dom.view.querySelector(".proj-page")) onProjectAction(b);
+	if (b && dom.view.querySelector(".proj-page, .hm")) onProjectAction(b);
 });
 function titlesOf(p) {
 	const ts = [...new Set(p.sections.map((s) => s.title))].sort((a, b) => a - b);
@@ -7928,7 +8250,7 @@ function renderProjects(id) {
 	if (!id) {
 		document.title = "Projects · FRAMEWORK";
 		const cards = list.map((p) => `<article class="lib-story proj-card">
-        <div class="story-top"><span class="story-kicker">${projDot(p)}Dossier${SEP}Updated ${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</span></div>
+        <div class="story-top"><span class="story-kicker">${projDot(p)}Workspace${SEP}Updated ${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</span></div>
         <h3 class="story-name"><a href="#/projects/${encodeURIComponent(p.id)}">${escapeHtml(p.name)}</a></h3>
         ${p.description ? `<p class="story-dek">${escapeHtml(p.description)}</p>` : ""}
         ${p.tags && p.tags.length ? `<div class="proj-tags">${p.tags.map((t) => `<span class="proj-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
@@ -7936,20 +8258,20 @@ function renderProjects(id) {
       </article>`).join("");
 		const mod = isMac ? "⌘" : "Ctrl ";
 		dom.view.innerHTML = `<div class="lib lib-front proj-page" data-id="">
-      <div class="doc-kicker"><a href="#/">Overview</a></div>
+      <div class="doc-kicker"><a href="#/">Home</a></div>
       <div class="lib-head">
         <div class="lib-head-text"><h1 class="doc-title">Projects</h1>
           <p class="lib-sub">${joinSep([
-			"Dossiers of pinned sections for an audit, a permit or a review",
-			plural(list.length, "dossier"),
+			"Workspaces of pinned sections for program compliance, audits, or reviews",
+			plural(list.length, "workspace"),
 			plural(sections, "section")
 		])}</p></div>
-        <button type="button" class="btn" data-proj-act="new">${icon("plus")} New dossier</button>
+        <button type="button" class="btn" data-proj-act="new">${icon("plus")} New workspace</button>
       </div>
-      ${list.length ? `<div class="lib-desk"><header class="lib-desk-header"><h2 class="lib-desk-name">All dossiers</h2><span class="lib-desk-count">${plural(list.length, "dossier")}</span></header>
-        <div class="lib-stories">${cards}</div></div>` : `<div class="proj-empty"><div class="dr-empty-title">Start a dossier</div>
-            <p>Collect the sections an audit or a permit review turns on, with a note on each. Open any section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>, or start an empty dossier here.</p>
-            <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon("plus")} New dossier</button><button type="button" class="btn" data-proj-act="import">Import JSON</button></span></div>`}
+      ${list.length ? `<div class="lib-desk"><header class="lib-desk-header"><h2 class="lib-desk-name">All workspaces</h2><span class="lib-desk-count">${plural(list.length, "workspace")}</span></header>
+        <div class="lib-stories">${cards}</div></div>` : `<div class="proj-empty"><div class="dr-empty-title">Start a workspace</div>
+            <p>Collect the sections a compliance program, audit, or permit review turns on, with a note on each. Open any section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>, or start an empty workspace here.</p>
+            <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon("plus")} New workspace</button><button type="button" class="btn" data-proj-act="import">Import JSON</button></span></div>`}
     </div>`;
 		if (fresh) enterView();
 		return;
@@ -7957,7 +8279,7 @@ function renderProjects(id) {
 	const p = list.find((x) => x.id === id);
 	if (!p) {
 		document.title = "Projects · FRAMEWORK";
-		dom.view.innerHTML = `<div class="empty-state proj-page" data-id="${escapeHtml(id)}"><h2>No such dossier</h2><p>It may have been deleted, or it lives in another browser.</p><a class="btn" href="#/projects">All projects</a></div>`;
+		dom.view.innerHTML = `<div class="empty-state proj-page" data-id="${escapeHtml(id)}"><h2>No such workspace</h2><p>It may have been deleted, or it lives in another browser.</p><a class="btn" href="#/projects">All workspaces</a></div>`;
 		return;
 	}
 	document.title = `${p.name} · Projects · FRAMEWORK`;
@@ -7978,7 +8300,7 @@ function renderProjects(id) {
     <div class="doc-kicker"><a href="#/projects">Projects</a></div>
     <div class="proj-head">
       <span class="proj-icon" style="--hue: var(${projectHue(p)})" aria-hidden="true">${icon("folder")}</span>
-      <input class="proj-name" value="${escapeHtml(p.name)}" maxlength="80" aria-label="Dossier name" spellcheck="false">
+      <input class="proj-name" value="${escapeHtml(p.name)}" maxlength="80" aria-label="Workspace name" spellcheck="false">
       <span class="proj-head-acts">
         <button type="button" class="lib-act" data-proj-act="export-one" data-id="${escapeHtml(p.id)}">Export</button>
         <button type="button" class="lib-act is-danger" data-proj-act="delete" data-id="${escapeHtml(p.id)}">Delete</button>
@@ -8014,7 +8336,7 @@ dom.view.addEventListener("input", (e) => {
 	clearTimeout(state.projEditT);
 	state.projEditT = setTimeout(() => {
 		updateProject(id, (p) => {
-			if (t.matches(".proj-name")) p.name = t.value.trim() || "Untitled dossier";
+			if (t.matches(".proj-name")) p.name = t.value.trim() || "Untitled workspace";
 			else if (t.matches(".proj-desc")) p.description = t.value;
 			else if (t.matches(".proj-tags-input")) p.tags = t.value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
 			else if (t.matches(".proj-note")) {
@@ -8024,7 +8346,7 @@ dom.view.addEventListener("input", (e) => {
 		}, { quiet: true });
 		const upd = page.querySelector("[data-f=\"updated\"]");
 		if (upd) upd.textContent = "just now";
-		if (t.matches(".proj-name")) document.title = `${t.value.trim() || "Untitled dossier"} · Projects · FRAMEWORK`;
+		if (t.matches(".proj-name")) document.title = `${t.value.trim() || "Untitled workspace"} · Projects · FRAMEWORK`;
 	}, 300);
 });
 dom.view.addEventListener("keydown", (e) => {
@@ -8037,7 +8359,7 @@ dom.view.addEventListener("keydown", (e) => {
 var pinPop = document.getElementById("pin-pop");
 function pinButtonHtml() {
 	const n = state.currentSection ? projectsWith(state.currentTitle, state.currentSection.id).length : 0;
-	return `<button type="button" class="btn${n ? " is-pinned" : ""}" id="btn-pin" aria-haspopup="dialog" aria-expanded="false" title="Pin to a project (${isMac ? "⌘" : "Ctrl "}D)">${icon(n ? "bookmarkFilled" : "bookmark")} ${n ? "Pinned" : "Pin"}</button>`;
+	return `<button type="button" class="btn${n ? " is-pinned" : ""}" id="btn-pin" aria-haspopup="dialog" aria-expanded="false" title="Pin to a workspace (${isMac ? "⌘" : "Ctrl "}D)">${icon(n ? "bookmarkFilled" : "bookmark")} ${n ? "Pinned" : "Pin"}</button>`;
 }
 function updatePinButton() {
 	const b = document.getElementById("btn-pin");
@@ -8048,12 +8370,12 @@ function renderPinMenu() {
 	if (!sec) return;
 	const list = loadProjects();
 	pinPop.innerHTML = `<div class="pin-head">Pin <strong>${escapeHtml(sec.label)}</strong> to</div>
-    ${list.length ? `<div class="pin-list" role="group" aria-label="Dossiers">${list.map((p) => {
+    ${list.length ? `<div class="pin-list" role="group" aria-label="Workspaces">${list.map((p) => {
 		const on = p.sections.some((s) => s.title === sec.title && s.id === sec.id);
 		return `<button type="button" class="pin-opt" role="menuitemcheckbox" aria-checked="${on}" data-proj="${escapeHtml(p.id)}">
         <span class="pin-check">${on ? icon("check") : ""}</span>${projDot(p)}<span class="pin-name">${escapeHtml(p.name)}</span><span class="pin-count">${p.sections.length}</span></button>`;
-	}).join("")}</div>` : "<p class=\"pin-none\">No dossiers yet. Name one to start.</p>"}
-    <form class="pin-new"><input class="dr-input" name="name" placeholder="New dossier…" maxlength="80" autocomplete="off" aria-label="New dossier name"></form>`;
+	}).join("")}</div>` : "<p class=\"pin-none\">No workspaces yet. Name one to start.</p>"}
+    <form class="pin-new"><input class="dr-input" name="name" placeholder="New workspace…" maxlength="80" autocomplete="off" aria-label="New workspace name"></form>`;
 }
 function openPinMenu() {
 	if (!state.currentSection) return;
@@ -8293,14 +8615,14 @@ function panelMeta(panel) {
 	if (panel === "reader") return state.noTitles ? "No titles installed" : `Title ${state.currentTitle}`;
 	if (panel === "projects") {
 		const n = loadProjects().length;
-		return n ? plural(n, "dossier") : "";
+		return n ? plural(n, "workspace") : "";
 	}
 	if (panel === "library") return state.installedTitles.length ? `${state.installedTitles.length} installed` : "";
 	if (panel === "history") return "Reading history";
 	return "";
 }
 function panelActions(panel) {
-	if (panel === "projects") return `<button type="button" class="icon-btn drawer-icon" data-nav-act="new-project" title="New dossier" aria-label="New dossier">${icon("plus")}</button>`;
+	if (panel === "projects") return `<button type="button" class="icon-btn drawer-icon" data-nav-act="new-project" title="New workspace" aria-label="New workspace">${icon("plus")}</button>`;
 	if (panel === "library") return `<a class="icon-btn drawer-icon" href="#/library" title="Open the library" aria-label="Open the library">${icon("external")}</a>`;
 	return "";
 }
@@ -8384,8 +8706,8 @@ function updateRailHome() {
 	}
 	home.href = `#/title/${state.currentTitle}/`;
 	const t = state.installedTitles.find((x) => x.title === state.currentTitle);
-	home.dataset.tip = `Title ${state.currentTitle} home`;
-	home.setAttribute("aria-label", `Title ${state.currentTitle}${t ? " " + t.name : ""} home`);
+	home.dataset.tip = `Title ${state.currentTitle} start`;
+	home.setAttribute("aria-label", `Title ${state.currentTitle}${t ? " " + t.name : ""} start`);
 }
 function updateRailBadge() {
 	const badge = document.getElementById("ar-library-badge");
@@ -8437,8 +8759,9 @@ dom.navToggle.addEventListener("click", (e) => toggleDrawer(e.detail === 0));
 for (const mq of [mqMobile, mqNarrow]) mq.addEventListener("change", () => applyNav());
 state.goPending = 0;
 var GO_KEYS = {
+	h: "overview",
 	o: "overview",
-	h: "home",
+	t: "home",
 	c: "reader",
 	p: "projects",
 	n: "news",
@@ -8509,6 +8832,33 @@ function updateChatContext() {
 	} else dom.chatContext.hidden = true;
 	if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
 }
+var HOME_PROMPTS = {
+	29: [
+		"How do overtime exemptions work under Part 541?",
+		"What are OSHA’s main hazard communication rules?",
+		"What are employer responsibilities under FMLA?"
+	],
+	40: [
+		"What makes a waste “hazardous” under RCRA?",
+		"When does a facility need a Title V operating permit?",
+		"What has to be reported after a chemical spill, and to whom?"
+	],
+	49: [
+		"What are the placarding rules for hazmat shipments?",
+		"Who needs a CDL, and what disqualifies a driver?",
+		"Which carriers are subject to the FMCSA safety regulations?"
+	]
+};
+function launchChatPrompt(prompt, { submit = true } = {}) {
+	if (state.noTitles) return;
+	openChat();
+	if (!state.chatConfig.configured || state.chatConfig.error || state.isGenerating) return;
+	dom.chatText.value = prompt;
+	dom.chatText.style.height = "auto";
+	dom.chatText.style.height = Math.min(dom.chatText.scrollHeight, 120) + "px";
+	if (submit) submitChat();
+	else dom.chatText.focus();
+}
 function renderChatWelcome() {
 	if (!state.chatConfig.configured) {
 		dom.chatMessages.innerHTML = `
@@ -8537,23 +8887,6 @@ function renderChatWelcome() {
     `;
 		return;
 	}
-	const HOME_PROMPTS = {
-		29: [
-			"How do overtime exemptions work under Part 541?",
-			"What are OSHA’s main hazard communication rules?",
-			"What are employer responsibilities under FMLA?"
-		],
-		40: [
-			"What makes a waste “hazardous” under RCRA?",
-			"When does a facility need a Title V operating permit?",
-			"What has to be reported after a chemical spill, and to whom?"
-		],
-		49: [
-			"What are the placarding rules for hazmat shipments?",
-			"Who needs a CDL, and what disqualifies a driver?",
-			"Which carriers are subject to the FMCSA safety regulations?"
-		]
-	};
 	let prompts = [
 		"What are the key requirements in this section?",
 		"Who is exempt and who is covered?",
@@ -9906,7 +10239,12 @@ async function loadSection(sectionId, params, view) {
 		document.getElementById("font-inc")?.addEventListener("click", () => adjustFontSize(1));
 		if (params && params.get("p")) highlightParagraph(params.get("p"));
 		selectTreeNode("s-" + data.id);
-		if (!sameSection) recordSectionVisit(data);
+		const unitInfo = reading === "units" && current ? {
+			key: current.key,
+			label: unitShort(current)
+		} : null;
+		if (!sameSection) recordSectionVisit(data, unitInfo);
+		else recordSectionUnit(data.id, unitInfo);
 		fillNewsActivity("section", data.id, seq);
 	} catch (err) {
 		console.error(err);
@@ -10211,7 +10549,7 @@ async function handleRoute() {
 	}
 	if (checkPath === "/" || checkPath === "") {
 		if (titleMatch) renderHome();
-		else renderOverview();
+		else renderHomeScreen();
 	} else if (checkPath.startsWith("/section/")) {
 		const rest = checkPath.slice(9);
 		const slash = rest.indexOf("/");
@@ -10259,14 +10597,14 @@ function commandList() {
 	const mod = isMac ? "⌘" : "Ctrl ";
 	return [
 		[
-			"Go to Overview",
+			"Go to Home",
 			"#/",
-			"G O"
+			"G H"
 		],
 		[
-			`Go to Title ${state.currentTitle} home`,
+			`Go to Title ${state.currentTitle} start`,
 			`#/title/${state.currentTitle}/`,
-			"G H"
+			"G T"
 		],
 		[
 			"Open contents",
@@ -10279,7 +10617,7 @@ function commandList() {
 			"G P"
 		],
 		[
-			"All projects",
+			"All workspaces",
 			"#/projects",
 			""
 		],
@@ -10294,7 +10632,7 @@ function commandList() {
 			""
 		],
 		[
-			"New dossier",
+			"New workspace",
 			"cmd:new-project",
 			""
 		],
@@ -10344,7 +10682,7 @@ function commandList() {
 			""
 		],
 		...loadProjects().map((p) => [
-			`Project: ${p.name}`,
+			`Workspace: ${p.name}`,
 			`#/projects/${encodeURIComponent(p.id)}`,
 			""
 		]),

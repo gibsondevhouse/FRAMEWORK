@@ -2,7 +2,8 @@ import { state } from '../state';
 import { updateChatContext } from '../components/chat';
 import { clearTreeSelection } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, isMac } from '../dom';
+import { enterView, escapeHtml, icon, isMac } from '../dom';
+import { openPanel } from '../nav';
 import { dom } from '../state_init';
 
 // --- Views ---
@@ -77,9 +78,14 @@ export function renderHome() {
 
   dom.view.innerHTML = `
     <div class="home-hero">
+      <div class="doc-kicker"><a href="#/">Home</a><span class="sep" aria-hidden="true">›</span>Title ${state.currentTitle} start</div>
       <h1>Title ${state.currentTitle}${name ? ' — ' + escapeHtml(name) : ''}</h1>
       <p>${escapeHtml(tagline)}</p>
       ${metaLine ? `<p class="home-meta">${escapeHtml(metaLine)}</p>` : ''}
+      <div class="home-hero-acts">
+        <button type="button" class="btn btn-sm" id="home-open-contents">${icon('book')} Browse contents</button>
+        <a class="btn btn-sm" href="#/library/${state.currentTitle}">Manage in Library</a>
+      </div>
     </div>
 
     ${cardsHtml}
@@ -88,11 +94,12 @@ export function renderHome() {
       <h2>Getting around</h2>
       <ul class="tips">
         <li><span class="tip-keys"><kbd>/</kbd></span><span>Search the full text, or jump straight to a section number</span></li>
-        <li><span class="tip-keys"><kbd>${isMac ? '⌘' : 'Ctrl'}</kbd><kbd>K</kbd></span><span>Open Ask Claude</span></li>
+        <li><span class="tip-keys"><kbd>${isMac ? '⌘' : 'Ctrl'}</kbd><kbd>J</kbd></span><span>Open Ask Claude</span></li>
         <li><span class="tip-keys"><kbd>↑</kbd><kbd>↓</kbd></span><span>Move through the contents list or search suggestions</span></li>
         <li><span class="tip-keys"><kbd>Esc</kbd></span><span>Clear the contents filter or close suggestions</span></li>
       </ul>
     </div>
   `;
+  document.getElementById('home-open-contents')?.addEventListener('click', () => openPanel('reader', { focus: true }));
   enterView();
 }

@@ -8,7 +8,7 @@ import { renderNotFound } from '../components/title_switcher';
 import { docStepHtml, setViewHead } from '../components/view_head';
 import { enterView, escapeHtml, icon, showToast } from '../dom';
 import { dom } from '../state_init';
-import { recordSectionVisit } from '../usage';
+import { recordSectionUnit, recordSectionVisit } from '../usage';
 
 // --- Load Section ---
 // `view` is a unit key (read that unit), 'full' (the whole section), or null (the default:
@@ -98,8 +98,10 @@ export async function loadSection(sectionId, params, view) {
 
     // Highlight in sidebar tree
     selectTreeNode('s-' + data.id);
-    // Stepping between clauses of one section is one visit, not many.
-    if (!sameSection) recordSectionVisit(data);
+    // Stepping between clauses of one section is one visit, not many, while remembering the active unit.
+    const unitInfo = reading === 'units' && current ? { key: current.key, label: unitShort(current) } : null;
+    if (!sameSection) recordSectionVisit(data, unitInfo);
+    else recordSectionUnit(data.id, unitInfo);
     // Not awaited: the activity button fills in after the text has painted, and the
     // session cache means stepping clause to clause makes no extra requests.
     fillNewsActivity('section', data.id, seq);

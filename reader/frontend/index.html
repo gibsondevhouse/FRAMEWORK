@@ -63,15 +63,15 @@
   </header>
 
   <div class="layout" id="layout">
-    <!-- Activity rail: the app's landmarks. Overview and Home are links; the others open a
-         panel in the drawer beside it (app.js "Navigation"). Under 900px it is a bottom bar. -->
+    <!-- Activity rail: the app's landmarks. Home, Title start, and News are links; the others open
+         a panel in the drawer beside it (nav.js). Under 900px it is a bottom bar. -->
     <nav class="activity-rail" id="activity-rail" aria-label="Workspace">
       <div class="ar-group">
-        <a class="ar-btn" data-target="overview" href="#/" aria-label="Overview" data-tip="Overview" data-keys="G O">
-          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.25"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.25"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.25"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.25"/></svg>
-        </a>
-        <a class="ar-btn" data-target="home" href="#/title/29/" id="ar-home" aria-label="Title home" data-tip="Title home" data-keys="G H">
+        <a class="ar-btn" data-target="overview" href="#/" aria-label="Home" data-tip="Home" data-keys="G H">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 7 8 2.75 13.5 7v5.25a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1Z"/><path d="M6.5 13.25V9.5h3v3.75"/></svg>
+        </a>
+        <a class="ar-btn" data-target="home" href="#/title/29/" id="ar-home" aria-label="Title start" data-tip="Title start" data-keys="G T">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.25"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.25"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.25"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.25"/></svg>
         </a>
         <span class="ar-sep" aria-hidden="true"></span>
         <button type="button" class="ar-btn" data-target="reader" aria-controls="sidebar" aria-expanded="false" aria-label="Contents" data-tip="Contents" data-keys="G C">
@@ -169,7 +169,7 @@
   <div id="transfer-dock" class="transfer-dock" hidden></div>
   <div id="transfer-dock-live" class="sr-only" role="status" aria-live="polite"></div>
   <div id="nav-live" class="sr-only" role="status" aria-live="polite"></div>
-  <div id="pin-pop" class="pin-pop" role="dialog" aria-label="Pin to a project" hidden></div>
+  <div id="pin-pop" class="pin-pop" role="dialog" aria-label="Pin to a workspace" hidden></div>
   <div id="news-pop" class="news-pop" role="dialog" aria-label="Federal Register and OSHA activity" hidden></div>
   <div id="env-modal" class="modal-backdrop" hidden>
     <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="env-modal-title"></div>

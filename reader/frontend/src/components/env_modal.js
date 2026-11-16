@@ -6,6 +6,7 @@ import { refreshSettingsViews } from '../panels/settings_panel';
 import { handleRoute } from '../router';
 import { dom } from '../state_init';
 import { renderHelp } from '../views/help';
+import { refreshHomeIfActive } from '../views/home';
 import { getJSON, statPill } from '../views/library';
 
 // --- .env Editor Modal ---
@@ -228,6 +229,7 @@ export async function submitEnvModal(e) {
     const queued = (res.news_sync_queued || []).length > 0;
     showToast(queued ? 'Saved to reader/.env · Syncing DOL enforcement data…' : 'Saved to reader/.env — active immediately');
     refreshSettingsViews();
+    refreshHomeIfActive();
     if (state.activeRoute === '/help' || state.activeRoute === '/help/') renderHelp(state.navEnvStatus);
     else if (routeTarget() === 'news') handleRoute();
   } catch (err) {

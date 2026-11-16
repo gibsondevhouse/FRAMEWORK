@@ -229,10 +229,46 @@ class BrowserCase(unittest.TestCase):
 
 class BehaviorTests(BrowserCase):
     def test_overview_and_section_routing(self):
-        page = self.open_page("/", ".metric, .ov-card, #view h1, .overview")
+        page = self.open_page("/", ".hm-news[data-news-loaded='1']")
         self.assertIn("FRAMEWORK", page.title())
+        self.assertIn("Home", page.inner_text("#view h1"))
+        self.assertIn("Resume reading", page.inner_text(".hm-resume"))
+        self.assertIn("Workspaces", page.inner_text(".hm-ws"))
+        self.assertIn("Regulatory Pulse", page.inner_text(".hm-news"))
+        self.assertIn("Installed Titles", page.inner_text(".hm-titles"))
         page.goto(f"{ENV.base_url}/#/section/1910.135")
         page.wait_for_selector("text=protective helmet", timeout=15000)
+        self.assert_no_external_requests()
+
+    def test_home_quick_jump_and_chords(self):
+        page = self.open_page("/", ".hm-news[data-news-loaded='1']")
+        page.fill("#hm-jump-input", "1910.135")
+        page.press("#hm-jump-input", "Enter")
+        page.wait_for_selector("text=protective helmet", timeout=15000)
+        self.assertIn("/section/1910.135", page.evaluate("location.hash"))
+        page.keyboard.press("g")
+        page.keyboard.press("t")
+        page.wait_for_selector(".home-hero", timeout=15000)
+        self.assertRegex(page.evaluate("location.hash"), r"^#/title/\d+/?$")
+        page.keyboard.press("g")
+        page.keyboard.press("h")
+        page.wait_for_selector(".hm-resume", timeout=15000)
+        self.assertEqual(page.evaluate("location.hash"), "#/")
+        self.assert_no_external_requests()
+
+    def test_home_workspace_and_unit_resume(self):
+        # Step into a units-mode clause, pin it to a workspace, then verify Home surfaces both.
+        page = self.open_page("/section/1910.1200/b", "#btn-pin")
+        page.click("#btn-pin")
+        page.wait_for_selector("#pin-pop:not([hidden]) input", timeout=15000)
+        page.fill("#pin-pop input", "HazCom Program")
+        page.keyboard.press("Enter")
+        page.goto(f"{ENV.base_url}/#/")
+        page.wait_for_selector(".hm-ws-item", timeout=15000)
+        self.assertIn("HazCom Program", page.inner_text(".hm-ws"))
+        self.assertIn("1910.1200", page.inner_text(".hm-ws"))
+        resume_href = page.locator(".hm-resume-acts a.btn-accent").get_attribute("href")
+        self.assertIn("1910.1200/b", resume_href)
         self.assert_no_external_requests()
 
     def test_units_mode_and_rail(self):
@@ -396,7 +432,7 @@ class ScreenshotCase(BrowserCase):
 
 class DarkDesktopScreens(ScreenshotCase):
     def test_overview(self):
-        page = self.open_page("/", "#view")
+        page = self.open_page("/", ".hm-news[data-news-loaded='1']")
         self.assert_baseline(page, "overview-dark-desktop")
         self.assert_no_external_requests()
 
@@ -421,7 +457,7 @@ class LightDesktopScreens(ScreenshotCase):
     theme = "light"
 
     def test_overview_light(self):
-        page = self.open_page("/", "#view")
+        page = self.open_page("/", ".hm-news[data-news-loaded='1']")
         self.assert_baseline(page, "overview-light-desktop")
         self.assert_no_external_requests()
 
