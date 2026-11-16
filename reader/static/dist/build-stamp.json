@@ -1,0 +1,19 @@
+{
+  "sha256": "1577fef2d2e26cbfd97a6bb0246248f527f1d07929fb9b8e13bb4d2730aebff5",
+  "files": [
+    "index.html",
+    "src/app.js",
+    "src/styles/01_tokens.css",
+    "src/styles/02_base.css",
+    "src/styles/03_layout.css",
+    "src/styles/04_sidebar.css",
+    "src/styles/05_home_overview_lib.css",
+    "src/styles/06_panels_proj.css",
+    "src/styles/07_reader.css",
+    "src/styles/08_chat.css",
+    "src/styles/09_responsive.css",
+    "src/styles/10_news.css",
+    "src/styles/11_settings_help.css",
+    "src/styles/styles.css"
+  ]
+}

@@ -4,14 +4,14 @@
    (split from the original single styles.css in Stage 4); inline @media
    blocks stay inside their owning feature file.
    ========================================================================== */
-@import url("css/01_tokens.css");
-@import url("css/02_base.css");
-@import url("css/03_layout.css");
-@import url("css/04_sidebar.css");
-@import url("css/05_home_overview_lib.css");
-@import url("css/06_panels_proj.css");
-@import url("css/07_reader.css");
-@import url("css/08_chat.css");
-@import url("css/09_responsive.css");
-@import url("css/10_news.css");
-@import url("css/11_settings_help.css");
+@import url("01_tokens.css");
+@import url("02_base.css");
+@import url("03_layout.css");
+@import url("04_sidebar.css");
+@import url("05_home_overview_lib.css");
+@import url("06_panels_proj.css");
+@import url("07_reader.css");
+@import url("08_chat.css");
+@import url("09_responsive.css");
+@import url("10_news.css");
+@import url("11_settings_help.css");

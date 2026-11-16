@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from app import config, news_worker
 from app.main import app
 from tests.base import HermeticTestCase
-from tests.frontend_sources import combined_css
+from tests.frontend_sources import app_js, combined_css, index_html
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -102,8 +102,8 @@ class SettingsEnvEndpointTests(HermeticTestCase):
 class HelpAndModalContractTests(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
-        cls.html = (STATIC / "index.html").read_text(encoding="utf-8")
-        cls.js = (STATIC / "app.js").read_text(encoding="utf-8")
+        cls.html = index_html()
+        cls.js = app_js()
         cls.css = combined_css()
 
     def test_modal_container_and_help_route_exist(self):

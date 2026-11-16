@@ -6,7 +6,6 @@
   <meta name="color-scheme" content="dark light">
   <title>FRAMEWORK</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23111214'/><text x='16' y='23' text-anchor='middle' font-family='Inter,Segoe UI,Arial,sans-serif' font-weight='600' font-size='20' fill='%235e6ad2'>E</text></svg>">
-  <link rel="stylesheet" href="/static/styles.css">
   <script>
     // Apply saved theme/size before first paint to avoid a flash. Dark is the default look.
     (function () {
@@ -30,6 +29,8 @@
       } catch (e) {}
     })();
   </script>
+  <script type="module" crossorigin src="/static/dist/app.js"></script>
+  <link rel="stylesheet" crossorigin href="/static/dist/app.css">
 </head>
 <body>
   <header class="topbar">
@@ -176,8 +177,7 @@
   </div>
   <input type="file" id="projects-import" accept="application/json,.json" hidden>
 
-  <script src="/static/vendor/marked.min.js"></script>
-  <script src="/static/vendor/purify.min.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/dist/vendor/marked.min.js"></script>
+  <script src="/static/dist/vendor/purify.min.js"></script>
 </body>
 </html>

@@ -57,7 +57,7 @@ app.mount("/static", RevalidatedStaticFiles(directory=config.STATIC_DIR), name="
 
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
-    return FileResponse(config.STATIC_DIR / "index.html", headers=NO_STORE)
+    return FileResponse(config.STATIC_DIR / "dist" / "index.html", headers=NO_STORE)
 
 
 app.include_router(reader_routes.titles_router)
