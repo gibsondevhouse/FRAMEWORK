@@ -20,14 +20,19 @@ Lightweight dev log tracking the three pre-feature cleanup orders so future work
 
 ---
 
-## Order 2 — Debug Live `dol_osha` Sync & Error Reporting (Pending)
+## Order 2 — Debug Live `dol_osha` Sync & Error Reporting (Completed)
 
-- **Observed state (2026-11-16):** In local `reader/data/osha_news.sqlite3`, `federal_register` (102 rows) and `federal_register_pi` (3 rows) sync cleanly, while `dol_osha` has `fail_count = 5`, `last_ok_at = None`, and `last_error = 'DOL enforcement data unavailable'`—even though `DOL_API_KEY` is populated in `reader/.env`.
-- **What to check / lightweight plan:**
-  1. Probe `apiprod.dol.gov/v4/get/OSHA/violation/json` and `inspection/json` once against the configured `DOL_API_KEY` to determine whether the failure is key validity/rate-limit or a query format mismatch (`filter_object` `gt` date / `in` list syntax).
-  2. Verify live `DOL_STANDARD_RE`, `is_general_duty` (`5A…`), and state-plan standard counts against real DOL rows (per comment in `reader/app/news.py`).
-  3. Update `reader/app/news_worker.py` (`_run`) so `sync_status.last_error` retains actionable context (e.g., HTTP status / reason) instead of collapsing every `SourceUnavailable` into `"DOL enforcement data unavailable"`.
-  4. *(Future, separate task)*: Multi-agency News expansion (EPA/PHMSA) currently capped by `config.news_agencies()[0]` in `news_worker.py` and Title-29-only filtering in `news.extract_citations`.
+- **Root causes found (live probe 2026-11-16 against `apiprod.dol.gov/v4`):**
+  1. `apiprod.dol.gov/v4/get/OSHA/*` rejected header-only `X-API-KEY` with **HTTP `401`** (*"The API key is either incorrect or missing from your query"*), whereas `?X-API-KEY=` in query params returned **`200 OK`**.
+  2. With a 30-day window (`issuance_date gt 2026-10-17`), DOL returned **HTTP `204 No Content`** with an empty body because the newest live violation row was `2026-10-15T00:00:00` (32 days old); `_dol_get` called `r.json()` unconditionally, crashing with `JSONDecodeError`.
+  3. On catch-up / first sync (`150` inspections), a single `in` query hit **HTTP `403 Forbidden`** (`url_len=2295` exceeded API Gateway/WAF ~2 KB GET URL limit), whereas batches of `50` (`url_len=994`) succeeded with **`200 OK`**.
+  4. Verified live: `filter_object` `gt` on `issuance_date`, `in` on integer `activity_nr`, `sort_by=issuance_date` + `sort=desc`, `normalize_dol_standard`, `is_general_duty` (`5A0001`), and state-plan standards (`296-800-15030`) all worked against real DOL data.
+- **What shipped:**
+  - `reader/app/news.py`: `_dol_get` passes `X-API-KEY` via `params` (keeping query/request URLs out of tracebacks with `from None`), handles `204` / empty responses as `[]`, preserves `HTTP {status}` in `SourceUnavailable`, and `fetch_dol_inspections` chunks `activity_nr` lists in batches of `50` (`DOL_INSP_BATCH`).
+  - `reader/app/news_schedule.py`: `dol_window` uses the `(90, 5000, 150)` catch-up window on first sync (`last_ok_at is None`) as well as `>30` days stale.
+  - `reader/app/news_worker.py` & `reader/frontend/src/views/news.js`: `sync_status.last_error` retains safe error details (e.g., `(HTTP 401)`), and `#/news` exposes `failed.last_error` in the status pill tooltip (`title`).
+  - `reader/tests/test_news_fetch.py` & `test_news_schedule.py`: updated for query-param auth, `204` handling, non-leaking HTTP errors, and first-sync `dol_window`.
+  - *(Future, separate task)*: Multi-agency News expansion (EPA/PHMSA) currently capped by `config.news_agencies()[0]` in `news_worker.py` and Title-29-only filtering in `news.extract_citations`.
 
 ---
 

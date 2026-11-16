@@ -60,8 +60,10 @@ def _get_json(c: httpx.Client, url: str, params) -> dict:
         r = c.get(url, params=params)
         r.raise_for_status()
         return r.json()
+    except httpx.HTTPStatusError as e:
+        raise SourceUnavailable(f"{url.split('?')[0]}: HTTP {e.response.status_code}") from None
     except (httpx.HTTPError, ValueError) as e:
-        raise SourceUnavailable(f"{url.split('?')[0]}: {type(e).__name__}") from e
+        raise SourceUnavailable(f"{url.split('?')[0]}: {type(e).__name__}") from None
 
 
 def empty_item() -> dict:
@@ -169,26 +171,38 @@ def fetch_dol_recent_violations(c: httpx.Client, key: str, days: int, limit: int
     return _dol_get(c, key, "violation", params)
 
 
+DOL_INSP_BATCH = 50  # API Gateway / WAF rejects GET queries >~2 KB (e.g. 150-id `in` filter -> 403)
+
+
 def fetch_dol_inspections(c: httpx.Client, key: str, activity_nrs: list[int]) -> list[dict]:
     if not activity_nrs:
         return []
-    params = {
-        "limit": len(activity_nrs),
-        "fields": "activity_nr,estab_name,site_city,site_state,naics_code,insp_type,"
-                  "safety_hlth,open_date,close_case_date",
-        "filter_object": json.dumps({"field": "activity_nr", "operator": "in", "value": activity_nrs}),
-    }
-    return _dol_get(c, key, "inspection", params)
+    rows: list[dict] = []
+    for i in range(0, len(activity_nrs), DOL_INSP_BATCH):
+        batch = activity_nrs[i:i + DOL_INSP_BATCH]
+        params = {
+            "limit": len(batch),
+            "fields": "activity_nr,estab_name,site_city,site_state,naics_code,insp_type,"
+                      "safety_hlth,open_date,close_case_date",
+            "filter_object": json.dumps({"field": "activity_nr", "operator": "in", "value": batch}),
+        }
+        rows.extend(_dol_get(c, key, "inspection", params))
+    return rows
 
 
 def _dol_get(c: httpx.Client, key: str, dataset: str, params: dict) -> list[dict]:
     try:
-        # The key goes in the header only, never in a URL that could be logged.
-        r = c.get(f"{DOL_BASE}/get/OSHA/{dataset}/json", params=params, headers={"X-API-KEY": key})
+        # DOL v4 /v4/get/* endpoints reject header-only X-API-KEY with 401; pass it in
+        # query params and strip URL/request details (`from None`) so errors never leak the key.
+        r = c.get(f"{DOL_BASE}/get/OSHA/{dataset}/json", params={**params, "X-API-KEY": key})
         r.raise_for_status()
+        if r.status_code == 204 or not r.content.strip():
+            return []
         return r.json().get("data", [])
+    except httpx.HTTPStatusError as e:
+        raise SourceUnavailable(f"DOL {dataset}: HTTP {e.response.status_code}") from None
     except (httpx.HTTPError, ValueError) as e:
-        raise SourceUnavailable(f"DOL {dataset}: {type(e).__name__}") from e
+        raise SourceUnavailable(f"DOL {dataset}: {type(e).__name__}") from None
 
 
 def group_violations(rows: list[dict], max_inspections: int) -> dict[int, list[dict]]:
@@ -286,8 +300,7 @@ def normalize_dol_standard(raw: str | None) -> str | None:
 
 
 def is_general_duty(raw: str | None) -> bool:
-    """Section 5(a)(1) citations carry a non-CFR code ('5A0001'); believed stable, but
-    verify against live data when a DOL key is available."""
+    """Section 5(a)(1) citations carry a non-CFR code ('5A0001'); verified against live DOL rows 2026-11-16."""
     return (raw or "").strip().upper().startswith("5A")
 
 

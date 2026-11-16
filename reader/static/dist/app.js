@@ -5385,7 +5385,8 @@ function newsHeadStatusHtml(status) {
 	if (status.syncing) return statPill("busy", "Checking for news…");
 	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
 	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
-	if (enabled.find((s) => s.last_error) && lastOk) return statPill("stale", `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`) + ` <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
+	const failed = enabled.find((s) => s.last_error);
+	if (failed && lastOk) return statPill("stale", `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`, { title: failed.last_error || "" }) + ` <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
 	return `${lastOk ? statPill("synced", `Updated ${timeAgo(Date.parse(lastOk))}`) : ""} <button type="button" class="btn btn-sm" data-news-act="refresh">Refresh</button>`;
 }
 function newsBreakingHtml(articles) {

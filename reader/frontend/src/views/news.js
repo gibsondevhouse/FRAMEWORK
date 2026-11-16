@@ -332,7 +332,7 @@ export function newsHeadStatusHtml(status) {
   const lastOk = enabled.map(s => s.last_ok_at).filter(Boolean).sort().pop();
   const failed = enabled.find(s => s.last_error);
   if (failed && lastOk) {
-    return statPill('stale', `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`)
+    return statPill('stale', `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`, { title: failed.last_error || '' })
       + ` <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
   }
   const updated = lastOk ? statPill('synced', `Updated ${timeAgo(Date.parse(lastOk))}`) : '';

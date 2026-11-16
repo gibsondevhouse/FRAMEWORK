@@ -105,7 +105,7 @@ class DolAndCommonTests(HermeticTestCase):
 
     def test_dol_window(self):
         now = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)
-        self.assertEqual(sched.dol_window(None, now), (30, 1000, 50))
+        self.assertEqual(sched.dol_window(None, now), (90, 5000, 150))
         self.assertEqual(sched.dol_window(now - timedelta(days=10), now), (30, 1000, 50))
         self.assertEqual(sched.dol_window(now - timedelta(days=45), now), (90, 5000, 150))
 

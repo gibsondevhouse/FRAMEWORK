@@ -116,8 +116,9 @@ From `https://apiprod.dol.gov/v4/datasets?limit=100` (all 11 OSHA datasets updat
 - `violation` (`id: 10338`): `.../get/OSHA/violation/json`
 - `violation_gen_duty_std` (`id: 10340`), `accident` (`10331`), `accident_abstract` (`10332`), `accident_injury` (`10333`), `accident_lookup2` (`10330`), `related_activity` (`10336`), `emphasis_codes` (`10337`), `optional_code_info` (`10356`), `violation_event` (`10357`)
 
-Query rules from `dol-api-user-guide.pdf`:
-- Auth: `X-API-KEY` header (preferred; never put the key in a URL that could be logged). Missing or invalid gives `401`.
+Query rules from `dol-api-user-guide.pdf` (verified live 2026-11-16):
+- Auth: `X-API-KEY` **query parameter** (`?X-API-KEY=…`; the `/v4/get/*` gateway rejects header-only `X-API-KEY` with `401`). Strip request/URL details from logs and exceptions so the key is never printed.
+- Empty matches: a valid `filter_object` matching 0 rows returns **HTTP `204 No Content`** with an empty body (`[]`).
 - Limits: up to **5 MB or 10,000 records per request** (default `10`).
 - Parameters: `limit`, `offset`, `fields` (comma-separated), `sort` (`asc`/`desc`), `sort_by`, `filter_object` (a JSON string with `field`, `operator` ∈ `eq|neq|gt|lt|in|not_in|like`, `value`, plus `and`/`or`).
 - Envelope: `{"data": [...]}`.
@@ -128,11 +129,11 @@ Query rules from `dol-api-user-guide.pdf`:
 
 The window comes from `news_schedule.dol_window()` (Stage 4 · Phase 1 · Part 1):
 - **normally** 30 days, 1000 rows, 50 inspections;
-- **catching up** (last success over 30 days ago): 90 days, 5000 rows, 150 inspections.
+- **first sync or catching up** (never synced, or last success over 30 days ago): 90 days, 5000 rows, 150 inspections.
 
 `load_dt` exists on the `violation` dataset (catalog metadata, verified 2026-11-16). Keep it in mind as the sort key if `issuance_date` turns out to lag data loads.
 
-Using `gt` on a date and `in` on a list of numbers both follow the user guide's grammar but have not been exercised live. Verify both with a real key while building this part, and record the result here.
+**Live check (2026-11-16):** `gt` on `issuance_date`, `in` on integer `activity_nr`, `sort_by=issuance_date`, `5A0001` General Duty codes, and state-plan standards all verified `200 OK` against `apiprod.dol.gov/v4` with `?X-API-KEY=` (newest live `issuance_date` was 32 days old, confirming why first sync uses 90 days and `_dol_get` treats `204` as `[]`; `fetch_dol_inspections` chunks `in` queries at 50 ids because 150 ids produced a ~2.3 KB GET URL rejected with `403`).
 
 ## 5. Implementation Sketch (`reader/app/news.py`)
 

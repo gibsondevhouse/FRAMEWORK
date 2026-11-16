@@ -79,21 +79,39 @@ class FederalRegisterFetchTests(FetchTestCase):
 
 
 class DolFetchTests(FetchTestCase):
-    def test_two_requests_key_in_header_and_in_filter(self):
+    def test_two_requests_key_in_query_and_in_filter(self):
         fake = FakeAPI()
         with fake.patch_client(), news.client() as c:
             items = news.fetch_enforcement(c, "secret-key", days=30, limit=1000, max_inspections=50)
         dol_reqs = fake.requests_for("/v4/")
         self.assertEqual(len(dol_reqs), 2)                        # one violations, one inspections
         for req in dol_reqs:
-            self.assertEqual(req.headers["X-API-KEY"], "secret-key")
-            self.assertNotIn("secret-key", str(req.url))
+            # DOL Open Data API v4 rejects header-only X-API-KEY with 401 on /v4/get/* routes.
+            self.assertEqual(req.url.params.get("X-API-KEY"), "secret-key")
         viol = fake.requests_for(VIOL_PATH)[0]
         self.assertEqual(viol.url.params.get("limit"), "1000")
         self.assertIn('"operator": "gt"', viol.url.params.get("filter_object"))
         insp = fake.requests_for(INSP_PATH)[0]
         self.assertIn('"operator": "in"', insp.url.params.get("filter_object"))
         self.assertEqual({i["guid"] for i in items}, {"dol-insp:306953084", "dol-insp:307000001"})
+
+    def test_204_empty_response_returns_empty_list(self):
+        import httpx
+        transport = httpx.MockTransport(lambda req: httpx.Response(204, request=req))
+        with mock.patch.object(news, "client", lambda extra=None: httpx.Client(transport=transport)), \
+             news.client() as c:
+            items = news.fetch_enforcement(c, "secret-key", days=30, limit=1000, max_inspections=50)
+        self.assertEqual(items, [])
+
+    def test_http_error_preserves_status_without_exposing_key(self):
+        import httpx
+        transport = httpx.MockTransport(lambda req: httpx.Response(401, text="bad key", request=req))
+        with mock.patch.object(news, "client", lambda extra=None: httpx.Client(transport=transport)), \
+             news.client() as c:
+            with self.assertRaises(news.SourceUnavailable) as ctx:
+                news.fetch_enforcement(c, "secret-key", days=30, limit=1000, max_inspections=50)
+        self.assertIn("HTTP 401", str(ctx.exception))
+        self.assertNotIn("secret-key", str(ctx.exception))
 
     def test_window_arguments_are_used(self):
         fake = FakeAPI()
@@ -105,6 +123,14 @@ class DolFetchTests(FetchTestCase):
         filt = insp.url.params.get("filter_object")
         self.assertIn("306953084", filt)                          # newest inspection kept
         self.assertNotIn("307000001", filt)                       # capped out
+
+    def test_inspection_in_filter_batches_over_50(self):
+        fake = FakeAPI()
+        with fake.patch_client(), news.client() as c:
+            news.fetch_dol_inspections(c, "k", list(range(1, 121)))
+        insp_reqs = fake.requests_for(INSP_PATH)
+        self.assertEqual(len(insp_reqs), 3)
+        self.assertEqual([int(r.url.params.get("limit")) for r in insp_reqs], [50, 50, 20])
 
     def test_no_inspection_request_without_violations(self):
         fake = FakeAPI(violations=[])
@@ -140,6 +166,7 @@ class WorkerSyncTests(FetchTestCase):
         self.assertIsInstance(results["federal_register"], str)
         rows = news_store.sync_rows()
         self.assertEqual(rows["federal_register"]["fail_count"], 1)
+        self.assertIn("HTTP 500", rows["federal_register"]["last_error"])
         self.assertIsNone(rows["federal_register"]["last_ok_at"])
         self.assertEqual(rows["dol_osha"]["fail_count"], 0)
         with closing(news_store.connect()) as con:

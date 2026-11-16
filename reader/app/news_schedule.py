@@ -83,9 +83,9 @@ def fr_since(last_ok_at: datetime | None, now: datetime, retention_days: int) ->
 
 def dol_window(last_ok_at: datetime | None, now: datetime) -> tuple[int, int, int]:
     """(lookback_days, row_limit, max_inspections). Normal: 30 days / 1000 rows / 50
-    inspections. Catch-up when the last success is over 30 days old: 90 / 5000 / 150 — the
-    cap rises too, or the wider window would fill entirely from the most recent days.
-    The first sync uses the normal window."""
-    if last_ok_at is not None and now - last_ok_at > timedelta(days=30):
+    inspections. Catch-up on the first sync or when the last success is over 30 days old:
+    90 / 5000 / 150 — the cap rises too, or the wider window would fill entirely from the
+    most recent days."""
+    if last_ok_at is None or now - last_ok_at > timedelta(days=30):
         return 90, 5000, 150
     return 30, 1000, 50

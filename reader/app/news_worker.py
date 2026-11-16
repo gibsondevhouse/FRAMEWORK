@@ -132,7 +132,9 @@ def _run(source: str, fetch, now: datetime | None = None) -> int | str:
     try:
         items = fetch()
     except news.SourceUnavailable as e:
-        message = f"{SOURCE_LABELS.get(source, source)} unavailable"
+        detail = str(e).split(": ", 1)[-1] if ": " in str(e) else ""
+        label = SOURCE_LABELS.get(source, source)
+        message = f"{label} unavailable ({detail})" if detail else f"{label} unavailable"
         build.log(f"News sync: {source}: {e}")
         with closing(news_store.connect()) as con:
             news_store.record_error(con, source, message, now)
