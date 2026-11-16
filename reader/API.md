@@ -1,16 +1,16 @@
-# FRAMEWORK CFR Reader — API Reference
+# FRAMEWORK — API Reference
 
-The backend is a **FastAPI** app that serves the single-page reader and a JSON / SSE API over the locally installed CFR titles.
+Welcome to the HTTP and streaming API behind **FRAMEWORK**, a local-first Regulatory Workstation. The backend is a **FastAPI** service that powers the browser interface and exposes a clean JSON / SSE API over whatever CFR titles you have installed locally.
 
 - **Base URL:** `http://127.0.0.1:8000`
-- **Swagger UI:** http://127.0.0.1:8000/docs · **ReDoc:** http://127.0.0.1:8000/redoc · **OpenAPI:** http://127.0.0.1:8000/openapi.json
+- **Interactive Docs:** [Swagger UI](http://127.0.0.1:8000/docs) · [ReDoc](http://127.0.0.1:8000/redoc) · [OpenAPI JSON](http://127.0.0.1:8000/openapi.json)
 
-## Conventions
+## A few conventions
 
-- **Title scoping.** Reader routes live under `/api/{title}/…` where `{title}` is a CFR title number (1–50) that is installed on this server; an uninstalled title returns `404`. The same routes without the prefix (`/api/meta`, `/api/section/{id}`, …) are legacy aliases for **Title 29**.
-- **Section IDs** are normalised: `541.100`, `§ 541.100`, `29 CFR 541.100` and `541.100(a)(1)` all resolve to `541.100`.
-- **Field naming.** In section and search payloads, `title` is the CFR **title number** and `title_label` (or `section_title`) is the section's **heading**. Keep both in mind when reading results.
-- **Highlights** in search snippets are marked with the ASCII control characters `\x02` (start) and `\x03` (end).
+- **Title scoping.** Most routes live under `/api/{title}/…`, where `{title}` is a CFR title number (1–50) installed on your machine. Asking for a title that isn't installed returns `404`. Routes without the prefix (`/api/meta`, `/api/section/{id}`, …) are kept as friendly aliases for **Title 29**.
+- **Section IDs** are flexible: `541.100`, `§ 541.100`, `29 CFR 541.100`, and `541.100(a)(1)` all normalize cleanly to `541.100`.
+- **Field naming.** In section and search payloads, `title` is the CFR **title number** and `title_label` (or `section_title`) is the section's **heading**.
+- **Search highlights** in snippets are wrapped with the ASCII control characters `\x02` (start) and `\x03` (end) so you can style them however you like.
 
 ---
 
@@ -153,20 +153,42 @@ Every section of a part in reading order, each with its rendered HTML.
 ## Library (download from eCFR)
 
 ### `GET /api/library`
-All 50 titles with install state, plus the job queue.
+All 50 titles with install state and editorial fields, the topic desks, the compliance suites, when eCFR's title list was last checked (`checked_at`, epoch seconds), and the job queue.
 
 ```json
 {
   "titles": [
-    {"title": 29, "name": "Labor", "latest": "2026-11-06", "reserved": false,
-     "installed": {"edition": "2026-11-06", "section_count": 7374, "whole": true, "parts": null, "sections": null}},
+    {"title": 29, "name": "Labor", "latest": "2026-11-12", "amended": "2026-11-10", "reserved": false,
+     "summary": "Workplace safety (OSHA), wages and hours, …", "desk": "Workplace & Labor", "featured": true,
+     "agencies": ["OSHA", "WHD", "EBSA", "NLRB"], "size_mb": 27.7, "sections": 7200,
+     "installed": {"edition": "2026-11-12", "section_count": 7376, "bytes": 100306944, "whole": true, "parts": null, "sections": null}},
     {"title": 35, "name": "Reserved", "latest": null, "reserved": true, "installed": null}
   ],
+  "desks": ["Workplace & Labor", "…"],
+  "suites": {
+    "ehs": {"id": "ehs", "name": "Environment, Health & Safety", "badge": "Core compliance", "featured": true,
+            "titles": [29, 40, 49], "summary": "…", "size_mb": 212.4, "sections": 40935}
+  },
+  "checked_at": 1794787200.0,
   "jobs": {"current": null, "queued": [], "recent": []}
 }
 ```
 
-For a partial install `whole` is false and `parts` / `sections` count what was selected.
+For a partial install `whole` is false and `parts` / `sections` count what was selected. `bytes` is the database on disk. `size_mb` (eCFR's full-text size) and `sections` are estimates measured from the 2026-11-12 edition and kept in `app/title_blurbs.json`; a suite's are the sums of its titles'.
+
+### `GET /api/library/storage`
+What the reader keeps on disk: `{"titles": [{"title", "bytes"}], "legacy_bytes", "temp_files", "temp_bytes", "total_bytes"}`. A title's bytes are its database plus contents tree; `legacy_bytes` is Title 29's legacy copy (`title29.sqlite3`, `tree.json`); temp files are what an interrupted build left behind (any name containing `.tmp`).
+
+### `POST /api/library/storage/prune`
+Delete the leftover temporary files. Returns `{"removed", "freed_bytes"}`. `409` while a download is queued or running.
+
+### `GET /api/library/wire`
+The five most recently amended titles, newest first, with what eCFR changed on that date (from its version history): `count` sections and appendices, `kind` (`amended`, or `revised` when the issue only made editorial changes), `removed`, the `parts` touched and the `first` change. A title whose history can't be fetched has `count: null`. Cached per title and date.
+
+```json
+[{"title": 40, "amended": "2026-11-12", "count": 7, "kind": "amended", "removed": 0,
+  "parts": ["141", "147"], "first": {"id": "141.2", "name": "§ 141.2 Definitions."}}]
+```
 
 ### `GET /api/library/{title}`
 The title's parts grouped by chapter, each with `installed` (`"all"`, `"some"`, or `null` for none), `installed_sections` and `leaves` (downloadable sections in the part).
@@ -187,14 +209,26 @@ Queue a download. Body:
 
 Returns the queued job. Downloading more of an installed title merges the scopes and rebuilds at the latest edition; a request that is already installed at the current edition is a no-op.
 
+### `POST /api/library/batch-download`
+Queue whole-title downloads for a suite or a list of titles: `{"suite": "ehs"}` or `{"titles": [12, 15]}`. Reserved titles and titles already installed whole at the latest edition are skipped; a whole title on an older edition gets an update job; a partial install is completed. Returns `{"queued": [jobs], "skipped": [{"title", "reason"}], "count"}`. `404` for an unknown suite, `400` for an empty request or a title outside 1–50.
+
+### `POST /api/library/update-all`
+Queue an update for every installed title (whole or partial, keeping its scope) whose edition is older than eCFR's latest. Returns `{"queued": [jobs], "count"}`; `count` is 0 when everything is current.
+
 ### `POST /api/library/{title}/update`
 Re-download an installed title at the latest eCFR edition.
 
 ### `DELETE /api/library/{title}`
 Remove an installed title. Refused (`409`) for the only installed title or one with a download in progress.
 
+### `POST /api/library/jobs/{id}/cancel`
+Cancel a job. A queued job is dropped at once (`state: "cancelled"`); a running one gets `cancelling: true` and stops at its next progress report, and its partial files are deleted. A job in its `Installing` phase is not interrupted. `404` if the job already finished.
+
+### `POST /api/library/jobs/clear`
+Cancel every queued job (not the running one). Returns `{"cancelled": [jobs], "count"}`.
+
 ### `GET /api/library/jobs`
-Queue snapshot. Each job carries `id`, `title`, `kind` (`title` | `part` | `section` | `update`), `label`, `state` (`queued` | `running` | `done` | `error`), `phase`, `done`, `total`, `error`.
+Queue snapshot. Each job carries `id`, `title`, `kind` (`title` | `part` | `section` | `update`), `label`, `state` (`queued` | `running` | `done` | `error` | `cancelled`), `phase`, `done`, `total`, `error`. Phases in order: `Waiting`, `Checking eCFR`, `Downloading contents`, `Downloading text`, `Reading text`, `Indexing`, `Installing`. While a whole title's text streams, `done`/`total` are bytes (eCFR's Content-Length when it sends one, else the XML written against the title's `size` from its structure); for a partial build they count files; while reading and indexing they count sections.
 
 ```json
 {
@@ -204,6 +238,65 @@ Queue snapshot. Each job carries `id`, `title`, `kind` (`title` | `part` | `sect
   "recent": []
 }
 ```
+
+---
+
+## News (OSHA regulatory intelligence)
+
+The `#/news` page's backend: OSHA rulemaking from the **Federal Register API v1** (no
+credentials) and enforcement from the **DOL Open Data API v4** (optional free
+`DOL_API_KEY` from [dataportal.dol.gov/registration](https://dataportal.dol.gov/registration),
+sent as an `X-API-KEY` header). Articles live in `data/osha_news.sqlite3`, synced by a
+schedule-gated background worker (`NEWS_SYNC=0` turns it off). Every response is
+`Cache-Control: no-store`; an empty or missing database returns empty results, never an
+error. **No GET endpoint ever triggers a sync** — refresh is an explicit POST.
+
+### `GET /api/news`
+The feed, search and filters in one endpoint.
+
+| Parameter | Type | Description |
+|:---|:---|:---|
+| `category` | string | `all` (default) · `rules` · `rulemaking` · `enforcement` · `public_inspection` · `notices`. |
+| `q` | string | Full-text query over title, description and company. A section number (`§ 1910.1030`) or FR citation (`91 FR 55744`) matches by id instead of FTS. Results carry `snippet` with `\x02`/`\x03` highlights. |
+| `section` | string | Articles citing that Title 29 section, plus part-level references to its part. |
+| `part` | string | Articles with any citation inside that Title 29 part. |
+| `state` | string | Two-letter site state (enforcement only). |
+| `min_penalty` | number | Enforcement rows with `penalty_usd >=` this. |
+| `gravity` | string | `W`, `R` or `S` — enforcement rows whose `violation_types` contains it. |
+| `limit` / `offset` | int | Default 30, max 100. |
+
+Returns `{"articles": [...], "total", "offset"}`. Each article carries `guid`
+(`fr:{document_number}` or `dol-insp:{activity_nr}`), `source`, `category`, `doc_type`,
+`title`, `link`, `pdf_url`, `citation`, `action`, `effective_on`, `comments_close_on`,
+`scheduled_on`, `published_at`, `description`, `docket_ids`, `company`/`city`/`state`/`naics`,
+`penalty_usd`, `violation_types`, `general_duty`, `unmapped_standards`, `cfr_parts`
+(`[{"title": 29, "part": "1910"}]`), `sections` (`["1910.1030"]`), `takeaways` (three
+fixed `{key, label, text}` bullets built server-side from the record's own fields — no
+language model), and `snippet` (search only). JSON columns come back as arrays.
+
+### `GET /api/news/status`
+Read-only freshness report: `dol_configured`, `sync_enabled`, `agencies`, `syncing`,
+`due` (any enabled source is stale and not backing off), per-source rows (`enabled`,
+`last_ok_at`, `last_count`, `last_error`, `last_error_at`, `fail_count`, `stale`,
+`retry_after`, `next_due_at`) and per-category `counts`. Sources go stale on a schedule
+(Mon–Fri, America/New_York): Federal Register at **06:15 ET**, Public Inspection at
+**09:00 / 11:30 / 16:30 ET**, DOL every **24 h**.
+
+### `GET /api/news/facets`
+States present among enforcement rows: `{"states": [{"code": "TX", "count": 12}]}`.
+
+### `POST /api/news/refresh`
+Body `{"force": false}` (default) or `{"force": true}`. `force: false` queues only the
+sources that are due (refresh-on-open); `force: true` queues every enabled source,
+ignoring staleness and backoff. Returns at once — `202 {"queued": [...]}` or
+`200 {"queued": []}` — while the sync runs on the worker thread. `409` while a sync is
+already running, `503` when `NEWS_SYNC` is off.
+
+### `GET /api/news/section/{section_id}` · `GET /api/news/part/{part}`
+The reader's activity button. Both take `?title=29` (default; other titles return empty
+while OSHA is the only agency) and return `{"section_id"|"part", "count", "articles"}`
+with at most 15 articles, newest first. A section matches exact citations plus
+part-level references to its part; a part matches everything inside it.
 
 ---
 

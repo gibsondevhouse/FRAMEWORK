@@ -74,8 +74,9 @@ def fetch_json(client: httpx.Client, url: str) -> dict:
 
 def download_stream(client: httpx.Client, url: str, dest_path: Path, on_bytes=None) -> None:
     """Stream a large file directly to disk to keep RAM flat. `on_bytes(received, total)`
-    reports wire bytes against Content-Length (eCFR sends the compressed length), or
-    total=None when the server doesn't say."""
+    reports wire bytes against Content-Length (eCFR sends the compressed length) or, when the
+    server doesn't say (eCFR's full-text XML is gzip-streamed without a length), the decoded
+    bytes written so far with total=None."""
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = dest_path.with_suffix(dest_path.suffix + ".download")
     for attempt in range(4):
@@ -84,11 +85,13 @@ def download_stream(client: httpx.Client, url: str, dest_path: Path, on_bytes=No
                 response.raise_for_status()
                 length = response.headers.get("content-length")
                 total = int(length) if length and length.isdigit() else None
+                written = 0
                 with open(tmp_path, "wb") as f:
                     for chunk in response.iter_bytes(chunk_size=1024 * 1024):  # 1MB chunks
                         f.write(chunk)
+                        written += len(chunk)
                         if on_bytes:
-                            on_bytes(response.num_bytes_downloaded, total)
+                            on_bytes(response.num_bytes_downloaded if total else written, total)
             tmp_path.replace(dest_path)
             return
         except (httpx.HTTPError, OSError) as exc:
@@ -421,7 +424,10 @@ def build(
         log(f"downloading full text XML via streaming ({len(pieces)} request{'s' if len(pieces) != 1 else ''})...")
         for i, (url, path) in enumerate(pieces):
             if len(pieces) == 1:
-                on_bytes = lambda got, total: report("Downloading text", got, total)
+                # Without a Content-Length, measure the XML written against the structure's own
+                # size of the title's text (eCFR's `size`), so progress, speed and ETA are real.
+                expected = structure.get("size") if scope is None else None
+                on_bytes = lambda got, total: report("Downloading text", got, total or expected)
             else:
                 on_bytes = None
                 report("Downloading text", i, len(pieces))

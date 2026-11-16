@@ -1,37 +1,77 @@
-# FRAMEWORK — CFR Reader & Research Assistant
+# FRAMEWORK — A Regulatory Workstation
 
-A local web reader for the Code of Federal Regulations (any of the 50 titles) with instant full-text search and a Claude research assistant grounded in the installed text. Everything runs on your machine: regulations live in SQLite databases under `reader/data/`. The only network calls are the eCFR download when you install a title and, optionally, the Anthropic API for the assistant.
+Welcome to **FRAMEWORK**, a calm, local-first workstation for anyone who spends time reading, researching, or organizing the **Code of Federal Regulations** (any of the 50 titles).
 
-## What's here
+Working with federal regulations shouldn't feel like wrestling with clunky government websites or waiting on slow page loads. FRAMEWORK puts the regulations right on your own machine in fast, offline SQLite databases—so searching across thousands of pages takes milliseconds, citations link straight to where they belong, and your notes and project dossiers stay with you.
 
-- **`reader/`** — the application. FastAPI + SQLite FTS5 backend, vanilla JS frontend. See [reader/README.md](reader/README.md) to run it and [reader/API.md](reader/API.md) for the HTTP API.
-- **`docs/plans/roadmap/`** — the *HSE Platform Roadmap*, a strategy document for where this could go (MCP server, hybrid RAG, policy linter, enterprise bots). None of it is implemented; it is not a description of the code. `phase-1_multi-title/` keeps the agent prompt and completion report from the multi-title work as a historical record.
-- **`CLAUDE.md`** — detailed architecture notes for working on the code.
+The only times FRAMEWORK reaches out to the internet are when you choose to download or update a title from eCFR, or if you optionally hook up an Anthropic API key to chat with Claude about the text you have open. Everything else—reading, searching, organizing projects—works completely offline.
 
-The generated GovInfo/eCFR URL inventories (`docs/dev/`, `docs/title-29/`, `docs/title-29-api/`) are gitignored and not part of the repository; the reader never reads them.
+---
 
-## Quick start
+## What you can do with it
 
-Requires **Python 3.10 or newer**.
+- **Read regulations the way they're meant to be read.** Long sections open one clause or appendix chapter at a time (with a clean navigation rail in the margin), or you can switch to the full section or an entire part on one page. Indentation `(a) → (1) → (i) → (A)`, tables, figures, and footnotes all render cleanly, and citations like `§ 541.100` or `40 CFR 261.3` become clickable links.
+- **Search everything in an instant.** Full-text search (powered by SQLite FTS5) runs locally across one title or every title you have installed. Type a section number like `1910.1200` to jump straight there.
+- **Organize your work into Project Dossiers.** Pin sections you're actively working on into named dossiers, jot down notes, add tags, and export or import your dossiers as JSON whenever you need to share or back them up. Everything stays in your browser's local storage.
+- **Keep your library tidy with the Newsroom & Transfer Dock.** Browse all 50 CFR titles grouped by topic desk, install whole titles, individual parts, or single sections, or grab a curated **Compliance Suite** (like *Environment, Health & Safety*, *Trade & Commerce*, or *Government Contracting*) in one batch. A quiet **Regulatory Wire** shows which titles were amended most recently, and a floating transfer dock keeps track of downloads in the corner while you keep reading.
+- **Follow OSHA news without leaving the workstation.** The **News** page gathers OSHA final rules, proposed rules, notices, and pre-publication filings from the official Federal Register API (no key needed), and—with a free DOL API key—recent inspections, citations, and penalties. Every card states the facts in three fixed bullets built from the records themselves, with CFR chips that jump straight into the reader; Title 29 pages show the related rulemaking and enforcement in return.
+- **Navigate without losing your place.** A slim activity rail along the edge lets you flip between Overview, Title Home, Contents, Projects, News, Library, and Settings—either pinned beside your reading or sliding out as an overlay when you want more room.
+- **Ask Claude when you want a second pair of eyes (optional).** Highlight any passage to ask about it, or open the assistant drawer. Claude reads directly from your local regulatory databases so its answers stay grounded in the actual text.
 
-macOS / Linux:
+---
+
+## Getting started
+
+You'll need **Python 3.10 or newer**.
+
+### The easy way on macOS
+Double-click **`Start FRAMEWORK.command`** in the repository root. On the first run, it creates a `.venv` for you, installs the dependencies, starts the server, and opens your browser.
+
+### Manual setup (macOS / Linux)
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest
+.venv/bin/pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest tzdata
 cd reader
 ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Windows / PowerShell:
+### Manual setup (Windows / PowerShell)
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest
+.\.venv\Scripts\pip install fastapi "uvicorn[standard]" httpx anthropic python-dotenv pytest tzdata
 cd reader
 ..\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Open **http://127.0.0.1:8000**. On first start with no titles installed, the server downloads and indexes Title 29 (Labor) from eCFR (~28 MB of XML). Install more titles, parts or single sections from inside the app (Overview → Installed titles → Download) or from the CLI with `python -m app.build --title 40`.
+Once the server is running, open **http://127.0.0.1:8000** in your browser.
 
-The Claude assistant is optional. Copy `reader/.env.example` to `reader/.env` and add an `ANTHROPIC_API_KEY` to enable it; reading and search work without one.
+If you don't have any titles installed yet, FRAMEWORK will automatically download and index **Title 29 (Labor)** from eCFR on its first startup (~28 MB of XML, usually under a minute). From there, you can open the **Library** in the left rail to install other titles, specific parts, or individual sections—or use the CLI:
+
+```bash
+cd reader
+../.venv/bin/python -m app.build --title 40
+```
+
+### Setting up the Claude assistant (optional)
+
+Reading, searching, and project dossiers all work without an API key. If you'd like to use the built-in Claude assistant, copy `reader/.env.example` to `reader/.env` and add your `ANTHROPIC_API_KEY`.
+
+### Setting up OSHA enforcement news (optional)
+
+The **News** page works out of the box for Federal Register rulemaking. To also see OSHA inspections and penalties on the Enforcement tab, register for a free key at [dataportal.dol.gov/registration](https://dataportal.dol.gov/registration) and add `DOL_API_KEY=…` to `reader/.env`.
+
+---
+
+## Where everything lives
+
+- **`reader/`** — The workstation itself: a FastAPI + SQLite FTS5 backend and a vanilla JavaScript frontend. See [`reader/README.md`](reader/README.md) for the full user guide and [`reader/API.md`](reader/API.md) if you want to use the HTTP API directly.
+- **`docs/plans/`** — Design notes and roadmaps:
+  - `editorial_download_refactor/` & `sliding_rail_sidebar/` — Blueprints for the newsroom library, transfer dock, activity rail, and project dossiers (implemented in `reader/`).
+  - `osha_news_interface/` — The plan behind the OSHA regulatory news page (implemented in `reader/`).
+  - `roadmap/HSE_PLATFORM_ROADMAP.md` — Long-term ideas for where this could go next (MCP server, policy linter, hybrid search, team bots; not yet built).
+  - `roadmap/phase-1_multi-title/` — Historical notes from when multi-title support was added.
+- **`CLAUDE.md`** — Detailed technical notes for anyone working on the code.
+
+*(Generated GovInfo/eCFR URL inventories like `docs/dev/`, `docs/title-29/`, and `docs/title-29-api/` are gitignored and not part of the repository; FRAMEWORK doesn't use them at runtime.)*

@@ -80,10 +80,6 @@
     try { localStorage.setItem(key, value); } catch (e) { /* storage unavailable (private mode, quota) */ }
   }
 
-  function isMobile() {
-    return window.matchMedia('(max-width: 900px)').matches;
-  }
-
   // Inline icons (16px grid, stroked with currentColor; styled by `.icon` in styles.css).
   const ICON_PATHS = {
     sparkle: '<path d="M8 2.25 9.35 6.65 13.75 8 9.35 9.35 8 13.75 6.65 9.35 2.25 8 6.65 6.65Z"/>',
@@ -94,11 +90,27 @@
     chevronLeft: '<path d="m9.5 4.5-3.5 3.5 3.5 3.5"/>',
     chevronDown: '<path d="m4.5 6.5 3.5 3.5 3.5-3.5"/>',
     chevronRight: '<path d="m6.5 4.5 3.5 3.5-3.5 3.5"/>',
+    chevronUp: '<path d="m4.5 9.5 3.5-3.5 3.5 3.5"/>',
+    plus: '<path d="M8 3.25v9.5M3.25 8h9.5"/>',
+    folder: '<path d="M2.5 4.5A1.5 1.5 0 0 1 4 3h2.6l1.4 1.5h4A1.5 1.5 0 0 1 13.5 6v6A1.5 1.5 0 0 1 12 13.5H4A1.5 1.5 0 0 1 2.5 12Z"/>',
+    bookmark: '<path d="M4.25 2.75h7.5v10.5L8 10.75l-3.75 2.5Z"/>',
+    bookmarkFilled: '<path d="M4.25 2.75h7.5v10.5L8 10.75l-3.75 2.5Z" fill="currentColor"/>',
+    pin: '<rect x="2.5" y="3" width="11" height="10" rx="2"/><path d="M6.5 3v10"/>',
+    pinOff: '<rect x="2.5" y="3" width="11" height="10" rx="2"/><path d="M6.5 3v10" stroke-dasharray="1.5 1.5"/><path d="M9 8h2.5M10.5 6.5 12 8l-1.5 1.5"/>',
+    activity: '<path d="M1.75 8.25h2.5l1.75-4.5 4 8.5 1.75-4h2.5"/>',
     download: '<path d="M8 2.75v7.5M4.75 7 8 10.25 11.25 7"/><path d="M3 12.75h10"/>',
     check: '<path d="m3.75 8.25 2.75 2.75 5.75-6"/>',
     list: '<circle cx="3" cy="4" r=".6" fill="currentColor" stroke="none"/><circle cx="3" cy="8" r=".6" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r=".6" fill="currentColor" stroke="none"/><path d="M6 4h7.5M6 8h7.5M6 12h7.5"/>',
     book: '<path d="M2.5 12.5A1.5 1.5 0 0 1 4 11h9.5"/><path d="M4 2.5h9.5v11H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 2.5Z"/>',
     file: '<path d="M9 2.5H4a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 4 14.5h8a1.5 1.5 0 0 0 1.5-1.5V6.5L9 2.5Z"/><path d="M9 2.5V6.5H13"/>',
+    news: '<path d="M2.5 4.5H11V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12Z"/><path d="M11 6.5h1.5a1 1 0 0 1 1 1V12a1.5 1.5 0 0 1-1.5 1.5"/><path d="M4.5 7h4.5M4.5 9.25h4.5M4.5 11.5h3"/>',
+    help: '<circle cx="8" cy="8" r="6"/><path d="M6.25 6.25a1.85 1.85 0 0 1 3.55.75c0 1.25-1.8 1.5-1.8 2.75"/><circle cx="8" cy="11.85" r=".55" fill="currentColor" stroke="none"/>',
+    key: '<circle cx="5.5" cy="8" r="2.75"/><path d="M8.25 8H14M11.75 8v2.25M13.5 8v1.5"/>',
+    rss: '<circle cx="4" cy="12" r="1.15" fill="currentColor" stroke="none"/><path d="M3.25 7.75A5 5 0 0 1 8.25 12.75M3.25 4A8.75 8.75 0 0 1 12 12.75"/>',
+    copy: '<rect x="5.5" y="5.5" width="7.5" height="7.5" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/>',
+    close: '<path d="m4 4 8 8M12 4l-8 8"/>',
+    eye: '<path d="M1.75 8S4 4.25 8 4.25 14.25 8 14.25 8 12 11.75 8 11.75 1.75 8 1.75 8Z"/><circle cx="8" cy="8" r="1.75"/>',
+    eyeOff: '<path d="M2.5 2.5 13.5 13.5M6.4 4.45A6.6 6.6 0 0 1 8 4.25C12 4.25 14.25 8 14.25 8a10.4 10.4 0 0 1-2.2 2.55M4.1 5.65A10.6 10.6 0 0 0 1.75 8s2.25 3.75 6.25 3.75c.9 0 1.75-.18 2.5-.48"/>',
   };
   function icon(name, extraClass = '') {
     return `<svg class="icon${extraClass ? ' ' + extraClass : ''}" viewBox="0 0 16 16" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
@@ -130,8 +142,8 @@
     activeRoute = path;
     const seq = ++routeSeq;
 
-    // Close mobile nav on route change
-    document.body.classList.remove('nav-open');
+    // Light the rail, put the drawer away where the page wants the width, close a floating one.
+    syncNavToRoute(path);
 
     let checkPath = path;
     const titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
@@ -170,6 +182,14 @@
         const decode = (s) => { try { return decodeURIComponent(s); } catch (e) { return s; } };
         await loadLibrary(m[1] ? parseInt(m[1], 10) : null, m[2] ? decode(m[2]) : null);
       }
+    } else if (!titleMatch && (checkPath === '/projects' || checkPath.startsWith('/projects/'))) {
+      const id = checkPath.slice('/projects/'.length);
+      renderProjects(id ? decodeURIComponent(id) : null);
+    } else if (!titleMatch && (checkPath === '/news' || checkPath === '/news/')) {
+      // Like projects, News is cross-title: #/title/29/news falls through to not-found.
+      await loadNews(params);
+    } else if (!titleMatch && (checkPath === '/help' || checkPath === '/help/')) {
+      await loadHelp(params);
     } else if (checkPath.startsWith('/search')) {
       const q = params.get('q') || '';
       dom.search.value = q;
@@ -525,11 +545,15 @@
   // Row actions (Download, Open, Update, Remove) appear on hover or focus. Downloads queue on
   // the server and run one at a time; `jobs` polls while any are active, wherever you are,
   // and refreshes the title list (and this page) as each finishes.
-  const lib = { view: null, data: null, filter: '' };
+  const lib = { view: null, data: null, filter: '', sort: 'desk', wire: null };
+  try {
+    const saved = localStorage.getItem('libSort');
+    if (['desk', 'number', 'updated'].includes(saved)) lib.sort = saved;
+  } catch (e) { /* storage unavailable: default order */ }
   let jobs = { current: null, queued: [], recent: [] };
   let jobsTimer = null;
   let jobsSeenActive = new Set(); // ids of jobs this page has seen queued or running
-  let lastRunningId = null;
+  let lastJobsKey = '';
 
   const fmtDate = (iso) => {
     if (!iso) return '';
@@ -566,7 +590,10 @@
       if (!title) setJobs(data.jobs);
       lib.data = data;
       renderLibrary(!sameView);
-      if (!title) pollJobsIfActive();
+      if (!title) {
+        pollJobsIfActive();
+        loadWire();
+      }
     } catch (err) {
       if (seq !== routeSeq) return;
       dom.view.innerHTML = `
@@ -598,7 +625,6 @@
         : kind === 'part' ? j.kind === 'part' && j.target && j.target.part === id
         : j.kind === 'section' && j.target && j.target.id === id));
   }
-  const jobStatus = (j) => j ? `<span class="lib-busy">${j.state === 'running' ? 'Downloading…' : 'Queued'}</span>` : '';
 
   function actBtn(act, label, attrs, cls = '') {
     return `<button type="button" class="lib-act${cls ? ' ' + cls : ''}" data-act="${act}" ${attrs}>${label}</button>`;
@@ -612,55 +638,340 @@
       ${main}<span class="lib-status">${status || ''}</span><span class="lib-actions">${actions || ''}</span></div>`;
   }
 
-  function jobPanelHtml() {
-    const j = jobs.current;
-    if (!j && !jobs.queued.length) return '';
-    const pct = j && j.total ? Math.min(100, Math.round(j.done / j.total * 100)) : null;
-    const detail = !j ? '' : j.phase === 'Downloading text' && j.total && j.total > 100000
-      ? `${(j.done / 1048576).toFixed(1)} of ${(j.total / 1048576).toFixed(1)} MB`
-      : pct != null ? `${pct}%` : '';
-    return `
-      <div class="lib-job" role="status" aria-live="polite">
-        <div class="lib-job-line">
-          <span class="lib-job-label">${j ? escapeHtml(j.label) : 'Starting…'}</span>
-          <span class="lib-job-phase">${j ? escapeHtml(j.phase) : ''}${detail ? `<span class="sep" aria-hidden="true">·</span>${escapeHtml(detail)}` : ''}</span>
+  // --- Status: a 6px dot and a word, Linear's issue-status vocabulary (`.stat-pill`) ---
+  // synced (installed, current) · stale (eCFR has a newer edition) · busy (queued or
+  // downloading) · partial (some parts or sections) · uninstalled. The dot is aria-hidden;
+  // the word carries the meaning. `bare` drops the pill's outline for dense rows.
+  function statPill(state, text, { bare = false, title = '' } = {}) {
+    return `<span class="stat-pill is-${state}${bare ? ' is-bare' : ''}"${title ? ` title="${escapeHtml(title)}"` : ''}>`
+      + `<span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(text)}</span>`;
+  }
+  const isStale = (t) => Boolean(t.installed && t.latest && t.installed.edition && t.latest > t.installed.edition);
+  const jobStatus = (j) => j ? statPill('busy', j.state === 'running' ? 'Downloading' : 'Queued', { bare: true }) : '';
+
+  function titleStatus(t) {
+    if (t.reserved) return { state: 'uninstalled', text: 'Reserved' };
+    const j = jobFor(t.title, 'title');
+    if (j) return { state: 'busy', text: j.state === 'running' ? (j.kind === 'update' ? 'Updating' : 'Downloading') : 'Queued' };
+    const inst = t.installed;
+    if (!inst) return { state: 'uninstalled', text: 'Not installed' };
+    if (isStale(t)) return { state: 'stale', text: 'Update available', title: `eCFR has a newer edition (${fmtDate(t.latest)})` };
+    if (!inst.whole) {
+      const what = [inst.parts ? plural(inst.parts, 'part') : '', inst.sections ? plural(inst.sections, 'section') : ''].filter(Boolean).join(', ');
+      return { state: 'partial', text: 'Partial', title: what ? `Installed: ${what}` : '' };
+    }
+    return { state: 'synced', text: 'Installed', title: `Edition ${fmtDate(inst.edition)}` };
+  }
+  function renderStatusPill(t, opts = {}) {
+    const s = titleStatus(t);
+    return statPill(s.state, s.text, { title: s.title, ...opts });
+  }
+
+  // --- Telemetry formatting: tabular numbers with plain units ---
+  const fmtBytes = (bytes) => {
+    if (!bytes || bytes <= 0) return '';
+    if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    const mb = bytes / 1048576;
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`;
+  };
+  const fmtMB = (mb) => (mb ? fmtBytes(mb * 1048576) : '');
+  const fmtSections = (n) => (n ? `${fmt(n)} ${n === 1 ? 'section' : 'sections'}` : '');
+  const SEP = '<span class="sep" aria-hidden="true">·</span>';
+  const joinSep = (xs) => xs.filter(Boolean).join(SEP);
+  function relTime(ms) {
+    const s = Math.max(0, (Date.now() - ms) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return `${Math.round(s / 60)} min ago`;
+    if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+    return shortDate(new Date(ms).toISOString().slice(0, 10));
+  }
+
+  // The newest eCFR edition date and how many titles were amended in the 7 days before it.
+  function amendedWeek(d) {
+    const newest = d.titles.reduce((m, t) => (t.latest && t.latest > m ? t.latest : m), '');
+    if (!newest) return { newest: '', cut: '', recent: 0 };
+    const [y, m, dd] = newest.split('-').map(Number);
+    const cut = new Date(Date.UTC(y, m - 1, dd - 7)).toISOString().slice(0, 10);
+    return { newest, cut, recent: d.titles.filter(t => t.amended && t.amended >= cut).length };
+  }
+
+  // --- The front page (#/library): a newsroom of titles ---
+  // Masthead (edition, counts) → four metric tiles → the broadsheet lead: the featured
+  // compliance suite (65%) beside the Regulatory Wire, eCFR's latest amendments (35%) → the
+  // other suites → every title as a brief under its topic desk (or ordered by number or by
+  // last amendment). Briefs: kicker (title number, agencies), status pill, headline, one-line
+  // summary, dateline (amended · sections · size); actions slide in on hover or focus.
+  const LIB_SORTS = [['desk', 'By desk'], ['number', 'By number'], ['updated', 'Recently amended']];
+  const shortDate = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso + 'T00:00:00');
+    if (isNaN(d)) return iso;
+    const opts = d.getFullYear() === new Date().getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' };
+    return d.toLocaleDateString(undefined, opts);
+  };
+
+  function titleActions(t) {
+    if (t.reserved || jobFor(t.title, 'title')) return '';
+    const inst = t.installed;
+    if (!inst) return actBtn('download', `${icon('download')}Download`, `data-title="${t.title}"`, 'is-primary');
+    return `<a class="lib-act" href="#/title/${t.title}/">Open</a>`
+      + (inst.whole ? '' : actBtn('download', 'Download all', `data-title="${t.title}"`))
+      + (isStale(t) ? actBtn('update', 'Update', `data-title="${t.title}" title="eCFR has a newer edition (${escapeHtml(fmtDate(t.latest))})"`) : '')
+      + actBtn('remove', 'Remove', `data-title="${t.title}"`, 'is-danger');
+  }
+
+  function libStory(t) {
+    const inst = t.installed;
+    const agencies = (t.agencies || []).slice(0, 3);
+    const kicker = `Title ${t.title}${agencies.length ? `${SEP}<span class="story-ag">${agencies.map(escapeHtml).join(' ')}</span>` : ''}`;
+    const name = escapeHtml(t.name);
+    const headline = t.reserved ? name : `<a href="${libHref(t.title)}">${name}</a>`;
+    const sections = inst ? inst.section_count : t.sections;
+    const dateline = joinSep([
+      t.amended ? `Amended ${escapeHtml(shortDate(t.amended))}` : '',
+      t.reserved ? '' : fmtSections(sections),
+      t.reserved || !t.size_mb ? '' : `<span title="Size of the title's text on eCFR">${fmtMB(t.size_mb)}</span>`,
+    ]);
+    const acts = titleActions(t);
+    const hay = `${t.title} title ${t.name} ${t.summary || ''} ${t.desk || ''} ${(t.agencies || []).join(' ')}`.toLowerCase();
+    return `<article class="lib-story${t.reserved ? ' is-dim' : ''}" data-hay="${escapeHtml(hay)}">
+      <div class="story-top"><span class="story-kicker">${kicker}</span>${renderStatusPill(t, { bare: !inst })}</div>
+      <h3 class="story-name">${headline}</h3>
+      ${t.summary ? `<p class="story-dek">${escapeHtml(t.summary)}</p>` : ''}
+      <div class="story-foot"><span class="story-date">${dateline}</span>${acts ? `<div class="story-actions">${acts}</div>` : ''}</div>
+    </article>`;
+  }
+
+  function libMetrics(d) {
+    const live = d.titles.filter(t => !t.reserved);
+    const inst = live.filter(t => t.installed);
+    const sections = inst.reduce((a, t) => a + (t.installed.section_count || 0), 0);
+    const bytes = inst.reduce((a, t) => a + (t.installed.bytes || 0), 0);
+    const stale = live.filter(isStale);
+    const { cut, recent } = amendedWeek(d);
+    const updating = [jobs.current, ...jobs.queued].some(j => j && j.kind === 'update');
+    const tile = (label, value, sub, cls = '') => `<div class="metric-card${cls}">
+        <div class="metric-label">${label}</div><div class="metric-val">${value}</div><div class="metric-sub">${sub}</div></div>`;
+    return `<section class="lib-metrics" aria-label="Library at a glance">
+      ${tile('<span class="stat-dot is-synced" aria-hidden="true"></span>eCFR', 'Online',
+        d.checked_at ? `Title list checked ${escapeHtml(relTime(d.checked_at * 1000))}` : `${live.length} titles tracked`)}
+      ${tile('Installed', `${inst.length}<span class="metric-of">of ${live.length}</span>`,
+        joinSep([fmtSections(sections) || 'No sections yet', bytes ? `${fmtBytes(bytes)} on disk` : '']))}
+      ${tile('Amended this week', String(recent), cut ? `Since ${escapeHtml(shortDate(cut))}${SEP}<button type="button" class="metric-link" data-sort="updated">Show</button>` : 'No edition date')}
+      ${stale.length
+        ? tile('<span class="stat-dot is-stale" aria-hidden="true"></span>Editions', `${stale.length} outdated`,
+          updating ? statPill('busy', 'Updating', { bare: true })
+            : `<button type="button" class="metric-link is-strong" data-act="update-all">Update all ${icon('chevronRight')}</button>`, ' is-alert')
+        : tile('Editions', inst.length ? 'Current' : '—', inst.length ? 'Every installed title is up to date' : 'Nothing installed yet')}
+    </section>`;
+  }
+
+  // A suite's state across its titles: the pill, which titles still need a download, and the
+  // label for the batch button.
+  function suiteState(s, d) {
+    const ts = s.titles.map(n => d.titles.find(t => t.title === n)).filter(t => t && !t.reserved);
+    const busy = ts.filter(t => jobFor(t.title, 'title'));
+    const whole = ts.filter(t => t.installed && t.installed.whole);
+    const any = ts.filter(t => t.installed);
+    const stale = ts.filter(isStale);
+    const needs = ts.filter(t => !jobFor(t.title, 'title') && (!t.installed || !t.installed.whole || isStale(t)));
+    let pill;
+    if (busy.length) pill = statPill('busy', `${busy.length} of ${ts.length} in progress`);
+    else if (whole.length === ts.length && !stale.length) pill = statPill('synced', 'Installed');
+    else if (whole.length === ts.length) pill = statPill('stale', 'Update available');
+    else if (any.length) pill = statPill('partial', `${any.length} of ${ts.length} installed`);
+    else pill = statPill('uninstalled', 'Not installed', { bare: true });
+    const onlyUpdates = needs.length && needs.every(t => t.installed && t.installed.whole);
+    const label = !needs.length ? '' : onlyUpdates ? `Update ${needs.length === ts.length ? 'suite' : plural(needs.length, 'title')}`
+      : needs.length === ts.length ? 'Download suite' : `Download ${plural(needs.length, 'remaining title')}`;
+    return { ts, pill, needs, label, busy };
+  }
+
+  function suiteHero(s, d) {
+    const st = suiteState(s, d);
+    const rows = st.ts.map(t => {
+      const parts = ((HOME_CONTENT[t.title] || {}).cards || []).slice(0, 3);
+      const partHref = (p) => (t.installed && t.installed.whole ? `#/title/${t.title}/part/${encodeURIComponent(p)}` : libHref(t.title, p));
+      return `<li class="suite-row">
+        <span class="suite-num">${t.title}</span>
+        <div class="suite-row-body">
+          <a class="suite-name" href="${libHref(t.title)}">${escapeHtml(t.name)}</a>
+          <span class="suite-ag">${(t.agencies || []).slice(0, 3).map(escapeHtml).join(' ')}</span>
+          ${parts.length ? `<div class="suite-parts">${parts.map(c => {
+            const [num, ...rest] = c.title.replace(/^Part\s+/, '').split(' — ');
+            return `<a href="${partHref(c.part)}"><span class="suite-part-num">${escapeHtml(num)}</span>${escapeHtml(rest.join(' — '))}</a>`;
+          }).join('')}</div>` : ''}
+          <div class="suite-meta">${joinSep([
+            t.amended ? `Amended ${escapeHtml(shortDate(t.amended))}` : '',
+            fmtSections(t.installed ? t.installed.section_count : t.sections),
+            t.size_mb ? fmtMB(t.size_mb) : '',
+            t.installed && t.installed.bytes ? `${fmtBytes(t.installed.bytes)} on disk` : '',
+          ].map(x => x && `<span>${x}</span>`))}</div>
         </div>
-        <div class="lib-bar${pct == null ? ' is-indeterminate' : ''}"><span style="width:${pct == null ? 30 : pct}%"></span></div>
-        ${jobs.queued.length ? `<div class="lib-job-queue">Then ${jobs.queued.map(q => escapeHtml(q.label)).join(', ')}</div>` : ''}
-      </div>`;
+        ${renderStatusPill(t, { bare: true })}
+      </li>`;
+    }).join('');
+    const action = st.label
+      ? `<button type="button" class="btn btn-accent" data-act="download-suite" data-suite="${escapeHtml(s.id)}">${icon('download')}${escapeHtml(st.label)}</button>`
+      : st.busy.length ? '' : `<a class="btn" href="#/title/${st.ts[0] ? st.ts[0].title : ''}/">Open in reader</a>`;
+    return `<article class="suite-hero" aria-labelledby="suite-${escapeHtml(s.id)}">
+      <div class="story-top"><span class="story-kicker">Featured suite${SEP}${escapeHtml(s.badge || '')}</span>${st.pill}</div>
+      <h2 class="suite-title" id="suite-${escapeHtml(s.id)}">${escapeHtml(s.name)}</h2>
+      <p class="suite-dek">${escapeHtml(s.summary)}</p>
+      <ul class="suite-rows">${rows}</ul>
+      <div class="suite-foot">
+        <span class="suite-telemetry">${joinSep([plural(st.ts.length, 'title'), fmtSections(s.sections), s.size_mb ? `${fmtMB(s.size_mb)} of text` : ''])}</span>
+        ${action}
+      </div>
+    </article>`;
+  }
+
+  function suiteCard(s, d) {
+    const st = suiteState(s, d);
+    const titles = st.ts.map(t => `<a href="${libHref(t.title)}"><span class="suite-part-num">${t.title}</span>${escapeHtml(t.name)}</a>`).join('');
+    const action = st.label
+      ? actBtn('download-suite', `${icon('download')}${escapeHtml(st.label)}`, `data-suite="${escapeHtml(s.id)}"`, 'is-primary') : '';
+    return `<article class="suite-card">
+      <div class="story-top"><span class="story-kicker">${escapeHtml(s.badge || 'Suite')}</span>${st.pill}</div>
+      <h3 class="story-name">${escapeHtml(s.name)}</h3>
+      <p class="story-dek">${escapeHtml(s.summary)}</p>
+      <div class="suite-parts suite-card-titles">${titles}</div>
+      <div class="story-foot"><span class="story-date">${joinSep([fmtSections(s.sections), fmtMB(s.size_mb)])}</span>${action}</div>
+    </article>`;
+  }
+
+  // The Regulatory Wire: the five most recently amended titles, newest first. Dates come with
+  // the catalog; what changed (`/api/library/wire`, eCFR's version history) fills in after.
+  function wireSummary(c) {
+    if (!c) return '<span class="wire-pending" aria-hidden="true"></span>';
+    if (!c.count) return '';
+    if (c.removed === c.count) return escapeHtml(`${plural(c.count, 'section')} removed`);
+    const verb = c.kind === 'revised' ? 'revised' : 'amended';
+    const parts = c.parts.slice(0, 3);
+    const more = c.parts.length - parts.length;
+    const where = parts.length ? ` in ${parts.length + more === 1 ? 'Part' : 'Parts'} ${parts.join(', ')}${more > 0 ? ` +${more}` : ''}` : '';
+    return `${escapeHtml(`${plural(c.count, 'section')} ${verb}${where}`)}${c.first && c.first.name ? `<span class="wire-first">${escapeHtml(c.first.name)}</span>` : ''}`;
+  }
+
+  function libWire(d) {
+    const top = d.titles.filter(t => !t.reserved && t.amended)
+      .sort((a, b) => b.amended.localeCompare(a.amended) || a.title - b.title).slice(0, 5);
+    const byTitle = new Map(((lib.wire && lib.wire.items) || []).map(c => [c.title, c]));
+    const failed = lib.wire && lib.wire.failed;
+    return `<aside class="reg-wire" id="lib-wire" aria-labelledby="wire-title">
+      <div class="wire-head">
+        <h2 class="wire-title" id="wire-title">${icon('activity')}The Regulatory Wire</h2>
+        <span class="wire-badge">Live eCFR</span>
+      </div>
+      <p class="wire-sub">Latest amendments, newest first</p>
+      <ol class="wire-items">${top.map(t => {
+        const c = byTitle.get(t.title);
+        // Loading: a placeholder line. Loaded: what changed, if eCFR said. Failed: nothing.
+        const summary = !lib.wire ? wireSummary(null) : failed || !c || c.amended !== t.amended ? '' : wireSummary(c);
+        return `<li class="wire-entry"><a href="${libHref(t.title)}">
+          <span class="wire-entry-head"><span class="wire-entry-title">Title ${t.title}${(t.agencies || [])[0] ? `${SEP}${escapeHtml(t.agencies[0])}` : ''}</span>
+            <time class="wire-entry-date" datetime="${escapeHtml(t.amended)}">${escapeHtml(shortDate(t.amended))}</time></span>
+          <span class="wire-entry-name">${escapeHtml(t.name)}</span>
+          ${summary ? `<span class="wire-entry-summary">${summary}</span>` : ''}
+        </a></li>`;
+      }).join('')}</ol>
+      <div class="wire-foot"><button type="button" class="wire-link" data-sort="updated">All titles by last amendment ${icon('chevronRight')}</button></div>
+    </aside>`;
+  }
+
+  async function loadWire() {
+    if (lib.wire && Date.now() - lib.wire.at < 30 * 60 * 1000 && !lib.wire.failed) return;
+    try {
+      lib.wire = { at: Date.now(), items: await getJSON('/api/library/wire') };
+    } catch (e) {
+      lib.wire = { at: Date.now(), items: [], failed: true };
+    }
+    const el = document.getElementById('lib-wire');
+    if (el && lib.data && lib.view && !lib.view.title) el.outerHTML = libWire(lib.data);
+  }
+
+  function libTitleList(d, sort) {
+    const live = d.titles.filter(t => !t.reserved);
+    const reserved = d.titles.filter(t => t.reserved);
+    const grid = (ts) => `<div class="lib-stories">${ts.map(libStory).join('')}</div>`;
+    const desk = (name, ts, extra = '') => `<section class="lib-desk${extra}" aria-label="${escapeHtml(name)}">
+        <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(name)}</h3><span class="lib-desk-count">${plural(ts.length, 'title')}</span></header>
+        ${grid(ts)}</section>`;
+    if (sort === 'number' || sort === 'updated') {
+      const ordered = sort === 'number' ? live : [...live].sort((a, b) => (b.amended || '').localeCompare(a.amended || '') || a.title - b.title);
+      return desk(sort === 'number' ? 'All titles by number' : 'All titles by last amendment', ordered, ' is-flat')
+        + (reserved.length ? desk('Reserved', reserved) : '');
+    }
+    const names = [...(d.desks || [])];
+    for (const t of live) if (!names.includes(t.desk)) names.push(t.desk);
+    return names.map(name => {
+      const ts = live.filter(t => t.desk === name);
+      return ts.length ? desk(name, ts) : '';
+    }).join('') + (reserved.length ? desk('Reserved', reserved) : '');
+  }
+
+  function libFrontHtml(d) {
+    const live = d.titles.filter(t => !t.reserved);
+    const { newest, recent } = amendedWeek(d);
+    const sub = joinSep([
+      'Code of Federal Regulations from eCFR',
+      newest ? `Edition ${escapeHtml(fmtDate(newest))}` : '',
+      `${live.length} active titles`,
+      recent ? `${recent} amended this week` : 'No amendments this week',
+    ]);
+    const suites = Object.values(d.suites || {});
+    const lead = suites.find(s => s.featured) || suites[0];
+    const others = suites.filter(s => s !== lead);
+    return `<div class="lib lib-front">
+      <div class="doc-kicker"><a href="#/">Overview</a></div>
+      <header class="lib-masthead">
+        <h1 class="doc-title">Library</h1>
+        <p class="lib-sub">${sub}</p>
+      </header>
+      ${libMetrics(d)}
+      <div class="lib-broadsheet${lead ? '' : ' is-wire-only'}">${lead ? suiteHero(lead, d) : ''}${libWire(d)}</div>
+      ${others.length ? `<section class="lib-suites" aria-label="More compliance suites">
+        <header class="lib-desk-header"><h2 class="lib-desk-name">More suites</h2><span class="lib-desk-count">${plural(others.length, 'suite')}</span></header>
+        <div class="lib-suite-grid">${others.map(s => suiteCard(s, d)).join('')}</div></section>` : ''}
+      <div class="lib-tools">
+        <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter titles or agencies…" aria-label="Filter titles or agencies" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
+        <div class="lib-seg" role="group" aria-label="Order titles">${LIB_SORTS.map(([k, label]) =>
+          `<button type="button" data-sort="${k}" aria-pressed="${lib.sort === k}">${label}</button>`).join('')}</div>
+      </div>
+      <div class="lib-list" id="lib-list">${libTitleList(d, lib.sort)}</div>
+      <div class="lib-none" id="lib-none" hidden>No title matches. Try an agency (“OSHA”) or a topic.</div>
+    </div>`;
   }
 
   function renderLibrary(fresh) {
     const { title, part } = lib.view;
     const d = lib.data;
     let crumbs, heading, sub, head = '', body = '', placeholder;
+    const scrollTop = dom.main.scrollTop;
 
     if (!title) {
       document.title = 'Library · FRAMEWORK';
-      crumbs = `<a href="#/">Overview</a>`;
-      heading = 'Library';
-      sub = 'Download a whole title, a part or single sections from eCFR into FRAMEWORK. Open a title to pick parts and sections.';
-      placeholder = 'Filter titles';
-      body = d.titles.map(t => {
-        const inst = t.installed;
-        const j = jobFor(t.title, 'title');
-        if (t.reserved) return libRow({ num: String(t.title), name: t.name, status: 'Reserved', dim: true });
-        let status = '', acts = '';
-        if (!inst) {
-          acts = actBtn('download', 'Download title', `data-title="${t.title}"`);
-        } else {
-          const stale = t.latest && inst.edition && t.latest > inst.edition;
-          status = inst.whole
-            ? `Installed · ${escapeHtml(fmtDate(inst.edition))}`
-            : `${[inst.parts ? `${inst.parts} ${inst.parts === 1 ? 'part' : 'parts'}` : '', inst.sections ? `${inst.sections} ${inst.sections === 1 ? 'section' : 'sections'}` : ''].filter(Boolean).join(' · ')}`;
-          acts = `<a class="lib-act" href="#/title/${t.title}/">Open</a>`
-            + (inst.whole ? '' : actBtn('download', 'Download all', `data-title="${t.title}"`))
-            + (stale ? actBtn('update', 'Update', `data-title="${t.title}" title="eCFR has a newer edition (${escapeHtml(fmtDate(t.latest))})"`) : '')
-            + actBtn('remove', 'Remove', `data-title="${t.title}"`, 'is-danger');
+      // Keep focus on the filter or a sort button across a re-render (a job starting or ending).
+      const active = document.activeElement;
+      const refocus = active && active.id === 'lib-filter' ? '#lib-filter'
+        : active && active.dataset && active.dataset.sort ? `.lib-seg [data-sort="${active.dataset.sort}"]` : null;
+      const caret = active && active.id === 'lib-filter' ? active.selectionStart : null;
+      dom.view.innerHTML = libFrontHtml(d);
+      applyLibraryFilter();
+      if (refocus) {
+        const el = dom.view.querySelector(refocus);
+        if (el) {
+          el.focus({ preventScroll: true });
+          if (caret != null) el.setSelectionRange(caret, caret);
         }
-        return libRow({ href: libHref(t.title), num: String(t.title), name: t.name, status: j ? jobStatus(j) : status, actions: j ? '' : acts, key: `t${t.title}` });
-      }).join('');
-    } else if (!part) {
+      }
+      if (fresh) enterView();
+      else dom.main.scrollTop = scrollTop;
+      return;
+    }
+
+    if (!part) {
       document.title = `Title ${title} · Library · FRAMEWORK`;
       const inst = d.installed;
       crumbs = `<a href="#/">Overview</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a>`;
@@ -679,8 +990,9 @@
         ${g.parts.map(p => {
           const pj = jobFor(title, 'part', p.id);
           if (p.r || !p.leaves) return libRow({ num: p.l.replace(/^Parts?\s+/, ''), name: p.d || 'Reserved', status: 'Reserved', dim: true });
-          const status = p.installed === 'all' ? 'Installed'
-            : p.installed === 'some' ? `${p.installed_sections} of ${fmt(p.leaves)} installed` : `${fmt(p.leaves)} ${p.leaves === 1 ? 'section' : 'sections'}`;
+          const status = p.installed === 'all' ? statPill('synced', 'Installed', { bare: true })
+            : p.installed === 'some' ? statPill('partial', `${p.installed_sections} of ${fmt(p.leaves)}`, { bare: true, title: 'Sections installed' })
+            : escapeHtml(fmtSections(p.leaves));
           const acts = p.installed === 'all'
             ? `<a class="lib-act" href="#/title/${title}/part/${encodeURIComponent(p.id)}">Open</a>`
             : actBtn('download', 'Download part', `data-title="${title}" data-part="${escapeHtml(p.id)}"`);
@@ -691,7 +1003,7 @@
       crumbs = `<a href="#/">Overview</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a><span class="sep" aria-hidden="true">›</span><a href="${libHref(title)}">Title ${title}</a>`;
       heading = `${d.l} — ${d.d}`;
       const count = d.groups.reduce((a, g) => a + g.sections.filter(s => !s.r).length, 0);
-      const countText = `${fmt(count)} ${count === 1 ? 'section' : 'sections'}`;
+      const countText = fmtSections(count) || '0 sections';
       sub = d.installed === 'all' ? `Installed · ${countText}` : d.installed === 'some' ? `Partly installed · ${countText}` : countText;
       placeholder = 'Filter sections';
       const j = jobFor(title, 'part', part);
@@ -708,11 +1020,10 @@
           const acts = s.installed
             ? `<a class="lib-act" href="#/title/${title}/section/${encodeURIComponent(s.id)}">Open</a>`
             : actBtn('download', 'Download', `data-title="${title}" data-part="${escapeHtml(part)}" data-section="${escapeHtml(s.id)}" data-kind="${s.t}"`);
-          return libRow({ num, name, status: sj ? jobStatus(sj) : (s.installed ? 'Installed' : ''), actions: sj ? '' : acts, key: `s${s.id}` });
+          return libRow({ num, name, status: sj ? jobStatus(sj) : (s.installed ? statPill('synced', 'Installed', { bare: true }) : ''), actions: sj ? '' : acts, key: `s${s.id}` });
         }).join('')}`).join('');
     }
 
-    const scrollTop = dom.main.scrollTop;
     dom.view.innerHTML = `
       <div class="lib">
         <div class="doc-kicker">${crumbs}</div>
@@ -723,7 +1034,6 @@
           </div>
           ${head}
         </div>
-        <div id="lib-job-slot">${jobPanelHtml()}</div>
         <input class="lib-filter" id="lib-filter" type="search" placeholder="${placeholder}…" aria-label="${placeholder}" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
         <div class="lib-list" id="lib-list">${body}</div>
         <div class="lib-none" id="lib-none" hidden>Nothing matches.</div>
@@ -737,6 +1047,26 @@
     const words = lib.filter.toLowerCase().split(/\s+/).filter(Boolean);
     const list = document.getElementById('lib-list');
     if (!list) return;
+    if (list.querySelector('.lib-story')) {
+      // Front page: briefs filter in place; each desk hides when none match and its count
+      // says how many do. The masthead, suites and wire stay put above the list.
+      let n = 0;
+      for (const desk of list.querySelectorAll('.lib-desk')) {
+        let k = 0;
+        for (const el of desk.querySelectorAll('.lib-story')) {
+          const ok = words.every(w => (el.dataset.hay || '').includes(w));
+          el.hidden = !ok;
+          if (ok) k++;
+        }
+        desk.hidden = k === 0;
+        const total = desk.querySelectorAll('.lib-story').length;
+        const count = desk.querySelector('.lib-desk-count');
+        if (count) count.textContent = words.length && k !== total ? `${k} of ${plural(total, 'title')}` : plural(total, 'title');
+        n += k;
+      }
+      document.getElementById('lib-none').hidden = n > 0;
+      return;
+    }
     let shown = 0;
     let label = null, labelHas = false;
     const closeLabel = () => { if (label) label.hidden = !labelHas; };
@@ -760,6 +1090,34 @@
     lib.filter = e.target.value;
     applyLibraryFilter();
   });
+
+  // Ordering: the segmented control, and the "Show" / "All titles by last amendment" links in
+  // the metrics and the wire, which jump to the list ordered by amendment.
+  dom.view.addEventListener('click', (e) => {
+    const sortBtn = e.target.closest('button[data-sort]');
+    if (!sortBtn || !dom.view.querySelector('.lib')?.contains(sortBtn)) return;
+    const fromSeg = Boolean(sortBtn.closest('.lib-seg'));
+    if (sortBtn.dataset.sort !== lib.sort) {
+      lib.sort = sortBtn.dataset.sort;
+      lsSet('libSort', lib.sort);
+      renderLibrary(false);
+    }
+    if (fromSeg) dom.view.querySelector(`.lib-seg [data-sort="${lib.sort}"]`)?.focus();
+    else {
+      const tools = dom.view.querySelector('.lib-tools');
+      if (tools) tools.scrollIntoView({ behavior: reduceMotion.matches ? 'auto' : 'smooth', block: 'start' });
+    }
+  });
+
+  // Queue several titles (a suite, or every outdated title) and report what was queued.
+  async function queueBatch(url, body, emptyMsg) {
+    const res = await getJSON(url, body ? {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    } : { method: 'POST' });
+    for (const j of res.queued || []) jobsSeenActive.add(j.id);
+    showToast(res.count ? `Queued ${plural(res.count, 'title')}` : emptyMsg);
+    await pollJobs();
+  }
 
   dom.view.addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-act]');
@@ -789,6 +1147,14 @@
     }
     btn.disabled = true;
     try {
+      if (act === 'download-suite') {
+        await queueBatch('/api/library/batch-download', { suite: btn.dataset.suite }, 'Every title in this suite is installed and current');
+        return;
+      }
+      if (act === 'update-all') {
+        await queueBatch('/api/library/update-all', null, 'Every installed title is already current');
+        return;
+      }
       const job = act === 'update'
         ? await getJSON(`/api/library/${title}/update`, { method: 'POST' })
         : await getJSON('/api/library/download', {
@@ -813,6 +1179,8 @@
     if (!snapshot) return;
     jobs = snapshot;
     for (const j of [jobs.current, ...jobs.queued]) if (j) jobsSeenActive.add(j.id);
+    updateDock();
+    updateNavTransfers();
   }
 
   function pollJobsIfActive() {
@@ -830,25 +1198,215 @@
     for (const j of finished) {
       jobsSeenActive.delete(j.id);
       if (j.state === 'error') showToast(`${j.label}: ${j.error}`, 6000);
+      else if (j.state === 'cancelled') showToast(`Cancelled ${j.label}`);
       else showToast(j.phase === 'Already installed' ? `${j.label} is already installed` : `Downloaded ${j.label}`);
     }
     if (finished.some(j => j.state === 'done')) {
       await refreshTitles(finished.filter(j => j.state === 'done').map(j => j.title));
     }
+    if (finished.length) {
+      // The drawer's library and storage figures change with every install.
+      navLib.at = 0;
+      navStorage = null;
+      if (drawerShown() && navState.panel === 'library') ensureNavLibrary(true).then(renderLibraryPanel).catch(() => {});
+      if (drawerShown() && navState.panel === 'settings') renderSettingsPanel();
+    }
     if (dom.view.querySelector('.lib')) {
       if (finished.length) await refreshLibrary();
       else {
-        const slot = document.getElementById('lib-job-slot');
-        if (slot) slot.innerHTML = jobPanelHtml();
-        // Row states ("Queued" → "Downloading…") only change when a job starts or ends.
-        const runningId = snap.current ? snap.current.id : null;
-        if (runningId !== lastRunningId) {
-          lastRunningId = runningId;
+        // Statuses ("Queued" → "Downloading") only change when a job starts, ends or joins
+        // the queue; the progress itself lives in the transfer dock.
+        const key = [snap.current, ...snap.queued].filter(Boolean).map(j => `${j.id}${j.state[0]}`).join(',');
+        if (key !== lastJobsKey) {
+          lastJobsKey = key;
           renderLibrary(false);
         }
       }
     }
     pollJobsIfActive();
+  }
+
+  // --- Transfer dock: downloads in progress, wherever the reader is ---
+  // A floating card at the bottom right of the reading panel (`#transfer-dock`, outside the
+  // routed view so navigation never unmounts it). It shows the running job's pipeline step,
+  // a progress bar, speed and time left while the text streams, and what's queued after it;
+  // Cancel stops the running job (not once it's installing), Clear queue drops the rest. It
+  // minimizes to a pill (`localStorage` `dockMinimized`) and hides when nothing is active.
+  // Structure is rebuilt only when its shape changes; progress ticks patch text and widths
+  // in place, so the bar animates and keyboard focus stays on its button.
+  const DOCK_STEPS = [
+    ['Checking eCFR', 'Connecting to eCFR'],
+    ['Downloading contents', 'Reading the table of contents'],
+    ['Downloading text', 'Streaming the regulation text'],
+    ['Reading text', 'Extracting sections and appendices'],
+    ['Indexing', 'Building the search index'],
+    ['Installing', 'Swapping in the new edition'],
+  ];
+  const dock = { el: document.getElementById('transfer-dock'), min: lsGet('dockMinimized') === '1', key: '', hideT: null, srText: '' };
+  const rate = { id: null, t: 0, done: 0, bps: 0 };
+
+  // Bytes per second from successive polls of the streaming step, smoothed (EMA) so the
+  // figure doesn't jitter; reset whenever the job or step changes.
+  function recordJobProgress(j) {
+    const streaming = j && j.phase === 'Downloading text' && j.done > 0 && (j.total == null || j.total > 100000);
+    if (!streaming || j.id !== rate.id) {
+      Object.assign(rate, { id: streaming ? j.id : null, t: streaming ? performance.now() : 0, done: streaming ? j.done : 0, bps: 0 });
+      return;
+    }
+    const now = performance.now();
+    const dt = (now - rate.t) / 1000;
+    if (dt < 0.5) return;
+    const delta = j.done - rate.done;
+    if (delta > 0) rate.bps = rate.bps ? rate.bps * 0.7 + (delta / dt) * 0.3 : delta / dt;
+    rate.t = now;
+    rate.done = j.done;
+  }
+
+  function fmtEta(seconds) {
+    if (!isFinite(seconds) || seconds <= 0) return '';
+    if (seconds < 60) return `${Math.ceil(seconds)}s left`;
+    const m = Math.floor(seconds / 60);
+    return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m}m ${Math.round(seconds % 60)}s left`;
+  }
+
+  // What the dock shows for a job: step index, descriptor, percent (null = indeterminate)
+  // and the two telemetry strings under the bar.
+  function dockModel(j) {
+    if (!j) return { step: -1, label: 'Starting…', pct: null, left: '', right: '' };
+    const step = DOCK_STEPS.findIndex(([phase]) => phase === j.phase);
+    const label = step >= 0 ? DOCK_STEPS[step][1] : j.phase === 'Waiting' ? 'Starting…' : j.phase;
+    const has = j.total != null && j.total > 0 && j.done != null;
+    const pct = has ? Math.min(99, Math.floor((j.done / j.total) * 100)) : null;
+    let left = '', right = '';
+    if (j.phase === 'Downloading text' && (j.total == null || j.total > 100000) && j.done) {
+      left = j.total ? `${fmtBytes(Math.min(j.done, j.total))} of ${fmtBytes(j.total)}` : fmtBytes(j.done);
+      const speed = rate.id === j.id && rate.bps > 51200 ? `${fmtBytes(rate.bps)}/s` : '';
+      const eta = speed && j.total ? fmtEta((j.total - j.done) / rate.bps) : '';
+      right = [speed, eta].filter(Boolean).join(' · ');
+    } else if (j.phase === 'Downloading text' && has) {
+      left = `${fmt(j.done)} of ${plural(j.total, 'file')}`;
+    } else if ((j.phase === 'Reading text' || j.phase === 'Indexing') && has) {
+      left = `${fmt(j.done)} of ${fmtSections(j.total)}`;
+    }
+    return { step, label, pct, left, right };
+  }
+
+  function dockHtml(j, m) {
+    const pctText = m.pct == null ? '' : `${m.pct}%`;
+    const title = j ? escapeHtml(j.label) : 'Preparing download';
+    if (dock.min) {
+      return `<button type="button" class="dock-mini" data-dock="expand" aria-label="Show download progress: ${title}">
+        <span class="stat-dot is-busy" aria-hidden="true"></span><span class="dock-mini-text">${title}</span>
+        <span class="dock-mini-pct" data-f="pct">${pctText}</span>${icon('chevronUp')}</button>`;
+    }
+    const cancelling = j && j.cancelling;
+    const locked = j && j.phase === 'Installing';
+    const steps = DOCK_STEPS.map((_, i) => `<span class="${i < m.step ? 'is-done' : i === m.step ? 'is-now' : ''}"></span>`).join('');
+    const queued = jobs.queued;
+    return `<section class="dock-card" aria-label="Downloads">
+      <div class="dock-head">
+        <span class="stat-dot is-busy" aria-hidden="true"></span>
+        <span class="dock-title">${title}</span>
+        <span class="dock-pct" data-f="pct">${pctText}</span>
+        <button type="button" class="dock-icon" data-dock="minimize" title="Minimize" aria-label="Minimize downloads">${icon('chevronDown')}</button>
+      </div>
+      <div class="dock-phase">
+        <span class="dock-phase-text">${escapeHtml(cancelling ? 'Cancelling…' : m.label)}</span>
+        ${m.step >= 0 ? `<span class="dock-steps" role="img" aria-label="Step ${m.step + 1} of ${DOCK_STEPS.length}">${steps}</span>` : ''}
+      </div>
+      <div class="dock-track"><span class="dock-fill${m.pct == null ? ' is-indeterminate' : ''}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+      <div class="dock-foot">
+        <span class="dock-queue">${queued.length ? `<span class="dock-queue-count">+${queued.length} queued</span>${escapeHtml(queued.map(q => q.label).join(', '))}` : 'Nothing queued'}</span>
+        <span class="dock-acts">
+          ${queued.length ? '<button type="button" class="lib-act" data-dock="clear">Clear queue</button>' : ''}
+          ${j ? `<button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${cancelling || locked ? ' disabled' : ''}${locked ? ' title="Installing: almost done"' : ''}>${cancelling ? 'Cancelling' : 'Cancel'}</button>` : ''}
+        </span>
+      </div>
+    </section>`;
+  }
+
+  function updateDock() {
+    const el = dock.el;
+    if (!el) return;
+    const j = jobs.current;
+    const active = Boolean(j || jobs.queued.length);
+    if (!active) {
+      if (!el.hidden && !dock.hideT) {
+        el.classList.remove('is-visible');
+        dock.hideT = setTimeout(() => {
+          dock.hideT = null;
+          if (!jobs.current && !jobs.queued.length) { el.hidden = true; el.innerHTML = ''; dock.key = ''; }
+        }, 260);
+      }
+      return;
+    }
+    clearTimeout(dock.hideT);
+    dock.hideT = null;
+    recordJobProgress(j);
+    const m = dockModel(j);
+    const key = [dock.min, j && j.id, j && j.cancelling, j && j.phase === 'Installing', m.step, m.pct == null, jobs.queued.map(q => q.id).join('.')].join('|');
+    if (key !== dock.key) {
+      const focused = el.contains(document.activeElement) ? document.activeElement.dataset.dock : null;
+      el.innerHTML = dockHtml(j, m);
+      dock.key = key;
+      if (focused) (el.querySelector(`[data-dock="${focused}"]`) || el.querySelector('[data-dock]'))?.focus();
+    } else {
+      const set = (f, v) => { const n = el.querySelector(`[data-f="${f}"]`); if (n && n.textContent !== v) n.textContent = v; };
+      set('pct', m.pct == null ? '' : `${m.pct}%`);
+      set('left', m.left);
+      set('right', m.right);
+      const fill = el.querySelector('[data-f="fill"]');
+      if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+    }
+    // Screen readers hear the job and its step, not every tick.
+    const sr = `${j ? j.label : 'Download'}: ${m.label}`;
+    if (sr !== dock.srText) {
+      dock.srText = sr;
+      const live = document.getElementById('transfer-dock-live');
+      if (live) live.textContent = sr;
+    }
+    if (el.hidden) {
+      el.hidden = false;
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('is-visible')));
+    } else el.classList.add('is-visible');
+    el.classList.toggle('is-min', dock.min);
+  }
+
+  if (dock.el) {
+    dock.el.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-dock]');
+      if (btn) onDockAction(btn);
+    });
+  }
+
+  // Dock buttons (also in the drawer's Library panel): minimize, expand, cancel, clear queue.
+  async function onDockAction(btn) {
+    {
+      const act = btn.dataset.dock;
+      if (act === 'minimize' || act === 'expand') {
+        dock.min = act === 'minimize';
+        lsSet('dockMinimized', dock.min ? '1' : '0');
+        dock.key = '';
+        updateDock();
+        dock.el.querySelector('[data-dock]')?.focus();
+        return;
+      }
+      btn.disabled = true;
+      try {
+        if (act === 'cancel') {
+          await getJSON(`/api/library/jobs/${btn.dataset.id}/cancel`, { method: 'POST' });
+        } else if (act === 'clear') {
+          const res = await getJSON('/api/library/jobs/clear', { method: 'POST' });
+          for (const j of res.cancelled || []) jobsSeenActive.delete(j.id);
+          if (res.count) showToast(`Cleared ${plural(res.count, 'queued download')}`);
+        }
+        await pollJobs();
+      } catch (err) {
+        showToast(err.message, 5000);
+        btn.disabled = false;
+      }
+    }
   }
 
   // Re-read the installed titles after a download or removal: the title switcher, the
@@ -858,6 +1416,7 @@
     try { list = await getJSON('/api/titles'); } catch (e) { return; }
     installedTitles = list;
     fillTitleSelect();
+    updateRailHome();
     if (!list.some(t => t.title === currentTitle) && list.length) {
       await switchTitle(list[0].title);
     } else if (changed.includes(currentTitle)) {
@@ -1085,6 +1644,8 @@
           ${fullPart}
           <a class="btn" href="${escapeHtml(data.ecfr_url)}" target="_blank" rel="noopener">${icon('external')} eCFR</a>
           <button class="btn" id="btn-copy-link">${icon('link')} Copy link</button>
+          ${pinButtonHtml()}
+          ${newsActivityButtonHtml()}
           <div class="spacer"></div>
           <div class="size-ctl" role="group" aria-label="Text size">
             <button id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
@@ -1124,6 +1685,9 @@
       selectTreeNode('s-' + data.id);
       // Stepping between clauses of one section is one visit, not many.
       if (!sameSection) recordSectionVisit(data);
+      // Not awaited: the activity button fills in after the text has painted, and the
+      // session cache means stepping clause to clause makes no extra requests.
+      fillNewsActivity('section', data.id, seq);
 
     } catch (err) {
       console.error(err);
@@ -1351,6 +1915,8 @@
     current = Math.max(13, Math.min(24, current + delta));
     lsSet('fontSize', String(current));
     document.documentElement.style.setProperty('--reader-size', current + 'px');
+    const range = document.getElementById('set-size');
+    if (range) { range.value = String(current); document.getElementById('set-size-val').textContent = `${current} px`; }
   }
 
   // --- Load Part Table of Contents ---
@@ -1421,6 +1987,7 @@
         <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
         <div class="doc-actions">
           <a class="btn" href="#/part/${encodeURIComponent(partId)}/full">${icon('list')} See full part</a>
+          ${newsActivityButtonHtml()}
         </div>
         ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ''}
         ${groupsHtml || '<p class="muted">No sections listed in this part.</p>'}
@@ -1429,6 +1996,7 @@
       enterView();
       selectTreeNode('p-' + partId);
       recordPartVisit(partId, partNode.d);
+      fillNewsActivity('part', partId, seq);
     } catch (err) {
       console.error(err);
       setViewHead('');
@@ -1553,6 +2121,256 @@
   }
 
   // --- Search Page ---
+  let searchState = null;
+
+  function renderResultRow(r, showTitleInPart) {
+    // The FTS snippet already carries its own ellipses; show exactly one at each cut end.
+    let snippet = (r.snippet || '').replace(/^[\s.…]+|[\s.…]+$/g, '');
+    snippet = escapeHtml(snippet).replace(/\x02/g, '<mark>').replace(/\x03/g, '</mark>');
+    const rTitle = r.title || currentTitle;
+    return `
+      <div class="result">
+        <a class="result-title" href="#/title/${rTitle}/section/${encodeURIComponent(r.id)}">
+          <span class="result-num">${escapeHtml(r.label)}</span>
+          <span class="result-name">${escapeHtml(r.title_label || r.title)}</span>
+          <span class="result-part">${showTitleInPart ? `Title ${rTitle} · ` : ''}Part ${escapeHtml(r.part || '')}</span>
+        </a>
+        ${snippet ? `<div class="result-snippet">…${snippet}…</div>` : ''}
+      </div>
+    `;
+  }
+
+  function renderSearchView() {
+    if (!searchState) return;
+    const { query, allTitles, data, view, filters, collapsed } = searchState;
+    const rawResults = data.results || [];
+    const total = Number(data.total || 0);
+
+    let scopeHtml = '';
+    if (installedTitles.length > 1) {
+      const qEnc = encodeURIComponent(query);
+      scopeHtml = `<span class="search-scope" role="group" aria-label="Search scope">
+        <a class="${allTitles ? '' : 'scope-on'}" href="#/search?q=${qEnc}"${allTitles ? '' : ' aria-current="true"'}>Title ${currentTitle}</a>
+        <a class="${allTitles ? 'scope-on' : ''}" href="#/search?q=${qEnc}&scope=all"${allTitles ? ' aria-current="true"' : ''}>All ${installedTitles.length} titles</a>
+      </span>`;
+    }
+
+    const viewToggleHtml = rawResults.length ? `<span class="search-view-toggle" role="group" aria-label="Results layout">
+      <button type="button" class="${view === 'compact' ? 'is-on' : ''}" data-sview="compact" aria-pressed="${view === 'compact'}">Compact</button>
+      <button type="button" class="${view === 'grouped' ? 'is-on' : ''}" data-sview="grouped" aria-pressed="${view === 'grouped'}">Grouped</button>
+    </span>` : '';
+
+    // Apply client-side filters in Grouped mode
+    const qText = filters.text.trim().toLowerCase();
+    const applyFilters = (list, { ignoreTitle = false, ignorePart = false } = {}) => list.filter(r => {
+      const rTitle = r.title || currentTitle;
+      if (!ignoreTitle && filters.title !== null && rTitle !== filters.title) return false;
+      if (!ignorePart && filters.part !== null && (r.part || '') !== filters.part) return false;
+      if (filters.kind !== 'all' && (r.kind || 'section') !== filters.kind) return false;
+      if (qText) {
+        const hay = `${r.label || ''} ${r.title_label || ''} ${r.part || ''} ${r.snippet || ''} title ${rTitle}`.toLowerCase();
+        if (!hay.includes(qText)) return false;
+      }
+      return true;
+    });
+
+    const filtered = view === 'grouped' ? applyFilters(rawResults) : rawResults;
+    const hasActiveFilter = view === 'grouped' && (filters.title !== null || filters.part !== null || filters.kind !== 'all' || qText !== '');
+
+    let filtersHtml = '';
+    let bodyHtml = '';
+
+    if (!rawResults.length) {
+      bodyHtml = `<div class="empty-state"><h2>No results</h2><p>Nothing in ${allTitles ? 'the installed titles' : 'Title ' + currentTitle} matches “${escapeHtml(query)}”. Try fewer or different words.</p></div>`;
+    } else if (view === 'compact') {
+      bodyHtml = `<div class="results-list">${rawResults.map(r => renderResultRow(r, allTitles)).join('')}</div>`;
+    } else {
+      // Build filter facets ordered by count descending
+      const titleCounts = new Map();
+      for (const r of applyFilters(rawResults, { ignoreTitle: true, ignorePart: true })) {
+        const t = r.title || currentTitle;
+        titleCounts.set(t, (titleCounts.get(t) || 0) + 1);
+      }
+      const sortedTitleFacets = [...titleCounts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+
+      const partCounts = new Map();
+      for (const r of applyFilters(rawResults, { ignorePart: true })) {
+        const p = r.part || '';
+        if (p) partCounts.set(p, (partCounts.get(p) || 0) + 1);
+      }
+      const sortedPartFacets = [...partCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], undefined, { numeric: true }));
+
+      const hasAppendices = rawResults.some(r => r.kind === 'appendix');
+
+      const titlePills = sortedTitleFacets.length > 1 ? `
+        <div class="search-filter-row">
+          <span class="search-filter-label">Titles</span>
+          <div class="search-filter-pills">
+            <button type="button" class="sf-pill${filters.title === null ? ' is-active' : ''}" data-ftitle="">All <span class="sf-pill-count">${rawResults.length}</span></button>
+            ${sortedTitleFacets.map(([t, c]) => `<button type="button" class="sf-pill${filters.title === t ? ' is-active' : ''}" data-ftitle="${t}">Title ${t} <span class="sf-pill-count">${c}</span></button>`).join('')}
+          </div>
+        </div>` : '';
+
+      const partPills = sortedPartFacets.length > 1 ? `
+        <div class="search-filter-row">
+          <span class="search-filter-label">Parts</span>
+          <div class="search-filter-pills">
+            <button type="button" class="sf-pill${filters.part === null ? ' is-active' : ''}" data-fpart="">All</button>
+            ${sortedPartFacets.slice(0, 14).map(([p, c]) => `<button type="button" class="sf-pill${filters.part === p ? ' is-active' : ''}" data-fpart="${escapeHtml(p)}">Part ${escapeHtml(p)} <span class="sf-pill-count">${c}</span></button>`).join('')}
+          </div>
+        </div>` : '';
+
+      const kindPills = hasAppendices ? `
+        <div class="search-filter-pills">
+          <button type="button" class="sf-pill${filters.kind === 'all' ? ' is-active' : ''}" data-fkind="all">All types</button>
+          <button type="button" class="sf-pill${filters.kind === 'section' ? ' is-active' : ''}" data-fkind="section">Sections</button>
+          <button type="button" class="sf-pill${filters.kind === 'appendix' ? ' is-active' : ''}" data-fkind="appendix">Appendices</button>
+        </div>` : '';
+
+      filtersHtml = `
+        <div class="search-filters" role="region" aria-label="Filter search results">
+          <div class="search-filter-row">
+            <input type="search" id="sf-text" class="search-filter-input" value="${escapeHtml(filters.text)}" placeholder="Filter these results by section, part, or phrase…" autocomplete="off" spellcheck="false">
+            ${kindPills}
+            ${hasActiveFilter ? '<button type="button" class="sf-clear" id="sf-clear">Clear filters</button>' : ''}
+          </div>
+          ${titlePills}
+          ${partPills}
+        </div>
+      `;
+
+      if (!filtered.length) {
+        bodyHtml = `<div class="empty-state"><h2>No matching results</h2><p>None of the loaded results match your current filters.</p></div>`;
+      } else {
+        // Group by Title (ordered by results per title descending) -> Part (ordered by results per part descending)
+        const byTitle = new Map();
+        for (const r of filtered) {
+          const t = r.title || currentTitle;
+          if (!byTitle.has(t)) byTitle.set(t, []);
+          byTitle.get(t).push(r);
+        }
+        const sortedTitles = [...byTitle.entries()].sort((a, b) => b[1].length - a[1].length || a[0] - b[0]);
+
+        bodyHtml = `<div class="search-groups">${sortedTitles.map(([t, tItems]) => {
+          const tMeta = installedTitles.find(x => x.title === t);
+          const tLabel = tMeta ? `Title ${t} — ${tMeta.name}` : `Title ${t}`;
+          const isCollapsed = collapsed.has(t);
+
+          const byPart = new Map();
+          for (const r of tItems) {
+            const p = r.part || '';
+            if (!byPart.has(p)) byPart.set(p, []);
+            byPart.get(p).push(r);
+          }
+          const sortedParts = [...byPart.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], undefined, { numeric: true }));
+
+          const partsHtml = sortedParts.map(([p, pItems]) => `
+            <div class="search-part-group">
+              ${p ? `<div class="search-part-head">
+                <a class="search-part-link" href="#/title/${t}/part/${encodeURIComponent(p)}">Part ${escapeHtml(p)}</a>
+                <span class="search-part-count">${pItems.length} ${pItems.length === 1 ? 'result' : 'results'}</span>
+              </div>` : ''}
+              ${pItems.map(r => renderResultRow(r, false)).join('')}
+            </div>
+          `).join('');
+
+          return `
+            <section class="search-title-group${isCollapsed ? ' is-collapsed' : ''}" data-tgroup="${t}">
+              <button type="button" class="search-title-head" aria-expanded="${!isCollapsed}">
+                <span class="search-title-caret" aria-hidden="true">${icon('chevronDown')}</span>
+                <span class="search-title-name">${escapeHtml(tLabel)}</span>
+                <span class="search-title-count">${tItems.length} ${tItems.length === 1 ? 'result' : 'results'}</span>
+              </button>
+              <div class="search-title-body">${partsHtml}</div>
+            </section>
+          `;
+        }).join('')}</div>`;
+      }
+    }
+
+    const countText = hasActiveFilter
+      ? `${filtered.length.toLocaleString()} of ${rawResults.length.toLocaleString()} shown (${total.toLocaleString()} total)`
+      : `${total.toLocaleString()} ${total === 1 ? 'result' : 'results'}`;
+
+    const wasFilterFocused = document.activeElement?.id === 'sf-text';
+    const selStart = wasFilterFocused ? document.activeElement.selectionStart : null;
+
+    dom.view.innerHTML = `
+      <div class="doc-kicker">Search</div>
+      <h1 class="doc-title">${escapeHtml(query)}</h1>
+      <div class="search-meta">
+        <span>${countText} · ${data.ms} ms</span>
+        <div class="search-controls">${viewToggleHtml}${scopeHtml}</div>
+      </div>
+      ${filtersHtml}
+      ${bodyHtml}
+    `;
+
+    // Wire interactions
+    dom.view.querySelectorAll('[data-sview]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = btn.dataset.sview;
+        if (next === searchState.view) return;
+        searchState.view = next;
+        lsSet('searchView', next);
+        renderSearchView();
+      });
+    });
+
+    const sfInput = document.getElementById('sf-text');
+    if (sfInput) {
+      if (wasFilterFocused) {
+        sfInput.focus();
+        if (selStart !== null) sfInput.setSelectionRange(selStart, selStart);
+      }
+      sfInput.addEventListener('input', () => {
+        searchState.filters.text = sfInput.value;
+        renderSearchView();
+      });
+    }
+
+    dom.view.querySelectorAll('[data-ftitle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = btn.dataset.ftitle === '' ? null : Number(btn.dataset.ftitle);
+        searchState.filters.title = searchState.filters.title === val ? null : val;
+        searchState.filters.part = null;
+        renderSearchView();
+      });
+    });
+
+    dom.view.querySelectorAll('[data-fpart]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = btn.dataset.fpart === '' ? null : btn.dataset.fpart;
+        searchState.filters.part = searchState.filters.part === val ? null : val;
+        renderSearchView();
+      });
+    });
+
+    dom.view.querySelectorAll('[data-fkind]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        searchState.filters.kind = btn.dataset.fkind;
+        renderSearchView();
+      });
+    });
+
+    const sfClear = document.getElementById('sf-clear');
+    if (sfClear) {
+      sfClear.addEventListener('click', () => {
+        searchState.filters = { title: null, part: null, kind: 'all', text: '' };
+        renderSearchView();
+      });
+    }
+
+    dom.view.querySelectorAll('.search-title-head').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const t = Number(btn.closest('.search-title-group').dataset.tgroup);
+        if (searchState.collapsed.has(t)) searchState.collapsed.delete(t);
+        else searchState.collapsed.add(t);
+        renderSearchView();
+      });
+    });
+  }
+
   async function loadSearchPage(query, scope) {
     currentSection = null;
     currentPart = null;
@@ -1562,6 +2380,7 @@
     setViewHead('');
 
     if (!query.trim()) {
+      searchState = null;
       dom.view.innerHTML = '<div class="empty-state"><h2>Search</h2><p>Type a word, phrase or section number in the search box above.</p></div>';
       return;
     }
@@ -1570,52 +2389,23 @@
     dom.view.innerHTML = `<div class="loading">Searching for “${escapeHtml(query)}”…</div>`;
     try {
       const url = allTitles
-        ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=50`
-        : `/api/${currentTitle}/search?q=${encodeURIComponent(query)}&limit=50`;
+        ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=100`
+        : `/api/${currentTitle}/search?q=${encodeURIComponent(query)}&limit=100`;
       const seq = routeSeq;
       const res = await fetch(url);
       const data = await res.json();
       if (seq !== routeSeq) return;
 
-      let itemsHtml = '';
-      if (!data.results || data.results.length === 0) {
-        itemsHtml = `<div class="empty-state"><h2>No results</h2><p>Nothing in ${allTitles ? 'the installed titles' : 'Title ' + currentTitle} matches “${escapeHtml(query)}”. Try fewer or different words.</p></div>`;
-      } else {
-        itemsHtml = data.results.map(r => {
-          // The FTS snippet already carries its own ellipses; show exactly one at each cut end.
-          let snippet = (r.snippet || '').replace(/^[\s.…]+|[\s.…]+$/g, '');
-          snippet = escapeHtml(snippet).replace(/\x02/g, '<mark>').replace(/\x03/g, '</mark>');
-          const rTitle = r.title || currentTitle;
-          return `
-            <div class="result">
-              <a class="result-title" href="#/title/${rTitle}/section/${encodeURIComponent(r.id)}">
-                <span class="result-num">${escapeHtml(r.label)}</span>
-                <span class="result-name">${escapeHtml(r.title_label || r.title)}</span>
-                <span class="result-part">${allTitles ? `Title ${rTitle} · ` : ''}Part ${escapeHtml(r.part || '')}</span>
-              </a>
-              ${snippet ? `<div class="result-snippet">…${snippet}…</div>` : ''}
-            </div>
-          `;
-        }).join('');
-      }
-
-      // Scope toggle: only meaningful when more than one title is installed.
-      let scopeHtml = '';
-      if (installedTitles.length > 1) {
-        const qEnc = encodeURIComponent(query);
-        scopeHtml = `<span class="search-scope" role="group" aria-label="Search scope">
-          <a class="${allTitles ? '' : 'scope-on'}" href="#/search?q=${qEnc}"${allTitles ? '' : ' aria-current="true"'}>Title ${currentTitle}</a>
-          <a class="${allTitles ? 'scope-on' : ''}" href="#/search?q=${qEnc}&scope=all"${allTitles ? ' aria-current="true"' : ''}>All ${installedTitles.length} titles</a>
-        </span>`;
-      }
-
-      const total = Number(data.total || 0);
-      dom.view.innerHTML = `
-        <div class="doc-kicker">Search</div>
-        <h1 class="doc-title">${escapeHtml(query)}</h1>
-        <div class="search-meta"><span>${total.toLocaleString()} ${total === 1 ? 'result' : 'results'} · ${data.ms} ms</span>${scopeHtml}</div>
-        <div class="results-list">${itemsHtml}</div>
-      `;
+      const savedView = lsGet('searchView') === 'grouped' ? 'grouped' : 'compact';
+      searchState = {
+        query,
+        allTitles,
+        data,
+        view: savedView,
+        filters: { title: null, part: null, kind: 'all', text: '' },
+        collapsed: new Set(),
+      };
+      renderSearchView();
       enterView();
     } catch (err) {
       dom.view.innerHTML = `<div class="msg-error">Search failed: ${escapeHtml(err.message)}</div>`;
@@ -1642,6 +2432,13 @@
       dom.searchDropdown.hidden = true;
       return;
     }
+    if (q.startsWith('>')) {
+      // Commands: navigation, drawer panels, theme, projects and titles.
+      dom.searchDropdown.innerHTML = commandItemsHtml(q.slice(1));
+      dom.searchDropdown.hidden = false;
+      moveSdActive(1);
+      return;
+    }
     searchTimer = setTimeout(async () => {
       try {
         const res = await fetch(`/api/${currentTitle}/search?q=${encodeURIComponent(q)}&limit=6`);
@@ -1660,7 +2457,7 @@
               </a>
             `;
           }).join('');
-          dom.searchDropdown.innerHTML = items + `<div class="sd-footer"><kbd>Enter</kbd> All ${Number(data.total).toLocaleString()} results</div>`;
+          dom.searchDropdown.innerHTML = items + `<div class="sd-footer"><kbd>Enter</kbd> All ${Number(data.total).toLocaleString()} results<span class="sd-hint">Type <kbd>&gt;</kbd> for commands</span></div>`;
         }
         dom.searchDropdown.hidden = false;
       } catch (e) {
@@ -1674,6 +2471,11 @@
       e.preventDefault();
       const items = dom.searchDropdown.querySelectorAll('.sd-item');
       if (!dom.searchDropdown.hidden && sdActive >= 0 && items[sdActive]) {
+        const cmd = items[sdActive].dataset.cmd;
+        dom.searchDropdown.hidden = true;
+        dom.search.blur();
+        if (cmd || dom.search.value.trim().startsWith('>')) dom.search.value = '';
+        if (cmd) { runCommand(cmd); return; }
         window.location.hash = items[sdActive].getAttribute('href');
         dom.searchDropdown.hidden = true;
         dom.search.blur();
@@ -1681,7 +2483,7 @@
       }
       dom.searchDropdown.hidden = true;
       const q = dom.search.value.trim();
-      if (q) window.location.hash = `#/search?q=${encodeURIComponent(q)}`;
+      if (q && !q.startsWith('>')) window.location.hash = `#/search?q=${encodeURIComponent(q)}`;
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       if (!dom.searchDropdown.hidden) {
         e.preventDefault();
@@ -1690,6 +2492,14 @@
     } else if (e.key === 'Escape') {
       dom.searchDropdown.hidden = true;
     }
+  });
+
+  dom.searchDropdown.addEventListener('click', (e) => {
+    const item = e.target.closest('.sd-cmd');
+    if (!item) return;
+    dom.searchDropdown.hidden = true;
+    dom.search.value = '';
+    if (item.dataset.cmd) { e.preventDefault(); runCommand(item.dataset.cmd); }
   });
 
   document.addEventListener('click', (e) => {
@@ -1812,7 +2622,8 @@
     }
     dom.search.placeholder = `Search Title ${newTitle} or jump to a section…`;
     dom.chatText.placeholder = `Ask about this section, or anything in Title ${newTitle}…`;
-    dom.sidebar.setAttribute('aria-label', `Title ${newTitle} contents`);
+    updateRailHome();
+    applyNav();
     treePromise = null;
     treeData = null;
     treeIdx.nodes = [];
@@ -2401,7 +3212,7 @@
       return;
     }
     const link = e.target.closest('a');
-    if (link && link.getAttribute('href') === window.location.hash) document.body.classList.remove('nav-open');
+    if (link && link.getAttribute('href') === window.location.hash && isFly() && flyOpen()) closeDrawer();
   });
 
   const sideNavTabs = document.getElementById('side-nav-tabs');
@@ -2430,22 +3241,2185 @@
     }
   });
 
-  // --- Sidebar visibility & width (☰ toggles; drag the right edge to resize) ---
+  // --- Projects: dossiers of pinned sections (per browser, `localStorage` `framework_projects_v1`) ---
+  // A dossier: {id, name, description, tags[], created_at, updated_at, sections[]}, each
+  // section {title, id, label, heading, part, pinned_at, note}. Pin the open section with the
+  // Pin button or ⌘D; `#/projects` lists dossiers and `#/projects/{id}` is one dossier, edited
+  // in place (name, description, tags, a note per section). Export/Import moves them as JSON.
+  const PROJECTS_KEY = 'framework_projects_v1';
+  const PROJECT_HUES = ['--accent', '--ok', '--warn', '--partial', '--blue', '--danger'];
+  const validProject = (p) => p && typeof p.id === 'string' && typeof p.name === 'string' && Array.isArray(p.sections);
 
-  function setSidebarHidden(hidden) {
-    document.documentElement.classList.toggle('sidebar-hidden', hidden);
-    lsSet('sidebarHidden', hidden ? '1' : '0');
-    if (!hidden) requestAnimationFrame(() => revealCurrent(false));
+  function loadProjects() {
+    try {
+      const v = JSON.parse(lsGet(PROJECTS_KEY) || '[]');
+      return Array.isArray(v) ? v.filter(validProject) : [];
+    } catch (e) { return []; }
   }
 
+  // `quiet`: a page edit (typing a name or note) refreshes the drawer, not the page itself.
+  function saveProjects(list, { quiet = false } = {}) {
+    lsSet(PROJECTS_KEY, JSON.stringify(list));
+    if (navState.panel === 'projects' || navState.panel === 'history') renderPanel(navState.panel);
+    if (navState.panel === 'projects') drawerEl.meta.textContent = panelMeta('projects');
+    if (!quiet && routeTarget() === 'projects') renderProjects(projectRouteId());
+    updatePinButton();
+  }
+
+  const nowIso = () => new Date().toISOString();
+  function createProject(name, extra = {}) {
+    const list = loadProjects();
+    const p = {
+      id: `proj_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      name: (name || '').trim() || 'Untitled dossier', description: '', tags: [],
+      created_at: nowIso(), updated_at: nowIso(), sections: [], ...extra,
+    };
+    list.unshift(p);
+    saveProjects(list);
+    return p;
+  }
+
+  function updateProject(id, fn, opts) {
+    const list = loadProjects();
+    const p = list.find(x => x.id === id);
+    if (!p) return null;
+    fn(p);
+    p.updated_at = nowIso();
+    saveProjects(list, opts);
+    return p;
+  }
+
+  function projectHue(p) {
+    let h = 0;
+    for (const ch of p.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return PROJECT_HUES[h % PROJECT_HUES.length];
+  }
+  const projDot = (p) => `<span class="proj-dot" style="--hue: var(${projectHue(p)})" aria-hidden="true"></span>`;
+  const secKey = (title, id) => `${title}|${id}`;
+  const projectsWith = (title, id) => loadProjects().filter(p => p.sections.some(s => s.title === title && s.id === id));
+
+  function togglePin(projectId, sec) {
+    let pinned = false;
+    const p = updateProject(projectId, (proj) => {
+      const i = proj.sections.findIndex(s => s.title === sec.title && s.id === sec.id);
+      if (i >= 0) proj.sections.splice(i, 1);
+      else { proj.sections.push({ ...sec, pinned_at: nowIso(), note: '' }); pinned = true; }
+    });
+    if (p) showToast(pinned ? `Pinned ${sec.label} to ${p.name}` : `Removed ${sec.label} from ${p.name}`);
+    return pinned;
+  }
+
+  function currentSectionRef() {
+    if (!currentSection) return null;
+    return {
+      title: currentTitle, id: currentSection.id, label: currentSection.label || `§ ${currentSection.id}`,
+      heading: currentSection.section_title || currentSection.title_label || '', part: currentSection.part || '',
+    };
+  }
+
+  // --- Projects drawer panel ---
+  let newProjectOpen = false;
+  function showNewProjectForm() {
+    newProjectOpen = true;
+    if (!drawerShown() || navState.panel !== 'projects') openPanel('projects');
+    else renderProjectsPanel();
+    requestAnimationFrame(() => document.getElementById('dr-new-name')?.focus());
+  }
+
+  const projectRouteId = () => {
+    const m = /\/projects\/([^/?]+)/.exec(activeRoute || '');
+    return m ? decodeURIComponent(m[1]) : null;
+  };
+
+  function renderProjectsPanel() {
+    const list = loadProjects();
+    const current = projectRouteId();
+    const form = newProjectOpen ? `<form class="dr-new" id="dr-new-project">
+        <input class="dr-input" id="dr-new-name" name="name" placeholder="Dossier name" maxlength="80" autocomplete="off" aria-label="New dossier name">
+        <button type="submit" class="lib-act is-primary">Create</button></form>` : '';
+    const rows = list.map(p => `<a class="dr-proj${p.id === current ? ' is-current' : ''}" href="#/projects/${encodeURIComponent(p.id)}"${p.id === current ? ' aria-current="page"' : ''}>
+        ${projDot(p)}<span class="dr-proj-text"><span class="dr-name">${escapeHtml(p.name)}</span>
+        <span class="dr-proj-meta">${joinSep([plural(p.sections.length, 'section'), escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))])}</span></span></a>`).join('');
+    const mod = isMac ? '⌘' : 'Ctrl ';
+    setPanel('projects', `${form}
+      ${list.length ? `<section class="dr-sec">${drLabel('Dossiers', `<span class="dr-count">${list.length}</span>`)}${rows}</section>`
+        : drEmpty('No dossiers yet', `Group the sections you need for an audit, a permit or a review. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>.`)
+          + (newProjectOpen ? '' : '<button type="button" class="btn dr-empty-btn" data-nav-act="new-project">New dossier</button>')}
+      <div class="dr-foot">
+        <a class="dr-link" href="#/projects">All projects</a>
+        <span class="dr-foot-acts"><button type="button" class="dr-link" data-proj-act="export"${list.length ? '' : ' disabled'}>Export</button><button type="button" class="dr-link" data-proj-act="import">Import</button></span>
+      </div>`);
+  }
+
+  dom.sidebar.addEventListener('submit', (e) => {
+    if (e.target.id !== 'dr-new-project') return;
+    e.preventDefault();
+    const name = e.target.elements.name.value.trim();
+    if (!name) return;
+    newProjectOpen = false;
+    const p = createProject(name);
+    window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
+  });
+  dom.sidebar.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && e.target.id === 'dr-new-name') {
+      e.preventDefault();
+      newProjectOpen = false;
+      renderProjectsPanel();
+    }
+  });
+
+  // --- Export / import (JSON) ---
+  function downloadJson(name, data) {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  const exportProjects = (list, name = 'framework-projects.json') => downloadJson(name, { format: 'framework-projects', version: 1, exported_at: nowIso(), projects: list });
+
+  const importInput = document.getElementById('projects-import');
+  importInput.addEventListener('change', async () => {
+    const file = importInput.files && importInput.files[0];
+    importInput.value = '';
+    if (!file) return;
+    try {
+      const raw = JSON.parse(await file.text());
+      const incoming = (Array.isArray(raw) ? raw : raw.projects || []).filter(validProject);
+      if (!incoming.length) throw new Error('No dossiers in that file');
+      const list = loadProjects();
+      for (const p of incoming) {
+        const i = list.findIndex(x => x.id === p.id);
+        if (i < 0) list.push(p);
+        else if ((p.updated_at || '') >= (list[i].updated_at || '')) list[i] = p; // keep the newer copy
+      }
+      saveProjects(list);
+      showToast(`Imported ${plural(incoming.length, 'dossier')}`);
+    } catch (err) {
+      showToast(`Couldn’t import: ${err.message}`, 5000);
+    }
+  });
+
+  function onProjectAction(btn) {
+    const act = btn.dataset.projAct;
+    if (act === 'export') exportProjects(loadProjects());
+    else if (act === 'import') importInput.click();
+    else if (act === 'new') {
+      const p = createProject('Untitled dossier');
+      window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
+      requestAnimationFrame(() => setTimeout(() => { const n = dom.view.querySelector('.proj-name'); if (n) { n.focus(); n.select(); } }, 60));
+    } else if (act === 'export-one') {
+      const p = loadProjects().find(x => x.id === btn.dataset.id);
+      if (p) exportProjects([p], `${p.name.replace(/[^\w-]+/g, '-').toLowerCase() || 'dossier'}.json`);
+    } else if (act === 'delete' || act === 'unpin') {
+      if (!btn.classList.contains('is-armed')) {
+        const label = btn.textContent;
+        btn.classList.add('is-armed');
+        btn.textContent = act === 'delete' ? 'Delete dossier?' : 'Remove?';
+        clearTimeout(btn._t);
+        btn._t = setTimeout(() => { btn.classList.remove('is-armed'); btn.textContent = label; }, 4000);
+        return;
+      }
+      if (act === 'delete') {
+        const list = loadProjects().filter(x => x.id !== btn.dataset.id);
+        window.location.hash = '#/projects';
+        saveProjects(list);
+        showToast('Dossier deleted');
+      } else {
+        const [title, ...rest] = btn.dataset.sec.split('|');
+        updateProject(projectRouteId(), (p) => { p.sections = p.sections.filter(s => !(s.title === Number(title) && s.id === rest.join('|'))); });
+      }
+    }
+  }
+  dom.sidebar.addEventListener('click', (e) => { const b = e.target.closest('[data-proj-act]'); if (b) onProjectAction(b); });
+  dom.view.addEventListener('click', (e) => { const b = e.target.closest('[data-proj-act]'); if (b && dom.view.querySelector('.proj-page')) onProjectAction(b); });
+
+  // --- Pages: #/projects and #/projects/{id} ---
+  function titlesOf(p) {
+    const ts = [...new Set(p.sections.map(s => s.title))].sort((a, b) => a - b);
+    return ts.length ? `${ts.length === 1 ? 'Title' : 'Titles'} ${ts.join(', ')}` : '';
+  }
+
+  function renderProjects(id) {
+    currentSection = null;
+    currentPart = null;
+    clearTreeSelection();
+    updateChatContext();
+    setViewHead('');
+    const list = loadProjects();
+    const sections = list.reduce((a, p) => a + p.sections.length, 0);
+    const fresh = !dom.view.querySelector(`.proj-page[data-id="${id || ''}"]`);
+    if (!id) {
+      document.title = 'Projects · FRAMEWORK';
+      const cards = list.map(p => `<article class="lib-story proj-card">
+          <div class="story-top"><span class="story-kicker">${projDot(p)}Dossier${SEP}Updated ${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</span></div>
+          <h3 class="story-name"><a href="#/projects/${encodeURIComponent(p.id)}">${escapeHtml(p.name)}</a></h3>
+          ${p.description ? `<p class="story-dek">${escapeHtml(p.description)}</p>` : ''}
+          ${p.tags && p.tags.length ? `<div class="proj-tags">${p.tags.map(t => `<span class="proj-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+          <div class="story-foot"><span class="story-date">${joinSep([plural(p.sections.length, 'section'), escapeHtml(titlesOf(p))])}</span></div>
+        </article>`).join('');
+      const mod = isMac ? '⌘' : 'Ctrl ';
+      dom.view.innerHTML = `<div class="lib lib-front proj-page" data-id="">
+        <div class="doc-kicker"><a href="#/">Overview</a></div>
+        <div class="lib-head">
+          <div class="lib-head-text"><h1 class="doc-title">Projects</h1>
+            <p class="lib-sub">${joinSep(['Dossiers of pinned sections for an audit, a permit or a review', plural(list.length, 'dossier'), plural(sections, 'section')])}</p></div>
+          <button type="button" class="btn" data-proj-act="new">${icon('plus')} New dossier</button>
+        </div>
+        ${list.length ? `<div class="lib-desk"><header class="lib-desk-header"><h2 class="lib-desk-name">All dossiers</h2><span class="lib-desk-count">${plural(list.length, 'dossier')}</span></header>
+          <div class="lib-stories">${cards}</div></div>`
+          : `<div class="proj-empty"><div class="dr-empty-title">Start a dossier</div>
+              <p>Collect the sections an audit or a permit review turns on, with a note on each. Open any section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>, or start an empty dossier here.</p>
+              <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon('plus')} New dossier</button><button type="button" class="btn" data-proj-act="import">Import JSON</button></span></div>`}
+      </div>`;
+      if (fresh) enterView();
+      return;
+    }
+    const p = list.find(x => x.id === id);
+    if (!p) {
+      document.title = 'Projects · FRAMEWORK';
+      dom.view.innerHTML = `<div class="empty-state proj-page" data-id="${escapeHtml(id)}"><h2>No such dossier</h2><p>It may have been deleted, or it lives in another browser.</p><a class="btn" href="#/projects">All projects</a></div>`;
+      return;
+    }
+    document.title = `${p.name} · Projects · FRAMEWORK`;
+    const installed = new Set(installedTitles.map(t => t.title));
+    const items = p.sections.map(s => {
+      const href = `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
+      return `<article class="proj-item">
+        <div class="story-top"><span class="story-kicker">Title ${s.title}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ''}</span>
+          <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || '').slice(0, 10)))}</span></div>
+        <h3 class="story-name">${installed.has(s.title) ? `<a href="${href}">${escapeHtml(s.label || '§ ' + s.id)} ${escapeHtml(s.heading || '')}</a>`
+          : `${escapeHtml(s.label || '§ ' + s.id)} ${escapeHtml(s.heading || '')}`}</h3>
+        ${installed.has(s.title) ? '' : `<p class="proj-missing">Title ${s.title} isn’t installed. <a href="#/library/${s.title}">Download it</a> to read this section.</p>`}
+        <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || '')}</textarea>
+        <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
+      </article>`;
+    }).join('');
+    const mod = isMac ? '⌘' : 'Ctrl ';
+    dom.view.innerHTML = `<div class="lib proj-page proj-detail" data-id="${escapeHtml(p.id)}">
+      <div class="doc-kicker"><a href="#/projects">Projects</a></div>
+      <div class="proj-head">
+        <span class="proj-icon" style="--hue: var(${projectHue(p)})" aria-hidden="true">${icon('folder')}</span>
+        <input class="proj-name" value="${escapeHtml(p.name)}" maxlength="80" aria-label="Dossier name" spellcheck="false">
+        <span class="proj-head-acts">
+          <button type="button" class="lib-act" data-proj-act="export-one" data-id="${escapeHtml(p.id)}">Export</button>
+          <button type="button" class="lib-act is-danger" data-proj-act="delete" data-id="${escapeHtml(p.id)}">Delete</button>
+        </span>
+      </div>
+      <textarea class="proj-desc" rows="1" placeholder="Add a description…" aria-label="Description">${escapeHtml(p.description || '')}</textarea>
+      <dl class="proj-props">
+        <div><dt>Tags</dt><dd><input class="proj-tags-input" value="${escapeHtml((p.tags || []).join(', '))}" placeholder="Add tags, separated by commas" aria-label="Tags"></dd></div>
+        <div><dt>Sections</dt><dd>${joinSep([plural(p.sections.length, 'section'), escapeHtml(titlesOf(p))]) || '0 sections'}</dd></div>
+        <div><dt>Created</dt><dd>${escapeHtml(fmtDate((p.created_at || '').slice(0, 10)))}</dd></div>
+        <div><dt>Updated</dt><dd data-f="updated">${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</dd></div>
+      </dl>
+      <div class="lib-desk">
+        <header class="lib-desk-header"><h2 class="lib-desk-name">Pinned sections</h2><span class="lib-desk-count">${plural(p.sections.length, 'section')}</span></header>
+        ${items || `<div class="proj-empty is-inline"><p>Nothing pinned yet. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd> to add it here.</p></div>`}
+      </div>
+    </div>`;
+    for (const t of dom.view.querySelectorAll('.proj-desc, .proj-note')) autosize(t);
+    if (fresh) enterView();
+    if (navState.panel === 'projects') renderProjectsPanel();
+  }
+
+  function autosize(t) {
+    t.style.height = 'auto';
+    t.style.height = `${t.scrollHeight}px`;
+  }
+
+  // In-place edits save as you type (debounced) without re-rendering the page.
+  let projEditT = null;
+  dom.view.addEventListener('input', (e) => {
+    const page = e.target.closest('.proj-detail');
+    if (!page) return;
+    const id = page.dataset.id;
+    const t = e.target;
+    if (t.matches('textarea')) autosize(t);
+    clearTimeout(projEditT);
+    projEditT = setTimeout(() => {
+      updateProject(id, (p) => {
+        if (t.matches('.proj-name')) p.name = t.value.trim() || 'Untitled dossier';
+        else if (t.matches('.proj-desc')) p.description = t.value;
+        else if (t.matches('.proj-tags-input')) p.tags = t.value.split(',').map(x => x.trim()).filter(Boolean).slice(0, 12);
+        else if (t.matches('.proj-note')) {
+          const s = p.sections.find(x => secKey(x.title, x.id) === t.dataset.sec);
+          if (s) s.note = t.value;
+        }
+      }, { quiet: true });
+      const upd = page.querySelector('[data-f="updated"]');
+      if (upd) upd.textContent = 'just now';
+      if (t.matches('.proj-name')) document.title = `${t.value.trim() || 'Untitled dossier'} · Projects · FRAMEWORK`;
+    }, 300);
+  });
+  dom.view.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.matches('.proj-name, .proj-tags-input')) { e.preventDefault(); e.target.blur(); }
+  });
+
+  // --- News (#/news): OSHA rulemaking and enforcement from sanctioned APIs ---
+  //
+  // The page is a newsroom front: an optional breaking banner, a lead hero card, category
+  // tabs with counts, a filter box (FTS inside News only), enforcement facets, and cards
+  // whose three bullets are built server-side from the record's own fields. A
+  // stale-while-revalidate cache paints the default tab instantly; opening the page on
+  // stale data asks the server for a sync with POST /api/news/refresh {"force": false}
+  // (GETs never sync). Search and routing all live in the #/news hash query.
+
+  const NEWS_CATEGORIES = [
+    { key: 'all', label: 'All' },
+    { key: 'rules', label: 'Final Rules' },
+    { key: 'rulemaking', label: 'Proposed Rules' },
+    { key: 'enforcement', label: 'Enforcement & Penalties' },
+    { key: 'public_inspection', label: 'Public Inspection' },
+    { key: 'notices', label: 'Notices' },
+  ];
+  const NEWS_SOURCE_LABELS = {
+    federal_register: 'Federal Register',
+    federal_register_pi: 'Federal Register Public Inspection',
+    dol_osha: 'DOL enforcement data',
+  };
+  const US_STATE_NAMES = {
+    AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado',
+    CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia',
+    GU: 'Guam', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas',
+    KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan',
+    MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
+    NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York', NC: 'North Carolina',
+    ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', PR: 'Puerto Rico',
+    RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas',
+    UT: 'Utah', VT: 'Vermont', VA: 'Virginia', VI: 'Virgin Islands', WA: 'Washington',
+    WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+  };
+  const stateName = (code) => US_STATE_NAMES[(code || '').toUpperCase()] || code;
+
+  // "29 CFR 1910.1200(a)", "§ 1926.651" -> links. Bare numbers are left alone, and a bare
+  // § only links in OSHA's 1900-1999 range. Kept in step with news.extract_citations by
+  // tests/test_news_frontend.py (CITATION_CASES).
+  const NEWS_CITE_RE = /\b29\s*C\.?F\.?R\.?\s*(?:§§?\s*)?(\d{1,4}\.\d+)(?:\([a-z0-9]{1,4}\))*|§§?\s*(19\d{2}\.\d+)(?:\([a-z0-9]{1,4}\))*/gi;
+
+  function lsGetJSON(key) {
+    try { const v = lsGet(key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function lsSetJSON(key, value) {
+    lsSet(key, JSON.stringify(value));
+  }
+
+  const moneyFmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  function fmtMoney(n) { return moneyFmt.format(n); }
+
+  function safeHttpUrl(u) {
+    if (!u) return '';
+    try {
+      const p = new URL(u, window.location.href).protocol;
+      return p === 'http:' || p === 'https:' ? u : '';
+    } catch (e) { return ''; }
+  }
+  function extLink(url, html) {
+    const safe = safeHttpUrl(url);
+    return safe ? `<a target="_blank" rel="noopener" href="${escapeHtml(safe)}">${html}</a>` : html;
+  }
+
+  // Into the reader when the title is installed, otherwise to the library (what Projects
+  // does for sections of uninstalled titles).
+  function titleInstalled(t) { return installedTitles.some(x => x.title === t); }
+  function newsSectionHref(t, id) {
+    return titleInstalled(t) ? `#/title/${t}/section/${encodeURIComponent(id)}` : `#/library/${t}`;
+  }
+  function newsPartHref(t, part) {
+    return titleInstalled(t) ? `#/title/${t}/part/${encodeURIComponent(part)}` : `#/library/${t}`;
+  }
+
+  function linkifyNewsText(text) {
+    // Escaping first is safe: the pattern contains nothing that escapeHtml changes.
+    return escapeHtml(text || '').replace(NEWS_CITE_RE, (m, a, b) => {
+      const id = a || b;
+      return `<a class="citation-link" href="${newsSectionHref(29, id)}">${m}</a>`;
+    });
+  }
+  function newsSnippetHtml(snippet) {
+    return escapeHtml(snippet || '').replace(/\x02/g, '<mark>').replace(/\x03/g, '</mark>');
+  }
+
+  const newsState = { view: null, data: null, status: null, facets: null, watchToken: 0 };
+
+  function newsViewFromParams(params) {
+    const get = (k) => (params && params.get(k) || '').trim();
+    const cat = NEWS_CATEGORIES.some(c => c.key === get('cat')) ? get('cat') : 'all';
+    return {
+      cat,
+      q: get('q'),
+      section: get('section'),
+      part: get('part'),
+      state: /^[A-Za-z]{2}$/.test(get('state')) ? get('state').toUpperCase() : '',
+      min_penalty: /^\d+$/.test(get('min_penalty')) ? get('min_penalty') : '',
+      gravity: /^[WRS]$/.test(get('gravity')) ? get('gravity') : '',
+    };
+  }
+  function isDefaultNewsView(view) {
+    return !view.q && !view.section && !view.part && !view.state && !view.min_penalty && !view.gravity;
+  }
+  function newsHash(view) {
+    const p = new URLSearchParams();
+    if (view.cat && view.cat !== 'all') p.set('cat', view.cat);
+    for (const k of ['q', 'section', 'part', 'state', 'min_penalty', 'gravity']) {
+      if (view[k]) p.set(k, view[k]);
+    }
+    const qs = p.toString();
+    return '#/news' + (qs ? '?' + qs : '');
+  }
+  function newsApiUrl(view, offset = 0) {
+    const p = new URLSearchParams();
+    if (view.cat && view.cat !== 'all') p.set('category', view.cat);
+    for (const k of ['q', 'section', 'part', 'state', 'min_penalty', 'gravity']) {
+      if (view[k]) p.set(k, view[k]);
+    }
+    if (offset) p.set('offset', String(offset));
+    const qs = p.toString();
+    return '/api/news' + (qs ? '?' + qs : '');
+  }
+
+  // Tab changes get a history entry (location.hash); filters and typing rewrite in place.
+  function setNewsView(next, { replace = false } = {}) {
+    const hash = newsHash(next);
+    if (replace) {
+      history.replaceState(null, '', hash);
+      loadNews(new URLSearchParams(hash.split('?')[1] || ''));
+    } else {
+      window.location.hash = hash;
+    }
+  }
+
+  function trimNewsForCache(data) {
+    return { articles: (data.articles || []).slice(0, 30), total: data.total, offset: 0 };
+  }
+  function newsChanged(oldData, newData, oldStatus, newStatus) {
+    const guids = (d) => (d && d.articles || []).map(a => a.guid).join('|');
+    const oks = (s) => s && s.sources ? Object.values(s.sources).map(x => x.last_ok_at || '').join('|') : '';
+    return guids(oldData) !== guids(newData) || oks(oldStatus) !== oks(newStatus);
+  }
+
+  // Repaint without jumping the page under the reader: keep the first visible card where it was.
+  function preservingNewsScroll(fn) {
+    const mainRect = dom.main.getBoundingClientRect();
+    let anchor = null, offset = 0;
+    for (const el of dom.view.querySelectorAll('[data-guid]')) {
+      const r = el.getBoundingClientRect();
+      if (r.bottom > mainRect.top + 8) { anchor = el.dataset.guid; offset = r.top - mainRect.top; break; }
+    }
+    const top = dom.main.scrollTop;
+    fn();
+    if (anchor) {
+      const el = dom.view.querySelector(`[data-guid="${CSS.escape(anchor)}"]`);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        dom.main.scrollTop += (r.top - dom.main.getBoundingClientRect().top) - offset;
+        return;
+      }
+    }
+    dom.main.scrollTop = top;
+  }
+
+  async function loadNews(params) {
+    const seq = routeSeq;
+    currentSection = null;
+    currentPart = null;
+    clearTreeSelection();
+    updateChatContext();
+    setViewHead('');
+    document.title = 'News · FRAMEWORK';
+    const view = newsViewFromParams(params);
+    const firstPaint = !dom.view.querySelector('.news-front');
+    const cacheable = isDefaultNewsView(view);
+    const cached = cacheable ? lsGetJSON(`newsCache:v1:${view.cat}`) : null;
+    const cachedStatus = lsGetJSON('newsCache:v1:status');
+    if (cached && cached.data && cachedStatus && cachedStatus.data) {
+      renderNews(view, cached.data, cachedStatus.data, { enter: firstPaint, fromCache: true });
+    } else {
+      dom.view.innerHTML = '<div class="loading">Loading news…</div>';
+      if (firstPaint) enterView();
+    }
+
+    let data, status;
+    try {
+      const wantFacets = view.cat === 'enforcement';
+      [data, status] = await Promise.all([getJSON(newsApiUrl(view)), getJSON('/api/news/status')]);
+      if (wantFacets && status.dol_configured && !newsState.facets) {
+        newsState.facets = await getJSON('/api/news/facets');
+      }
+    } catch (e) {
+      if (seq !== routeSeq) return;
+      if (cached && cached.data) markNewsOffline(cached.t);
+      else {
+        dom.view.innerHTML = `
+          <div class="news-front"><div class="news-head"><div>
+            <div class="doc-kicker">FRAMEWORK Newsroom</div><h1 class="doc-title">OSHA Regulatory News</h1>
+          </div></div>
+          <div class="empty-state"><h2>Couldn’t reach the news service</h2>
+          <p>${escapeHtml(e.message)}</p>
+          <button type="button" class="btn" data-news-act="reload">Try again</button></div></div>`;
+        showToast('Could not reach the news service');
+      }
+      return;
+    }
+    if (seq !== routeSeq) return;
+    if (cacheable) {
+      lsSetJSON(`newsCache:v1:${view.cat}`, { t: Date.now(), data: trimNewsForCache(data) });
+      lsSetJSON('newsCache:v1:status', { t: Date.now(), data: status });
+    }
+    if (!cached || !cached.data || !cachedStatus || !cachedStatus.data
+        || newsChanged(cached.data, data, cachedStatus.data, status)) {
+      preservingNewsScroll(() => renderNews(view, data, status, { enter: firstPaint && !(cached && cached.data) }));
+    } else {
+      newsState.view = view; newsState.data = data; newsState.status = status;
+    }
+
+    // Refresh-on-open: only this POST can start a sync, and only for due sources.
+    let watch = status.syncing;
+    if (status.sync_enabled && status.due && !status.syncing) {
+      try {
+        const r = await getJSON('/api/news/refresh', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: false }),
+        });
+        watch = (r.queued || []).length > 0;
+      } catch (e) {
+        // getJSON's errors carry no status code. A 409 means a sync started meanwhile.
+        try { watch = (await getJSON('/api/news/status')).syncing; } catch (e2) { watch = false; }
+      }
+      if (seq !== routeSeq) return;
+    }
+    if (watch) watchNewsSync(seq, view);
+  }
+
+  function markNewsOffline(cachedAt) {
+    const slot = document.getElementById('news-head-status');
+    if (slot) slot.innerHTML = statPill('stale', `Offline · showing saved news from ${fmtDate(new Date(cachedAt).toISOString().slice(0, 10))}`);
+  }
+
+  function watchNewsSync(seq, view) {
+    const token = ++newsState.watchToken;
+    const started = Date.now();
+    const slot = document.getElementById('news-head-status');
+    if (slot) slot.innerHTML = statPill('busy', 'Checking for news…');
+    const tick = async () => {
+      if (seq !== routeSeq || token !== newsState.watchToken || Date.now() - started > 120000) return;
+      let status;
+      try { status = await getJSON('/api/news/status'); } catch (e) { return; }
+      if (seq !== routeSeq || token !== newsState.watchToken) return;
+      if (status.syncing) { setTimeout(tick, 3000); return; }
+      let data;
+      try { data = await getJSON(newsApiUrl(view)); } catch (e) { return; }
+      if (seq !== routeSeq || token !== newsState.watchToken) return;
+      if (isDefaultNewsView(view)) {
+        lsSetJSON(`newsCache:v1:${view.cat}`, { t: Date.now(), data: trimNewsForCache(data) });
+        lsSetJSON('newsCache:v1:status', { t: Date.now(), data: status });
+      }
+      if (newsChanged(newsState.data, data, newsState.status, status)) {
+        preservingNewsScroll(() => renderNews(view, data, status, {}));
+      } else {
+        newsState.status = status;
+        const s = document.getElementById('news-head-status');
+        if (s) s.innerHTML = newsHeadStatusHtml(status);
+      }
+    };
+    setTimeout(tick, 3000);
+  }
+
+  async function refreshNewsCommand() {
+    try {
+      await getJSON('/api/news/refresh', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true }),
+      });
+      showToast('Checking for news…');
+      if (routeTarget() === 'news' && newsState.view) watchNewsSync(routeSeq, newsState.view);
+    } catch (err) {
+      const m = String(err.message || '');
+      showToast(/already running/i.test(m) ? 'Already checking for news'
+        : /sync is off/i.test(m) ? 'News sync is off' : m);
+    }
+  }
+
+  // --- Newsroom rendering ---
+
+  function newsHeadStatusHtml(status) {
+    if (!status) return '';
+    if (!status.sync_enabled) return statPill('stale', 'News sync is off');
+    if (status.syncing) return statPill('busy', 'Checking for news…');
+    const enabled = Object.values(status.sources || {}).filter(s => s.enabled);
+    const lastOk = enabled.map(s => s.last_ok_at).filter(Boolean).sort().pop();
+    const failed = enabled.find(s => s.last_error);
+    if (failed && lastOk) {
+      return statPill('stale', `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`)
+        + ` <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
+    }
+    const updated = lastOk ? statPill('synced', `Updated ${timeAgo(Date.parse(lastOk))}`) : '';
+    return `${updated} <button type="button" class="btn btn-sm" data-news-act="refresh">Refresh</button>`;
+  }
+
+  function newsBreakingHtml(articles) {
+    const today = Date.now();
+    const daysAgo = (iso) => (today - Date.parse(iso + 'T00:00:00')) / 86400000;
+    const pi = articles.find(a => a.category === 'public_inspection' && daysAgo(a.published_at) <= 3);
+    const fine = articles.find(a => a.category === 'enforcement' && (a.penalty_usd || 0) >= 50000
+      && daysAgo(a.published_at) <= 14);
+    const hit = pi || fine;
+    if (!hit) return '';
+    const tag = pi ? 'Public inspection' : 'Enforcement';
+    const href = pi ? safeHttpUrl(hit.link) : '#/news?cat=enforcement';
+    const ext = pi && href ? ' target="_blank" rel="noopener"' : '';
+    if (!href) return '';
+    return `<a class="news-breaking" href="${escapeHtml(href)}"${ext}>
+      <span class="news-breaking-tag">${icon('activity')} ${escapeHtml(tag.toUpperCase())} · ${escapeHtml(fmtDate(hit.published_at))}</span>
+      <span class="news-breaking-text">${escapeHtml(hit.title)}</span>${icon('chevronRight')}</a>`;
+  }
+
+  function newsKicker(a) {
+    if (a.category === 'enforcement') return ['ENFORCEMENT', a.state].filter(Boolean).join(' · ');
+    if (a.category === 'public_inspection') {
+      return ['PUBLIC INSPECTION', (a.doc_type || '').toUpperCase()].filter(Boolean).join(' · ');
+    }
+    const label = a.category === 'rules' ? 'FINAL RULE' : a.category === 'rulemaking' ? 'PROPOSED RULE' : 'NOTICE';
+    return [label, a.citation].filter(Boolean).join(' · ');
+  }
+
+  function newsBylineHtml(a) {
+    return `<div class="news-byline">${escapeHtml(fmtDate(a.published_at))}<span class="sep" aria-hidden="true">·</span>${escapeHtml(NEWS_SOURCE_LABELS[a.source] || a.source)}</div>`;
+  }
+
+  function newsChipsHtml(a) {
+    const chips = [];
+    for (const r of a.cfr_parts || []) {
+      const href = newsPartHref(r.title, r.part);
+      const dim = !titleInstalled(r.title);
+      chips.push(`<a class="citation-chip${dim ? ' is-dim' : ''}" href="${href}"${dim ? ` title="Title ${r.title} isn’t installed. Open the library"` : ''}>${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
+    }
+    for (const s of a.sections || []) {
+      const dim = !titleInstalled(29);
+      chips.push(`<a class="citation-chip${dim ? ' is-dim' : ''}" href="${newsSectionHref(29, s)}"${dim ? ' title="Title 29 isn’t installed. Open the library"' : ''}>§ ${escapeHtml(s)}</a>`);
+    }
+    if (!chips.length) return '';
+    const extra = chips.length - 6;
+    const shown = extra > 0
+      ? chips.slice(0, 6).join('') + chips.slice(6).map(c => c.replace('citation-chip', 'citation-chip is-extra')).join('')
+        + `<button type="button" class="citation-chip news-chip-more" data-news-act="expand-chips">+${extra}</button>`
+      : chips.join('');
+    return `<div class="news-chips">${shown}</div>`;
+  }
+
+  function newsActionsHtml(a) {
+    const out = [];
+    const srcLabel = a.source === 'dol_osha' ? 'OSHA establishment search' : 'Federal Register';
+    const link = safeHttpUrl(a.link);
+    if (link) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(link)}">${icon('external')} ${srcLabel}</a>`);
+    const pdf = safeHttpUrl(a.pdf_url || '');
+    if (pdf) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(pdf)}">${icon('external')} PDF</a>`);
+    const sec = (a.sections || [])[0];
+    const partRef = (a.cfr_parts || [])[0];
+    if (sec) out.push(`<a class="btn btn-sm btn-accent" href="${newsSectionHref(29, sec)}">${icon('book')} Open § ${escapeHtml(sec)}</a>`);
+    else if (partRef) out.push(`<a class="btn btn-sm btn-accent" href="${newsPartHref(partRef.title, partRef.part)}">${icon('book')} Open Part ${escapeHtml(String(partRef.part))}</a>`);
+    return out.join('');
+  }
+
+  function newsCardHtml(a, { hero = false } = {}) {
+    const tag = hero ? 'section' : 'article';
+    // The penalty figure is plain tabular text, never a statPill (pills mean sync state).
+    const figure = a.penalty_usd ? `<span class="news-figure">${escapeHtml(fmtMoney(a.penalty_usd))}</span>` : '';
+    const rows = (a.takeaways || []).map((t, i) => {
+      const text = i === 0 && a.snippet ? newsSnippetHtml(a.snippet) : linkifyNewsText(t.text);
+      return `<dt>${escapeHtml(t.label)}</dt><dd>${text}</dd>`;
+    }).join('');
+    return `
+      <${tag} class="news-card${hero ? ' news-hero' : ''}" data-guid="${escapeHtml(a.guid)}" data-cat="${escapeHtml(a.category)}">
+        <div class="news-card-top"><span class="news-kicker">${escapeHtml(newsKicker(a))}</span>${figure}</div>
+        <h3 class="news-card-title">${extLink(a.link, escapeHtml(a.title))}</h3>
+        ${newsBylineHtml(a)}
+        ${rows ? `<dl class="news-takeaways">${rows}</dl>` : ''}
+        ${newsChipsHtml(a)}
+        <div class="news-card-foot">${newsActionsHtml(a)}</div>
+      </${tag}>`;
+  }
+
+  function newsTabsHtml(view, status) {
+    const counts = (status && status.counts) || {};
+    return `<div class="lib-seg news-tabs" role="tablist" aria-label="News categories">${NEWS_CATEGORIES.map(c => {
+      const on = view.cat === c.key;
+      const n = counts[c.key];
+      return `<button type="button" role="tab" aria-selected="${on}" tabindex="${on ? 0 : -1}" aria-pressed="${on}" data-news-cat="${c.key}">${escapeHtml(c.label)}${n ? ` <span class="news-tab-count">${n}</span>` : ''}</button>`;
+    }).join('')}</div>`;
+  }
+
+  function newsFilterChipsHtml(view) {
+    const chips = [];
+    const chip = (key, label) => chips.push(`<button type="button" class="news-filter-chip" data-news-act="clear-filter" data-filter-key="${key}" aria-label="Remove filter: ${escapeHtml(label)}">${escapeHtml(label)}<span aria-hidden="true"> ×</span></button>`);
+    if (view.section) chip('section', `Citing § ${view.section}`);
+    if (view.part) chip('part', `Citing Part ${view.part}`);
+    if (view.state) chip('state', stateName(view.state));
+    if (view.min_penalty) chip('min_penalty', `Over ${fmtMoney(Number(view.min_penalty))}`);
+    if (view.gravity) chip('gravity', { W: 'Willful', R: 'Repeat', S: 'Serious' }[view.gravity]);
+    return chips.length ? `<div class="news-filter-chips">${chips.join('')}</div>` : '';
+  }
+
+  function newsFacetsHtml(view, status) {
+    // Only on the Enforcement tab, and only with a DOL key: FR records have no state,
+    // penalty or gravity, so the facets would just confuse other tabs.
+    if (view.cat !== 'enforcement' || !status || !status.dol_configured) return '';
+    const states = (newsState.facets && newsState.facets.states) || [];
+    const sel = (v, cur) => v === cur ? ' selected' : '';
+    return `<div class="news-facets">
+      <select data-news-facet="state" aria-label="State">
+        <option value="">All states</option>
+        ${states.map(s => `<option value="${escapeHtml(s.code)}"${sel(s.code, view.state)}>${escapeHtml(stateName(s.code))} (${s.count})</option>`).join('')}
+      </select>
+      <select data-news-facet="min_penalty" aria-label="Minimum penalty">
+        <option value="">Any penalty</option>
+        ${[25000, 100000, 250000].map(v => `<option value="${v}"${sel(String(v), view.min_penalty)}>Over ${fmtMoney(v)}</option>`).join('')}
+      </select>
+      <select data-news-facet="gravity" aria-label="Violation gravity">
+        <option value="">Any gravity</option>
+        ${[['W', 'Willful'], ['R', 'Repeat'], ['S', 'Serious']].map(([v, l]) => `<option value="${v}"${sel(v, view.gravity)}>${l}</option>`).join('')}
+      </select>
+    </div>`;
+  }
+
+  function newsEmptyHtml(view, status) {
+    const s = status || {};
+    if (!s.sync_enabled && !(s.counts && s.counts.all)) {
+      return `<div class="empty-state"><h2>News sync is off</h2>
+        <p>Set <code>NEWS_SYNC=1</code> in <code>reader/.env</code> and restart FRAMEWORK.</p></div>`;
+    }
+    if (view.cat === 'enforcement' && !view.q && s && !s.dol_configured) {
+      return `<div class="news-setup">
+        <h3>Enforcement data needs a free DOL API key</h3>
+        <p>Register at <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a>,
+        then save <code>DOL_API_KEY</code> in <code>reader/.env</code> using the setup guide or in-app editor.
+        Federal Register news works without it.</p>
+        <div class="news-setup-actions">
+          <a class="btn btn-sm btn-accent" href="#/help">${icon('help')} Setup &amp; API Key Guide</a>
+          <button type="button" class="btn btn-sm" data-open-env="dol_api_key">${icon('key')} Enter DOL Key</button>
+        </div></div>`;
+    }
+    if (view.q) {
+      const tab = NEWS_CATEGORIES.find(c => c.key === view.cat) || NEWS_CATEGORIES[0];
+      const widen = view.cat !== 'all'
+        ? `<button type="button" class="btn" data-news-act="search-all">Search all news</button>` : '';
+      return `<div class="empty-state"><h2>No news matches “${escapeHtml(view.q)}” in ${escapeHtml(tab.label)}</h2>${widen}</div>`;
+    }
+    const enabled = Object.values(s.sources || {}).filter(x => x.enabled);
+    const neverSynced = enabled.every(x => !x.last_ok_at);
+    const failed = enabled.find(x => x.last_error);
+    if (neverSynced && failed) {
+      const retry = failed.retry_after ? `<p>Retrying ${escapeHtml(timeUntil(failed.retry_after))}.</p>` : '';
+      return `<div class="empty-state"><h2>Couldn’t fetch the news</h2>
+        <p>${escapeHtml(failed.last_error)}</p>${retry}
+        <button type="button" class="btn" data-news-act="refresh">Retry</button></div>`;
+    }
+    if (neverSynced) {
+      return `<div class="empty-state">${statPill('busy', 'Fetching from the Federal Register…')}
+        <p class="dr-note">The first sync takes a few seconds.</p></div>`;
+    }
+    return '<div class="empty-state"><h2>Nothing here yet</h2><p>No items in this view.</p></div>';
+  }
+
+  function renderNews(view, data, status, opts = {}) {
+    newsState.view = view;
+    newsState.data = data;
+    newsState.status = status;
+    const articles = data.articles || [];
+    // The lead hero: the newest Final Rule within 30 days on All, else the tab's newest.
+    let hero = null;
+    if (articles.length) {
+      const fresh = (a) => (Date.now() - Date.parse(a.published_at + 'T00:00:00')) / 86400000 <= 30;
+      hero = (view.cat === 'all' ? articles.find(a => a.category === 'rules' && fresh(a)) : null) || articles[0];
+    }
+    const feed = articles.filter(a => !hero || a.guid !== hero.guid);
+    const more = data.total > articles.length
+      ? `<div class="news-more"><button type="button" class="btn" data-news-act="more">Load more</button></div>` : '';
+
+    // Keep the reader's place in the filter box across re-renders.
+    const qEl = document.getElementById('news-q');
+    const qFocus = qEl && document.activeElement === qEl
+      ? { value: qEl.value, start: qEl.selectionStart, end: qEl.selectionEnd } : null;
+
+    dom.view.innerHTML = `
+      <div class="news-front">
+        <div class="news-head">
+          <div>
+            <div class="doc-kicker">FRAMEWORK Newsroom · OSHA</div>
+            <h1 class="doc-title">Regulatory News</h1>
+          </div>
+          <div class="news-head-status" id="news-head-status">${newsHeadStatusHtml(status)}</div>
+        </div>
+        ${newsBreakingHtml(articles)}
+        <div class="news-bar">
+          ${newsTabsHtml(view, status)}
+          <input type="search" class="news-q" id="news-q" value="${escapeHtml(view.q)}"
+            placeholder="Search news: keyword, company, § 1910.1030, 91 FR 55744" aria-label="Search news" autocomplete="off" spellcheck="false">
+        </div>
+        ${newsFilterChipsHtml(view)}
+        ${newsFacetsHtml(view, status)}
+        ${articles.length ? `
+          ${hero ? newsCardHtml(hero, { hero: true }) : ''}
+          <div class="news-grid" id="news-grid">${feed.map(a => newsCardHtml(a)).join('')}</div>
+          ${more}` : newsEmptyHtml(view, status)}
+      </div>`;
+    if (opts.enter) enterView();
+    if (qFocus) {
+      const q = document.getElementById('news-q');
+      if (q) {
+        q.value = qFocus.value;
+        q.focus();
+        try { q.setSelectionRange(qFocus.start, qFocus.end); } catch (e) { /* type=search quirks */ }
+      }
+    }
+  }
+
+  async function loadMoreNews() {
+    const seq = routeSeq;
+    const { view, data } = newsState;
+    if (!view || !data) return;
+    let page;
+    try { page = await getJSON(newsApiUrl(view, data.articles.length)); } catch (e) { return; }
+    if (seq !== routeSeq || newsState.data !== data) return;
+    data.articles = data.articles.concat(page.articles || []);
+    data.total = page.total;
+    const grid = document.getElementById('news-grid');
+    if (grid) {
+      const shown = new Set([...dom.view.querySelectorAll('[data-guid]')].map(el => el.dataset.guid));
+      grid.insertAdjacentHTML('beforeend',
+        (page.articles || []).filter(a => !shown.has(a.guid)).map(a => newsCardHtml(a)).join(''));
+    }
+    const moreBtn = dom.view.querySelector('[data-news-act="more"]');
+    if (moreBtn && data.articles.length >= data.total) moreBtn.closest('.news-more').remove();
+  }
+
+  // Delegated events for the whole newsroom (no inline handlers).
+  dom.view.addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-news-cat]');
+    if (tab && newsState.view) {
+      setNewsView({ ...newsState.view, cat: tab.dataset.newsCat });
+      return;
+    }
+    const act = e.target.closest('[data-news-act]');
+    if (!act) return;
+    const kind = act.dataset.newsAct;
+    if (kind === 'refresh') refreshNewsCommand();
+    else if (kind === 'reload') handleRoute();
+    else if (kind === 'more') loadMoreNews();
+    else if (kind === 'search-all') setNewsView({ ...newsState.view, cat: 'all' });
+    else if (kind === 'clear-filter') {
+      setNewsView({ ...newsState.view, [act.dataset.filterKey]: '' }, { replace: true });
+    } else if (kind === 'expand-chips') {
+      const row = act.closest('.news-chips');
+      if (row) { row.classList.add('is-expanded'); act.remove(); }
+    }
+  });
+  let newsQTimer = null;
+  dom.view.addEventListener('input', (e) => {
+    if (e.target.id !== 'news-q' || !newsState.view) return;
+    clearTimeout(newsQTimer);
+    const q = e.target.value.trim();
+    newsQTimer = setTimeout(() => {
+      if (newsState.view && q !== newsState.view.q) setNewsView({ ...newsState.view, q }, { replace: true });
+    }, 250);
+  });
+  dom.view.addEventListener('keydown', (e) => {
+    if (e.target.id === 'news-q' && e.key === 'Escape' && e.target.value) {
+      e.target.value = '';
+      if (newsState.view && newsState.view.q) setNewsView({ ...newsState.view, q: '' }, { replace: true });
+      return;
+    }
+    const tab = e.target.closest && e.target.closest('.news-tabs [role="tab"]');
+    if (!tab) return;
+    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+    const tabs = [...dom.view.querySelectorAll('.news-tabs [role="tab"]')];
+    const i = tabs.indexOf(tab);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1
+      : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next].focus();
+  });
+  dom.view.addEventListener('change', (e) => {
+    const facet = e.target.closest && e.target.closest('[data-news-facet]');
+    if (!facet || !newsState.view) return;
+    setNewsView({ ...newsState.view, [facet.dataset.newsFacet]: facet.value }, { replace: true });
+  });
+
+  // --- In-reader activity: "N rules & citations" next to Pin, with a timeline popover ---
+
+  const newsPop = document.getElementById('news-pop');
+  const newsActivityCache = new Map();   // "29|1910.1030" or "29|part:1910" -> response
+  let newsActivityCtx = null;            // { kind, id, data } for the open page
+
+  function newsActivityButtonHtml() {
+    return `<button type="button" class="btn" id="btn-news-activity" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('news')} <span>Activity</span></button>`;
+  }
+
+  async function fillNewsActivity(kind, id, seq) {
+    newsActivityCtx = null;
+    if (currentTitle !== 29) return;      // only Title 29 has news while OSHA is the only agency
+    const key = `29|${kind === 'part' ? 'part:' : ''}${id}`;
+    let data = newsActivityCache.get(key);
+    if (!data) {
+      try {
+        data = await getJSON(kind === 'part'
+          ? `/api/news/part/${encodeURIComponent(id)}?title=29`
+          : `/api/news/section/${encodeURIComponent(id)}?title=29`);
+      } catch (e) { return; }             // silent: the reader works without news
+      newsActivityCache.set(key, data);
+    }
+    if (seq !== routeSeq) return;         // the reader moved on
+    const btn = document.getElementById('btn-news-activity');
+    if (!btn || !data.count) return;
+    newsActivityCtx = { kind, id, data };
+    btn.querySelector('span').textContent =
+      data.count === 1 ? '1 rule or citation' : `${data.count} rules & citations`;
+    btn.hidden = false;
+  }
+
+  function newsTimelineHtml(ctx) {
+    const label = ctx.kind === 'part' ? `Part ${ctx.id}` : `§ ${ctx.id}`;
+    // Node kinds: rules, rulemaking, notices, public_inspection, enforcement. There are
+    // no interpretation nodes: OSHA letters of interpretation live only on osha.gov,
+    // which FRAMEWORK does not scrape (decision 4).
+    const nodes = (ctx.data.articles || []).map(a => {
+      let meta = fmtDate(a.published_at), second = '';
+      if (a.category === 'rules') {
+        meta += ` · Final rule${a.citation ? ' · ' + a.citation : ''}`;
+      } else if (a.category === 'rulemaking') {
+        meta += ' · Proposed rule' + (a.comments_close_on ? ` · comments close ${fmtDate(a.comments_close_on)}` : '');
+      } else if (a.category === 'public_inspection') {
+        meta += ' · Public inspection' + (a.scheduled_on ? ` · publishes ${fmtDate(a.scheduled_on)}` : '');
+      } else if (a.category === 'enforcement') {
+        meta += ' · Citation' + (a.penalty_usd ? ` · ${fmtMoney(a.penalty_usd)}` : '');
+        second = [a.company, [a.city, a.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ');
+      } else {
+        meta += ' · Notice';
+      }
+      const title = a.category === 'enforcement' && second ? second : a.title;
+      return `<li class="tl-node" data-kind="${escapeHtml(a.category)}">
+        <span class="tl-dot" aria-hidden="true"></span>
+        <div class="tl-meta">${escapeHtml(meta)}</div>
+        ${extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`)}
+      </li>`;
+    }).join('');
+    const allHref = ctx.kind === 'part'
+      ? `#/news?part=${encodeURIComponent(ctx.id)}` : `#/news?section=${encodeURIComponent(ctx.id)}`;
+    return `<div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
+      <ol class="reg-timeline">${nodes}</ol>
+      <a class="news-pop-foot" href="${allHref}">${icon('news')} See all in News</a>`;
+  }
+
+  function openNewsActivity() {
+    const btn = document.getElementById('btn-news-activity');
+    if (!btn || !newsActivityCtx) return;
+    newsPop.innerHTML = newsTimelineHtml(newsActivityCtx);
+    newsPop.setAttribute('aria-label',
+      `Federal Register and OSHA activity for ${newsActivityCtx.kind === 'part' ? 'Part ' : '§ '}${newsActivityCtx.id}`);
+    newsPop.hidden = false;
+    const r = btn.getBoundingClientRect();
+    const w = newsPop.offsetWidth;
+    newsPop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+    newsPop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - newsPop.offsetHeight - 8)}px`;
+    btn.setAttribute('aria-expanded', 'true');
+    (newsPop.querySelector('a, button') || newsPop).focus?.();
+    setTimeout(() => document.addEventListener('pointerdown', onNewsPopOutside), 0);
+  }
+  function closeNewsActivity(returnFocus = true) {
+    if (newsPop.hidden) return;
+    newsPop.hidden = true;
+    document.removeEventListener('pointerdown', onNewsPopOutside);
+    const btn = document.getElementById('btn-news-activity');
+    if (btn) { btn.setAttribute('aria-expanded', 'false'); if (returnFocus) btn.focus(); }
+  }
+  function onNewsPopOutside(e) {
+    if (!newsPop.contains(e.target) && !e.target.closest('#btn-news-activity')) closeNewsActivity(false);
+  }
+  dom.view.addEventListener('click', (e) => {
+    if (e.target.closest('#btn-news-activity')) newsPop.hidden ? openNewsActivity() : closeNewsActivity();
+  });
+  newsPop.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); closeNewsActivity(); }
+  });
+  window.addEventListener('hashchange', () => closeNewsActivity(false));
+
+  // --- Pin popover (the section page's Pin button, or ⌘D) ---
+  const pinPop = document.getElementById('pin-pop');
+  function pinButtonHtml() {
+    const n = currentSection ? projectsWith(currentTitle, currentSection.id).length : 0;
+    return `<button type="button" class="btn${n ? ' is-pinned' : ''}" id="btn-pin" aria-haspopup="dialog" aria-expanded="false" title="Pin to a project (${isMac ? '⌘' : 'Ctrl '}D)">${icon(n ? 'bookmarkFilled' : 'bookmark')} ${n ? 'Pinned' : 'Pin'}</button>`;
+  }
+  function updatePinButton() {
+    const b = document.getElementById('btn-pin');
+    if (b) b.outerHTML = pinButtonHtml();
+  }
+
+  function renderPinMenu() {
+    const sec = currentSectionRef();
+    if (!sec) return;
+    const list = loadProjects();
+    pinPop.innerHTML = `<div class="pin-head">Pin <strong>${escapeHtml(sec.label)}</strong> to</div>
+      ${list.length ? `<div class="pin-list" role="group" aria-label="Dossiers">${list.map(p => {
+        const on = p.sections.some(s => s.title === sec.title && s.id === sec.id);
+        return `<button type="button" class="pin-opt" role="menuitemcheckbox" aria-checked="${on}" data-proj="${escapeHtml(p.id)}">
+          <span class="pin-check">${on ? icon('check') : ''}</span>${projDot(p)}<span class="pin-name">${escapeHtml(p.name)}</span><span class="pin-count">${p.sections.length}</span></button>`;
+      }).join('')}</div>` : '<p class="pin-none">No dossiers yet. Name one to start.</p>'}
+      <form class="pin-new"><input class="dr-input" name="name" placeholder="New dossier…" maxlength="80" autocomplete="off" aria-label="New dossier name"></form>`;
+  }
+
+  function openPinMenu() {
+    if (!currentSection) return;
+    renderPinMenu();
+    pinPop.hidden = false;
+    const btn = document.getElementById('btn-pin');
+    const r = btn ? btn.getBoundingClientRect() : { left: window.innerWidth / 2 - 140, bottom: 120 };
+    const w = pinPop.offsetWidth;
+    pinPop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+    pinPop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - pinPop.offsetHeight - 8)}px`;
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+    (pinPop.querySelector('.pin-opt') || pinPop.querySelector('input'))?.focus();
+    setTimeout(() => document.addEventListener('pointerdown', onPinOutside), 0);
+  }
+  function closePinMenu(returnFocus = true) {
+    if (pinPop.hidden) return;
+    pinPop.hidden = true;
+    document.removeEventListener('pointerdown', onPinOutside);
+    const btn = document.getElementById('btn-pin');
+    if (btn) { btn.setAttribute('aria-expanded', 'false'); if (returnFocus) btn.focus(); }
+  }
+  function onPinOutside(e) {
+    if (!pinPop.contains(e.target) && !e.target.closest('#btn-pin')) closePinMenu(false);
+  }
+
+  pinPop.addEventListener('click', (e) => {
+    const opt = e.target.closest('.pin-opt');
+    if (!opt) return;
+    togglePin(opt.dataset.proj, currentSectionRef());
+    const focusId = opt.dataset.proj;
+    renderPinMenu();
+    pinPop.querySelector(`.pin-opt[data-proj="${focusId}"]`)?.focus();
+  });
+  pinPop.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = e.target.elements.name.value.trim();
+    if (!name) return;
+    const p = createProject(name);
+    togglePin(p.id, currentSectionRef());
+    renderPinMenu();
+    pinPop.querySelector(`.pin-opt[data-proj="${p.id}"]`)?.focus();
+  });
+  pinPop.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); closePinMenu(); return; }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const items = [...pinPop.querySelectorAll('.pin-opt, input')];
+    const i = items.indexOf(document.activeElement);
+    e.preventDefault();
+    items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+  });
+  dom.view.addEventListener('click', (e) => {
+    if (e.target.closest('#btn-pin')) pinPop.hidden ? openPinMenu() : closePinMenu();
+  });
+  window.addEventListener('hashchange', () => closePinMenu(false));
+
+  // --- Commands in the search box: type ">" ---
+  function commandList() {
+    const mod = isMac ? '⌘' : 'Ctrl ';
+    return [
+      ['Go to Overview', '#/', 'G O'], [`Go to Title ${currentTitle} home`, `#/title/${currentTitle}/`, 'G H'],
+      ['Open contents', 'cmd:reader', 'G C'], ['Open projects', 'cmd:projects', 'G P'], ['All projects', '#/projects', ''],
+      ['Go to News', '#/news', 'G N'], ['Refresh news', 'cmd:news-refresh', ''],
+      ['New dossier', 'cmd:new-project', ''], ['Open the library', '#/library', ''], ['Library drawer', 'cmd:library', 'G L'],
+      ['Settings', 'cmd:settings', 'G S'], ['API Keys & RSS guide', '#/help', ''], ['Configure .env keys', 'cmd:env-modal', ''],
+      ['Show or hide the drawer', 'cmd:drawer', `${mod}B`], ['Ask Claude', 'cmd:chat', `${mod}J`],
+      [`Switch to ${document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'} theme`, 'cmd:theme', ''],
+      ...loadProjects().map(p => [`Project: ${p.name}`, `#/projects/${encodeURIComponent(p.id)}`, '']),
+      ...installedTitles.filter(t => t.title !== currentTitle).map(t => [`Switch to Title ${t.title} ${t.name}`, `#/title/${t.title}/`, '']),
+    ];
+  }
+  function commandItemsHtml(q) {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const hits = commandList().filter(([label]) => words.every(w => label.toLowerCase().includes(w))).slice(0, 12);
+    if (!hits.length) return '<div class="sd-footer">No command matches.</div>';
+    return hits.map(([label, to, keys]) => {
+      const cmd = to.startsWith('cmd:') ? to.slice(4) : '';
+      return `<a class="sd-item sd-cmd" href="${cmd ? '#' : escapeHtml(to)}"${cmd ? ` data-cmd="${cmd}"` : ''}>
+        <span class="sd-cmd-label">${escapeHtml(label)}</span>${keys ? `<span class="sd-cmd-keys">${keys.split(' ').map(k => `<kbd>${escapeHtml(k)}</kbd>`).join('')}</span>` : ''}</a>`;
+    }).join('') + '<div class="sd-footer">Commands · <kbd>↑</kbd><kbd>↓</kbd> to move, <kbd>Enter</kbd> to run</div>';
+  }
+  function runCommand(cmd) {
+    if (cmd === 'theme') setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
+    else if (cmd === 'drawer') toggleDrawer();
+    else if (cmd === 'chat') toggleChat();
+    else if (cmd === 'new-project') showNewProjectForm();
+    else if (cmd === 'news-refresh') refreshNewsCommand();
+    else if (cmd === 'env-modal') openEnvModal();
+    else openPanel(cmd, { focus: true });
+  }
+
+  // --- Navigation: activity rail + sliding drawer ---
+  // The rail (`#activity-rail`) holds the app's landmarks: Overview and the title's Home are
+  // links; Contents, Projects, Library and Settings open a panel in the drawer (`#sidebar`)
+  // beside it. Panels stay mounted and only one shows, so the contents tree keeps its place.
+  //
+  // State (`localStorage` `railState`): `panel`, `collapsed` (the drawer is put away), `mode`
+  // ('pinned' pushes the page aside, 'flyout' floats over it) and `width`. On top of that:
+  //   retracted — Overview and a title's Home put a pinned drawer away for the page's width
+  //               (until a rail item asks for it again);
+  //   fly       — the drawer floats when the mode says so, under 900px (the rail is then a
+  //               bottom bar), and up to 1200px while the chat is open; `body.nav-open`
+  //               says it's out, and it goes away on navigation, Esc or a backdrop click.
+  // Re-clicking Overview or Home while on it opens "Recent" (reading history and pins).
+  // Keys: ⌘B / Ctrl+B toggles the drawer; G then O H C P L S jumps to a rail item (Linear's
+  // "go to"); Alt+1…6 does the same; ⌘D pins the open section to a project.
+  const NAV_PANELS = { reader: 'Contents', projects: 'Projects', library: 'Library', settings: 'Settings', history: 'Recent' };
+  // Alt+1…7 follows this order; News is a link like Overview and Home.
+  const NAV_TARGETS = ['overview', 'home', 'reader', 'projects', 'news', 'library', 'settings'];
+  const navState = (() => {
+    let st = {};
+    try { st = JSON.parse(lsGet('railState') || '{}') || {}; } catch (e) { st = {}; }
+    const w = st.width || parseInt(lsGet('sidebarW'), 10) || null;
+    return {
+      panel: NAV_PANELS[st.panel] && st.panel !== 'history' ? st.panel : 'reader',
+      collapsed: st.collapsed != null ? Boolean(st.collapsed) : lsGet('sidebarHidden') === '1',
+      mode: st.mode === 'flyout' ? 'flyout' : 'pinned',
+      width: w >= 220 && w <= 560 ? w : null,
+    };
+  })();
+  let navRetracted = document.documentElement.classList.contains('drawer-retracted');
+  let historyFor = 'overview';
+  const mqMobile = window.matchMedia('(max-width: 900px)');
+  const mqNarrow = window.matchMedia('(max-width: 1200px)');
+  const railEl = document.getElementById('activity-rail');
+  const drawerEl = {
+    title: document.getElementById('drawer-title'),
+    meta: document.getElementById('drawer-meta'),
+    acts: document.getElementById('drawer-acts'),
+    mode: document.getElementById('drawer-mode'),
+    close: document.getElementById('drawer-close'),
+  };
+
+  function saveNav() {
+    lsSet('railState', JSON.stringify(navState));
+  }
+  const isFly = () => navState.mode === 'flyout' || mqMobile.matches || (mqNarrow.matches && dom.layout.classList.contains('chat-open'));
+  const flyOpen = () => document.body.classList.contains('nav-open');
+  const drawerShown = () => (isFly() ? flyOpen() : !navState.collapsed && !navRetracted);
+
+  // Which landmark a route belongs to.
+  function routeTarget(path = activeRoute) {
+    const p = path || '/';
+    if (p === '/') return 'overview';
+    if (/^\/title\/\d+\/?$/.test(p)) return 'home';
+    const rest = p.replace(/^\/title\/\d+/, '');
+    if (rest.startsWith('/library')) return 'library';
+    if (rest.startsWith('/projects')) return 'projects';
+    if (rest.startsWith('/news')) return 'news';
+    if (rest.startsWith('/help')) return 'settings';
+    return 'reader';
+  }
+
+  function announce(text) {
+    const live = document.getElementById('nav-live');
+    if (live) live.textContent = text;
+  }
+
+  // Paint the state: html classes, which panel shows, the drawer header, the lit rail item.
+  function applyNav() {
+    const root = document.documentElement;
+    const fly = isFly();
+    if (!fly && flyOpen()) document.body.classList.remove('nav-open');
+    root.classList.toggle('drawer-fly', fly);
+    root.classList.toggle('drawer-collapsed', !fly && navState.collapsed);
+    root.classList.toggle('drawer-retracted', !fly && !navState.collapsed && navRetracted);
+    const shown = drawerShown();
+    dom.sidebar.inert = !shown;
+    for (const el of dom.sidebar.querySelectorAll('.drawer-panel')) el.hidden = el.dataset.panel !== navState.panel;
+    drawerEl.title.textContent = NAV_PANELS[navState.panel];
+    drawerEl.meta.textContent = panelMeta(navState.panel);
+    drawerEl.acts.innerHTML = panelActions(navState.panel);
+    const pinned = navState.mode === 'pinned';
+    drawerEl.mode.setAttribute('aria-pressed', String(pinned));
+    drawerEl.mode.title = pinned ? 'Float the drawer over the page' : 'Pin the drawer beside the page';
+    drawerEl.mode.setAttribute('aria-label', drawerEl.mode.title);
+    drawerEl.mode.innerHTML = icon(pinned ? 'pin' : 'pinOff');
+    drawerEl.mode.hidden = mqMobile.matches;
+    // One lit item: the open panel's, else the page's landmark.
+    const route = routeTarget();
+    const lit = shown ? (navState.panel === 'history' ? historyFor : navState.panel) : route;
+    for (const b of railEl.querySelectorAll('.ar-btn')) {
+      const t = b.dataset.target;
+      b.classList.toggle('is-active', t === lit);
+      if (b.tagName === 'A') {
+        if (t === route) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+      } else {
+        b.setAttribute('aria-expanded', String(shown && navState.panel === t));
+      }
+    }
+    // The Library panel shows the same transfers as the floating dock: one is enough.
+    document.body.classList.toggle('drawer-library', shown && navState.panel === 'library');
+  }
+
+  function panelMeta(panel) {
+    if (panel === 'reader') return `Title ${currentTitle}`;
+    if (panel === 'projects') { const n = loadProjects().length; return n ? plural(n, 'dossier') : ''; }
+    if (panel === 'library') return installedTitles.length ? `${installedTitles.length} installed` : '';
+    if (panel === 'history') return 'Reading history';
+    return '';
+  }
+
+  function panelActions(panel) {
+    if (panel === 'projects') return `<button type="button" class="icon-btn drawer-icon" data-nav-act="new-project" title="New dossier" aria-label="New dossier">${icon('plus')}</button>`;
+    if (panel === 'library') return `<a class="icon-btn drawer-icon" href="#/library" title="Open the library" aria-label="Open the library">${icon('external')}</a>`;
+    return '';
+  }
+
+  function renderPanel(panel) {
+    if (panel === 'projects') renderProjectsPanel();
+    else if (panel === 'library') renderLibraryPanel();
+    else if (panel === 'settings') renderSettingsPanel();
+    else if (panel === 'history') renderHistoryPanel();
+  }
+
+  // Focus a panel's first useful control (keyboard and hotkey openings only).
+  function focusPanel(panel) {
+    const el = document.getElementById(`panel-${panel}`);
+    if (!el) return;
+    const first = panel === 'reader' ? dom.treeFilter : el.querySelector('input, button, a[href], select, textarea');
+    if (first) requestAnimationFrame(() => first.focus({ preventScroll: true }));
+  }
+
+  function openPanel(panel, { focus = false, toggle = false } = {}) {
+    if (toggle && drawerShown() && navState.panel === panel) {
+      closeDrawer();
+      return;
+    }
+    navState.panel = panel;
+    if (isFly()) document.body.classList.add('nav-open');
+    else { navState.collapsed = false; navRetracted = false; }
+    if (panel !== 'history') saveNav();
+    renderPanel(panel);
+    applyNav();
+    if (panel === 'reader') requestAnimationFrame(() => revealCurrent(false));
+    if (focus) focusPanel(panel);
+    announce(`${NAV_PANELS[panel]} drawer open`);
+  }
+
+  function closeDrawer() {
+    const hadFocus = dom.sidebar.contains(document.activeElement);
+    if (isFly()) document.body.classList.remove('nav-open');
+    else navState.collapsed = true;
+    saveNav();
+    applyNav();
+    if (hadFocus) railEl.querySelector('.ar-btn.is-active, .ar-btn[aria-current]')?.focus();
+    announce('Drawer closed');
+  }
+
+  function toggleDrawer(focus = true) {
+    if (drawerShown()) closeDrawer();
+    else openPanel(navState.panel === 'history' ? 'reader' : navState.panel, { focus });
+  }
+
+  function goTarget(t) {
+    if (t === 'overview') window.location.hash = '#/';
+    else if (t === 'home') window.location.hash = `#/title/${currentTitle}/`;
+    else if (t === 'news') {
+      if (routeTarget() === 'news') dom.main.scrollTop = 0;
+      else window.location.hash = '#/news';
+    } else openPanel(t, { focus: true });
+  }
+
+  function setNavMode(mode) {
+    navState.mode = mode === 'flyout' ? 'flyout' : 'pinned';
+    if (navState.mode === 'pinned') navState.collapsed = false;
+    saveNav();
+    applyNav();
+    if (navState.panel === 'settings') renderSettingsPanel();
+  }
+
+  // Route changes: light the landmark, put a pinned drawer away on Overview and Home, close a
+  // floating one, and bring the matching panel forward when entering the library or projects.
+  function syncNavToRoute(path) {
+    const t = routeTarget(path);
+    document.body.classList.remove('nav-open');
+    // News and Help retract a pinned drawer for the page's width, like Overview and Home.
+    navRetracted = t === 'overview' || t === 'home' || t === 'news' || t === 'settings';
+    if (t === 'library' && navState.panel !== 'library') navState.panel = 'library';
+    else if (t === 'projects') navState.panel = 'projects';
+    else if (t === 'reader' && (navState.panel === 'history' || navState.panel === 'library')) navState.panel = 'reader';
+    if (navState.panel !== 'history') saveNav();
+    renderPanel(navState.panel);
+    applyNav();
+  }
+
+  function updateRailHome() {
+    const home = document.getElementById('ar-home');
+    if (!home) return;
+    home.href = `#/title/${currentTitle}/`;
+    const t = installedTitles.find(x => x.title === currentTitle);
+    home.dataset.tip = `Title ${currentTitle} home`;
+    home.setAttribute('aria-label', `Title ${currentTitle}${t ? ' ' + t.name : ''} home`);
+  }
+
+  function updateRailBadge() {
+    const badge = document.getElementById('ar-library-badge');
+    if (!badge) return;
+    const busy = Boolean(jobs.current || jobs.queued.length);
+    const stale = navLib.data ? navLib.data.titles.filter(isStale).length : 0;
+    badge.hidden = !busy && !stale;
+    badge.className = `ar-badge${busy ? ' is-busy' : stale ? ' is-stale' : ''}`;
+    const btn = badge.closest('.ar-btn');
+    btn.dataset.tip = busy ? 'Library · downloading' : stale ? `Library · ${plural(stale, 'update')}` : 'Library';
+  }
+
+  railEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.ar-btn');
+    if (!btn) return;
+    const t = btn.dataset.target;
+    if (btn.tagName === 'A') {
+      // Already here: the landmark's own drawer, reading history. News has no Recent
+      // panel: re-clicking it just scrolls the page back to the top.
+      if (routeTarget() === t) {
+        e.preventDefault();
+        if (t === 'news') { dom.main.scrollTop = 0; return; }
+        historyFor = t;
+        openPanel('history', { toggle: true, focus: e.detail === 0 });
+      }
+      return;
+    }
+    openPanel(t, { toggle: true, focus: e.detail === 0 });
+  });
+
+  // Arrow keys move along the rail (up/down, or left/right when it's a bottom bar).
+  railEl.addEventListener('keydown', (e) => {
+    const keys = mqMobile.matches ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown'];
+    const i = keys.indexOf(e.key);
+    if (i < 0 && e.key !== 'Home' && e.key !== 'End') return;
+    const items = [...railEl.querySelectorAll('.ar-btn')];
+    const at = items.indexOf(document.activeElement);
+    if (at < 0) return;
+    e.preventDefault();
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (at + (i ? 1 : -1) + items.length) % items.length;
+    items[next].focus();
+  });
+
+  drawerEl.close.addEventListener('click', () => closeDrawer());
+  drawerEl.mode.addEventListener('click', () => setNavMode(navState.mode === 'pinned' ? 'flyout' : 'pinned'));
+  dom.navBackdrop.addEventListener('click', () => closeDrawer());
+  dom.navToggle.addEventListener('click', (e) => toggleDrawer(e.detail === 0));
+  for (const mq of [mqMobile, mqNarrow]) mq.addEventListener('change', () => applyNav());
+
+  // Hotkeys. "G then a letter" waits 1.2s for the letter; typing in a field never triggers it.
+  let goPending = 0;
+  const GO_KEYS = { o: 'overview', h: 'home', c: 'reader', p: 'projects', n: 'news', l: 'library', s: 'settings' };
+  document.addEventListener('keydown', (e) => {
+    const active = document.activeElement;
+    const typing = active && (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      toggleDrawer();
+      return;
+    }
+    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'd' && currentSection && routeTarget() === 'reader') {
+      e.preventDefault();
+      openPinMenu();
+      return;
+    }
+    if (e.altKey && !mod && /^Digit[1-7]$/.test(e.code)) {
+      e.preventDefault();
+      goTarget(NAV_TARGETS[Number(e.code.slice(5)) - 1]);
+      return;
+    }
+    if (e.key === 'Escape' && isFly() && flyOpen() && !e.defaultPrevented) {
+      closeDrawer();
+      return;
+    }
+    if (typing || mod || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (goPending && Date.now() - goPending < 1200 && GO_KEYS[k]) {
+      e.preventDefault();
+      goPending = 0;
+      goTarget(GO_KEYS[k]);
+      return;
+    }
+    goPending = k === 'g' ? Date.now() : 0;
+  });
+
+  // --- Drawer panels: shared pieces ---
+  const drLabel = (text, extra = '') => `<h3 class="dr-label"><span>${text}</span>${extra}</h3>`;
+  const drEmpty = (title, body) => `<div class="dr-empty"><div class="dr-empty-title">${title}</div><p>${body}</p></div>`;
+  function setPanel(panel, html) {
+    const el = document.getElementById(`panel-${panel}`);
+    if (!el) return;
+    const scroller = el.querySelector('.dr-scroll');
+    const top = scroller ? scroller.scrollTop : 0;
+    el.innerHTML = `<div class="dr-scroll">${html}</div>`;
+    const next = el.querySelector('.dr-scroll');
+    if (next) next.scrollTop = top;
+    if (navState.panel === panel) drawerEl.meta.textContent = panelMeta(panel);
+  }
+
+  // --- Library panel: transfers, installed titles, suites ---
+  const navLib = { data: null, at: 0, loading: null };
+  async function ensureNavLibrary(force = false) {
+    if (!force && navLib.data && Date.now() - navLib.at < 60000) return navLib.data;
+    if (!navLib.loading) {
+      navLib.loading = getJSON('/api/library').then(d => {
+        navLib.data = d;
+        navLib.at = Date.now();
+        return d;
+      }).finally(() => { navLib.loading = null; });
+    }
+    return navLib.loading;
+  }
+
+  function transferHtml() {
+    const j = jobs.current;
+    if (!j && !jobs.queued.length) return '<p class="dr-note">Nothing downloading.</p>';
+    const m = dockModel(j);
+    const card = !j ? '' : `<div class="dr-job">
+        <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? '' : m.pct + '%'}</span></div>
+        <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? 'Cancelling…' : m.label)}</div>
+        <div class="dock-track"><span class="dock-fill${m.pct == null ? ' is-indeterminate' : ''}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+        <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+        <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === 'Installing' ? ' disabled' : ''}>Cancel</button></div>
+      </div>`;
+    const queue = jobs.queued.map(q => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join('');
+    return card + queue + (jobs.queued.length ? '<button type="button" class="dr-link" data-dock="clear">Clear queue</button>' : '');
+  }
+
+  let navTransferKey = '';
+  function updateNavTransfers() {
+    updateRailBadge();
+    if (navState.panel !== 'library' || !drawerShown()) return;
+    const box = document.getElementById('dr-transfers');
+    if (!box) return;
+    const j = jobs.current;
+    const m = dockModel(j);
+    const key = [j && j.id, j && j.cancelling, j && j.phase === 'Installing', m.pct == null, jobs.queued.map(q => q.id).join('.')].join('|');
+    if (key !== navTransferKey) {
+      navTransferKey = key;
+      box.innerHTML = transferHtml();
+      const count = document.getElementById('dr-transfers-count');
+      const n = (j ? 1 : 0) + jobs.queued.length;
+      if (count) count.textContent = n ? String(n) : '';
+      const sec = document.getElementById('dr-transfers-sec');
+      if (sec) sec.hidden = !n;
+      return;
+    }
+    const set = (f, v) => { const n = box.querySelector(`[data-f="${f}"]`); if (n && n.textContent !== v) n.textContent = v; };
+    set('pct', m.pct == null ? '' : `${m.pct}%`);
+    set('phase', j && j.cancelling ? 'Cancelling…' : m.label);
+    set('left', m.left);
+    set('right', m.right);
+    const fill = box.querySelector('[data-f="fill"]');
+    if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+  }
+
+  function renderLibraryPanel() {
+    const d = navLib.data;
+    navTransferKey = '';
+    const active = (jobs.current ? 1 : 0) + jobs.queued.length;
+    // Transfers only while something is queued or running (the section appears with the job).
+    const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? '' : ' hidden'}>${drLabel('Transfers', `<span class="dr-count" id="dr-transfers-count">${active || ''}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
+    if (!d) {
+      setPanel('library', transfers + '<div class="loading">Loading the library…</div>');
+      ensureNavLibrary().then(() => { if (navState.panel === 'library') renderLibraryPanel(); updateRailBadge(); })
+        .catch(() => setPanel('library', transfers + drEmpty('Couldn’t reach eCFR', 'The installed titles are still in the reader. Try the library again in a moment.')));
+      return;
+    }
+    const live = d.titles.filter(t => !t.reserved);
+    const installed = live.filter(t => t.installed);
+    const stale = installed.filter(isStale);
+    const rows = installed.map(t => {
+      const st = titleStatus(t);
+      return `<a class="dr-row" href="#/title/${t.title}/">
+        <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
+        <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
+    }).join('');
+    const suites = Object.values(d.suites || {}).map(s => {
+      const st = suiteState(s, d);
+      const have = st.ts.filter(t => t.installed && t.installed.whole).length;
+      return `<div class="dr-suite">
+        <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
+          <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
+        ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon('download')}</button>`
+          : st.busy.length ? '<span class="stat-dot is-busy" title="In progress" aria-hidden="true"></span>' : '<span class="stat-dot is-synced" title="Installed" aria-hidden="true"></span>'}
+      </div>`;
+    }).join('');
+    setPanel('library', `
+      <a class="dr-cta" href="#/library">
+        <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon('chevronRight')}
+      </a>
+      ${transfers}
+      <section class="dr-sec">${drLabel('Installed', `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ''}`)}
+        ${rows || '<p class="dr-note">No titles installed.</p>'}</section>
+      ${suites ? `<section class="dr-sec">${drLabel('Suites')}${suites}</section>` : ''}`);
+    updateRailBadge();
+  }
+
+  // --- Settings panel ---
+  let navStorage = null;
+  let navNewsStatus = null;
+  let navEnvStatus = null;
+
+  async function loadEnvStatus() {
+    try { navEnvStatus = await getJSON('/api/settings/env'); } catch (e) { navEnvStatus = null; }
+    if (navState.panel === 'settings') renderSettingsPanel();
+  }
+
+  // "in 12m" / "in 3h" for next-check and backoff times in Settings.
+  function timeUntil(iso) {
+    const s = (Date.parse(iso) - Date.now()) / 1000;
+    if (isNaN(s)) return '';
+    if (s <= 60) return 'any moment';
+    if (s < 3600) return `in ${Math.round(s / 60)}m`;
+    if (s < 86400) return `in ${Math.round(s / 3600)}h`;
+    return `in ${Math.round(s / 86400)}d`;
+  }
+
+  // Read-only: keys stay in .env, the same as ANTHROPIC_API_KEY.
+  function newsSettingsHtml() {
+    const ns = navNewsStatus;
+    if (!ns) return '<div class="loading">Checking…</div>';
+    if (!ns.sync_enabled) return '<p class="dr-note">News sync is off (<code>NEWS_SYNC=0</code> in <code>reader/.env</code>).</p>';
+    const enabled = Object.entries(ns.sources).filter(([, s]) => s.enabled);
+    const lastOk = enabled.map(([, s]) => s.last_ok_at).filter(Boolean).sort().pop();
+    const nextDue = enabled.map(([, s]) => s.next_due_at).filter(Boolean).sort()[0];
+    const backing = enabled.filter(([, s]) => s.retry_after);
+    const when = backing.length
+      ? backing.map(([, s]) => `${escapeHtml(s.last_error || 'Update failed')} · retrying ${escapeHtml(timeUntil(s.retry_after))}`).join(' · ')
+      : `Last update ${lastOk ? escapeHtml(timeAgo(Date.parse(lastOk))) : 'never'} · next check ${nextDue ? escapeHtml(timeUntil(nextDue)) || 'due now' : '—'}`;
+    return `
+      <div class="dr-row is-static"><span class="dr-name">Federal Register</span><span class="dr-time">on</span></div>
+      <div class="dr-row is-static"><span class="dr-name">DOL enforcement</span><span class="dr-time">${ns.dol_configured ? 'on' : 'off'}</span></div>
+      ${ns.dol_configured ? '' : '<p class="dr-note">Enforcement requires a free <code>DOL_API_KEY</code>. <a class="dr-inline-link" href="#/help">Open setup guide</a> or <button type="button" class="dr-inline-btn" data-open-env="dol_api_key">enter key</button>.</p>'}
+      <p class="dr-note">${when}</p>`;
+  }
+
+  async function loadNewsSettings() {
+    try { navNewsStatus = await getJSON('/api/news/status'); } catch (e) { navNewsStatus = { sync_enabled: false, sources: {}, dol_configured: false }; }
+    if (navState.panel === 'settings') renderSettingsPanel();
+  }
+  function setTheme(next) {
+    document.documentElement.dataset.theme = next;
+    lsSet('theme', next);
+    if (navState.panel === 'settings') renderSettingsPanel();
+  }
+
+  function renderSettingsPanel() {
+    const theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+    const size = parseInt(lsGet('fontSize'), 10) || 16;
+    const seg = (name, value, opts) => `<div class="lib-seg" role="group" aria-label="${name}">${opts.map(([v, label]) =>
+      `<button type="button" data-set="${name}" data-value="${v}" aria-pressed="${value === v}">${label}</button>`).join('')}</div>`;
+    const models = chatConfig.configured && chatConfig.models.length
+      ? `<select class="set-select" data-set-model aria-label="Claude model">${chatConfig.models.map(m =>
+          `<option value="${escapeHtml(m.id)}"${(dom.modelSelect.value || chatConfig.default) === m.id ? ' selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}</select>`
+      : '<p class="dr-note">Claude requires an <code>ANTHROPIC_API_KEY</code>. <a class="dr-inline-link" href="#/help">Open setup guide</a> or <button type="button" class="dr-inline-btn" data-open-env="anthropic_api_key">enter key</button>.</p>';
+    const envKeys = navEnvStatus && navEnvStatus.keys;
+    const configuredKeysCount = envKeys
+      ? (envKeys.DOL_API_KEY.configured ? 1 : 0) + (envKeys.ANTHROPIC_API_KEY.configured ? 1 : 0)
+      : null;
+    const helpMeta = !navEnvStatus ? 'API keys & RSS feeds'
+      : navEnvStatus.env_exists ? `reader/.env active · ${configuredKeysCount} of 2 keys set`
+      : 'reader/.env not created yet';
+    const st = navStorage;
+    const storage = !st ? '<div class="loading">Measuring…</div>' : `
+      <div class="set-total"><span class="set-total-val">${fmtBytes(st.total_bytes) || '0 KB'}</span><span class="set-total-sub">on disk in ${plural(st.titles.length, 'title')}</span></div>
+      ${st.titles.map(t => {
+        const meta = installedTitles.find(x => x.title === t.title);
+        return `<div class="dr-row is-static"><span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(meta ? meta.name : `Title ${t.title}`)}</span><span class="dr-time">${fmtBytes(t.bytes)}</span></div>`;
+      }).join('')}
+      ${st.legacy_bytes ? `<div class="dr-row is-static"><span class="dr-num"></span><span class="dr-name">Title 29 legacy copy</span><span class="dr-time">${fmtBytes(st.legacy_bytes)}</span></div>` : ''}
+      <div class="set-row">
+        <span class="set-name">Temporary files<span class="set-sub">${st.temp_files ? `${plural(st.temp_files, 'file')} from unfinished downloads` : 'None left over'}</span></span>
+        <button type="button" class="lib-act" data-set-act="prune"${st.temp_files ? '' : ' disabled'}>${st.temp_files ? `Clean up ${fmtBytes(st.temp_bytes)}` : 'Clean'}</button>
+      </div>`;
+    const mod = isMac ? '⌘' : 'Ctrl';
+    const keys = [
+      [`${mod} K`, 'Search or jump to a section'], ['/', 'Search'], ['>', 'Commands, in search'],
+      [`${mod} B`, 'Show or hide the drawer'], [`${mod} J`, 'Ask Claude'], [`${mod} D`, 'Pin the section to a project'],
+      ['G O', 'Overview'], ['G H', 'Title home'], ['G C', 'Contents'], ['G P', 'Projects'], ['G N', 'News'], ['G L', 'Library'], ['G S', 'Settings'],
+      [isMac ? '⌥ 1–7' : 'Alt 1–7', 'Rail items in order'], ['Esc', 'Close the floating drawer'],
+    ];
+    setPanel('settings', `
+      <section class="dr-sec">${drLabel('Help & API Keys')}
+        <a class="dr-cta" href="#/help">
+          <span class="dr-cta-text"><span class="dr-cta-title">API Keys &amp; Subscriptions Guide</span><span class="dr-cta-meta">${escapeHtml(helpMeta)}</span></span>${icon('chevronRight')}
+        </a>
+        <div class="set-help-actions">
+          <button type="button" class="btn btn-sm" data-open-env="">${icon('key')} Configure .env Keys</button>
+        </div>
+      </section>
+      <section class="dr-sec">${drLabel('Appearance')}
+        <div class="set-row"><span class="set-name">Theme</span>${seg('theme', theme, [['dark', 'Dark'], ['light', 'Light']])}</div>
+        <div class="set-row set-col">
+          <div class="set-row-head"><label class="set-name" for="set-size">Reading text</label><span class="set-val" id="set-size-val">${size} px</span></div>
+          <input type="range" class="set-range" id="set-size" min="13" max="24" step="1" value="${size}">
+        </div>
+      </section>
+      <section class="dr-sec">${drLabel('Drawer')}
+        <div class="set-row"><span class="set-name">Mode</span>${seg('mode', navState.mode, [['pinned', 'Pinned'], ['flyout', 'Overlay']])}</div>
+        <p class="dr-note">Pinned sits beside the page. Overlay slides over it and closes once you pick something.</p>
+      </section>
+      <section class="dr-sec">${drLabel('Claude')}${models}</section>
+      <section class="dr-sec">${drLabel('News')}${newsSettingsHtml()}</section>
+      <section class="dr-sec">${drLabel('Storage')}${storage}</section>
+      <section class="dr-sec">${drLabel('Keyboard')}
+        <dl class="set-keys">${keys.map(([k, v]) => `<div><dt>${k.split(' ').map(x => `<kbd>${escapeHtml(x)}</kbd>`).join('')}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>
+      </section>`);
+    if (!st) loadStorage();
+    if (!navNewsStatus) loadNewsSettings();
+    if (!navEnvStatus) loadEnvStatus();
+  }
+
+  // --- Help & Setup Guide (#/help) + .env Editor Modal ---
+  // Custom inline SVG provider emblems (tokens-only, offline-safe).
+  const HELP_LOGOS = {
+    env: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <rect x="8" y="10" width="48" height="44" rx="10" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+      <path d="M18 23h28M18 32h18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="43" cy="39" r="6" stroke="var(--accent)" stroke-width="2.4"/>
+      <path d="M49 39h5M52 39v4" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round"/>
+      <text x="18" y="45" font-family="var(--mono)" font-size="10" font-weight="600" fill="currentColor" opacity=".8">.env</text>
+    </svg>`,
+    dol: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <path d="M32 8 52 16v14c0 13.5-8.6 22.8-20 26-11.4-3.2-20-12.5-20-26V16L32 8Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+      <path d="M32 18v24M21 24h22" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="m21 24-4 9h8l-4-9Zm22 0-4 9h8l-4-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M25 44h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    </svg>`,
+    anthropic: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <rect x="8" y="8" width="48" height="48" rx="14" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+      <path d="M25.5 44 33 20l7.5 24M28.2 36.5h9.6" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M18.5 44 26 20h3.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>
+    </svg>`,
+    fr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <rect x="10" y="10" width="44" height="44" rx="10" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+      <circle cx="22" cy="42" r="3.2" fill="var(--accent)"/>
+      <path d="M20 31.5a12.5 12.5 0 0 1 12.5 12.5M20 22a22 22 0 0 1 22 22" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M36 18h10M36 24h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".7"/>
+    </svg>`,
+    ecfr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <path d="M12 18c0-2.2 1.8-4 4-4h13c2.2 0 3 1.2 3 3v31c0-1.5-1.3-2.5-3-2.5H16c-2.2 0-4 1.8-4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+      <path d="M52 18c0-2.2-1.8-4-4-4H35c-2.2 0-3 1.2-3 3v31c0-1.5 1.3-2.5 3-2.5h13c2.2 0 4 1.8 4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+      <path d="M18 23h8M18 29h8M38 23h8M38 29h8" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+    </svg>`,
+  };
+
+  const FR_RSS_FEEDS = [
+    {
+      label: 'OSHA Published Documents RSS',
+      desc: 'Final Rules, Proposed Rules, and Notices from the Federal Register.',
+      url: 'https://www.federalregister.gov/api/v1/documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration',
+    },
+    {
+      label: 'OSHA Public Inspection RSS',
+      desc: 'Pre-publication filings scheduled to appear in tomorrow’s Federal Register.',
+      url: 'https://www.federalregister.gov/api/v1/public-inspection-documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration',
+    },
+  ];
+
+  async function loadHelp() {
+    const seq = routeSeq;
+    currentSection = null;
+    currentPart = null;
+    clearTreeSelection();
+    updateChatContext();
+    setViewHead('');
+    document.title = 'Help & API Keys · FRAMEWORK';
+    if (!navEnvStatus) {
+      dom.view.innerHTML = '<div class="loading">Loading setup guide…</div>';
+      enterView();
+    }
+    try {
+      const [env, newsSt] = await Promise.all([
+        getJSON('/api/settings/env'),
+        getJSON('/api/news/status').catch(() => null),
+      ]);
+      if (seq !== routeSeq) return;
+      navEnvStatus = env;
+      if (newsSt) navNewsStatus = newsSt;
+      renderHelp(env, { enter: true });
+    } catch (e) {
+      if (seq !== routeSeq) return;
+      renderHelp(navEnvStatus || { env_exists: false, env_file: 'reader/.env', keys: {} }, { enter: true });
+    }
+  }
+
+  function renderHelp(env, opts = {}) {
+    const keys = (env && env.keys) || {};
+    const dol = keys.DOL_API_KEY || {};
+    const ant = keys.ANTHROPIC_API_KEY || {};
+    const syncOn = keys.NEWS_SYNC ? keys.NEWS_SYNC.value : true;
+    const retDays = keys.NEWS_RETENTION_DAYS ? keys.NEWS_RETENTION_DAYS.value : 365;
+    const configuredCount = (dol.configured ? 1 : 0) + (ant.configured ? 1 : 0);
+
+    const envPill = env && env.env_exists
+      ? statPill('synced', `reader/.env active · ${configuredCount} of 2 keys set`)
+      : statPill('stale', 'reader/.env not created yet');
+
+    const cards = [
+      {
+        id: 'env',
+        side: 'is-left',
+        logo: HELP_LOGOS.env,
+        provider: 'Local Configuration · Step 1',
+        title: 'What is a .env file?',
+        pill: env && env.env_exists ? statPill('synced', 'Created on disk') : statPill('stale', 'Not created yet'),
+        body: `
+          <p>A <strong>.env</strong> file is a simple, private text file stored only on your computer (<code>reader/.env</code>) that holds your personal API keys and preferences—never shared or uploaded anywhere.</p>
+          <p>Normally, setting one up means copying example files in a terminal. Here, you can create and update <code>reader/.env</code> directly inside FRAMEWORK—and changes take effect right away with no restart.</p>`,
+        actions: `
+          <button type="button" class="btn btn-accent" data-open-env="">${icon('key')} ${env && env.env_exists ? 'Edit .env Keys' : 'Create & Fill .env'}</button>
+          <a class="btn" href="#/news">${icon('news')} Back to News</a>`,
+      },
+      {
+        id: 'dol',
+        side: 'is-right',
+        logo: HELP_LOGOS.dol,
+        provider: 'U.S. Department of Labor · Free Key',
+        title: 'DOL Open Data API (OSHA Enforcement)',
+        pill: dol.configured ? statPill('synced', `Configured (${dol.masked || 'set'})`) : statPill('uninstalled', 'Optional · Not set'),
+        body: `
+          <p><strong>What this key allows:</strong> Unlocks the <em>Enforcement &amp; Penalties</em> tab in <a href="#/news?cat=enforcement">News</a> and adds workplace inspection citations to the regulation timeline inside Title 29 sections.</p>
+          <p>You’ll see cited companies, city/state locations, violation severity (Willful, Repeat, Serious), cited 29 CFR standards, and current penalty totals directly from <code>apiprod.dol.gov/v4</code>.</p>`,
+        actions: `
+          <button type="button" class="btn btn-accent" data-open-env="dol_api_key">${icon('key')} ${dol.configured ? 'Update DOL Key' : 'Enter DOL Key'}</button>
+          <a class="btn" href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">${icon('external')} Get Free DOL Key</a>`,
+      },
+      {
+        id: 'anthropic',
+        side: 'is-left',
+        logo: HELP_LOGOS.anthropic,
+        provider: 'Anthropic · Paid API Key',
+        title: 'Claude Regulatory Assistant',
+        pill: ant.configured ? statPill('synced', `Configured (${ant.masked || 'set'})`) : statPill('uninstalled', 'Optional · Not set'),
+        body: `
+          <p><strong>What this key allows:</strong> Turns on the <em>Ask Claude</em> side panel so you can ask plain-English compliance questions, summarize long sections, and trace requirements across your installed CFR titles.</p>
+          <p>Reading regulations, full-text search, projects, and Federal Register news all work without it—this key is only for the AI assistant.</p>`,
+        actions: `
+          <button type="button" class="btn btn-accent" data-open-env="anthropic_api_key">${icon('key')} ${ant.configured ? 'Update Anthropic Key' : 'Enter Anthropic Key'}</button>
+          <a class="btn" href="https://console.anthropic.com" target="_blank" rel="noopener">${icon('external')} Get Anthropic Key</a>`,
+      },
+      {
+        id: 'federal-register',
+        side: 'is-right',
+        logo: HELP_LOGOS.fr,
+        provider: 'Federal Register · Automatic + RSS Feeds',
+        title: 'Rulemaking API & Official RSS Subscriptions',
+        pill: syncOn ? statPill('synced', `Auto-sync on · ${retDays}d history`) : statPill('stale', 'Background sync off'),
+        body: `
+          <p><strong>What this subscription allows:</strong> Keeps FRAMEWORK updated on business days with OSHA Final Rules, Proposed Rules, Notices, and Public Inspection filings—with <strong>no API key required</strong>.</p>
+          <p>Want these updates in an external RSS reader too? Subscribe to the official Federal Register OSHA feeds below (FRAMEWORK skips <code>osha.gov/rss</code> because it blocks automated readers with 403 errors).</p>
+          <div class="help-rss-list">${FR_RSS_FEEDS.map(f => `
+            <div class="help-rss-row">
+              <div class="help-rss-text"><strong>${escapeHtml(f.label)}</strong><span>${escapeHtml(f.desc)}</span></div>
+              <div class="help-rss-btns">
+                <button type="button" class="btn btn-sm" data-copy-url="${escapeHtml(f.url)}">${icon('copy')} Copy RSS URL</button>
+                <a class="btn btn-sm" href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${icon('rss')} Open</a>
+              </div>
+            </div>`).join('')}
+          </div>`,
+        actions: `
+          <button type="button" class="btn" data-open-env="news_sync">${icon('key')} Sync Settings</button>
+          <a class="btn" href="#/news">${icon('news')} Open Newsroom</a>`,
+      },
+      {
+        id: 'ecfr',
+        side: 'is-left',
+        logo: HELP_LOGOS.ecfr,
+        provider: 'eCFR Versioner API · Built-in',
+        title: 'Federal Regulations Library (Titles 1–50)',
+        pill: statPill('synced', `${installedTitles.length} ${installedTitles.length === 1 ? 'title' : 'titles'} installed`),
+        body: `
+          <p><strong>What this source allows:</strong> Downloads full Code of Federal Regulations titles, parts, or individual sections directly from <code>ecfr.gov</code> into your local SQLite library for fast offline reading and search.</p>
+          <p>Everything here works automatically out of the box—no API key or subscription is needed.</p>`,
+        actions: `
+          <a class="btn btn-accent" href="#/library">${icon('book')} Browse CFR Library</a>`,
+      },
+    ];
+
+    dom.view.innerHTML = `
+      <div class="help-front">
+        <header class="help-head">
+          <div>
+            <div class="doc-kicker">FRAMEWORK Settings · Help</div>
+            <h1 class="doc-title">API Keys, .env Setup &amp; Subscriptions</h1>
+            <p class="help-lead">FRAMEWORK works offline for reading and search out of the box. Connect optional keys below—or subscribe to official RSS feeds—directly from this page.</p>
+          </div>
+          <div class="help-head-actions">
+            ${envPill}
+            <button type="button" class="btn btn-accent" data-open-env="">${icon('key')} Configure .env</button>
+          </div>
+        </header>
+        <div class="help-cards">
+          ${cards.map(c => `
+            <article class="help-card ${c.side}" id="help-${c.id}">
+              <div class="help-logo" aria-hidden="true">${c.logo}</div>
+              <div class="help-body">
+                <div class="help-card-top">
+                  <span class="help-provider">${escapeHtml(c.provider)}</span>
+                  ${c.pill}
+                </div>
+                <h2 class="help-card-title">${escapeHtml(c.title)}</h2>
+                <div class="help-card-copy">${c.body}</div>
+                <div class="help-actions">${c.actions}</div>
+              </div>
+            </article>`).join('')}
+        </div>
+      </div>`;
+    if (opts.enter) enterView();
+  }
+
+  // --- .env Editor Modal ---
+  const envModalEl = document.getElementById('env-modal');
+  const envModalDialog = envModalEl ? envModalEl.querySelector('.modal-dialog') : null;
+  let envModalReturnFocus = null;
+  let envModalSnapshot = null;
+
+  function envPreviewText(form, snapshot) {
+    const keys = (snapshot && snapshot.keys) || {};
+    const dolInput = form.querySelector('#env-dol-key');
+    const dolClear = form.querySelector('#env-dol-clear');
+    const antInput = form.querySelector('#env-ant-key');
+    const antClear = form.querySelector('#env-ant-clear');
+    const modelInput = form.querySelector('#env-ant-model');
+    const syncInput = form.querySelector('#env-news-sync');
+    const retInput = form.querySelector('#env-news-retention');
+
+    const dolVal = dolClear && dolClear.checked ? ''
+      : (dolInput && dolInput.value.trim()) ? '••••(new key)'
+      : (keys.DOL_API_KEY && keys.DOL_API_KEY.masked) || '';
+    const antVal = antClear && antClear.checked ? ''
+      : (antInput && antInput.value.trim()) ? '••••(new key)'
+      : (keys.ANTHROPIC_API_KEY && keys.ANTHROPIC_API_KEY.masked) || '';
+    const modelVal = (modelInput && modelInput.value.trim()) || '';
+    const syncVal = syncInput && syncInput.checked ? '1' : '0';
+    const retVal = (retInput && retInput.value.trim()) || '365';
+
+    return [
+      `ANTHROPIC_API_KEY=${antVal}`,
+      `ANTHROPIC_MODEL=${modelVal}`,
+      `DOL_API_KEY=${dolVal}`,
+      `NEWS_SYNC=${syncVal}`,
+      `NEWS_RETENTION_DAYS=${retVal}`,
+    ].join('\n');
+  }
+
+  function renderEnvModal(env, focusKey = '') {
+    if (!envModalDialog) return;
+    const keys = (env && env.keys) || {};
+    const dol = keys.DOL_API_KEY || {};
+    const ant = keys.ANTHROPIC_API_KEY || {};
+    const model = (keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.value) || '';
+    const modelDefault = (keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.default) || 'claude-sonnet-5-5';
+    const newsSync = keys.NEWS_SYNC ? Boolean(keys.NEWS_SYNC.value) : true;
+    const retDays = (keys.NEWS_RETENTION_DAYS && keys.NEWS_RETENTION_DAYS.value) || 365;
+
+    envModalDialog.innerHTML = `
+      <div class="modal-head">
+        <div>
+          <div class="doc-kicker">${env && env.env_exists ? 'Update local settings' : 'Create reader/.env'}</div>
+          <h2 id="env-modal-title" class="modal-title">Configure API Keys &amp; Sync Settings</h2>
+        </div>
+        <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon('close')}</button>
+      </div>
+      <form id="env-modal-form" class="modal-body" autocomplete="off">
+        <p class="modal-intro">Keys are saved privately to <code>reader/.env</code> on your computer and take effect immediately—no restart needed. Leave an existing key blank to keep it unchanged.</p>
+
+        <div class="env-field">
+          <div class="env-field-head">
+            <label for="env-dol-key">DOL API Key <code>DOL_API_KEY</code></label>
+            ${dol.configured ? statPill('synced', `Saved (${dol.masked || 'set'})`) : statPill('uninstalled', 'Not set')}
+          </div>
+          <p class="env-field-help">Free key from <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a> for OSHA inspections and penalties.</p>
+          <div class="env-secret-row">
+            <input id="env-dol-key" name="dol_api_key" type="password" placeholder="${dol.configured ? 'Leave blank to keep existing key, or paste new key' : 'Paste your DOL X-API-KEY'}" spellcheck="false" autocomplete="off">
+            <button type="button" class="btn btn-sm" data-env-reveal="env-dol-key" aria-label="Show or hide DOL key">${icon('eye')}</button>
+          </div>
+          ${dol.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-dol-clear" name="clear_dol_api_key"> Remove saved DOL key</label>` : ''}
+        </div>
+
+        <div class="env-field">
+          <div class="env-field-head">
+            <label for="env-ant-key">Anthropic API Key <code>ANTHROPIC_API_KEY</code></label>
+            ${ant.configured ? statPill('synced', `Saved (${ant.masked || 'set'})`) : statPill('uninstalled', 'Not set')}
+          </div>
+          <p class="env-field-help">From <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> to enable the Ask Claude side panel.</p>
+          <div class="env-secret-row">
+            <input id="env-ant-key" name="anthropic_api_key" type="password" placeholder="${ant.configured ? 'Leave blank to keep existing key, or paste new key' : 'sk-ant-…'}" spellcheck="false" autocomplete="off">
+            <button type="button" class="btn btn-sm" data-env-reveal="env-ant-key" aria-label="Show or hide Anthropic key">${icon('eye')}</button>
+          </div>
+          ${ant.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-ant-clear" name="clear_anthropic_api_key"> Remove saved Anthropic key</label>` : ''}
+        </div>
+
+        <details class="env-advanced"${focusKey === 'news_sync' ? ' open' : ''}>
+          <summary>Advanced options (Claude model &amp; News sync)</summary>
+          <div class="env-advanced-body">
+            <div class="env-field">
+              <label for="env-ant-model">Preferred Claude Model <code>ANTHROPIC_MODEL</code></label>
+              <input id="env-ant-model" name="anthropic_model" type="text" value="${escapeHtml(model)}" placeholder="${escapeHtml(modelDefault)}" spellcheck="false">
+            </div>
+            <div class="env-field-row">
+              <label class="env-toggle-row"><input type="checkbox" id="env-news-sync" name="news_sync"${newsSync ? ' checked' : ''}> <span>Enable background news sync (<code>NEWS_SYNC</code>)</span></label>
+              <div class="env-days-field">
+                <label for="env-news-retention">Retention (days)</label>
+                <input id="env-news-retention" name="news_retention_days" type="number" min="1" max="3650" value="${Number(retDays)}">
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="env-preview-wrap">
+          <span class="env-preview-label">Preview of <code>reader/.env</code></span>
+          <pre class="env-preview" id="env-preview"></pre>
+        </div>
+
+        <p class="modal-error" id="env-modal-error" hidden></p>
+
+        <div class="modal-foot">
+          <button type="button" class="btn" data-env-close>Cancel</button>
+          <button type="submit" class="btn btn-accent" id="env-modal-save">${icon('check')} Save to reader/.env</button>
+        </div>
+      </form>`;
+
+    const form = document.getElementById('env-modal-form');
+    const preview = document.getElementById('env-preview');
+    const syncPreview = () => { if (preview) preview.textContent = envPreviewText(form, envModalSnapshot); };
+    syncPreview();
+    form.addEventListener('input', syncPreview);
+    form.addEventListener('change', syncPreview);
+    form.addEventListener('submit', submitEnvModal);
+
+    requestAnimationFrame(() => {
+      const targetId = focusKey === 'dol_api_key' ? 'env-dol-key'
+        : focusKey === 'anthropic_api_key' ? 'env-ant-key'
+        : focusKey === 'news_sync' ? 'env-news-sync'
+        : 'env-dol-key';
+      (document.getElementById(targetId) || envModalDialog.querySelector('input, button'))?.focus();
+    });
+  }
+
+  async function openEnvModal(focusKey = '') {
+    if (!envModalEl || !envModalDialog) return;
+    envModalReturnFocus = document.activeElement;
+    envModalDialog.innerHTML = `<div class="modal-head"><h2 id="env-modal-title" class="modal-title">Configure reader/.env</h2>
+      <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon('close')}</button></div>
+      <div class="modal-body"><div class="loading">Loading current configuration…</div></div>`;
+    envModalEl.hidden = false;
+    try {
+      envModalSnapshot = await getJSON('/api/settings/env');
+      navEnvStatus = envModalSnapshot;
+      renderEnvModal(envModalSnapshot, focusKey);
+    } catch (err) {
+      envModalSnapshot = { env_exists: false, env_file: 'reader/.env', keys: {} };
+      renderEnvModal(envModalSnapshot, focusKey);
+    }
+  }
+
+  function closeEnvModal(restoreFocus = true) {
+    if (!envModalEl || envModalEl.hidden) return;
+    envModalEl.hidden = true;
+    if (restoreFocus && envModalReturnFocus && document.contains(envModalReturnFocus)) {
+      envModalReturnFocus.focus();
+    }
+    envModalReturnFocus = null;
+  }
+
+  async function refreshModelsConfig() {
+    try {
+      const modelsRes = await fetch('/api/' + currentTitle + '/models');
+      if (!modelsRes.ok) return;
+      chatConfig = await modelsRes.json();
+      if (chatConfig.configured && chatConfig.models.length > 0) {
+        dom.modelSelect.innerHTML = chatConfig.models.map(m => `
+          <option value="${escapeHtml(m.id)}" ${m.id === chatConfig.default ? 'selected' : ''}>
+            ${escapeHtml(m.name)}
+          </option>
+        `).join('');
+        dom.modelSelect.hidden = false;
+      } else {
+        dom.modelSelect.innerHTML = '';
+        dom.modelSelect.hidden = true;
+      }
+      if (!dom.chat.hidden && chatHistory.length === 0 && !isGenerating) renderChatWelcome();
+    } catch (e) { /* keep existing chatConfig */ }
+  }
+
+  async function submitEnvModal(e) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const saveBtn = document.getElementById('env-modal-save');
+    const errEl = document.getElementById('env-modal-error');
+    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+    if (saveBtn) saveBtn.disabled = true;
+
+    const payload = {
+      dol_api_key: form.dol_api_key ? form.dol_api_key.value : null,
+      clear_dol_api_key: Boolean(form.clear_dol_api_key && form.clear_dol_api_key.checked),
+      anthropic_api_key: form.anthropic_api_key ? form.anthropic_api_key.value : null,
+      clear_anthropic_api_key: Boolean(form.clear_anthropic_api_key && form.clear_anthropic_api_key.checked),
+      anthropic_model: form.anthropic_model ? form.anthropic_model.value : null,
+      news_sync: Boolean(form.news_sync && form.news_sync.checked),
+      news_retention_days: form.news_retention_days ? Number(form.news_retention_days.value) || 365 : 365,
+    };
+
+    try {
+      const res = await getJSON('/api/settings/env', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      navEnvStatus = res.status;
+      envModalSnapshot = res.status;
+      const [newsSt] = await Promise.all([
+        getJSON('/api/news/status').catch(() => null),
+        refreshModelsConfig(),
+      ]);
+      if (newsSt) navNewsStatus = newsSt;
+      closeEnvModal(true);
+      const queued = (res.news_sync_queued || []).length > 0;
+      showToast(queued ? 'Saved to reader/.env · Syncing DOL enforcement data…' : 'Saved to reader/.env — active immediately');
+      if (navState.panel === 'settings') renderSettingsPanel();
+      if (activeRoute === '/help' || activeRoute === '/help/') renderHelp(navEnvStatus);
+      else if (routeTarget() === 'news') handleRoute();
+    } catch (err) {
+      if (errEl) { errEl.textContent = err.message || 'Could not save reader/.env'; errEl.hidden = false; }
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  if (envModalEl) {
+    envModalEl.addEventListener('click', (e) => {
+      if (e.target === envModalEl || e.target.closest('[data-env-close]')) {
+        closeEnvModal(true);
+        return;
+      }
+      const rev = e.target.closest('[data-env-reveal]');
+      if (rev) {
+        const inp = document.getElementById(rev.dataset.envReveal);
+        if (inp) {
+          const show = inp.type === 'password';
+          inp.type = show ? 'text' : 'password';
+          rev.innerHTML = icon(show ? 'eyeOff' : 'eye');
+        }
+      }
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && envModalEl && !envModalEl.hidden) {
+      e.preventDefault();
+      closeEnvModal(true);
+    }
+  });
+  document.addEventListener('click', (e) => {
+    const trigger = e.target.closest('[data-open-env]');
+    if (trigger) {
+      e.preventDefault();
+      openEnvModal(trigger.dataset.openEnv || '');
+      return;
+    }
+    const copyBtn = e.target.closest('[data-copy-url]');
+    if (copyBtn) {
+      const url = copyBtn.dataset.copyUrl;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(() => showToast('RSS feed URL copied')).catch(() => showToast(url, 5000));
+      } else {
+        showToast(url, 5000);
+      }
+    }
+  });
+
+  async function loadStorage() {
+    try { navStorage = await getJSON('/api/library/storage'); } catch (e) { navStorage = { titles: [], legacy_bytes: 0, temp_files: 0, temp_bytes: 0, total_bytes: 0 }; }
+    if (navState.panel === 'settings') renderSettingsPanel();
+  }
+
+  // --- Recent panel (re-click Overview or Home): reading history and recent pins ---
+  function renderHistoryPanel() {
+    const u = loadUsage();
+    const rows = Object.entries(u.s).map(([key, e]) => ({ key, title: Number(key.split('|')[0]), id: key.slice(key.indexOf('|') + 1), ...e }))
+      .sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 24);
+    const dayOf = (ms) => {
+      const d = new Date(ms); const today = new Date();
+      const days = Math.floor((new Date(today.toDateString()) - new Date(d.toDateString())) / 86400000);
+      return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 7 ? 'This week' : 'Earlier';
+    };
+    let lastDay = '';
+    const list = rows.map(r => {
+      const day = dayOf(r.t);
+      const label = day !== lastDay ? `<div class="dr-day">${day}</div>` : '';
+      lastDay = day;
+      return `${label}<a class="dr-item" href="#/title/${r.title}/section/${encodeURIComponent(r.id)}">
+        <span class="dr-item-top"><span class="dr-item-kicker">${escapeHtml(r.l || '§ ' + r.id)}<span class="sep" aria-hidden="true">·</span>Title ${r.title}</span><span class="dr-time">${escapeHtml(timeAgo(r.t))}</span></span>
+        <span class="dr-item-name">${escapeHtml(r.h || '')}</span></a>`;
+    }).join('');
+    const pins = loadProjects().flatMap(p => p.sections.map(s => ({ ...s, project: p }))).sort((a, b) => (b.pinned_at || '').localeCompare(a.pinned_at || '')).slice(0, 6);
+    setPanel('history', `
+      <section class="dr-sec">${drLabel('Recently read')}${list || drEmpty('Nothing read yet', 'Sections you open appear here, newest first.')}</section>
+      ${pins.length ? `<section class="dr-sec">${drLabel('Recent pins')}${pins.map(s => `<a class="dr-item" href="#/title/${s.title}/section/${encodeURIComponent(s.id)}">
+          <span class="dr-item-top"><span class="dr-item-kicker">§ ${escapeHtml(s.id)}<span class="sep" aria-hidden="true">·</span>${escapeHtml(s.project.name)}</span></span>
+          <span class="dr-item-name">${escapeHtml(s.heading || '')}</span></a>`).join('')}</section>` : ''}`);
+  }
+
+  // Panel controls (delegated): settings, library actions, drawer header actions.
+  dom.sidebar.addEventListener('click', async (e) => {
+    const set = e.target.closest('[data-set]');
+    if (set) {
+      if (set.dataset.set === 'theme') setTheme(set.dataset.value);
+      else if (set.dataset.set === 'mode') setNavMode(set.dataset.value);
+      return;
+    }
+    const navAct = e.target.closest('[data-nav-act]');
+    if (navAct && navAct.dataset.navAct === 'new-project') { showNewProjectForm(); return; }
+    const prune = e.target.closest('[data-set-act="prune"]');
+    if (prune) {
+      prune.disabled = true;
+      try {
+        const res = await getJSON('/api/library/storage/prune', { method: 'POST' });
+        showToast(res.removed ? `Removed ${plural(res.removed, 'temporary file')} (${fmtBytes(res.freed_bytes)})` : 'Nothing to clean up');
+      } catch (err) { showToast(err.message, 5000); }
+      navStorage = null;
+      renderSettingsPanel();
+      return;
+    }
+    const dockBtn = e.target.closest('[data-dock]');
+    if (dockBtn) { onDockAction(dockBtn); return; }
+    const act = e.target.closest('button[data-act]');
+    if (act && (act.dataset.act === 'download-suite' || act.dataset.act === 'update-all')) {
+      act.disabled = true;
+      try {
+        if (act.dataset.act === 'download-suite') await queueBatch('/api/library/batch-download', { suite: act.dataset.suite }, 'Every title in this suite is installed and current');
+        else await queueBatch('/api/library/update-all', null, 'Every installed title is already current');
+      } catch (err) { showToast(err.message, 5000); act.disabled = false; }
+    }
+  });
+
+  dom.sidebar.addEventListener('input', (e) => {
+    if (e.target.id === 'set-size') {
+      const v = Number(e.target.value);
+      lsSet('fontSize', String(v));
+      document.documentElement.style.setProperty('--reader-size', v + 'px');
+      const out = document.getElementById('set-size-val');
+      if (out) out.textContent = `${v} px`;
+    }
+  });
+  dom.sidebar.addEventListener('change', (e) => {
+    if (e.target.matches('[data-set-model]')) {
+      dom.modelSelect.value = e.target.value;
+      dom.modelSelect.dispatchEvent(new Event('change'));
+    }
+  });
+
+  // --- Drawer width (drag the right edge; double-click resets) ---
   function setSidebarWidth(px, save) {
     const w = Math.round(Math.min(560, Math.max(220, px)));
     document.documentElement.style.setProperty('--sidebar-w', w + 'px');
     dom.sidebarResizer.setAttribute('aria-valuenow', String(w));
-    if (save) lsSet('sidebarW', String(w));
+    if (save) { navState.width = w; saveNav(); }
   }
-
-  dom.navBackdrop.addEventListener('click', () => document.body.classList.remove('nav-open'));
 
   dom.sidebarResizer.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
@@ -2480,9 +5454,10 @@
   dom.sidebarResizer.addEventListener('dblclick', () => {
     document.documentElement.style.removeProperty('--sidebar-w');
     dom.sidebarResizer.setAttribute('aria-valuenow', String(Math.round(dom.sidebar.getBoundingClientRect().width)));
-    lsSet('sidebarW', '');
+    navState.width = null;
+    saveNav();
   });
-  dom.sidebarResizer.setAttribute('aria-valuenow', String(Math.round(dom.sidebar.getBoundingClientRect().width) || 300));
+  dom.sidebarResizer.setAttribute('aria-valuenow', String(Math.round(dom.sidebar.getBoundingClientRect().width) || 288));
 
   // --- Claude Chat Assistant ---
   function toggleChat() {
@@ -2496,6 +5471,7 @@
   function openChat() {
     dom.chat.hidden = false;
     dom.layout.classList.add('chat-open');
+    applyNav();
     dom.chatToggle.classList.add('is-active');
     dom.chatToggle.setAttribute('aria-expanded', 'true');
     if (chatHistory.length === 0) {
@@ -2508,6 +5484,7 @@
     const hadFocus = dom.chat.contains(document.activeElement);
     dom.chat.hidden = true;
     dom.layout.classList.remove('chat-open');
+    applyNav();
     dom.chatToggle.classList.remove('is-active');
     dom.chatToggle.setAttribute('aria-expanded', 'false');
     if (hadFocus) dom.chatToggle.focus();
@@ -2532,11 +5509,12 @@
           <p>Reading and search work without it. To ask questions and summarize sections, add an Anthropic API key:</p>
           <ol>
             <li>Create a key at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a></li>
-            <li>Add it to <code>reader/.env</code>:
-              <pre>ANTHROPIC_API_KEY=sk-ant-…</pre>
-            </li>
-            <li>Restart the reader.</li>
+            <li>Save it to <code>reader/.env</code> using the built-in key editor (no restart required).</li>
           </ol>
+          <div class="setup-card-actions">
+            <button type="button" class="btn btn-sm btn-accent" data-open-env="anthropic_api_key">${icon('key')} Enter Anthropic Key</button>
+            <a class="btn btn-sm" href="#/help">${icon('help')} Setup Guide</a>
+          </div>
         </div>
       `;
       return;
@@ -2808,23 +5786,12 @@
 
   // --- Theme & Nav Toggles ---
   dom.themeToggle.addEventListener('click', () => {
-    const cur = document.documentElement.dataset.theme;
-    const next = cur === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    lsSet('theme', next);
+    setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
   });
 
   const chatKbd = document.getElementById('chat-kbd');
-  if (chatKbd) chatKbd.textContent = isMac ? '⌘K' : 'Ctrl K';
+  if (chatKbd) chatKbd.textContent = isMac ? '⌘J' : 'Ctrl J'; // ⌘K is search
 
-  dom.navToggle.addEventListener('click', () => {
-    if (isMobile()) {
-      document.body.classList.toggle('nav-open');
-      if (document.body.classList.contains('nav-open')) requestAnimationFrame(() => revealCurrent());
-    } else {
-      setSidebarHidden(!document.documentElement.classList.contains('sidebar-hidden'));
-    }
-  });
 
   // --- Init ---
   async function init() {
@@ -2837,33 +5804,18 @@
           await switchTitle(installedTitles[0].title);
         }
         fillTitleSelect();
+        updateRailHome();
       }
 
-      const [metaRes, modelsRes] = await Promise.all([
+      const [metaRes] = await Promise.all([
         fetch('/api/' + currentTitle + '/meta'),
-        fetch('/api/' + currentTitle + '/models'),
+        refreshModelsConfig(),
         ensureTreeLoaded()
       ]);
 
       if (metaRes.ok) {
         metaInfo = await metaRes.json();
         dom.edition.textContent = `eCFR ${metaInfo.edition || ''}`;
-      }
-
-      if (modelsRes.ok) {
-        chatConfig = await modelsRes.json();
-        if (chatConfig.configured && chatConfig.models.length > 0) {
-          dom.modelSelect.innerHTML = chatConfig.models.map(m => `
-            <option value="${escapeHtml(m.id)}" ${m.id === chatConfig.default ? 'selected' : ''}>
-              ${escapeHtml(m.name)}
-            </option>
-          `).join('');
-          dom.modelSelect.hidden = false;
-        } else {
-          // No key, or the key was rejected: the chat panel explains; an empty picker only adds noise.
-          dom.modelSelect.innerHTML = '';
-          dom.modelSelect.hidden = true;
-        }
       }
     } catch (e) {
       console.warn('Initialization warnings:', e);

@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Response
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field
 
 import httpx
 
-from . import build, chat, config, library, store
+from . import build, chat, config, library, news_store, news_worker, store
+from .news_api import news_router
 
 
 @asynccontextmanager
@@ -20,7 +21,12 @@ async def lifespan(_: FastAPI):
     if not config.installed_titles():
         build.build(title=config.DEFAULT_TITLE, force=True)
     store.reset_connections()
+    # The news worker only runs in a real server (tests never run lifespan).
+    if config.news_sync_enabled():
+        news_store.init_db()
+        news_worker.start()
     yield
+    news_worker.stop()
     store.reset_connections()
 
 
@@ -52,6 +58,16 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     section_id: str | None = None
     model: str
+
+
+class EnvUpdateRequest(BaseModel):
+    dol_api_key: str | None = Field(default=None, max_length=500)
+    clear_dol_api_key: bool = False
+    anthropic_api_key: str | None = Field(default=None, max_length=500)
+    clear_anthropic_api_key: bool = False
+    anthropic_model: str | None = Field(default=None, max_length=120)
+    news_sync: bool | None = None
+    news_retention_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 def require_key() -> None:
@@ -93,6 +109,57 @@ def list_titles() -> list[dict]:
     return results
 
 
+@app.get("/api/settings/env")
+def get_settings_env(response: Response) -> dict:
+    """Return reader/.env status and masked key previews (never raw secret values)."""
+    response.headers["Cache-Control"] = "no-store"
+    return config.env_status()
+
+
+@app.post("/api/settings/env")
+def update_settings_env(req: EnvUpdateRequest, response: Response) -> dict:
+    """Create or update reader/.env and apply changes live without requiring a restart."""
+    response.headers["Cache-Control"] = "no-store"
+    prev_sync = config.news_sync_enabled()
+    updates: dict[str, str | None] = {}
+
+    if req.clear_dol_api_key:
+        updates["DOL_API_KEY"] = None
+    elif req.dol_api_key is not None and req.dol_api_key.strip():
+        updates["DOL_API_KEY"] = req.dol_api_key.strip()
+
+    if req.clear_anthropic_api_key:
+        updates["ANTHROPIC_API_KEY"] = None
+    elif req.anthropic_api_key is not None and req.anthropic_api_key.strip():
+        updates["ANTHROPIC_API_KEY"] = req.anthropic_api_key.strip()
+
+    if req.anthropic_model is not None:
+        updates["ANTHROPIC_MODEL"] = req.anthropic_model.strip() or None
+    if req.news_sync is not None:
+        updates["NEWS_SYNC"] = "1" if req.news_sync else "0"
+    if req.news_retention_days is not None:
+        updates["NEWS_RETENTION_DAYS"] = str(req.news_retention_days)
+
+    try:
+        status = config.write_env_updates(updates)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    now_sync = config.news_sync_enabled()
+    if req.news_sync is not None and now_sync != prev_sync:
+        if now_sync:
+            news_store.init_db()
+            news_worker.start()
+        else:
+            news_worker.stop()
+
+    queued: list[str] = []
+    if updates.get("DOL_API_KEY") and now_sync and not news_worker.is_syncing():
+        queued = news_worker.request_sync(force=False)
+
+    return {"status": status, "news_sync_queued": queued}
+
+
 # ---------------------------------------------------------------------------
 # Library: browse eCFR and download titles, parts or sections
 # ---------------------------------------------------------------------------
@@ -102,6 +169,11 @@ class DownloadRequest(BaseModel):
     part: str | None = Field(default=None, max_length=40)
     section: str | None = Field(default=None, max_length=200)
     kind: str = Field(default="section", pattern="^(section|appendix)$")  # what `section` names
+
+
+class BatchDownloadRequest(BaseModel):
+    titles: list[int] | None = Field(default=None, max_length=50)
+    suite: str | None = Field(default=None, max_length=40)
 
 
 def _library_call(fn, *args):
@@ -115,12 +187,73 @@ def _library_call(fn, *args):
 
 @app.get("/api/library")
 def library_catalog() -> dict:
-    return {"titles": _library_call(library.catalog), "jobs": library.queue.snapshot()}
+    return {
+        "titles": _library_call(library.catalog),
+        "desks": library.DESKS,
+        "suites": library.suites(),
+        "checked_at": library.catalog_checked_at(),
+        "jobs": library.queue.snapshot(),
+    }
 
 
 @app.get("/api/library/jobs")
 def library_jobs() -> dict:
     return library.queue.snapshot()
+
+
+@app.post("/api/library/jobs/{job_id}/cancel")
+def library_cancel(job_id: int) -> dict:
+    job = library.queue.cancel(job_id)
+    if job is None:
+        raise HTTPException(404, "That download has already finished.")
+    return job
+
+
+@app.post("/api/library/jobs/clear")
+def library_clear_queue() -> dict:
+    gone = library.queue.clear()
+    return {"cancelled": gone, "count": len(gone)}
+
+
+@app.get("/api/library/storage")
+def library_storage() -> dict:
+    """Disk use per installed title, plus leftover temporary files from unfinished builds."""
+    return library.storage()
+
+
+@app.post("/api/library/storage/prune")
+def library_prune() -> dict:
+    try:
+        return library.prune_temp()
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/library/wire")
+def library_wire() -> list[dict]:
+    """The most recently amended titles and what eCFR changed in each."""
+    return _library_call(library.wire)
+
+
+@app.post("/api/library/batch-download")
+def library_batch_download(req: BatchDownloadRequest) -> dict:
+    if req.suite:
+        suite = library.COMPLIANCE_SUITES.get(req.suite)
+        if not suite:
+            raise HTTPException(404, f"No suite {req.suite!r}.")
+        titles = suite["titles"]
+    elif req.titles:
+        if any(not 1 <= t <= 50 for t in req.titles):
+            raise HTTPException(400, "CFR titles are numbered 1 to 50.")
+        titles = req.titles
+    else:
+        raise HTTPException(400, "Give a suite or a list of titles.")
+    return _library_call(library.queue_titles, titles)
+
+
+@app.post("/api/library/update-all")
+def library_update_all() -> dict:
+    return _library_call(library.update_all)
 
 
 @app.get("/api/library/{title}")
@@ -179,6 +312,14 @@ async def search_global(
     """Search within a specific title, or across all installed titles if title='all' or omitted."""
     target_title = title if title else config.DEFAULT_TITLE
     return await asyncio.to_thread(store.search, q, part=part, limit=limit, title=target_title)
+
+
+# ---------------------------------------------------------------------------
+# News: /api/news/... — MUST be registered before the title router below, or
+# /api/news/section/{id} would be captured by /api/{title}/section/... as a 422.
+# ---------------------------------------------------------------------------
+
+app.include_router(news_router)
 
 
 # ---------------------------------------------------------------------------
