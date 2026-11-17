@@ -69,11 +69,12 @@ The **News** page works out of the box for Federal Register rulemaking. To also 
 - **`reader/`** — The workstation itself: a FastAPI + SQLite FTS5 backend and a vanilla-JS/TypeScript frontend (sources in `reader/frontend/`, built by Vite into the committed `reader/static/dist/`). See [`reader/README.md`](reader/README.md) for the full user guide and [`reader/API.md`](reader/API.md) if you want to use the HTTP API directly.
 
   Contributing to the frontend (only then do you need Node 20+): `cd reader/frontend && npm install && npm run watch` beside the uvicorn dev server, then commit the rebuilt `reader/static/dist/` (`.nvmrc` pins the Node version; `tests/test_build_stamp.py` fails if sources and the committed build drift apart).
-- **`docs/plans/`** — Design notes and roadmaps:
-  - `editorial_download_refactor/` & `sliding_rail_sidebar/` — Blueprints for the newsroom library, transfer dock, activity rail, and project dossiers (implemented in `reader/`).
-  - `osha_news_interface/` — The plan behind the OSHA regulatory news page (implemented in `reader/`).
-  - `roadmap/HSE_PLATFORM_ROADMAP.md` — Long-term ideas for where this could go next (MCP server, policy linter, hybrid search, team bots; not yet built).
-  - `roadmap/phase-1_multi-title/` — Historical notes from when multi-title support was added.
+- **`docs/plans/`** — Design notes and roadmaps (organized in a **10-series** by subject; see [`docs/plans/README.md`](docs/plans/README.md)):
+  - `10_platform_and_architecture/` — Multi-title foundation (`11_multi_title_foundation/`) and repo stabilization (`12_repo_structure_stabilization/`).
+  - `20_app_shell_and_workspace/` — Sliding rail sidebar (`21_sliding_rail_sidebar/`), newsroom library & Transfer Dock (`22_editorial_download_refactor/`), and Home screen refactor (`23_home_screen_refactor/`).
+  - `30_cfr_reader_and_citations/` — CFR Reader evolution & citation graph (`31_reader_development/`).
+  - `40_regulatory_intelligence_and_dol/` — Implemented OSHA newsroom & case file (`41_osha_news_interface/`) and planned DOL API v4 expansion (`42_dol_api_expansion/`, not yet executed).
+  - `50_long_term_strategy/` — Multi-horizon HSE strategic blueprint (`51_hse_platform_roadmap/HSE_PLATFORM_ROADMAP.md`; not yet built).
 - **`docs/notes/`** — Lightweight dev notes for ongoing cleanup and follow-ups.
 - **`CLAUDE.md`** — Detailed technical notes for anyone working on the code.
 

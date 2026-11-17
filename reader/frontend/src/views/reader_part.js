@@ -9,7 +9,7 @@ import { docStepBtn, docStepHtml, firstSectionOf, partNeighbors, setViewHead } f
 import { cleanInlineLabel, enterView, escapeHtml, icon, skeletonHtml } from '../dom';
 import { dom } from '../state_init';
 import { recordPartVisit } from '../usage';
-import { enhanceDomAnchors } from './doc_utils';
+import { enhanceDomAnchors, renderViewError } from './doc_utils';
 
 // --- Load Part Table of Contents ---
 export async function loadPart(partId) {
@@ -100,7 +100,9 @@ export async function loadPart(partId) {
     if (err && err.name === 'AbortError') return;
     console.error(err);
     setViewHead('');
-    dom.view.innerHTML = `<div class="msg-error">Failed to load part: ${escapeHtml(err.message)}</div>`;
+    renderViewError(dom.view, 'Failed to load part', err?.message || 'Unexpected error', {
+      onRetry: () => loadPart(partId),
+    });
   }
 }
 
@@ -210,7 +212,9 @@ export async function loadPartFull(partId, params) {
     if (err && err.name === 'AbortError') return;
     console.error(err);
     setViewHead('');
-    dom.view.innerHTML = `<div class="msg-error">Failed to load part: ${escapeHtml(err.message)}</div>`;
+    renderViewError(dom.view, 'Failed to load part', err?.message || 'Unexpected error', {
+      onRetry: () => loadPartFull(partId, params),
+    });
   }
 }
 

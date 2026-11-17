@@ -88,6 +88,23 @@ class UpsertTests(StoreTestCase):
             self.assertEqual([(r["part_id"], r["section_id"]) for r in rows],
                              [("1910", "1910.1030"), ("1926", "1926.501")])
 
+    def test_enforcement_case_and_summary_stored(self):
+        art = news.enrich_item(news.build_enforcement_article(
+            DOL_INSPECTIONS[0], news.group_violations(DOL_VIOLATIONS, 50)[306953084]))
+        with closing(news_store.connect()) as con:
+            news_store.upsert_article(con, art)
+            con.commit()
+            case = news_store.get_enforcement_case(con, 306953084)
+            self.assertIsNotNone(case)
+            self.assertEqual(len(case["violations"]), 4)
+            self.assertEqual(case["violations"][0]["section_id"], "1910.1030")
+            self.assertEqual(case["violations"][0]["para"], "(g)(2)(ii)(A)")
+            summary = news_store.enforcement_summary(con)
+            self.assertEqual(summary["total_cases"], 1)
+            self.assertEqual(summary["total_penalty_usd"], 30000.0)
+            self.assertEqual(summary["gravity_counts"]["W"], 1)
+            self.assertEqual(summary["largest_case"]["activity_nr"], 306953084)
+
     def test_delete_cascades_citations(self):
         item = news.enrich_item(news.fr_document_item(FR_DOC_RULE, AGENCY))
         with closing(news_store.connect()) as con:

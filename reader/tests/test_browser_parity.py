@@ -378,6 +378,25 @@ class BehaviorTests(BrowserCase):
         self.assertIn("Enforcement", text)
         self.assert_no_external_requests()
 
+    def test_news_inspection_case_file_and_popover_link(self):
+        # 1. Reader activity popover on § 1910.134 routes enforcement links in-app (#/news/inspection/{id})
+        page = self.open_page("/title/29/section/1910.134", "#btn-news-activity:not([hidden])")
+        page.click("#btn-news-activity")
+        page.wait_for_selector("#news-pop:not([hidden]) a[href='#/news/inspection/307000001']", timeout=15000)
+        page.click("#news-pop a[href='#/news/inspection/307000001']")
+        page.wait_for_selector(".ins-front .ins-table", timeout=15000)
+        text = page.inner_text("#view")
+        self.assertIn("Acme Foundry", text)
+        self.assertIn("1910.134(a)(1)", text)
+        self.assertIn("$25,000", text)
+        # 2. Direct inspection route for multi-citation case (306953084) shows paragraph-parsed standards
+        page.goto(f"{ENV.base_url}/#/news/inspection/306953084")
+        page.wait_for_selector(".ins-front .ins-table", timeout=15000)
+        case_text = page.inner_text("#view")
+        self.assertIn("1910.1030(g)(2)(ii)(A)", case_text)
+        self.assertIn("1926.501(b)(13)", case_text)
+        self.assert_no_external_requests()
+
     def test_first_run_profile_picker_when_empty(self):
         import json as _json
         page = self.context.new_page()

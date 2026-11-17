@@ -83,16 +83,19 @@ def _is_swapping(title: int) -> bool:
 
 
 def clear_caches() -> None:
+    from .citations import graph
     known_ids.cache_clear()
     known_parts.cache_clear()
     section_html.cache_clear()
     unit_html.cache_clear()
     _section_doc.cache_clear()
     meta.cache_clear()
+    graph.clear_caches()
 
 
 def reset_connections() -> None:
     """Close all open connections and clear in-memory LRU caches."""
+    from .citations import graph
     with _registry_lock:
         for t in {t for t, _ in _registry} | set(_generation):
             _generation[t] = _generation.get(t, 0) + 1
@@ -110,6 +113,7 @@ def reset_connections() -> None:
     unit_html.cache_clear()
     _section_doc.cache_clear()
     meta.cache_clear()
+    graph.clear_caches()
 
 
 @lru_cache(maxsize=64)

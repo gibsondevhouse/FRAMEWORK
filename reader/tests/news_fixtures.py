@@ -232,12 +232,37 @@ class FakeAPI:
         if path == "/api/v1/public-inspection-documents.json":
             return httpx.Response(200, json=self.pi, request=request)
         if path == "/v4/get/OSHA/violation/json":
-            return httpx.Response(200, json={"data": self.violations}, request=request)
+            filt = json.loads(request.url.params.get("filter_object") or "{}")
+            op = filt.get("operator")
+            val = filt.get("value")
+            if op == "eq":
+                rows = [r for r in self.violations if r["activity_nr"] == val]
+            elif op == "in":
+                wanted = set(val or [])
+                rows = [r for r in self.violations if r["activity_nr"] in wanted]
+            else:
+                rows = self.violations
+            return httpx.Response(200, json={"data": rows}, request=request)
         if path == "/v4/get/OSHA/inspection/json":
             filt = json.loads(request.url.params.get("filter_object") or "{}")
-            wanted = set(filt.get("value") or [])
+            val = filt.get("value")
+            wanted = {val} if filt.get("operator") == "eq" else set(val or [])
             rows = [r for r in self.inspections if r["activity_nr"] in wanted]
             return httpx.Response(200, json={"data": rows}, request=request)
+        if path == "/v4/get/OSHA/violation_event/json":
+            return httpx.Response(200, json={"data": [
+                {"activity_nr": 306953084, "citation_id": "01001", "hist_event": "I",
+                 "hist_date": "2026-11-10T00:00:00", "hist_penalty": "11000"},
+                {"activity_nr": 306953084, "citation_id": "01001", "hist_event": "M",
+                 "hist_date": "2026-11-12T00:00:00", "hist_penalty": "14000"},
+            ]}, request=request)
+        if path == "/v4/get/OSHA/violation_gen_duty_std/json":
+            return httpx.Response(200, json={"data": [
+                {"activity_nr": 306953084, "citation_id": "01004", "line_nr": 1,
+                 "line_text": "Employer failed to furnish employment free from recognized hazards."},
+            ]}, request=request)
+        if path in ("/v4/get/OSHA/accident_injury/json", "/v4/get/OSHA/accident/json", "/v4/get/OSHA/accident_abstract/json"):
+            return httpx.Response(200, json={"data": []}, request=request)
         raise AssertionError(f"unexpected request: {request.url}")
 
     def patch_client(self):

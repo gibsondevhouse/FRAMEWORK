@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 
 from .. import config, library, news_store, profiles, store
+from ..citations import graph
 from . import deps
 
 titles_router = APIRouter()
@@ -177,6 +178,22 @@ async def search_title(
     title: int = Depends(deps.valid_installed_title),
 ) -> dict:
     return await asyncio.to_thread(store.search, q, part=part, limit=limit, title=title)
+
+
+@title_router.get("/references")
+async def get_title_references(title: int = Depends(deps.valid_installed_title)) -> dict:
+    return await asyncio.to_thread(graph.get_references, title)
+
+
+@title_router.get("/citations/{section_id:path}")
+async def get_section_citations(
+    section_id: str,
+    title: int = Depends(deps.valid_installed_title),
+) -> dict:
+    res = await asyncio.to_thread(graph.get_section_graph, title, section_id)
+    if not res:
+        raise HTTPException(404, f"No section {section_id!r} in Title {title}")
+    return res
 
 
 # --- Legacy un-prefixed aliases for Title 29 (backward compatibility) ---

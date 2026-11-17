@@ -5,13 +5,17 @@ var state = {
 	homeSnapshot: void 0,
 	noTitles: false,
 	profilesData: void 0,
-	treeData: void 0,
+	treeData: null,
 	currentSection: null,
 	currentPart: null,
 	activeRoute: "",
 	metaInfo: {},
-	chatConfig: void 0,
-	chatHistory: void 0,
+	chatConfig: {
+		configured: false,
+		models: [],
+		default: null
+	},
+	chatHistory: [],
 	isGenerating: false,
 	routeSeq: 0,
 	jobs: {
@@ -23,7 +27,7 @@ var state = {
 	jobsSeenActive: /* @__PURE__ */ new Set(),
 	lastJobsKey: "",
 	railObserver: null,
-	searchState: void 0,
+	searchState: null,
 	searchTimer: void 0,
 	sdActive: void 0,
 	visited: /* @__PURE__ */ new Set(),
@@ -39,7 +43,7 @@ var state = {
 	newProjectOpen: void 0,
 	projEditT: void 0,
 	newsQTimer: void 0,
-	newsActivityCtx: void 0,
+	newsActivityCtx: null,
 	navRetracted: void 0,
 	historyFor: void 0,
 	goPending: void 0,
@@ -53,7 +57,9 @@ var state = {
 	routeAbort: null,
 	splitState: null,
 	pendingDownloads: /* @__PURE__ */ new Map(),
-	peekCache: /* @__PURE__ */ new Map()
+	peekCache: /* @__PURE__ */ new Map(),
+	graphCache: /* @__PURE__ */ new Map(),
+	refsCache: /* @__PURE__ */ new Map()
 };
 // src/state_init.js
 state.currentTitle = 29;
@@ -77,6 +83,8 @@ state.routeAbort = null;
 state.splitState = null;
 state.pendingDownloads = /* @__PURE__ */ new Map();
 state.peekCache = /* @__PURE__ */ new Map();
+state.graphCache = /* @__PURE__ */ new Map();
+state.refsCache = /* @__PURE__ */ new Map();
 var dom = {
 	topbar: document.querySelector(".topbar"),
 	titleSelect: document.getElementById("title-select"),
@@ -5290,13 +5298,20 @@ function linkifyNewsText(text) {
 function newsSnippetHtml(snippet) {
 	return escapeHtml(snippet || "").replace(/\x02/g, "<mark>").replace(/\x03/g, "</mark>");
 }
+function inspectionActivityNr(a) {
+	if (!a || a.category !== "enforcement" || !a.guid) return null;
+	const m = /^dol-insp:(\d+)$/.exec(String(a.guid));
+	return m ? m[1] : null;
+}
 var newsState = {
 	view: null,
 	data: null,
 	status: null,
 	facets: null,
+	summary: null,
 	watchToken: 0
 };
+var autoEnrichedCases = /* @__PURE__ */ new Set();
 function newsViewFromParams(params) {
 	const get = (k) => (params && params.get(k) || "").trim();
 	return {
@@ -5406,9 +5421,20 @@ async function loadNews(params) {
 	}
 	let data, status;
 	try {
-		const wantFacets = view.cat === "enforcement";
-		[data, status] = await Promise.all([getJSON(newsApiUrl(view)), getJSON("/api/news/status")]);
-		if (wantFacets && status.dol_configured && !newsState.facets) newsState.facets = await getJSON("/api/news/facets");
+		const wantEnf = view.cat === "enforcement";
+		const [feedRes, statusRes] = await Promise.all([getJSON(newsApiUrl(view)), getJSON("/api/news/status")]);
+		data = feedRes;
+		status = statusRes;
+		if (wantEnf) {
+			const extras = [];
+			if (status.dol_configured && !newsState.facets) extras.push(getJSON("/api/news/facets").then((f) => {
+				newsState.facets = f;
+			}).catch(() => {}));
+			extras.push(getJSON("/api/news/enforcement/summary").then((s) => {
+				newsState.summary = s;
+			}).catch(() => {}));
+			await Promise.all(extras);
+		}
 	} catch (e) {
 		if (seq !== state.routeSeq) return;
 		if (cached && cached.data) markNewsOffline(cached.t);
@@ -5435,7 +5461,7 @@ async function loadNews(params) {
 			data: status
 		});
 	}
-	if (!cached || !cached.data || !cachedStatus || !cachedStatus.data || newsChanged(cached.data, data, cachedStatus.data, status)) preservingNewsScroll(() => renderNews(view, data, status, { enter: firstPaint && !(cached && cached.data) }));
+	if (!cached || !cached.data || !cachedStatus || !cachedStatus.data || newsChanged(cached.data, data, cachedStatus.data, status) || view.cat === "enforcement") preservingNewsScroll(() => renderNews(view, data, status, { enter: firstPaint && !(cached && cached.data) }));
 	else {
 		newsState.view = view;
 		newsState.data = data;
@@ -5549,7 +5575,8 @@ function newsBreakingHtml(articles) {
 	const hit = pi || fine;
 	if (!hit) return "";
 	const tag = pi ? "Public inspection" : "Enforcement";
-	const href = pi ? safeHttpUrl(hit.link) : "#/news?cat=enforcement";
+	const actNr = !pi ? inspectionActivityNr(hit) : null;
+	const href = pi ? safeHttpUrl(hit.link) : actNr ? `#/news/inspection/${actNr}` : "#/news?cat=enforcement";
 	const ext = pi && href ? " target=\"_blank\" rel=\"noopener\"" : "";
 	if (!href) return "";
 	return `<a class="news-breaking" href="${escapeHtml(href)}"${ext}>
@@ -5581,15 +5608,18 @@ function newsChipsHtml(a) {
 }
 function newsActionsHtml(a) {
 	const out = [];
-	const srcLabel = a.source === "dol_osha" ? "OSHA establishment search" : "Federal Register";
+	const actNr = inspectionActivityNr(a);
+	if (actNr) out.push(`<a class="btn btn-sm btn-accent" href="#/news/inspection/${actNr}">${icon("file")} Case file</a>`);
+	const srcLabel = a.source === "dol_osha" ? "OSHA.gov" : "Federal Register";
 	const link = safeHttpUrl(a.link);
 	if (link) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(link)}">${icon("external")} ${srcLabel}</a>`);
 	const pdf = safeHttpUrl(a.pdf_url || "");
 	if (pdf) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(pdf)}">${icon("external")} PDF</a>`);
 	const sec = (a.sections || [])[0];
 	const partRef = (a.cfr_parts || [])[0];
-	if (sec) out.push(`<a class="btn btn-sm btn-accent" href="${newsSectionHref(29, sec)}">${icon("book")} Open § ${escapeHtml(sec)}</a>`);
-	else if (partRef) out.push(`<a class="btn btn-sm btn-accent" href="${newsPartHref(partRef.title, partRef.part)}">${icon("book")} Open Part ${escapeHtml(String(partRef.part))}</a>`);
+	const secCls = actNr ? "btn btn-sm" : "btn btn-sm btn-accent";
+	if (sec) out.push(`<a class="${secCls}" href="${newsSectionHref(29, sec)}">${icon("book")} Open § ${escapeHtml(sec)}</a>`);
+	else if (partRef) out.push(`<a class="${secCls}" href="${newsPartHref(partRef.title, partRef.part)}">${icon("book")} Open Part ${escapeHtml(String(partRef.part))}</a>`);
 	return out.join("");
 }
 function newsCardHtml(a, { hero = false } = {}) {
@@ -5599,10 +5629,12 @@ function newsCardHtml(a, { hero = false } = {}) {
 		const text = i === 0 && a.snippet ? newsSnippetHtml(a.snippet) : linkifyNewsText(t.text);
 		return `<dt>${escapeHtml(t.label)}</dt><dd>${text}</dd>`;
 	}).join("");
+	const actNr = inspectionActivityNr(a);
+	const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}">${escapeHtml(a.title)}</a>` : extLink(a.link, escapeHtml(a.title));
 	return `
     <${tag} class="news-card${hero ? " news-hero" : ""}" data-guid="${escapeHtml(a.guid)}" data-cat="${escapeHtml(a.category)}">
       <div class="news-card-top"><span class="news-kicker">${escapeHtml(newsKicker(a))}</span>${figure}</div>
-      <h3 class="news-card-title">${extLink(a.link, escapeHtml(a.title))}</h3>
+      <h3 class="news-card-title">${titleHtml}</h3>
       ${newsBylineHtml(a)}
       ${rows ? `<dl class="news-takeaways">${rows}</dl>` : ""}
       ${newsChipsHtml(a)}
@@ -5689,6 +5721,27 @@ function newsEmptyHtml(view, status) {
       <p class="dr-note">The first sync takes a few seconds.</p></div>`;
 	return "<div class=\"empty-state\"><h2>Nothing here yet</h2><p>No items in this view.</p></div>";
 }
+function enforcementSummaryHtml(view) {
+	const s = newsState.summary;
+	if (view.cat !== "enforcement" || !isDefaultNewsView(view) || !s || !s.total_cases) return "";
+	const g = s.gravity_counts || {};
+	const highGrav = (g.W || 0) + (g.R || 0);
+	const topSec = (s.top_sections || [])[0];
+	const topState = (s.top_states || [])[0];
+	const tile = (label, val, sub) => `
+    <div class="metric-card">
+      <div class="metric-label">${label}</div>
+      <div class="metric-val">${val}</div>
+      <div class="metric-sub">${sub}</div>
+    </div>`;
+	return `
+    <section class="ins-summary-strip" aria-label="Enforcement telemetry">
+      ${tile("Tracked penalties", escapeHtml(fmtMoney(s.total_penalty_usd || 0)), escapeHtml(`${plural(s.total_cases, "case")} · avg ${fmtMoney(s.avg_penalty_usd || 0)}`))}
+      ${tile("High gravity", `${fmt(highGrav)}<span class="metric-of">cases</span>`, joinSep([g.W ? `<button type="button" class="metric-link" data-news-quick-gravity="W">${g.W} Willful</button>` : "0 Willful", g.R ? `<button type="button" class="metric-link" data-news-quick-gravity="R">${g.R} Repeat</button>` : "0 Repeat"]))}
+      ${topSec ? tile("Top cited standard", `<a class="ins-tile-link" href="${newsSectionHref(29, topSec.section_id)}">§ ${escapeHtml(topSec.section_id)}</a>`, `<button type="button" class="metric-link" data-news-quick-sec="${escapeHtml(topSec.section_id)}">Filter ${plural(topSec.count, "case")} ${icon("chevronRight")}</button>`) : tile("Top cited standard", "—", "No CFR mappings yet")}
+      ${topState ? tile("Top state", escapeHtml(stateName(topState.code)), `<button type="button" class="metric-link" data-news-quick-state="${escapeHtml(topState.code)}">${escapeHtml(fmtMoney(topState.total_penalty_usd))} · ${plural(topState.count, "case")} ${icon("chevronRight")}</button>`) : tile("Top state", "—", "No state data")}
+    </section>`;
+}
 function renderNews(view, data, status, opts = {}) {
 	newsState.view = view;
 	newsState.data = data;
@@ -5724,6 +5777,7 @@ function renderNews(view, data, status, opts = {}) {
       </div>
       ${newsFilterChipsHtml(view)}
       ${newsFacetsHtml(view, status)}
+      ${enforcementSummaryHtml(view)}
       ${articles.length ? `
         ${hero ? newsCardHtml(hero, { hero: true }) : ""}
         <div class="news-grid" id="news-grid">${feed.map((a) => newsCardHtml(a)).join("")}</div>
@@ -5762,6 +5816,289 @@ async function loadMoreNews() {
 	const moreBtn = dom.view.querySelector("[data-news-act=\"more\"]");
 	if (moreBtn && data.articles.length >= data.total) moreBtn.closest(".news-more").remove();
 }
+function citationStatusText(v) {
+	const bits = [];
+	if (v.contest_date) bits.push(`Contested ${fmtDate(v.contest_date)}`);
+	if (v.final_order_date) bits.push(`Final ${fmtDate(v.final_order_date)}`);
+	if (v.abate_complete === "X" || v.abate_complete === "3") bits.push("Abated");
+	else if (v.abate_date) bits.push(`Abate due ${fmtDate(v.abate_date)}`);
+	return bits.join(" · ") || "Issued";
+}
+function violationStandardHtml(v) {
+	if (v.section_id) {
+		const dim = !titleInstalled(29);
+		const href = dim ? "#/library/29" : titleHref(29, "section/" + encodeURIComponent(v.section_id) + (v.para ? "?p=" + encodeURIComponent(v.para) : ""));
+		return `<a class="citation-link ins-std-link${dim ? " is-dim" : ""}" href="${href}">${escapeHtml(v.standard_display)}</a>`;
+	}
+	if (v.is_general_duty) return `<span class="ins-std-gdc">${escapeHtml(v.standard_display)}</span>`;
+	return `<span class="ins-std-state">${escapeHtml(v.standard_display || v.raw_standard || "Unlisted")}</span>` + (v.is_state_plan ? "<span class=\"ins-tag\">State plan</span>" : "");
+}
+function inspectionViolationsHtml(data) {
+	const viols = data.violations || [];
+	if (!viols.length) {
+		if (data.dol_configured) return `
+        <div class="ins-panel-empty">
+          <p class="ins-muted">Individual citation rows have not been cached locally for this inspection yet.</p>
+          <button type="button" class="btn btn-sm btn-accent" data-ins-act="enrich" data-act-nr="${data.activity_nr}">${icon("activity")} Load citations from DOL</button>
+        </div>`;
+		return "<div class=\"ins-panel-empty\"><p class=\"ins-muted\">Add a free DOL API key in Settings to load per-citation details on demand.</p></div>";
+	}
+	return `
+    <div class="ins-table-wrap">
+      <table class="ins-table">
+        <thead>
+          <tr>
+            <th>Cit.</th>
+            <th>Standard</th>
+            <th>Type</th>
+            <th>Exposed</th>
+            <th>Status</th>
+            <th class="is-num">Penalty</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${viols.map((v) => {
+		const tags = [];
+		if (v.gravity) tags.push(`Grav ${v.gravity}`);
+		if (v.emphasis) tags.push(`NEP ${v.emphasis}`);
+		if (v.hazcat) tags.push(v.hazcat);
+		if (v.fta_penalty) tags.push(`FTA ${fmtMoney(v.fta_penalty)}`);
+		if ((v.hazsubs || []).length) tags.push(`HazSub ${v.hazsubs.join(", ")}`);
+		const penChanged = v.initial_penalty && v.initial_penalty !== v.current_penalty;
+		const expBits = [v.nr_instances ? plural(v.nr_instances, "inst") : "", v.nr_exposed ? `${v.nr_exposed} exp` : ""].filter(Boolean).join(" · ");
+		return `
+              <tr>
+                <td class="ins-cit-id">${escapeHtml(v.citation_id || "—")}</td>
+                <td>
+                  <div class="ins-std-cell">
+                    ${violationStandardHtml(v)}
+                    ${tags.length ? `<div class="ins-tags">${tags.map((t) => `<span class="ins-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
+                  </div>
+                </td>
+                <td><span class="ins-viol-pill is-${escapeHtml((v.viol_type || "O").toLowerCase())}">${escapeHtml(v.viol_label || v.viol_type)}</span></td>
+                <td class="ins-mono-col">${escapeHtml(expBits || "—")}</td>
+                <td class="ins-status-col">${escapeHtml(citationStatusText(v))}</td>
+                <td class="is-num">
+                  <div class="ins-pen-cur">${v.current_penalty ? escapeHtml(fmtMoney(v.current_penalty)) : "$0"}</div>
+                  ${penChanged ? `<div class="ins-pen-init">Initial ${escapeHtml(fmtMoney(v.initial_penalty))}</div>` : ""}
+                </td>
+              </tr>`;
+	}).join("")}
+        </tbody>
+      </table>
+    </div>`;
+}
+function inspectionSectionsHtml(data) {
+	const secs = (data.article || {}).sections || [];
+	if (!secs.length) return "";
+	return `
+    <div class="ins-cfr-chips">
+      ${secs.map((s) => {
+		return `<a class="citation-chip${!titleInstalled(29) ? " is-dim" : ""}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`;
+	}).join("")}
+    </div>`;
+}
+function renderInspectionCase(data, { enter = true, enriching = false, enrichError = "" } = {}) {
+	const actNr = data.activity_nr;
+	const art = data.article || {};
+	const d = data.detail || {};
+	const company = d.estab_name || art.company || `Inspection #${actNr}`;
+	const docType = d.insp_type_label || art.doc_type || "OSHA inspection";
+	const addrParts = [
+		d.site_address,
+		[d.site_city || art.city, d.site_state || art.state].filter(Boolean).join(", "),
+		d.site_zip
+	].filter(Boolean);
+	const subLine = joinSep([
+		escapeHtml(docType),
+		addrParts.length ? escapeHtml(addrParts.join(" · ")) : "",
+		d.naics_code || art.naics ? `NAICS ${escapeHtml(d.naics_code || art.naics)}` : ""
+	]);
+	const curPen = d.current_penalty_usd ?? art.penalty_usd ?? 0;
+	const initPen = d.initial_penalty_usd ?? curPen;
+	const deltaPct = initPen > 0 && curPen !== initPen ? Math.round((curPen - initPen) / initPen * 100) : 0;
+	const violCount = (data.violations || []).length || d.citation_count || 0;
+	const vCounts = (data.violations || []).reduce((m, v) => {
+		const k = v.viol_label || v.viol_type;
+		if (k) m[k] = (m[k] || 0) + 1;
+		return m;
+	}, {});
+	const violSummary = Object.entries(vCounts).map(([k, n]) => `${n} ${k}`).join(", ") || (art.violation_types || []).join(", ") || "Recorded in summary";
+	const oshaUrl = safeHttpUrl(art.link || `https://www.osha.gov/ords/imis/establishment.inspection_detail?id=${actNr}`);
+	const openDt = d.open_date || art.opened_on;
+	const modDt = d.case_mod_date;
+	const closeDt = d.close_case_date;
+	const metaFacts = [
+		["Activity #", String(actNr)],
+		["Safety / Health", d.safety_hlth_label],
+		["Inspection scope", d.insp_scope_label],
+		["Ownership", d.owner_type_label],
+		["Union status", d.union_status_label],
+		["Advance notice", d.adv_notice === "Y" ? "Yes" : d.adv_notice === "N" ? "No" : null],
+		["Employees at site", d.nr_in_estab != null ? fmt(d.nr_in_estab) : null],
+		["SIC / NAICS", [d.sic_code && `SIC ${d.sic_code}`, (d.naics_code || art.naics) && `NAICS ${d.naics_code || art.naics}`].filter(Boolean).join(" · ") || null],
+		["Reporting ID", d.reporting_id]
+	].filter(([, val]) => val);
+	const gdcList = data.gdc || [];
+	const accidents = data.accidents || [];
+	const events = data.events || [];
+	const takeaways = art.takeaways || [];
+	const statusPill = enriching ? statPill("busy", "Loading DOL case details…") : enrichError ? statPill("stale", enrichError) : data.enriched_at ? statPill("synced", `DOL synced ${timeAgo(Date.parse(data.enriched_at))}`) : "";
+	const tile = (label, val, sub) => `
+    <div class="metric-card">
+      <div class="metric-label">${label}</div>
+      <div class="metric-val">${val}</div>
+      <div class="metric-sub">${sub}</div>
+    </div>`;
+	document.title = `${company} · Inspection #${actNr} · FRAMEWORK`;
+	dom.view.innerHTML = `
+    <div class="news-front ins-front">
+      <div class="ins-top-nav">
+        <a class="hm-inline-link" href="#/news?cat=enforcement">${icon("chevronLeft")} Back to Enforcement</a>
+        <div class="ins-top-status" id="ins-status-slot">${statusPill}</div>
+      </div>
+
+      <header class="ins-head">
+        <div class="ins-head-copy">
+          <div class="doc-kicker">OSHA Enforcement Case File${SEP}Inspection #${actNr}</div>
+          <h1 class="doc-title">${escapeHtml(company)}</h1>
+          ${subLine ? `<p class="ins-sub">${subLine}</p>` : ""}
+        </div>
+        <div class="ins-head-acts">
+          ${data.dol_configured ? `<button type="button" class="btn btn-sm" data-ins-act="enrich" data-act-nr="${actNr}"${enriching ? " disabled" : ""}>${icon("activity")} Refresh from DOL</button>` : ""}
+          ${oshaUrl ? `<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(oshaUrl)}" title="Opens OSHA.gov (may prompt human verification)">${icon("external")} OSHA.gov</a>` : ""}
+        </div>
+      </header>
+
+      <section class="ins-metrics" aria-label="Inspection summary">
+        ${tile("Current penalty", curPen ? escapeHtml(fmtMoney(curPen)) : "$0", deltaPct ? escapeHtml(`Initial ${fmtMoney(initPen)} (${deltaPct > 0 ? "+" : ""}${deltaPct}%)`) : escapeHtml(initPen ? `Initial ${fmtMoney(initPen)}` : "No penalty assessed"))}
+        ${tile("Citations", violCount ? escapeHtml(plural(violCount, "citation")) : "Summary only", escapeHtml(violSummary))}
+        ${tile("Case dates", art.published_at ? escapeHtml(fmtDate(art.published_at)) : "—", escapeHtml([openDt && `Opened ${fmtDate(openDt)}`, closeDt ? `Closed ${fmtDate(closeDt)}` : modDt ? `Modified ${fmtDate(modDt)}` : "Open"].filter(Boolean).join(" · ")))}
+        ${tile("Exposure", d.max_exposed ? escapeHtml(`${fmt(d.max_exposed)} exposed`) : d.nr_in_estab ? escapeHtml(`${fmt(d.nr_in_estab)} at site`) : "—", escapeHtml([d.total_instances ? plural(d.total_instances, "instance") : "", d.nr_in_estab && d.max_exposed ? `${fmt(d.nr_in_estab)} at site` : ""].filter(Boolean).join(" · ") || "Site exposure data"))}
+      </section>
+
+      ${takeaways.length && !(data.violations || []).length ? `
+        <section class="ins-panel" aria-label="Cached summary">
+          <h2 class="ins-panel-title">Cached Summary</h2>
+          <dl class="news-takeaways">${takeaways.map((t) => `<dt>${escapeHtml(t.label)}</dt><dd>${linkifyNewsText(t.text)}</dd>`).join("")}</dl>
+          ${inspectionSectionsHtml(data)}
+        </section>` : ""}
+
+      <section class="ins-panel" aria-label="Citations and violated standards">
+        <div class="ins-panel-head">
+          <h2 class="ins-panel-title">Citations &amp; Violated Standards</h2>
+          <span class="ins-panel-meta">${violCount ? escapeHtml(plural(violCount, "item")) : "On-demand DOL lookup"}</span>
+        </div>
+        ${inspectionViolationsHtml(data)}
+      </section>
+
+      ${gdcList.length ? `
+        <section class="ins-panel" aria-label="General Duty Clause narrative">
+          <div class="ins-panel-head">
+            <h2 class="ins-panel-title">General Duty Clause — Section 5(a)(1)</h2>
+            <span class="ins-panel-meta">${escapeHtml(plural(gdcList.length, "narrative"))}</span>
+          </div>
+          ${gdcList.map((g) => `
+            <div class="ins-narrative">
+              <div class="ins-narrative-kicker">Citation ${escapeHtml(g.citation_id)}</div>
+              <p>${escapeHtml(g.text)}</p>
+            </div>`).join("")}
+        </section>` : ""}
+
+      ${accidents.length ? `
+        <section class="ins-panel" aria-label="Accident investigation abstract">
+          <div class="ins-panel-head">
+            <h2 class="ins-panel-title">Accident / Fatality Investigation</h2>
+            <span class="ins-panel-meta">${escapeHtml(plural(accidents.length, "summary"))}</span>
+          </div>
+          ${accidents.map((ac) => `
+            <div class="ins-narrative">
+              <div class="ins-narrative-kicker">${escapeHtml([
+		ac.event_date && fmtDate(ac.event_date),
+		ac.fatality ? "Fatality" : "",
+		ac.event_desc
+	].filter(Boolean).join(" · "))}</div>
+              ${ac.abstract ? `<p>${escapeHtml(ac.abstract)}</p>` : ""}
+              ${ac.keywords ? `<div class="ins-keywords">${escapeHtml(ac.keywords)}</div>` : ""}
+            </div>`).join("")}
+        </section>` : ""}
+
+      ${metaFacts.length || events.length ? `
+        <div class="ins-split">
+          ${metaFacts.length ? `
+            <section class="ins-panel" aria-label="Establishment details">
+              <h2 class="ins-panel-title">Establishment &amp; Case File</h2>
+              <dl class="ins-meta-list">
+                ${metaFacts.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
+              </dl>
+            </section>` : ""}
+          ${events.length ? `
+            <section class="ins-panel" aria-label="Penalty and contest history">
+              <h2 class="ins-panel-title">Citation Revision Timeline</h2>
+              <ol class="ins-events">
+                ${events.map((ev) => `
+                  <li>
+                    <span class="ins-ev-date">${escapeHtml(ev.date ? fmtDate(ev.date) : "—")}</span>
+                    <span class="ins-ev-body">
+                      <strong>${escapeHtml(ev.event_label)}</strong> · Cit. ${escapeHtml(ev.citation_id)}
+                      ${ev.penalty != null ? ` · ${escapeHtml(fmtMoney(ev.penalty))}` : ""}
+                    </span>
+                  </li>`).join("")}
+              </ol>
+            </section>` : ""}
+        </div>` : ""}
+    </div>`;
+	if (enter) enterView();
+}
+async function enrichInspection(activityNr, seq) {
+	try {
+		const res = await getJSON(`/api/news/inspection/${activityNr}/enrich`, { method: "POST" });
+		if (seq !== state.routeSeq) return;
+		renderInspectionCase(res, { enter: false });
+	} catch (err) {
+		if (seq !== state.routeSeq) return;
+		const slot = document.getElementById("ins-status-slot");
+		if (slot) slot.innerHTML = statPill("stale", err.message || "Could not enrich from DOL");
+		const btn = dom.view.querySelector("[data-ins-act=\"enrich\"]");
+		if (btn) btn.disabled = false;
+	}
+}
+async function loadInspection(activityNr) {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = `Inspection #${activityNr} · FRAMEWORK`;
+	dom.view.innerHTML = skeletonHtml("cards", `Loading inspection #${activityNr}…`);
+	enterView();
+	let data;
+	try {
+		data = await getJSON(`/api/news/inspection/${activityNr}`);
+	} catch (err) {
+		if (seq !== state.routeSeq) return;
+		dom.view.innerHTML = `
+      <div class="news-front ins-front">
+        <div class="ins-top-nav"><a class="hm-inline-link" href="#/news?cat=enforcement">${icon("chevronLeft")} Back to Enforcement</a></div>
+        <div class="empty-state">
+          <h2>Inspection #${activityNr} not found</h2>
+          <p>${escapeHtml(err.message)}</p>
+        </div>
+      </div>`;
+		return;
+	}
+	if (seq !== state.routeSeq) return;
+	const auto = Boolean(data.needs_enrichment && data.dol_configured && !autoEnrichedCases.has(activityNr));
+	renderInspectionCase(data, {
+		enter: false,
+		enriching: auto
+	});
+	if (auto) {
+		autoEnrichedCases.add(activityNr);
+		await enrichInspection(activityNr, seq);
+	}
+}
 dom.view.addEventListener("click", (e) => {
 	const tab = e.target.closest("[data-news-cat]");
 	if (tab && newsState.view) {
@@ -5769,6 +6106,44 @@ dom.view.addEventListener("click", (e) => {
 			...newsState.view,
 			cat: tab.dataset.newsCat
 		});
+		return;
+	}
+	const qGrav = e.target.closest("[data-news-quick-gravity]");
+	if (qGrav && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: "enforcement",
+			gravity: qGrav.dataset.newsQuickGravity
+		}, { replace: true });
+		return;
+	}
+	const qSec = e.target.closest("[data-news-quick-sec]");
+	if (qSec && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: "enforcement",
+			section: qSec.dataset.newsQuickSec
+		}, { replace: true });
+		return;
+	}
+	const qState = e.target.closest("[data-news-quick-state]");
+	if (qState && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: "enforcement",
+			state: qState.dataset.newsQuickState
+		}, { replace: true });
+		return;
+	}
+	const insAct = e.target.closest("[data-ins-act=\"enrich\"]");
+	if (insAct) {
+		const actNr = parseInt(insAct.dataset.actNr, 10);
+		if (!Number.isNaN(actNr)) {
+			insAct.disabled = true;
+			const slot = document.getElementById("ins-status-slot");
+			if (slot) slot.innerHTML = statPill("busy", "Refreshing from DOL…");
+			enrichInspection(actNr, state.routeSeq);
+		}
 		return;
 	}
 	const act = e.target.closest("[data-news-act]");
@@ -6179,56 +6554,790 @@ var HOME_CONTENT = {
 		]
 	}
 };
-function renderHome() {
+var REF_CATS = [
+	["all", "All Web"],
+	["ibr", "IBR Standards"],
+	["standards", "Standards Bodies"],
+	["portals", "Federal Portals"],
+	["agencies", "Agencies & Guidance"],
+	["technical", "Technical & Other"],
+	["legacy", "Retired URLs"]
+];
+var CAT_LABELS = {
+	standards: "Standards",
+	portals: "Portal",
+	agencies: "Agency",
+	technical: "Technical"
+};
+var refUi = {
+	title: null,
+	beat: "front",
+	cat: "all",
+	q: "",
+	expanded: false
+};
+var titleNewsCache = /* @__PURE__ */ new Map();
+function countLeafSections(node) {
+	if (!node) return 0;
+	if (node.t === "section" || node.t === "appendix") return node.r ? 0 : 1;
+	let total = 0;
+	for (const ch of node.c || []) total += countLeafSections(ch);
+	return total;
+}
+function findChapterLabel(partNode) {
+	let k = treeIdx.parts.get(partNode.id);
+	while (k !== void 0 && k !== null) {
+		const n = treeIdx.nodes[k];
+		if (n && (n.t === "chapter" || n.t === "subtitle")) {
+			const meta = agencyMeta(n);
+			if (meta) return meta.code;
+			return cleanInlineLabel(n.l || n.d || "");
+		}
+		k = treeIdx.parent[k];
+	}
+	return `Title ${state.currentTitle}`;
+}
+function firstLeafSection(node) {
+	if (!node) return null;
+	if ((node.t === "section" || node.t === "appendix") && !node.r) return node;
+	for (const ch of node.c || []) {
+		const hit = firstLeafSection(ch);
+		if (hit) return hit;
+	}
+	return null;
+}
+function listSubparts(partNode) {
+	return (partNode?.c || []).filter((ch) => (ch.t === "subpart" || ch.t === "subject_group") && !ch.r && countLeafSections(ch) > 0);
+}
+function listDirectLeaves(partNode) {
+	const out = [];
+	const walk = (n) => {
+		if (!n) return;
+		if ((n.t === "section" || n.t === "appendix") && !n.r) {
+			out.push(n);
+			return;
+		}
+		for (const ch of n.c || []) {
+			walk(ch);
+			if (out.length >= 6) return;
+		}
+	};
+	walk(partNode);
+	return out;
+}
+/** Synthesize a concise editorial dek from a part's subparts or top sections. */
+function describePartNode(partNode, secCount) {
+	if (!partNode) return secCount ? `${plural(secCount, "section")} in this part` : "";
+	const cleanPhrase = (s) => cleanInlineLabel(s).replace(/\.+$/, "");
+	const subparts = listSubparts(partNode);
+	if (subparts.length) {
+		const names = subparts.slice(0, 3).map((s) => cleanPhrase(s.d || s.l || "")).filter(Boolean);
+		if (names.length) {
+			const rest = subparts.length - names.length;
+			const tail = rest > 0 ? `, and ${plural(rest, "more subpart")}` : "";
+			return `Covers ${names.join(", ")}${tail}.`;
+		}
+	}
+	const leaves = listDirectLeaves(partNode);
+	if (leaves.length) {
+		const names = leaves.slice(0, 3).map((s) => cleanPhrase(s.d || s.l || "")).filter(Boolean);
+		if (names.length) return `Includes ${names.join("; ")}.`;
+	}
+	return `${plural(secCount, "section")} in this part.`;
+}
+function buildDynamicCard(partNode, kickerOverride = "") {
+	const secCount = countLeafSections(partNode);
+	const titleText = cleanInlineLabel(partNode.d || "");
+	return {
+		part: partNode.id,
+		kicker: kickerOverride || findChapterLabel(partNode),
+		title: `Part ${partNode.id}${titleText ? " — " + titleText : ""}`,
+		desc: describePartNode(partNode, secCount),
+		secCount
+	};
+}
+function collectDynamicCards(limit = 6) {
+	if (!treeIdx.partList || !treeIdx.partList.length) return [];
+	const scored = [];
+	for (const k of treeIdx.partList) {
+		const p = treeIdx.nodes[k];
+		if (!p || p.r) continue;
+		if (!countLeafSections(p)) continue;
+		scored.push(buildDynamicCard(p));
+	}
+	if (!scored.length) return [];
+	const bySize = [...scored].sort((a, b) => b.secCount - a.secCount);
+	const lead = bySize[0];
+	const topIds = new Set(bySize.slice(0, limit).map((c) => c.part));
+	return [lead, ...scored.filter((c) => topIds.has(c.part) && c.part !== lead.part)].slice(0, limit);
+}
+function collectAgencyParts(agencyNode) {
+	const out = [];
+	const walk = (n) => {
+		if (!n || n.r) return;
+		if (n.t === "part") {
+			out.push(n);
+			return;
+		}
+		for (const ch of n.c || []) walk(ch);
+	};
+	walk(agencyNode);
+	return out;
+}
+function agencyBeatsList() {
+	return (treeIdx.agencyList || []).map((k) => ({
+		k,
+		node: treeIdx.nodes[k],
+		key: agencyKeyForNode(treeIdx.nodes[k]),
+		info: agencyInfo(treeIdx.nodes[k])
+	})).filter((x) => x.node && x.node.n > 0);
+}
+function cardsForBeat(titleNum, beat) {
+	if (beat && beat !== "front") {
+		const k = treeIdx.agencies.get(beat);
+		const agNode = k != null ? treeIdx.nodes[k] : null;
+		if (agNode) {
+			const info = agencyInfo(agNode);
+			const curatedByPart = new Map(((HOME_CONTENT[titleNum] || {}).cards || []).map((c) => [c.part, c]));
+			return collectAgencyParts(agNode).map((p) => ({
+				node: p,
+				secCount: countLeafSections(p)
+			})).filter((x) => x.secCount > 0).sort((a, b) => b.secCount - a.secCount).slice(0, 7).map(({ node }) => {
+				const curated = curatedByPart.get(node.id);
+				return curated ? {
+					...curated,
+					secCount: countLeafSections(node)
+				} : buildDynamicCard(node, info.code);
+			});
+		}
+	}
+	const curated = HOME_CONTENT[titleNum];
+	if (curated && curated.cards) {
+		if (treeIdx.parts && treeIdx.parts.size > 0) {
+			const present = curated.cards.filter((c) => treeIdx.parts.has(c.part));
+			if (present.length >= 2) return present;
+		} else return curated.cards;
+	}
+	return collectDynamicCards(6);
+}
+function leadInsideLinksHtml(titleNum, partId, partNode) {
+	if (!partNode) return "";
+	const subparts = listSubparts(partNode);
+	const items = [];
+	if (subparts.length) for (const sp of subparts.slice(0, 4)) {
+		const target = firstLeafSection(sp);
+		if (!target) continue;
+		const spLabel = cleanInlineLabel(sp.l || `Subpart ${sp.id}`);
+		const spName = cleanInlineLabel(sp.d || "");
+		items.push({
+			href: titleHref(titleNum, `section/${encodeURIComponent(target.id)}`),
+			code: spLabel,
+			text: spName && spName !== spLabel ? spName : cleanInlineLabel(target.d || target.l || "")
+		});
+	}
+	else for (const sec of listDirectLeaves(partNode).slice(0, 4)) items.push({
+		href: titleHref(titleNum, `section/${encodeURIComponent(sec.id)}`),
+		code: cleanInlineLabel(sec.l || `§ ${sec.id}`),
+		text: cleanInlineLabel(sec.d || "")
+	});
+	if (!items.length) return "";
+	return `
+    <div class="ts-lead-inside">
+      <div class="ts-inside-label">Inside Part ${escapeHtml(partId)}</div>
+      <div class="ts-inside-grid">
+        ${items.map((it) => `
+          <a class="ts-inside-item" href="${it.href}">
+            <span class="ts-inside-code">${escapeHtml(it.code)}</span>
+            ${it.text ? `<span class="ts-inside-text">${escapeHtml(it.text)}</span>` : ""}
+          </a>`).join("")}
+      </div>
+    </div>`;
+}
+function mainBroadsheetHtml(titleNum, beat) {
+	const cards = cardsForBeat(titleNum, beat);
+	const beatInfo = beat !== "front" && treeIdx.agencies.has(beat) ? agencyInfo(treeIdx.nodes[treeIdx.agencies.get(beat)]) : null;
+	const beatK = beat !== "front" ? treeIdx.agencies.get(beat) : null;
+	const flagHtml = beatInfo ? `
+      <div class="ts-sec-flag">
+        <span class="ts-flag-label">${escapeHtml(beatInfo.code)} Beat${beatInfo.name ? ` · ${escapeHtml(beatInfo.name)}` : ""}</span>
+        <span class="ts-flag-acts">
+          <button type="button" class="hm-inline-link" data-ts-open-agency="${beatK}">Open in Contents ${icon("chevronRight")}</button>
+          <button type="button" class="hm-inline-link" data-ts-beat="front">All beats</button>
+        </span>
+      </div>` : `
+      <div class="ts-sec-flag">
+        <span class="ts-flag-label">The Lead Beat</span>
+        <span class="ts-flag-meta">${cards.length ? plural(cards.length, "key part") : "Title overview"}</span>
+      </div>`;
+	if (!cards.length) return `
+      <div class="ts-main-col">
+        ${flagHtml}
+        <div class="ts-lead"><p class="ts-lead-dek">Open the Contents drawer to browse sections in Title ${titleNum}.</p></div>
+      </div>`;
+	const lead = cards[0];
+	const leadNode = state.treeData ? findPartInTree(state.treeData, lead.part) : null;
+	const leadSecCount = leadNode ? countLeafSections(leadNode) : lead.secCount || 0;
+	const subCount = leadNode ? listSubparts(leadNode).length : 0;
+	const leadHref = titleHref(titleNum, `part/${encodeURIComponent(lead.part)}`);
+	const leadFullHref = titleHref(titleNum, `part/${encodeURIComponent(lead.part)}/full`);
+	const briefs = cards.slice(1);
+	const briefsHtml = briefs.length ? `
+    <div class="ts-briefs">
+      ${briefs.map((c) => {
+		const pNode = state.treeData ? findPartInTree(state.treeData, c.part) : null;
+		const cCount = pNode ? countLeafSections(pNode) : c.secCount || 0;
+		const cSubs = pNode ? listSubparts(pNode).length : 0;
+		const pHref = titleHref(titleNum, `part/${encodeURIComponent(c.part)}`);
+		return `
+          <article class="ts-brief">
+            <div class="ts-brief-top">
+              <span class="ts-brief-kicker">${escapeHtml(c.kicker)} · Part ${escapeHtml(c.part)}</span>
+              ${cCount ? `<span class="ts-brief-count">${fmt(cCount)} §</span>` : ""}
+            </div>
+            <h3 class="ts-brief-title"><a href="${pHref}">${escapeHtml(c.title)}</a></h3>
+            <p class="ts-brief-dek">${escapeHtml(c.desc)}</p>
+            <div class="ts-brief-foot">
+              <span>${cSubs ? plural(cSubs, "subpart") : cCount ? plural(cCount, "section") : "Open part"}</span>
+              <span class="ts-brief-go" aria-hidden="true">Read ${icon("chevronRight")}</span>
+            </div>
+          </article>`;
+	}).join("")}
+    </div>` : "";
+	return `
+    <div class="ts-main-col">
+      ${flagHtml}
+      <article class="ts-lead">
+        <div class="ts-lead-top">
+          <span class="ts-lead-kicker">Lead Story · ${escapeHtml(lead.kicker)} · Part ${escapeHtml(lead.part)}</span>
+          ${leadSecCount ? `<span class="ts-lead-stat">${fmt(leadSecCount)} ${leadSecCount === 1 ? "section" : "sections"}${subCount ? ` · ${plural(subCount, "subpart")}` : ""}</span>` : ""}
+        </div>
+        <h2 class="ts-lead-title"><a href="${leadHref}">${escapeHtml(lead.title)}</a></h2>
+        <p class="ts-lead-dek">${escapeHtml(lead.desc)}</p>
+        ${leadInsideLinksHtml(titleNum, lead.part, leadNode)}
+        <div class="ts-lead-foot">
+          <a class="btn btn-sm" href="${leadHref}">Open Part ${escapeHtml(lead.part)} ${icon("chevronRight")}</a>
+          <a class="hm-inline-link" href="${leadFullHref}">Read full part</a>
+        </div>
+      </article>
+      ${briefsHtml}
+    </div>`;
+}
+function titleDeskRailHtml(titleNum) {
+	const usage = loadUsage();
+	const entries = Object.entries(usage.s || {}).map(([key, e]) => {
+		const pipe = key.indexOf("|");
+		if (pipe < 0 || !e) return null;
+		return {
+			title: Number(key.slice(0, pipe)),
+			id: key.slice(pipe + 1),
+			...e
+		};
+	}).filter((e) => e && e.title === titleNum && e.id).sort((a, b) => (b.t || 0) - (a.t || 0));
+	let resumeHtml;
+	if (entries.length) {
+		const last = entries[0];
+		const href = titleHref(titleNum, "section/" + encodeURIComponent(last.id) + (last.u ? "/" + encodeURIComponent(last.u) : ""));
+		const trail = entries.slice(1, 3);
+		resumeHtml = `
+      <div class="ts-rail-block title-resume">
+        <div class="ts-rail-head">
+          <span class="hm-kicker">Continue in Title ${titleNum}</span>
+          <span class="hm-time">${escapeHtml(timeAgo(last.t))}</span>
+        </div>
+        <a class="ts-resume-link" href="${href}">${escapeHtml(last.l || "§ " + last.id)}${last.h ? " " + escapeHtml(last.h) : ""}</a>
+        <div class="ts-resume-meta">
+          ${last.p ? `<a href="${titleHref(titleNum, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
+          ${last.ul ? `<span class="hm-unit-badge">${escapeHtml(last.ul)}</span>` : ""}
+        </div>
+        <div class="ts-resume-acts">
+          <a class="btn btn-sm btn-accent" href="${href}">Resume reading ${icon("chevronRight")}</a>
+        </div>
+        ${trail.length ? `
+          <div class="ts-rail-trail">
+            ${trail.map((e) => `
+              <a class="hm-trail-row" href="${titleHref(titleNum, "section/" + encodeURIComponent(e.id) + (e.u ? "/" + encodeURIComponent(e.u) : ""))}">
+                <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
+                <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
+                <span class="hm-row-val">${escapeHtml(timeAgo(e.t))}</span>
+              </a>`).join("")}
+          </div>` : ""}
+      </div>`;
+	} else {
+		const firstPart = cardsForBeat(titleNum, "front")[0]?.part;
+		resumeHtml = `
+      <div class="ts-rail-block">
+        <div class="ts-rail-head"><span class="hm-kicker">At your desk</span></div>
+        <p class="ts-rail-empty">No recent reading history in Title ${titleNum} yet.</p>
+        ${firstPart ? `<a class="hm-inline-link" href="${titleHref(titleNum, "part/" + encodeURIComponent(firstPart))}">Start at Part ${escapeHtml(firstPart)} ${icon("chevronRight")}</a>` : ""}
+      </div>`;
+	}
+	const matchingProjects = loadProjects().filter((p) => (p.sections || []).some((s) => s.title === titleNum)).sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || "")).slice(0, 3);
+	const wsHtml = `
+    <div class="ts-rail-block">
+      <div class="ts-rail-head">
+        <span class="hm-kicker">Workspaces in Title ${titleNum}</span>
+        <a class="hm-inline-link" href="#/projects">All</a>
+      </div>
+      ${matchingProjects.length ? `
+        <div class="ts-rail-ws-list">
+          ${matchingProjects.map((p) => {
+		const pins = (p.sections || []).filter((s) => s.title === titleNum).slice(0, 3);
+		return `
+              <div class="ts-rail-ws">
+                <a class="hm-ws-name" href="#/projects/${encodeURIComponent(p.id)}">${projDot(p)}<span>${escapeHtml(p.name)}</span></a>
+                <div class="ts-rail-ws-chips">
+                  ${pins.map((s) => `<a class="citation-chip" href="${titleHref(titleNum, "section/" + encodeURIComponent(s.id))}">${escapeHtml(s.label || "§ " + s.id)}</a>`).join("")}
+                </div>
+              </div>`;
+	}).join("")}
+        </div>` : `<p class="ts-rail-empty">Pin any Title ${titleNum} section with <kbd>⌘D</kbd> to build an audit or compliance workspace.</p>`}
+    </div>`;
+	const wireSlotHtml = titleNum === 29 ? (() => {
+		const cached = titleNewsCache.get(29);
+		const fresh = cached && Date.now() - cached.at < 3e5 ? cached.articles : null;
+		return `<div class="ts-rail-block" id="ts-wire-slot"${fresh && fresh.length ? "" : " hidden"}>${fresh && fresh.length ? renderTitleWireHtml(fresh) : ""}</div>`;
+	})() : "";
+	const citedSlotHtml = `
+    <div class="ts-rail-block" id="ts-cited-slot">
+      <div class="ts-rail-head"><span class="hm-kicker">Most-cited in Title ${titleNum}</span></div>
+      <div class="skel-stack" style="gap:8px;margin-top:8px" aria-hidden="true">
+        <span class="skel skel-line is-sm" style="width:86%"></span>
+        <span class="skel skel-line is-sm" style="width:74%"></span>
+        <span class="skel skel-line is-sm" style="width:68%"></span>
+      </div>
+    </div>`;
+	return `
+    <aside class="ts-rail" aria-label="Title desk and regulatory index">
+      ${resumeHtml}
+      ${wsHtml}
+      ${wireSlotHtml}
+      ${citedSlotHtml}
+    </aside>`;
+}
+function renderTitleWireHtml(articles) {
+	if (!articles || !articles.length) return "";
+	return `
+    <div class="ts-rail-head">
+      <span class="hm-kicker">From the OSHA wire</span>
+      <a class="hm-inline-link" href="#/news">Newsroom ${icon("chevronRight")}</a>
+    </div>
+    <ol class="wire-items ts-wire-items">
+      ${articles.slice(0, 3).map((a) => {
+		const actNr = inspectionActivityNr(a);
+		const sec = (a.sections || [])[0];
+		const partRef = (a.cfr_parts || [])[0];
+		return `
+          <li class="wire-entry">
+            <a href="${actNr ? `#/news/inspection/${actNr}` : sec ? newsSectionHref(29, sec) : partRef ? newsPartHref(partRef.title, partRef.part) : `#/news?cat=${encodeURIComponent(a.category || "all")}`}">
+              <span class="wire-entry-head">
+                <span class="wire-entry-title">${escapeHtml(newsKicker(a))}</span>
+                <time class="wire-entry-date">${escapeHtml(shortDate(a.published_at))}</time>
+              </span>
+              <span class="wire-entry-name">${escapeHtml(a.title)}</span>
+              ${a.penalty_usd ? `<span class="wire-entry-summary">${escapeHtml(fmtMoney(a.penalty_usd))} penalty</span>` : ""}
+            </a>
+          </li>`;
+	}).join("")}
+    </ol>`;
+}
+function renderMostCitedHtml(data, titleNum) {
+	const list = data && data.most_cited || [];
+	if (!list.length) return "";
+	return `
+    <div class="ts-rail-head">
+      <span class="hm-kicker">Most-cited in Title ${titleNum}</span>
+      <span class="ts-rail-count">${fmt(data.most_cited_total || list.length)} hubs</span>
+    </div>
+    <ol class="ts-cited-list">
+      ${list.slice(0, 5).map((s, idx) => `
+        <li>
+          <a class="ts-cited-row" href="${titleHref(titleNum, "section/" + encodeURIComponent(s.id))}">
+            <span class="ts-cited-rank">${idx + 1}</span>
+            <span class="ts-cited-body">
+              <span class="ts-cited-num">${escapeHtml(s.label || "§ " + s.id)}</span>
+              <span class="ts-cited-name">${escapeHtml(s.title || "")}</span>
+            </span>
+            <span class="ts-cited-cites">${plural(s.cited_by_count, "cite")}</span>
+          </a>
+        </li>`).join("")}
+    </ol>`;
+}
+function beatsRibbonHtml() {
+	const beats = agencyBeatsList();
+	if (beats.length < 2) return "";
+	const top = [...beats].sort((a, b) => b.node.n - a.node.n).slice(0, 6);
+	const pill = (key, label) => {
+		return `<button type="button" aria-pressed="${refUi.beat === key}" data-ts-beat="${escapeHtml(key)}">${escapeHtml(label)}</button>`;
+	};
+	return `
+    <div class="ts-beats-bar">
+      <div class="lib-seg ts-beats" role="group" aria-label="Filter edition by department">
+        ${pill("front", "Front Page")}
+        ${top.map((b) => pill(b.key, b.info.code)).join("")}
+      </div>
+      <div class="ts-beats-jumps">
+        <button type="button" class="hm-inline-link" data-ts-scroll="ts-depts">${plural(beats.length, "department")}</button>
+        <button type="button" class="hm-inline-link" data-ts-scroll="ts-almanac">Almanac</button>
+      </div>
+    </div>`;
+}
+function departmentsDirectoryHtml() {
+	const beats = agencyBeatsList();
+	if (beats.length < 2) return "";
+	return `
+    <section class="ts-depts" id="ts-depts" aria-label="Departments and agencies">
+      <div class="ts-sec-flag">
+        <span class="ts-flag-label">Departments &amp; Agencies</span>
+        <span class="ts-flag-meta">${plural(beats.length, "chapter")} · Select a beat to focus the front page</span>
+      </div>
+      <div class="ts-dept-grid">
+        ${beats.map((b) => {
+		const on = refUi.beat === b.key;
+		return `
+            <div class="ts-dept-item${on ? " is-active" : ""}">
+              <button type="button" class="ts-dept-btn" data-ts-beat="${escapeHtml(b.key)}" aria-pressed="${on}">
+                <span class="ts-dept-top">
+                  <span class="ts-dept-code">${escapeHtml(b.info.code)}</span>
+                  ${b.info.range ? `<span class="ts-dept-range">Parts ${escapeHtml(b.info.range)}</span>` : ""}
+                </span>
+                <span class="ts-dept-name">${escapeHtml(b.info.name)}</span>
+                <span class="ts-dept-meta">${plural(b.node.partCount || 0, "part")} · ${fmt(b.node.n)} sections</span>
+              </button>
+              <button type="button" class="ts-dept-drawer" data-ts-open-agency="${b.k}" title="Browse ${escapeHtml(b.info.code)} in Contents" aria-label="Browse ${escapeHtml(b.info.code)} in Contents">Contents ${icon("chevronRight")}</button>
+            </div>`;
+	}).join("")}
+      </div>
+    </section>`;
+}
+function filterWebEntries(data, cat, q) {
+	const ql = q.trim().toLowerCase();
+	const hosts = data.hosts && data.hosts.length ? data.hosts : null;
+	const rawItems = data.items || [];
+	let filtered = (hosts || rawItems).filter((it) => {
+		if (cat === "legacy") {
+			if (!it.legacy) return false;
+		} else if (cat !== "all" && it.category !== cat) return false;
+		if (!ql) return true;
+		const subUrls = (it.urls || []).map((u) => `${u.url} ${u.display}`).join(" ");
+		const cites = (it.cited_in || []).map((c) => `${c.id} ${c.label} ${c.title} ${c.part}`).join(" ");
+		return `${it.host} ${it.url} ${it.display} ${subUrls} ${it.legacy?.replacement_url || ""} ${cites}`.toLowerCase().includes(ql);
+	});
+	if (hosts && ql && !filtered.length) filtered = rawItems.filter((it) => {
+		if (cat === "legacy" && !it.legacy) return false;
+		if (cat !== "all" && cat !== "legacy" && it.category !== cat) return false;
+		const cites = (it.cited_in || []).map((c) => `${c.id} ${c.label} ${c.title} ${c.part}`).join(" ");
+		return `${it.host} ${it.url} ${it.display} ${it.legacy?.replacement_url || ""} ${cites}`.toLowerCase().includes(ql);
+	});
+	return filtered;
+}
+function filterIbrEntries(data, q) {
+	const list = data.ibr_standards || [];
+	const ql = q.trim().toLowerCase();
+	if (!ql) return list;
+	return list.filter((s) => {
+		const secs = (s.approved_in || []).map((a) => `${a.id} ${a.label} ${a.part} ${a.para}`).join(" ");
+		return `${s.code} ${s.org} ${s.org_name} ${s.excerpt} ${secs}`.toLowerCase().includes(ql);
+	});
+}
+function renderWebItemHtml(item, titleNum) {
+	const citesHtml = (item.cited_in || []).slice(0, 4).map((c) => `<a class="citation-chip" href="#/title/${titleNum}/section/${encodeURIComponent(c.id)}" title="${escapeHtml(c.title)}">${escapeHtml(c.label)}</a>`).join("");
+	const moreCites = item.cite_count > 4 ? `<span class="ref-cite-more">+${item.cite_count - 4}</span>` : "";
+	const href = safeHttpUrl(item.url);
+	const replHref = item.legacy ? safeHttpUrl(item.legacy.replacement_url) : "";
+	const legacyHtml = item.legacy ? `
+    <div class="ref-legacy">
+      <span class="stat-pill is-stale is-bare"><span class="stat-dot is-stale" aria-hidden="true"></span>Retired URL</span>
+      <span class="ref-legacy-note">${escapeHtml(item.legacy.note)}</span>
+      ${replHref ? `<a class="citation-chip" href="${escapeHtml(replHref)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.legacy.replacement_label)} ↗</a>` : ""}
+    </div>` : "";
+	const pageCount = item.url_count > 1 ? `<span class="ref-subpages">${item.url_count} URLs</span>` : "";
+	return `
+    <article class="ref-item">
+      <div class="ref-item-top">
+        <span class="ref-host">${escapeHtml(item.host)}</span>
+        <span class="ref-cat-pill">${escapeHtml(CAT_LABELS[item.category] || item.category)}</span>
+        ${pageCount}
+        <span class="ref-count">${plural(item.cite_count, "section")}</span>
+      </div>
+      ${href ? `<a class="ref-url" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.display)}</a>` : `<span class="ref-url">${escapeHtml(item.display)}</span>`}
+      ${legacyHtml}
+      ${citesHtml ? `<div class="ref-cites"><span class="ref-cites-lbl">Cited in</span>${citesHtml}${moreCites}</div>` : ""}
+    </article>`;
+}
+function renderIbrItemHtml(std, titleNum) {
+	const approved = (std.approved_in || []).slice(0, 4).map((a) => `<a class="citation-chip" href="#/title/${titleNum}/section/${encodeURIComponent(a.id)}${a.para ? "?p=" + encodeURIComponent(a.para) : ""}">${escapeHtml(a.label)}${a.para ? escapeHtml(a.para) : ""}</a>`).join("");
+	const extra = (std.section_count || 0) - 4;
+	const orgHref = safeHttpUrl(std.org_url);
+	return `
+    <article class="ref-item is-ibr">
+      <div class="ref-item-top">
+        <span class="ref-host">${escapeHtml(std.code)}</span>
+        ${orgHref ? `<a class="ref-cat-pill is-link" href="${escapeHtml(orgHref)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(std.org_name || std.org)}">${escapeHtml(std.org)} ↗</a>` : `<span class="ref-cat-pill">${escapeHtml(std.org)}</span>`}
+        <span class="ref-count">${plural(std.section_count || 1, "section")}</span>
+      </div>
+      <div class="ref-ibr-excerpt">${escapeHtml(std.excerpt)}</div>
+      <div class="ref-cites">
+        <span class="ref-cites-lbl">Approved in</span>
+        ${approved}
+        ${extra > 0 ? `<span class="ref-cite-more">+${extra}</span>` : ""}
+      </div>
+    </article>`;
+}
+function renderRefListHtml(data, titleNum) {
+	const isIbr = refUi.cat === "ibr";
+	const filtered = isIbr ? filterIbrEntries(data, refUi.q) : filterWebEntries(data, refUi.cat, refUi.q);
+	if (!filtered.length) return "<div class=\"ref-empty\">No matching references for the current filter.</div>";
+	const showLimit = refUi.expanded || refUi.q.trim() ? filtered.length : 12;
+	const shown = filtered.slice(0, showLimit);
+	return `<div class="ref-grid">${shown.map((item) => isIbr ? renderIbrItemHtml(item, titleNum) : renderWebItemHtml(item, titleNum)).join("")}</div>${filtered.length > shown.length ? `<div class="ref-more"><button type="button" class="btn btn-sm" id="ref-show-all">Show all ${filtered.length} matching entries</button></div>` : ""}`;
+}
+function updateRefHubDom(data, titleNum) {
+	const hubEl = document.getElementById("ts-almanac");
+	const catsEl = document.getElementById("ref-cats-slot");
+	const listEl = document.getElementById("ref-list-slot");
+	const countEl = document.getElementById("ref-total-count");
+	if (!hubEl || !catsEl || !listEl) return;
+	const webTotal = data.host_total ?? data.total ?? 0;
+	const ibrTotal = data.ibr_total ?? (data.ibr_standards || []).length;
+	const catCounts = data.host_category_counts || data.category_counts || {};
+	const legacyCount = (data.hosts || data.items || []).filter((it) => it.legacy).length;
+	if (!webTotal && !ibrTotal) {
+		const count = Number(state.metaInfo.section_count || 0);
+		hubEl.innerHTML = `
+      <div class="ts-colophon">
+        Edition Colophon · Title ${titleNum}${count ? ` · ${fmt(count)} sections` : ""} · No external web portals or incorporated consensus standards cited.
+      </div>`;
+		return;
+	}
+	if (countEl) {
+		const parts = [];
+		if (webTotal) parts.push(plural(webTotal, data.host_total ? "host" : "resource"));
+		if (ibrTotal) parts.push(plural(ibrTotal, "IBR standard"));
+		countEl.textContent = parts.join(" · ");
+	}
+	if (refUi.cat === "ibr" && !ibrTotal) refUi.cat = "all";
+	if (refUi.cat === "legacy" && !legacyCount) refUi.cat = "all";
+	catsEl.innerHTML = REF_CATS.map(([k, label]) => {
+		const n = k === "all" ? webTotal : k === "ibr" ? ibrTotal : k === "legacy" ? legacyCount : catCounts[k] || 0;
+		if (k !== "all" && !n) return "";
+		return `<button type="button" class="sf-pill${refUi.cat === k ? " is-active" : ""}" data-ref-cat="${k}" aria-pressed="${refUi.cat === k}">${escapeHtml(label)} <span class="sf-pill-count">${n}</span></button>`;
+	}).join("");
+	listEl.innerHTML = renderRefListHtml(data, titleNum);
+}
+function renderMastheadStatusHtml(titleNum) {
+	const libRow = (navLib.data && navLib.data.titles || []).find((x) => x.title === titleNum);
+	if (libRow && isStale(libRow)) return statPill("stale", "Update available", { bare: true });
+	if (state.metaInfo.partial) return statPill("partial", "Partial install", { bare: true });
+	return statPill("synced", "Installed", { bare: true });
+}
+function hydrateTitleWire(titleNum, seq, signal) {
+	if (titleNum !== 29) return;
+	const applyWire = (articles) => {
+		const slot = document.getElementById("ts-wire-slot");
+		if (!slot || seq !== state.routeSeq) return;
+		if (!articles || !articles.length) {
+			slot.hidden = true;
+			return;
+		}
+		slot.hidden = false;
+		slot.innerHTML = renderTitleWireHtml(articles);
+	};
+	const cached = titleNewsCache.get(29);
+	if (cached && Date.now() - cached.at < 3e5) {
+		applyWire(cached.articles);
+		return;
+	}
+	fetch("/api/news?limit=3", { signal }).then((r) => r.ok ? r.json() : null).then((data) => {
+		if (!data || seq !== state.routeSeq) return;
+		const articles = data.articles || [];
+		titleNewsCache.set(29, {
+			at: Date.now(),
+			articles
+		});
+		applyWire(articles);
+	}).catch(() => {});
+}
+async function renderHome() {
 	state.currentSection = null;
 	state.currentPart = null;
 	clearTreeSelection();
 	updateChatContext();
-	document.title = `Title ${state.currentTitle} · FRAMEWORK`;
+	const titleNum = state.currentTitle;
+	const seq = state.routeSeq;
+	if (refUi.title !== titleNum) {
+		refUi.title = titleNum;
+		refUi.beat = "front";
+		refUi.cat = "all";
+		refUi.q = "";
+		refUi.expanded = false;
+	}
+	document.title = `Title ${titleNum} · FRAMEWORK`;
 	setViewHead("");
-	const name = state.metaInfo.name || "";
-	const content = HOME_CONTENT[state.currentTitle];
-	const tagline = content ? content.tagline : `Read, search, and ask questions about Title ${state.currentTitle} of the Code of Federal Regulations.`;
+	const snapRow = state.homeSnapshot?.titles?.find((x) => x.title === titleNum);
+	const name = state.metaInfo.name || snapRow?.name || "";
+	const content = HOME_CONTENT[titleNum];
+	const tagline = content?.tagline || snapRow?.summary || `Read, search, and research Title ${titleNum} of the Code of Federal Regulations.`;
 	const count = Number(state.metaInfo.section_count || 0);
-	const metaLine = [count ? `${count.toLocaleString()} sections` : "", state.metaInfo.edition ? `current as of ${state.metaInfo.edition}` : ""].filter(Boolean).join(" · ");
-	const cardsHtml = content ? `
-    <div class="card-grid">
-      ${content.cards.map((c) => `
-        <a class="card" href="#/part/${encodeURIComponent(c.part)}">
-          <span class="card-kicker">${escapeHtml(c.kicker)}</span>
-          <div class="card-title">${escapeHtml(c.title)}</div>
-          <div class="card-desc">${escapeHtml(c.desc)}</div>
-        </a>
-      `).join("")}
-    </div>
-  ` : "";
+	const readCount = visitedCountFor(titleNum);
+	const folioMeta = joinSep([
+		state.metaInfo.edition ? `Edition ${shortDate(state.metaInfo.edition) || state.metaInfo.edition}` : "",
+		count ? `${fmt(count)} sections` : "",
+		readCount ? `${fmt(readCount)} read` : ""
+	]);
 	dom.view.innerHTML = `
-    <div class="home-hero">
-      <div class="doc-kicker"><a href="#/">Home</a><span class="sep" aria-hidden="true">›</span>Title ${state.currentTitle} start</div>
-      <h1>Title ${state.currentTitle}${name ? " — " + escapeHtml(name) : ""}</h1>
-      <p>${escapeHtml(tagline)}</p>
-      ${metaLine ? `<p class="home-meta">${escapeHtml(metaLine)}</p>` : ""}
-      <div class="home-hero-acts">
-        <button type="button" class="btn btn-sm" id="home-open-contents">${icon("book")} Browse contents</button>
-        <a class="btn btn-sm" href="#/library/${state.currentTitle}">Manage in Library</a>
+    <div class="ts-front">
+      <header class="home-hero ts-masthead">
+        <div class="ts-folio">
+          <div class="doc-kicker">
+            <a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><span>${titleNum} CFR${snapRow?.desk ? ` · ${escapeHtml(snapRow.desk)}` : ""}</span>
+          </div>
+          <div class="ts-folio-right">
+            ${folioMeta ? `<span class="ts-folio-meta">${folioMeta}</span>` : ""}
+            ${renderMastheadStatusHtml(titleNum)}
+          </div>
+        </div>
+        <div class="ts-title-row">
+          <div class="ts-title-copy">
+            <h1>Title ${titleNum}${name ? " — " + escapeHtml(name) : ""}</h1>
+            <p>${escapeHtml(tagline)}</p>
+          </div>
+          <div class="home-hero-acts">
+            <button type="button" class="btn btn-sm" id="home-open-contents">${icon("book")} Browse contents</button>
+            <a class="btn btn-sm" href="#/library/${titleNum}">Manage in Library</a>
+          </div>
+        </div>
+        <div class="ts-double-rule" aria-hidden="true"></div>
+        <div id="ts-beats-slot">${beatsRibbonHtml()}</div>
+      </header>
+
+      <div class="ts-broadsheet">
+        <div id="ts-main-slot">${mainBroadsheetHtml(titleNum, refUi.beat)}</div>
+        ${titleDeskRailHtml(titleNum)}
       </div>
-    </div>
 
-    ${cardsHtml}
+      <div id="ts-depts-slot">${departmentsDirectoryHtml()}</div>
 
-    <div class="home">
-      <h2>Getting around</h2>
-      <ul class="tips">
-        <li><span class="tip-keys"><kbd>/</kbd></span><span>Search the full text, or jump straight to a section number</span></li>
-        <li><span class="tip-keys"><kbd>${isMac ? "⌘" : "Ctrl"}</kbd><kbd>J</kbd></span><span>Open Ask Claude</span></li>
-        <li><span class="tip-keys"><kbd>↑</kbd><kbd>↓</kbd></span><span>Move through the contents list or search suggestions</span></li>
-        <li><span class="tip-keys"><kbd>Esc</kbd></span><span>Clear the contents filter or close suggestions</span></li>
-      </ul>
-    </div>
-  `;
-	document.getElementById("home-open-contents")?.addEventListener("click", () => openPanel("reader", { focus: true }));
+      <section class="ref-hub ts-almanac" id="ts-almanac" aria-label="References and authorities">
+        <div class="ts-sec-flag">
+          <span class="ts-flag-label">Almanac · References &amp; Authorities</span>
+          <span class="ref-total-pill" id="ref-total-count">Indexing…</span>
+        </div>
+        <p class="ref-hub-sub">Standards organizations, incorporated consensus standards, federal portals, and external authorities cited across Title ${titleNum}.</p>
+        <div class="ref-controls">
+          <div class="ref-cats" id="ref-cats-slot" role="group" aria-label="Filter by category"></div>
+          <input type="search" class="search-filter-input ref-search" id="ref-filter" value="${escapeHtml(refUi.q)}" placeholder="Filter domains, standards, or citing sections…" aria-label="Filter references" autocomplete="off" spellcheck="false">
+        </div>
+        <div id="ref-list-slot">${skeletonHtml("list", "Indexing references…")}</div>
+      </section>
+    </div>`;
 	enterView();
+	const signal = state.routeAbort?.signal;
+	hydrateTitleWire(titleNum, seq, signal);
+	if (!state.treeData) try {
+		await ensureTreeLoaded();
+		if (seq !== state.routeSeq) return;
+		const beatsSlot = document.getElementById("ts-beats-slot");
+		const mainSlot = document.getElementById("ts-main-slot");
+		const deptsSlot = document.getElementById("ts-depts-slot");
+		if (beatsSlot) beatsSlot.innerHTML = beatsRibbonHtml();
+		if (mainSlot) mainSlot.innerHTML = mainBroadsheetHtml(titleNum, refUi.beat);
+		if (deptsSlot) deptsSlot.innerHTML = departmentsDirectoryHtml();
+	} catch (e) {}
+	if (!snapRow) fetch("/api/titles/snapshot", { signal }).then((r) => r.ok ? r.json() : null).then((snap) => {
+		if (!snap || seq !== state.routeSeq) return;
+		state.homeSnapshot = snap;
+		const row = snap.titles?.find((x) => x.title === titleNum);
+		if (!row) return;
+		const pEl = dom.view.querySelector(".ts-title-copy > p");
+		if (!content && row.summary && pEl) pEl.textContent = row.summary;
+		const crumbSpan = dom.view.querySelector(".ts-folio .doc-kicker > span:last-child");
+		if (row.desk && crumbSpan) crumbSpan.textContent = `${titleNum} CFR · ${row.desk}`;
+	}).catch(() => {});
+	let refData = state.refsCache.get(titleNum);
+	if (!refData) try {
+		const res = await fetch(`/api/${titleNum}/references`, { signal });
+		if (seq !== state.routeSeq) return;
+		if (res.ok) {
+			refData = await res.json();
+			state.refsCache.set(titleNum, refData);
+		}
+	} catch (err) {
+		if (err && err.name === "AbortError") return;
+	}
+	if (seq !== state.routeSeq) return;
+	const citedSlot = document.getElementById("ts-cited-slot");
+	if (refData) {
+		if (citedSlot) {
+			const citedHtml = renderMostCitedHtml(refData, titleNum);
+			if (citedHtml) citedSlot.innerHTML = citedHtml;
+			else citedSlot.hidden = true;
+		}
+		updateRefHubDom(refData, titleNum);
+	} else {
+		if (citedSlot) citedSlot.hidden = true;
+		const listEl = document.getElementById("ref-list-slot");
+		if (listEl) listEl.innerHTML = "<div class=\"ref-empty\">Couldn’t load references for this title.</div>";
+	}
 }
+dom.view.addEventListener("input", (e) => {
+	if (e.target.id !== "ref-filter" || !dom.view.querySelector(".ref-hub")) return;
+	refUi.q = e.target.value;
+	refUi.expanded = false;
+	const data = state.refsCache.get(state.currentTitle);
+	if (data) updateRefHubDom(data, state.currentTitle);
+});
+dom.view.addEventListener("click", (e) => {
+	if (!dom.view.querySelector(".ts-front")) return;
+	if (e.target.closest("#home-open-contents")) {
+		openPanel("reader", { focus: true });
+		return;
+	}
+	const beatEl = e.target.closest("[data-ts-beat]");
+	if (beatEl) {
+		refUi.beat = beatEl.dataset.tsBeat || "front";
+		const beatsSlot = document.getElementById("ts-beats-slot");
+		const mainSlot = document.getElementById("ts-main-slot");
+		const deptsSlot = document.getElementById("ts-depts-slot");
+		if (beatsSlot) beatsSlot.innerHTML = beatsRibbonHtml();
+		if (mainSlot) mainSlot.innerHTML = mainBroadsheetHtml(state.currentTitle, refUi.beat);
+		if (deptsSlot) deptsSlot.innerHTML = departmentsDirectoryHtml();
+		if (beatEl.closest(".ts-depts") && mainSlot) mainSlot.scrollIntoView({
+			behavior: "smooth",
+			block: "start"
+		});
+		return;
+	}
+	const agencyBtn = e.target.closest("[data-ts-open-agency]");
+	if (agencyBtn) {
+		const k = Number(agencyBtn.dataset.tsOpenAgency);
+		if (!Number.isNaN(k)) showAgencyView(k);
+		openPanel("reader", { focus: true });
+		return;
+	}
+	const jumpBtn = e.target.closest("[data-ts-scroll]");
+	if (jumpBtn) {
+		const target = document.getElementById(jumpBtn.dataset.tsScroll);
+		if (target) target.scrollIntoView({
+			behavior: "smooth",
+			block: "start"
+		});
+		return;
+	}
+	if (!dom.view.querySelector(".ref-hub")) return;
+	const catBtn = e.target.closest("[data-ref-cat]");
+	if (catBtn) {
+		refUi.cat = catBtn.dataset.refCat;
+		refUi.expanded = false;
+		const data = state.refsCache.get(state.currentTitle);
+		if (data) updateRefHubDom(data, state.currentTitle);
+		return;
+	}
+	if (e.target.closest("#ref-show-all")) {
+		refUi.expanded = true;
+		const data = state.refsCache.get(state.currentTitle);
+		if (data) updateRefHubDom(data, state.currentTitle);
+	}
+});
 // src/views/home.js
 var HOME_NEWS_CACHE = "newsCache:v1:all";
 var HOME_STATUS_CACHE = "newsCache:v1:status";
@@ -7237,18 +8346,28 @@ function renderLibrary(fresh) {
 	const scrollTop = dom.main.scrollTop;
 	if (!title) {
 		document.title = "Library · FRAMEWORK";
-		const active = document.activeElement;
-		const refocus = active && active.id === "lib-filter" ? "#lib-filter" : active && active.dataset && active.dataset.sort ? `.lib-seg [data-sort="${active.dataset.sort}"]` : null;
-		const caret = active && active.id === "lib-filter" ? active.selectionStart : null;
+		const existingList = !fresh && document.getElementById("lib-list");
+		const frontShell = dom.view.querySelector(".lib-front");
+		if (existingList && frontShell) {
+			const tmp = document.createElement("div");
+			tmp.innerHTML = libFrontHtml(d);
+			const nextMetrics = tmp.querySelector(".lib-metrics");
+			const curMetrics = frontShell.querySelector(".lib-metrics");
+			if (nextMetrics && curMetrics) curMetrics.replaceWith(nextMetrics);
+			const nextBroad = tmp.querySelector(".lib-broadsheet");
+			const curBroad = frontShell.querySelector(".lib-broadsheet");
+			if (nextBroad && curBroad) curBroad.replaceWith(nextBroad);
+			const nextSuites = tmp.querySelector(".lib-suites");
+			const curSuites = frontShell.querySelector(".lib-suites");
+			if (nextSuites && curSuites) curSuites.replaceWith(nextSuites);
+			for (const btn of frontShell.querySelectorAll(".lib-seg [data-sort]")) btn.setAttribute("aria-pressed", String(btn.dataset.sort === lib.sort));
+			existingList.innerHTML = libTitleList(d, lib.sort);
+			applyLibraryFilter();
+			dom.main.scrollTop = scrollTop;
+			return;
+		}
 		dom.view.innerHTML = libFrontHtml(d);
 		applyLibraryFilter();
-		if (refocus) {
-			const el = dom.view.querySelector(refocus);
-			if (el) {
-				el.focus({ preventScroll: true });
-				if (caret != null) el.setSelectionRange(caret, caret);
-			}
-		}
 		if (fresh) enterView();
 		else dom.main.scrollTop = scrollTop;
 		return;
@@ -7317,15 +8436,27 @@ function renderLibrary(fresh) {
 			});
 		}).join("")}`).join("");
 	}
+	const viewKey = `${title}|${part || ""}`;
+	if (!fresh && dom.view.querySelector(`.lib[data-lib-view="${CSS.escape(viewKey)}"]`)) {
+		const subEl = document.getElementById("lib-sub-slot");
+		const headEl = document.getElementById("lib-head-act-slot");
+		const listEl = document.getElementById("lib-list");
+		if (subEl) subEl.textContent = sub;
+		if (headEl) headEl.innerHTML = head;
+		if (listEl) listEl.innerHTML = body;
+		applyLibraryFilter();
+		dom.main.scrollTop = scrollTop;
+		return;
+	}
 	dom.view.innerHTML = `
-    <div class="lib">
+    <div class="lib" data-lib-view="${escapeHtml(viewKey)}">
       <div class="doc-kicker">${crumbs}</div>
       <div class="lib-head">
         <div class="lib-head-text">
           <h1 class="doc-title">${escapeHtml(heading)}</h1>
-          <p class="lib-sub">${escapeHtml(sub)}</p>
+          <p class="lib-sub" id="lib-sub-slot">${escapeHtml(sub)}</p>
         </div>
-        ${head}
+        <span id="lib-head-act-slot">${head}</span>
       </div>
       <input class="lib-filter" id="lib-filter" type="search" placeholder="${placeholder}…" aria-label="${placeholder}" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
       <div class="lib-list" id="lib-list">${body}</div>
@@ -7568,10 +8699,12 @@ function newsTimelineHtml(ctx) {
 		} else meta += " · Notice";
 		const title = a.category === "enforcement" && second ? second : a.title;
 		const hay = `${meta} ${title} ${a.citation || ""}`.toLowerCase();
+		const actNr = inspectionActivityNr(a);
+		const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}" data-pop-nav><span class="tl-title">${escapeHtml(title)}</span></a>` : extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`);
 		return `<li class="tl-node" data-kind="${escapeHtml(a.category)}" data-hay="${escapeHtml(hay)}">
       <span class="tl-dot" aria-hidden="true"></span>
       <div class="tl-meta">${escapeHtml(meta)}</div>
-      ${extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`)}
+      ${titleHtml}
     </li>`;
 	}).join("");
 	const allHref = ctx.kind === "part" ? `#/news?part=${encodeURIComponent(ctx.id)}` : `#/news?section=${encodeURIComponent(ctx.id)}`;
@@ -7602,6 +8735,7 @@ function closeNewsActivity(returnFocus = true) {
 }
 newsPop.addEventListener("click", (e) => {
 	if (e.target.closest("[data-pop-close]")) closeNewsActivity(true);
+	else if (e.target.closest("[data-pop-nav]")) closeNewsActivity(false);
 });
 newsPop.addEventListener("input", (e) => {
 	if (e.target.id !== "news-pop-filter") return;
@@ -7849,6 +8983,94 @@ function enhanceDomAnchors(root = dom.view) {
 		textNode.parentNode.replaceChild(frag, textNode);
 	}
 }
+function resolveParagraphPath(root, paraEl) {
+	if (!root || !paraEl) return "";
+	const pm = paraEl.querySelector(".pmark");
+	if (!pm) return "";
+	const firstTok = (pm.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
+	if (!firstTok.length) return "";
+	if (firstTok.length > 1) return firstTok.join("");
+	const lvlMatch = /\blvl-(\d+)\b/.exec(paraEl.className);
+	let targetLvl = lvlMatch ? Number(lvlMatch[1]) : 0;
+	if (targetLvl <= 1) return firstTok[0];
+	const paras = [...root.querySelectorAll(".reg-p")];
+	let idx = paras.indexOf(paraEl);
+	if (idx < 0) return firstTok[0];
+	const chain = [firstTok[0]];
+	for (let i = idx - 1; i >= 0 && targetLvl > 1; i--) {
+		const p = paras[i];
+		const lm = /\blvl-(\d+)\b/.exec(p.className);
+		const lvl = lm ? Number(lm[1]) : 0;
+		if (lvl > 0 && lvl < targetLvl) {
+			const toks = (p.querySelector(".pmark")?.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g);
+			if (toks && toks.length) {
+				chain.unshift(...toks);
+				targetLvl = lvl;
+			}
+		}
+	}
+	return chain.join("");
+}
+function formatCfrCitation(title, sectionLabelOrId, para = "") {
+	const cleanLabel = String(sectionLabelOrId || "").trim();
+	return `${title} C.F.R. ${cleanLabel.startsWith("§") ? cleanLabel : `§ ${cleanLabel}`}${para || ""}`;
+}
+function wrapIbrMentions(root, ibrList) {
+	if (!root || !Array.isArray(ibrList) || !ibrList.length) return;
+	const byMatch = /* @__PURE__ */ new Map();
+	for (const item of ibrList) {
+		if (!item || !item.match_text) continue;
+		byMatch.set(item.match_text.toLowerCase(), item);
+		if (item.code) byMatch.set(item.code.toLowerCase(), item);
+	}
+	if (!byMatch.size) return;
+	const escaped = [...byMatch.keys()].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+	const re = new RegExp(`(${escaped})`, "gi");
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
+		const parent = node.parentElement;
+		if (!parent || !parent.closest(".reg-body") || parent.closest("a, button, .pmark, .runin")) return NodeFilter.FILTER_REJECT;
+		return NodeFilter.FILTER_ACCEPT;
+	} });
+	const nodes = [];
+	let n;
+	while (n = walker.nextNode()) nodes.push(n);
+	for (const textNode of nodes) {
+		const val = textNode.nodeValue || "";
+		re.lastIndex = 0;
+		if (!re.test(val)) continue;
+		re.lastIndex = 0;
+		const frag = document.createDocumentFragment();
+		let last = 0;
+		let match;
+		while ((match = re.exec(val)) !== null) {
+			if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
+			const item = byMatch.get(match[1].toLowerCase());
+			if (item) {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = "xref xref-ibr";
+				btn.dataset.ibrCode = item.code;
+				btn.title = item.approved_in ? `${item.code} — IBR approved in ${item.approved_in.label}${item.approved_in.para || ""}` : `${item.code} (${item.org_name || item.org})`;
+				btn.textContent = match[0];
+				frag.appendChild(btn);
+			} else frag.appendChild(document.createTextNode(match[0]));
+			last = match.index + match[0].length;
+		}
+		if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
+		textNode.parentNode.replaceChild(frag, textNode);
+	}
+}
+function renderViewError(container, title, message, { retryLabel = "Try again", onRetry = null } = {}) {
+	if (!container) return;
+	container.innerHTML = `
+    <div class="empty-state">
+      <h2>${escapeHtml(title)}</h2>
+      <p>${escapeHtml(message)}</p>
+      ${onRetry ? `<button type="button" class="btn" id="view-err-retry">${escapeHtml(retryLabel)}</button>` : ""}
+    </div>
+  `;
+	if (onRetry) document.getElementById("view-err-retry")?.addEventListener("click", onRetry);
+}
 function parseCfrHref(href, fallbackTitle = 29) {
 	if (!href) return null;
 	if (href.startsWith("#")) {
@@ -7964,7 +9186,7 @@ async function loadPart(partId) {
 		if (err && err.name === "AbortError") return;
 		console.error(err);
 		setViewHead("");
-		dom.view.innerHTML = `<div class="msg-error">Failed to load part: ${escapeHtml(err.message)}</div>`;
+		renderViewError(dom.view, "Failed to load part", err?.message || "Unexpected error", { onRetry: () => loadPart(partId) });
 	}
 }
 async function loadPartFull(partId, params) {
@@ -8050,7 +9272,7 @@ async function loadPartFull(partId, params) {
 		if (err && err.name === "AbortError") return;
 		console.error(err);
 		setViewHead("");
-		dom.view.innerHTML = `<div class="msg-error">Failed to load part: ${escapeHtml(err.message)}</div>`;
+		renderViewError(dom.view, "Failed to load part", err?.message || "Unexpected error", { onRetry: () => loadPartFull(partId, params) });
 	}
 }
 function tocTitle(node) {
@@ -8485,6 +9707,10 @@ function agencyInfo(node) {
 }
 function agencyOf(k) {
 	for (let p = k; p >= 0; p = treeIdx.parent[p]) if (isAgencyNode(treeIdx.nodes[p])) return p;
+	return null;
+}
+function partForSection(sectionId) {
+	for (let p = treeIdx.sections.get(String(sectionId)); p != null && p >= 0; p = treeIdx.parent[p]) if (treeIdx.nodes[p]?.t === "part") return treeIdx.nodes[p].id || null;
 	return null;
 }
 function indexTree(root) {
@@ -9080,6 +10306,33 @@ function currentSectionRef() {
 		heading: state.currentSection.section_title || state.currentSection.title_label || "",
 		part: state.currentSection.part || ""
 	};
+}
+function clipToWorkspace(sec, { para = "", quote = "", cite = "", projectId = null } = {}) {
+	if (!sec || !sec.id) return null;
+	let list = loadProjects();
+	let targetProj = projectId ? list.find((x) => x.id === projectId) : list[0];
+	if (!targetProj) {
+		targetProj = createProject("Research clips");
+		list = loadProjects();
+		targetProj = list.find((x) => x.id === targetProj.id) || list[0];
+	}
+	if (!targetProj) return null;
+	const cleanQuote = String(quote || "").replace(/\s+/g, " ").trim();
+	const clippedCite = cite || `${sec.title} C.F.R. ${sec.label || "§ " + sec.id}${para || ""}`;
+	const entryLine = cleanQuote ? `[${clippedCite}] "${cleanQuote}"` : `[${clippedCite}]`;
+	updateProject(targetProj.id, (p) => {
+		let item = p.sections.find((s) => s.title === sec.title && s.id === sec.id);
+		if (!item) {
+			item = {
+				...sec,
+				pinned_at: nowIso(),
+				note: entryLine
+			};
+			p.sections.push(item);
+		} else if (!item.note || !item.note.includes(entryLine)) item.note = item.note ? `${item.note}\n\n${entryLine}` : entryLine;
+	});
+	showToast(`Clipped ${clippedCite} to ${targetProj.name}`);
+	return targetProj;
 }
 function downloadJson(name, data) {
 	const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
@@ -10772,6 +12025,13 @@ async function openSplitPane({ title, sectionId, para = null, unit = null, pushH
 		const bodyEl = dom.splitPane.querySelector(".split-body");
 		if (bodyEl) {
 			enhanceDomAnchors(bodyEl);
+			const cachedGraph = state.graphCache.get(`${tNum}|${data.id}`);
+			if (cachedGraph?.ibr?.length) wrapIbrMentions(bodyEl, cachedGraph.ibr);
+			else fetch(`/api/${tNum}/citations/${encodeURIComponent(data.id)}`, { signal: splitAbort?.signal }).then((r) => r.ok ? r.json() : null).then((g) => {
+				if (!g || seq !== splitSeq || !bodyEl.isConnected) return;
+				state.graphCache.set(`${tNum}|${data.id}`, g);
+				if (g.ibr?.length) wrapIbrMentions(bodyEl, g.ibr);
+			}).catch(() => {});
 			if (para) highlightTarget(bodyEl, para, 60);
 			else dom.splitPane.scrollTop = 0;
 		}
@@ -10791,6 +12051,9 @@ async function openSplitPane({ title, sectionId, para = null, unit = null, pushH
       <div class="split-body"><div class="msg-error">${escapeHtml(err?.message || "Error")}</div></div>
     `;
 	}
+}
+function getActiveSplitDoc() {
+	return activeSplitDoc;
 }
 if (dom.splitPane) {
 	dom.splitPane.addEventListener("click", (e) => {
@@ -11192,6 +12455,11 @@ async function upgradeDomExternalLinks(finishedTitles) {
 		const tNum = Number(key.split("|", 1)[0]);
 		if (finishedTitles.has(tNum)) state.peekCache.delete(key);
 	}
+	for (const tNum of finishedTitles) state.refsCache.delete(tNum);
+	for (const key of [...state.graphCache.keys()]) {
+		const tNum = Number(key.split("|", 1)[0]);
+		if (finishedTitles.has(tNum)) state.graphCache.delete(key);
+	}
 	for (const root of [dom.view, dom.splitPane].filter(Boolean)) for (const a of root.querySelectorAll("a.xref-external[data-cfr-title]")) {
 		const t = Number(a.dataset.cfrTitle);
 		if (!finishedTitles.has(t)) continue;
@@ -11256,10 +12524,95 @@ window.addEventListener("hashchange", () => {
 	if (!dom.view.querySelector(".resolver-card")) activePageCtx = null;
 });
 // src/views/reader.js
+var READING_MODE_KEY = "readingModeByPart:v1";
+function loadReadingModePrefs() {
+	try {
+		const obj = JSON.parse(lsGet(READING_MODE_KEY) || "{}");
+		return obj && typeof obj === "object" ? obj : {};
+	} catch (e) {
+		return {};
+	}
+}
+function getPreferredPartMode(title, part) {
+	if (!part) return null;
+	return loadReadingModePrefs()[`${title}|${part}`] || null;
+}
+function savePreferredPartMode(title, part, mode) {
+	if (!part) return;
+	const prefs = loadReadingModePrefs();
+	prefs[`${title}|${part}`] = mode;
+	lsSet(READING_MODE_KEY, JSON.stringify(prefs));
+}
 function highlightParagraph(pText, delay = 120) {
 	highlightTarget(dom.view, pText, delay);
 }
-dom.view.addEventListener("click", (e) => {
+var paraBar = null;
+var paraBarTarget = null;
+function hideParaBar() {
+	if (paraBar) paraBar.hidden = true;
+	paraBarTarget = null;
+}
+function showParaBar(pEl) {
+	if (!dom.view.querySelector(".reg-body") || !pEl?.querySelector(".pmark")) {
+		hideParaBar();
+		return;
+	}
+	if (!paraBar || !paraBar.isConnected) {
+		paraBar = document.createElement("div");
+		paraBar.className = "para-tools";
+		paraBar.setAttribute("aria-label", "Paragraph actions");
+		paraBar.innerHTML = `
+      <button type="button" class="para-tool-btn" data-para-act="copy" title="Copy legal CFR citation">${icon("link")} Cite</button>
+      <button type="button" class="para-tool-btn" data-para-act="clip" title="Clip clause to workspace">${icon("bookmark")} Clip</button>
+    `;
+	}
+	paraBarTarget = pEl;
+	paraBar.hidden = false;
+	pEl.appendChild(paraBar);
+}
+dom.view.addEventListener("mouseover", (e) => {
+	if (!state.currentSection) return;
+	if (paraBar && paraBar.contains(e.target)) return;
+	const p = e.target.closest(".reg-body .reg-p[id]");
+	if (p && p.querySelector(".pmark")) {
+		if (p !== paraBarTarget) showParaBar(p);
+	} else hideParaBar();
+});
+dom.view.addEventListener("mouseleave", () => hideParaBar());
+dom.view.addEventListener("click", async (e) => {
+	const toolBtn = e.target.closest(".para-tool-btn[data-para-act]");
+	if (toolBtn && paraBarTarget && state.currentSection) {
+		e.preventDefault();
+		e.stopPropagation();
+		const para = resolveParagraphPath(dom.view, paraBarTarget);
+		const label = cleanInlineLabel(state.currentSection.label);
+		const cite = formatCfrCitation(state.currentTitle, label, para);
+		if (toolBtn.dataset.paraAct === "copy") try {
+			await navigator.clipboard.writeText(cite);
+			showToast(`Copied ${cite}`);
+		} catch (err) {
+			showToast("Couldn’t copy citation");
+		}
+		else if (toolBtn.dataset.paraAct === "clip") {
+			const clone = paraBarTarget.cloneNode(true);
+			clone.querySelectorAll(".para-tools").forEach((x) => x.remove());
+			const ref = currentSectionRef();
+			if (ref) clipToWorkspace(ref, {
+				para,
+				quote: clone.textContent.trim().slice(0, 320),
+				cite
+			});
+		}
+		return;
+	}
+	const modeBtn = e.target.closest("a[data-mode-pref]");
+	if (modeBtn && state.currentSection?.part) savePreferredPartMode(state.currentTitle, state.currentSection.part, modeBtn.dataset.modePref);
+	if (e.target.closest("#btn-cited-by") && state.currentSection) {
+		const btn = e.target.closest("#btn-cited-by");
+		const graphData = state.graphCache.get(`${state.currentTitle}|${state.currentSection.id}`);
+		if (graphData) openCitedByPopover(btn, graphData);
+		return;
+	}
 	if (e.altKey) return;
 	const localPara = e.target.closest("a.xref-local[data-local-para]");
 	if (localPara) {
@@ -11275,8 +12628,83 @@ dom.view.addEventListener("click", (e) => {
 		openFigureModal(figLink);
 	}
 });
+function renderCitedByListHtml(graphData, filter = "") {
+	const q = filter.trim().toLowerCase();
+	const rows = (graphData.cited_by || []).filter((c) => {
+		if (!q) return true;
+		return `${c.id} ${c.label} ${c.title} ${c.part}`.toLowerCase().includes(q);
+	});
+	if (!rows.length) return "<p class=\"peek-text\" style=\"padding:8px 0\">No matching citing sections.</p>";
+	return `<div class="cited-list">${rows.slice(0, 50).map((c) => `
+    <div class="cited-row">
+      <a class="cited-link" href="#/title/${state.currentTitle}/section/${encodeURIComponent(c.id)}">
+        <span class="cited-num">${escapeHtml(c.label)}</span>
+        <span class="cited-title">${escapeHtml(c.title)}</span>
+      </a>
+      <button type="button" class="lib-act cited-split" data-cited-split="${escapeHtml(c.id)}" title="Open side-by-side">Split</button>
+    </div>
+  `).join("")}</div>`;
+}
+function openCitedByPopover(btn, graphData) {
+	const total = graphData.cited_by_count || 0;
+	const filterHtml = total >= 6 ? `<input type="search" class="pop-filter" id="cited-pop-filter" placeholder="Filter ${total} citing sections…" aria-label="Filter citing sections" autocomplete="off">` : "";
+	citePop.open(btn, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">Cited by ${plural(total, "section")} in Title ${state.currentTitle}</div>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close citing sections">${icon("close")}</button>
+    </div>
+    ${filterHtml}
+    <div id="cited-pop-list">${renderCitedByListHtml(graphData)}</div>
+  `, {
+		interactive: true,
+		returnFocus: btn,
+		focusSelector: "#cited-pop-filter, .cited-link"
+	});
+	const filterEl = document.getElementById("cited-pop-filter");
+	if (filterEl) filterEl.addEventListener("input", () => {
+		const slot = document.getElementById("cited-pop-list");
+		if (slot) slot.innerHTML = renderCitedByListHtml(graphData, filterEl.value);
+		citePop.reposition(btn);
+	});
+}
+if (citePopEl) citePopEl.addEventListener("click", (e) => {
+	const sp = e.target.closest("[data-cited-split]");
+	if (!sp) return;
+	const secId = sp.dataset.citedSplit;
+	citePop.close(false);
+	openSplitPane({
+		title: state.currentTitle,
+		sectionId: secId,
+		pushHistory: true
+	});
+});
+async function fillSectionGraph(titleNum, sectionId, seq, signal) {
+	const key = `${titleNum}|${sectionId}`;
+	let data = state.graphCache.get(key);
+	if (!data) try {
+		const res = await fetch(`/api/${titleNum}/citations/${encodeURIComponent(sectionId)}`, { signal });
+		if (!res.ok) return;
+		data = await res.json();
+		state.graphCache.set(key, data);
+	} catch (e) {
+		return;
+	}
+	if (seq !== state.routeSeq || !state.currentSection || state.currentSection.id !== sectionId) return;
+	if (data.cited_by_count > 0) {
+		const btn = document.getElementById("btn-cited-by");
+		if (btn) {
+			const span = btn.querySelector("span");
+			if (span) span.textContent = `Cited by ${data.cited_by_count}`;
+			btn.hidden = false;
+		}
+	}
+	if (data.ibr && data.ibr.length) wrapIbrMentions(dom.view, data.ibr);
+}
 async function loadSection(sectionId, params, view) {
-	const full = view === "full";
+	hideParaBar();
+	const knownPart = partForSection(sectionId);
+	const prefMode = !view && !params?.get("p") && knownPart ? getPreferredPartMode(state.currentTitle, knownPart) : null;
+	const full = view === "full" || prefMode === "full";
 	const pClause = params && /^\(([a-z])\)/.exec(params.get("p") || "");
 	const unit = full ? null : view || (pClause ? pClause[1] : "");
 	const sameSection = state.currentSection && state.currentSection.id === sectionId && !dom.view.querySelector(".loading");
@@ -11318,7 +12746,7 @@ async function loadSection(sectionId, params, view) {
 		let unitBannerHtml = "";
 		if (current) unitBannerHtml = `<div class="unit-context"><span>${escapeHtml(current.group && current.kind === "chapter" ? `${current.group_label} · ${current.group_title || ""}` : `${current.label ? `Clause ${current.label}` : current.title}`)}</span><span class="sep" aria-hidden="true">·</span><span class="unit-pos">Unit ${unitIdx + 1} of ${outline.length}</span></div>`;
 		const fullPart = data.part ? `<a class="btn" href="#/part/${encodeURIComponent(data.part)}/full?from=${encodeURIComponent(data.id)}">${icon("list")} See full part</a>` : "";
-		const toggle = data.mode !== "units" ? "" : full ? `<a class="btn" href="${sectionHref(data.id)}">${icon("stack")} Read in parts</a>` : `<a class="btn" href="${sectionHref(data.id, "full")}">${icon("expand")} See full section</a>`;
+		const toggle = data.mode !== "units" ? "" : full ? `<a class="btn" href="${sectionHref(data.id)}" data-mode-pref="units">${icon("stack")} Read in parts</a>` : `<a class="btn" href="${sectionHref(data.id, "full")}" data-mode-pref="full">${icon("expand")} See full section</a>`;
 		dom.view.innerHTML = `
       <div class="doc-kicker">${state.currentTitle} CFR ${partLink}</div>
       <h1 class="doc-title">${escapeHtml(label)} ${escapeHtml(heading)}</h1>
@@ -11328,6 +12756,7 @@ async function loadSection(sectionId, params, view) {
         ${fullPart}
         ${pinButtonHtml()}
         ${newsActivityButtonHtml()}
+        <button type="button" class="btn" id="btn-cited-by" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("link")} <span>Cited by</span></button>
         <div class="spacer"></div>
         <div class="doc-actions-util">
           <a class="btn" href="${escapeHtml(data.ecfr_url)}" target="_blank" rel="noopener" title="Open official text on eCFR">${icon("external")} eCFR</a>
@@ -11371,11 +12800,12 @@ async function loadSection(sectionId, params, view) {
 		if (!sameSection) recordSectionVisit(data, unitInfo);
 		else recordSectionUnit(data.id, unitInfo);
 		fillNewsActivity("section", data.id, seq);
+		fillSectionGraph(state.currentTitle, data.id, seq, signal);
 	} catch (err) {
 		if (err && err.name === "AbortError") return;
 		console.error(err);
 		setViewHead("");
-		dom.view.innerHTML = `<div class="msg-error">Failed to load section: ${escapeHtml(err.message)}</div>`;
+		renderViewError(dom.view, "Failed to load section", err?.message || "Unexpected error", { onRetry: () => loadSection(sectionId, params, view) });
 	}
 }
 // src/views/search.js
@@ -11395,11 +12825,135 @@ function renderResultRow(r, showTitleInPart) {
     </div>
   `;
 }
-function renderSearchView() {
+function buildFacetData(rawResults, filters) {
+	const qText = filters.text.trim().toLowerCase();
+	const applyFilters = (list, { ignoreTitle = false, ignorePart = false } = {}) => list.filter((r) => {
+		const rTitle = r.title || state.currentTitle;
+		if (!ignoreTitle && filters.title !== null && rTitle !== filters.title) return false;
+		if (!ignorePart && filters.part !== null && (r.part || "") !== filters.part) return false;
+		if (filters.kind !== "all" && (r.kind || "section") !== filters.kind) return false;
+		if (qText) {
+			if (!`${r.label || ""} ${r.title_label || ""} ${r.part || ""} ${r.snippet || ""} title ${rTitle}`.toLowerCase().includes(qText)) return false;
+		}
+		return true;
+	});
+	const filtered = applyFilters(rawResults);
+	const titleCounts = /* @__PURE__ */ new Map();
+	for (const r of applyFilters(rawResults, {
+		ignoreTitle: true,
+		ignorePart: true
+	})) {
+		const t = r.title || state.currentTitle;
+		titleCounts.set(t, (titleCounts.get(t) || 0) + 1);
+	}
+	const partCounts = /* @__PURE__ */ new Map();
+	for (const r of applyFilters(rawResults, { ignorePart: true })) {
+		const p = r.part || "";
+		if (p) partCounts.set(p, (partCounts.get(p) || 0) + 1);
+	}
+	return {
+		filtered,
+		hasActiveFilter: filters.title !== null || filters.part !== null || filters.kind !== "all" || qText !== "",
+		sortedTitleFacets: [...titleCounts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]),
+		sortedPartFacets: [...partCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], void 0, { numeric: true })),
+		hasAppendices: rawResults.some((r) => r.kind === "appendix")
+	};
+}
+function renderGroupedResults(filtered, collapsed) {
+	if (!filtered.length) return "<div class=\"empty-state\"><h2>No matching results</h2><p>None of the loaded results match your current filters.</p></div>";
+	const byTitle = /* @__PURE__ */ new Map();
+	for (const r of filtered) {
+		const t = r.title || state.currentTitle;
+		if (!byTitle.has(t)) byTitle.set(t, []);
+		byTitle.get(t).push(r);
+	}
+	return `<div class="search-groups">${[...byTitle.entries()].sort((a, b) => b[1].length - a[1].length || a[0] - b[0]).map(([t, tItems]) => {
+		const tMeta = state.installedTitles.find((x) => x.title === t);
+		const tLabel = tMeta ? `Title ${t} — ${tMeta.name}` : `Title ${t}`;
+		const isCollapsed = collapsed.has(t);
+		const byPart = /* @__PURE__ */ new Map();
+		for (const r of tItems) {
+			const p = r.part || "";
+			if (!byPart.has(p)) byPart.set(p, []);
+			byPart.get(p).push(r);
+		}
+		const partsHtml = [...byPart.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], void 0, { numeric: true })).map(([p, pItems]) => `
+      <div class="search-part-group">
+        ${p ? `<div class="search-part-head">
+          <a class="search-part-link" href="#/title/${t}/part/${encodeURIComponent(p)}">Part ${escapeHtml(p)}</a>
+          <span class="search-part-count">${pItems.length} ${pItems.length === 1 ? "result" : "results"}</span>
+        </div>` : ""}
+        ${pItems.map((r) => renderResultRow(r, false)).join("")}
+      </div>
+    `).join("");
+		return `
+      <section class="search-title-group${isCollapsed ? " is-collapsed" : ""}" data-tgroup="${t}">
+        <button type="button" class="search-title-head" aria-expanded="${!isCollapsed}">
+          <span class="search-title-caret" aria-hidden="true">${icon("chevronDown")}</span>
+          <span class="search-title-name">${escapeHtml(tLabel)}</span>
+          <span class="search-title-count">${tItems.length} ${tItems.length === 1 ? "result" : "results"}</span>
+        </button>
+        <div class="search-title-body">${partsHtml}</div>
+      </section>
+    `;
+	}).join("")}</div>`;
+}
+function patchSearchDynamicSlots() {
 	if (!state.searchState) return;
 	const { query, allTitles, data, view, filters, collapsed } = state.searchState;
 	const rawResults = data.results || [];
 	const total = Number(data.total || 0);
+	const countSlot = document.getElementById("search-count-slot");
+	const facetsBar = document.getElementById("search-facets-slot");
+	const kindSlot = document.getElementById("search-kind-slot");
+	const clearSlot = document.getElementById("search-clear-slot");
+	const filtersBox = document.getElementById("search-filters-box");
+	const bodySlot = document.getElementById("search-results-slot");
+	if (!bodySlot) return;
+	for (const btn of dom.view.querySelectorAll("[data-sview]")) {
+		const on = btn.dataset.sview === view;
+		btn.classList.toggle("is-on", on);
+		btn.setAttribute("aria-pressed", String(on));
+	}
+	if (!rawResults.length) {
+		if (filtersBox) filtersBox.hidden = true;
+		if (countSlot) countSlot.textContent = `0 results · ${data.ms} ms`;
+		bodySlot.innerHTML = `<div class="empty-state"><h2>No results</h2><p>Nothing in ${allTitles ? "the installed titles" : "Title " + state.currentTitle} matches “${escapeHtml(query)}”. Try fewer or different words.</p></div>`;
+		return;
+	}
+	const { filtered, hasActiveFilter, sortedTitleFacets, sortedPartFacets, hasAppendices } = buildFacetData(rawResults, filters);
+	const countText = view === "grouped" && hasActiveFilter ? `${filtered.length.toLocaleString()} of ${rawResults.length.toLocaleString()} shown (${total.toLocaleString()} total)` : `${total.toLocaleString()} ${total === 1 ? "result" : "results"}`;
+	if (countSlot) countSlot.textContent = `${countText} · ${data.ms} ms`;
+	if (filtersBox) filtersBox.hidden = view !== "grouped";
+	if (view === "grouped") {
+		if (kindSlot) kindSlot.innerHTML = hasAppendices ? `
+        <button type="button" class="sf-pill${filters.kind === "all" ? " is-active" : ""}" data-fkind="all">All types</button>
+        <button type="button" class="sf-pill${filters.kind === "section" ? " is-active" : ""}" data-fkind="section">Sections</button>
+        <button type="button" class="sf-pill${filters.kind === "appendix" ? " is-active" : ""}" data-fkind="appendix">Appendices</button>
+      ` : "";
+		if (clearSlot) clearSlot.innerHTML = hasActiveFilter ? "<button type=\"button\" class=\"sf-clear\" id=\"sf-clear\">Clear filters</button>" : "";
+		if (facetsBar) facetsBar.innerHTML = (sortedTitleFacets.length > 1 ? `
+        <div class="search-filter-row">
+          <span class="search-filter-label">Titles</span>
+          <div class="search-filter-pills">
+            <button type="button" class="sf-pill${filters.title === null ? " is-active" : ""}" data-ftitle="">All <span class="sf-pill-count">${rawResults.length}</span></button>
+            ${sortedTitleFacets.map(([t, c]) => `<button type="button" class="sf-pill${filters.title === t ? " is-active" : ""}" data-ftitle="${t}">Title ${t} <span class="sf-pill-count">${c}</span></button>`).join("")}
+          </div>
+        </div>` : "") + (sortedPartFacets.length > 1 ? `
+        <div class="search-filter-row">
+          <span class="search-filter-label">Parts</span>
+          <div class="search-filter-pills">
+            <button type="button" class="sf-pill${filters.part === null ? " is-active" : ""}" data-fpart="">All</button>
+            ${sortedPartFacets.slice(0, 14).map(([p, c]) => `<button type="button" class="sf-pill${filters.part === p ? " is-active" : ""}" data-fpart="${escapeHtml(p)}">Part ${escapeHtml(p)} <span class="sf-pill-count">${c}</span></button>`).join("")}
+          </div>
+        </div>` : "");
+		bodySlot.innerHTML = renderGroupedResults(filtered, collapsed);
+	} else bodySlot.innerHTML = `<div class="results-list">${rawResults.map((r) => renderResultRow(r, allTitles)).join("")}</div>`;
+}
+function renderSearchView() {
+	if (!state.searchState) return;
+	const { query, allTitles, data, view, filters } = state.searchState;
+	const rawResults = data.results || [];
 	let scopeHtml = "";
 	if (state.installedTitles.length > 1) {
 		const qEnc = encodeURIComponent(query);
@@ -11412,186 +12966,85 @@ function renderSearchView() {
     <button type="button" class="${view === "compact" ? "is-on" : ""}" data-sview="compact" aria-pressed="${view === "compact"}">Compact</button>
     <button type="button" class="${view === "grouped" ? "is-on" : ""}" data-sview="grouped" aria-pressed="${view === "grouped"}">Grouped</button>
   </span>` : "";
-	const qText = filters.text.trim().toLowerCase();
-	const applyFilters = (list, { ignoreTitle = false, ignorePart = false } = {}) => list.filter((r) => {
-		const rTitle = r.title || state.currentTitle;
-		if (!ignoreTitle && filters.title !== null && rTitle !== filters.title) return false;
-		if (!ignorePart && filters.part !== null && (r.part || "") !== filters.part) return false;
-		if (filters.kind !== "all" && (r.kind || "section") !== filters.kind) return false;
-		if (qText) {
-			if (!`${r.label || ""} ${r.title_label || ""} ${r.part || ""} ${r.snippet || ""} title ${rTitle}`.toLowerCase().includes(qText)) return false;
-		}
-		return true;
-	});
-	const filtered = view === "grouped" ? applyFilters(rawResults) : rawResults;
-	const hasActiveFilter = view === "grouped" && (filters.title !== null || filters.part !== null || filters.kind !== "all" || qText !== "");
-	let filtersHtml = "";
-	let bodyHtml = "";
-	if (!rawResults.length) bodyHtml = `<div class="empty-state"><h2>No results</h2><p>Nothing in ${allTitles ? "the installed titles" : "Title " + state.currentTitle} matches “${escapeHtml(query)}”. Try fewer or different words.</p></div>`;
-	else if (view === "compact") bodyHtml = `<div class="results-list">${rawResults.map((r) => renderResultRow(r, allTitles)).join("")}</div>`;
-	else {
-		const titleCounts = /* @__PURE__ */ new Map();
-		for (const r of applyFilters(rawResults, {
-			ignoreTitle: true,
-			ignorePart: true
-		})) {
-			const t = r.title || state.currentTitle;
-			titleCounts.set(t, (titleCounts.get(t) || 0) + 1);
-		}
-		const sortedTitleFacets = [...titleCounts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
-		const partCounts = /* @__PURE__ */ new Map();
-		for (const r of applyFilters(rawResults, { ignorePart: true })) {
-			const p = r.part || "";
-			if (p) partCounts.set(p, (partCounts.get(p) || 0) + 1);
-		}
-		const sortedPartFacets = [...partCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], void 0, { numeric: true }));
-		const hasAppendices = rawResults.some((r) => r.kind === "appendix");
-		const titlePills = sortedTitleFacets.length > 1 ? `
-      <div class="search-filter-row">
-        <span class="search-filter-label">Titles</span>
-        <div class="search-filter-pills">
-          <button type="button" class="sf-pill${filters.title === null ? " is-active" : ""}" data-ftitle="">All <span class="sf-pill-count">${rawResults.length}</span></button>
-          ${sortedTitleFacets.map(([t, c]) => `<button type="button" class="sf-pill${filters.title === t ? " is-active" : ""}" data-ftitle="${t}">Title ${t} <span class="sf-pill-count">${c}</span></button>`).join("")}
-        </div>
-      </div>` : "";
-		const partPills = sortedPartFacets.length > 1 ? `
-      <div class="search-filter-row">
-        <span class="search-filter-label">Parts</span>
-        <div class="search-filter-pills">
-          <button type="button" class="sf-pill${filters.part === null ? " is-active" : ""}" data-fpart="">All</button>
-          ${sortedPartFacets.slice(0, 14).map(([p, c]) => `<button type="button" class="sf-pill${filters.part === p ? " is-active" : ""}" data-fpart="${escapeHtml(p)}">Part ${escapeHtml(p)} <span class="sf-pill-count">${c}</span></button>`).join("")}
-        </div>
-      </div>` : "";
-		const kindPills = hasAppendices ? `
-      <div class="search-filter-pills">
-        <button type="button" class="sf-pill${filters.kind === "all" ? " is-active" : ""}" data-fkind="all">All types</button>
-        <button type="button" class="sf-pill${filters.kind === "section" ? " is-active" : ""}" data-fkind="section">Sections</button>
-        <button type="button" class="sf-pill${filters.kind === "appendix" ? " is-active" : ""}" data-fkind="appendix">Appendices</button>
-      </div>` : "";
-		filtersHtml = `
-      <div class="search-filters" role="region" aria-label="Filter search results">
+	dom.view.innerHTML = `
+    <div class="search-page">
+      <div class="doc-kicker">Search</div>
+      <h1 class="doc-title">${escapeHtml(query)}</h1>
+      <div class="search-meta">
+        <span id="search-count-slot"></span>
+        <div class="search-controls">${viewToggleHtml}${scopeHtml}</div>
+      </div>
+      <div class="search-filters" id="search-filters-box" role="region" aria-label="Filter search results" hidden>
         <div class="search-filter-row">
           <input type="search" id="sf-text" class="search-filter-input" value="${escapeHtml(filters.text)}" placeholder="Filter these results by section, part, or phrase…" autocomplete="off" spellcheck="false">
-          ${kindPills}
-          ${hasActiveFilter ? "<button type=\"button\" class=\"sf-clear\" id=\"sf-clear\">Clear filters</button>" : ""}
+          <div class="search-filter-pills" id="search-kind-slot"></div>
+          <span id="search-clear-slot"></span>
         </div>
-        ${titlePills}
-        ${partPills}
+        <div id="search-facets-slot"></div>
       </div>
-    `;
-		if (!filtered.length) bodyHtml = `<div class="empty-state"><h2>No matching results</h2><p>None of the loaded results match your current filters.</p></div>`;
-		else {
-			const byTitle = /* @__PURE__ */ new Map();
-			for (const r of filtered) {
-				const t = r.title || state.currentTitle;
-				if (!byTitle.has(t)) byTitle.set(t, []);
-				byTitle.get(t).push(r);
-			}
-			bodyHtml = `<div class="search-groups">${[...byTitle.entries()].sort((a, b) => b[1].length - a[1].length || a[0] - b[0]).map(([t, tItems]) => {
-				const tMeta = state.installedTitles.find((x) => x.title === t);
-				const tLabel = tMeta ? `Title ${t} — ${tMeta.name}` : `Title ${t}`;
-				const isCollapsed = collapsed.has(t);
-				const byPart = /* @__PURE__ */ new Map();
-				for (const r of tItems) {
-					const p = r.part || "";
-					if (!byPart.has(p)) byPart.set(p, []);
-					byPart.get(p).push(r);
-				}
-				const partsHtml = [...byPart.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], void 0, { numeric: true })).map(([p, pItems]) => `
-          <div class="search-part-group">
-            ${p ? `<div class="search-part-head">
-              <a class="search-part-link" href="#/title/${t}/part/${encodeURIComponent(p)}">Part ${escapeHtml(p)}</a>
-              <span class="search-part-count">${pItems.length} ${pItems.length === 1 ? "result" : "results"}</span>
-            </div>` : ""}
-            ${pItems.map((r) => renderResultRow(r, false)).join("")}
-          </div>
-        `).join("");
-				return `
-          <section class="search-title-group${isCollapsed ? " is-collapsed" : ""}" data-tgroup="${t}">
-            <button type="button" class="search-title-head" aria-expanded="${!isCollapsed}">
-              <span class="search-title-caret" aria-hidden="true">${icon("chevronDown")}</span>
-              <span class="search-title-name">${escapeHtml(tLabel)}</span>
-              <span class="search-title-count">${tItems.length} ${tItems.length === 1 ? "result" : "results"}</span>
-            </button>
-            <div class="search-title-body">${partsHtml}</div>
-          </section>
-        `;
-			}).join("")}</div>`;
-		}
-	}
-	const countText = hasActiveFilter ? `${filtered.length.toLocaleString()} of ${rawResults.length.toLocaleString()} shown (${total.toLocaleString()} total)` : `${total.toLocaleString()} ${total === 1 ? "result" : "results"}`;
-	const wasFilterFocused = document.activeElement?.id === "sf-text";
-	const selStart = wasFilterFocused ? document.activeElement.selectionStart : null;
-	dom.view.innerHTML = `
-    <div class="doc-kicker">Search</div>
-    <h1 class="doc-title">${escapeHtml(query)}</h1>
-    <div class="search-meta">
-      <span>${countText} · ${data.ms} ms</span>
-      <div class="search-controls">${viewToggleHtml}${scopeHtml}</div>
+      <div id="search-results-slot"></div>
     </div>
-    ${filtersHtml}
-    ${bodyHtml}
   `;
-	dom.view.querySelectorAll("[data-sview]").forEach((btn) => {
-		btn.addEventListener("click", () => {
-			const next = btn.dataset.sview;
-			if (next === state.searchState.view) return;
+	patchSearchDynamicSlots();
+}
+dom.view.addEventListener("input", (e) => {
+	if (e.target.id !== "sf-text" || !state.searchState || !dom.view.querySelector(".search-page")) return;
+	state.searchState.filters.text = e.target.value;
+	patchSearchDynamicSlots();
+});
+dom.view.addEventListener("click", (e) => {
+	if (!state.searchState || !dom.view.querySelector(".search-page")) return;
+	const viewBtn = e.target.closest("[data-sview]");
+	if (viewBtn) {
+		const next = viewBtn.dataset.sview;
+		if (next !== state.searchState.view) {
 			state.searchState.view = next;
 			lsSet("searchView", next);
-			renderSearchView();
-		});
-	});
-	const sfInput = document.getElementById("sf-text");
-	if (sfInput) {
-		if (wasFilterFocused) {
-			sfInput.focus();
-			if (selStart !== null) sfInput.setSelectionRange(selStart, selStart);
+			patchSearchDynamicSlots();
 		}
-		sfInput.addEventListener("input", () => {
-			state.searchState.filters.text = sfInput.value;
-			renderSearchView();
-		});
+		return;
 	}
-	dom.view.querySelectorAll("[data-ftitle]").forEach((btn) => {
-		btn.addEventListener("click", () => {
-			const val = btn.dataset.ftitle === "" ? null : Number(btn.dataset.ftitle);
-			state.searchState.filters.title = state.searchState.filters.title === val ? null : val;
-			state.searchState.filters.part = null;
-			renderSearchView();
-		});
-	});
-	dom.view.querySelectorAll("[data-fpart]").forEach((btn) => {
-		btn.addEventListener("click", () => {
-			const val = btn.dataset.fpart === "" ? null : btn.dataset.fpart;
-			state.searchState.filters.part = state.searchState.filters.part === val ? null : val;
-			renderSearchView();
-		});
-	});
-	dom.view.querySelectorAll("[data-fkind]").forEach((btn) => {
-		btn.addEventListener("click", () => {
-			state.searchState.filters.kind = btn.dataset.fkind;
-			renderSearchView();
-		});
-	});
-	const sfClear = document.getElementById("sf-clear");
-	if (sfClear) sfClear.addEventListener("click", () => {
+	const titlePill = e.target.closest("[data-ftitle]");
+	if (titlePill) {
+		const val = titlePill.dataset.ftitle === "" ? null : Number(titlePill.dataset.ftitle);
+		state.searchState.filters.title = state.searchState.filters.title === val ? null : val;
+		state.searchState.filters.part = null;
+		patchSearchDynamicSlots();
+		return;
+	}
+	const partPill = e.target.closest("[data-fpart]");
+	if (partPill) {
+		const val = partPill.dataset.fpart === "" ? null : partPill.dataset.fpart;
+		state.searchState.filters.part = state.searchState.filters.part === val ? null : val;
+		patchSearchDynamicSlots();
+		return;
+	}
+	const kindPill = e.target.closest("[data-fkind]");
+	if (kindPill) {
+		state.searchState.filters.kind = kindPill.dataset.fkind;
+		patchSearchDynamicSlots();
+		return;
+	}
+	if (e.target.closest("#sf-clear")) {
 		state.searchState.filters = {
 			title: null,
 			part: null,
 			kind: "all",
 			text: ""
 		};
-		renderSearchView();
-	});
-	dom.view.querySelectorAll(".search-title-head").forEach((btn) => {
-		btn.addEventListener("click", () => {
-			const t = Number(btn.closest(".search-title-group").dataset.tgroup);
-			if (state.searchState.collapsed.has(t)) state.searchState.collapsed.delete(t);
-			else state.searchState.collapsed.add(t);
-			renderSearchView();
-		});
-	});
-}
+		const sfInput = document.getElementById("sf-text");
+		if (sfInput) sfInput.value = "";
+		patchSearchDynamicSlots();
+		return;
+	}
+	const titleHead = e.target.closest(".search-title-head");
+	if (titleHead) {
+		const t = Number(titleHead.closest(".search-title-group").dataset.tgroup);
+		if (state.searchState.collapsed.has(t)) state.searchState.collapsed.delete(t);
+		else state.searchState.collapsed.add(t);
+		patchSearchDynamicSlots();
+	}
+});
 async function loadSearchPage(query, scope) {
 	state.currentSection = null;
 	state.currentPart = null;
@@ -11629,7 +13082,7 @@ async function loadSearchPage(query, scope) {
 		enterView();
 	} catch (err) {
 		if (err && err.name === "AbortError") return;
-		dom.view.innerHTML = `<div class="msg-error">Search failed: ${escapeHtml(err.message)}</div>`;
+		renderViewError(dom.view, "Search failed", err?.message || "Unexpected error", { onRetry: () => loadSearchPage(query, scope) });
 	}
 }
 // src/router.js
@@ -11733,6 +13186,7 @@ async function handleRoute() {
 		const id = checkPath.slice(10);
 		renderProjects(id ? decodeURIComponent(id) : null);
 	} else if (!titleMatch && (checkPath === "/news" || checkPath === "/news/")) await loadNews(params);
+	else if (!titleMatch && /^\/news\/inspection\/\d+\/?$/.test(checkPath)) await loadInspection(parseInt(checkPath.split("/")[3], 10));
 	else if (!titleMatch && (checkPath === "/help" || checkPath === "/help/")) await loadHelp(params);
 	else if (!titleMatch && (checkPath === "/settings" || checkPath === "/settings/")) renderSettingsPage({ enter: true });
 	else if (checkPath.startsWith("/search")) {
@@ -12010,12 +13464,19 @@ dom.sidebarResizer.addEventListener("dblclick", () => {
 dom.sidebarResizer.setAttribute("aria-valuenow", String(Math.round(dom.sidebar.getBoundingClientRect().width) || 288));
 // src/components/selection_tool.js
 state.selectedText = "";
+var selectedPara = "";
+var selectedFromSplit = false;
 document.addEventListener("mouseup", () => {
 	const sel = window.getSelection();
 	const str = sel.toString().trim();
-	const inView = dom.view.contains(sel.anchorNode) || dom.splitPane && dom.splitPane.contains(sel.anchorNode);
-	if (str.length > 10 && inView && sel.rangeCount > 0) {
+	const inMain = dom.view.contains(sel.anchorNode);
+	const inSplit = Boolean(dom.splitPane && dom.splitPane.contains(sel.anchorNode));
+	if (str.length > 10 && (inMain || inSplit) && sel.rangeCount > 0) {
 		state.selectedText = str;
+		selectedFromSplit = inSplit;
+		const paraEl = (sel.anchorNode instanceof Element ? sel.anchorNode : sel.anchorNode?.parentElement)?.closest?.(".reg-p");
+		const paneRoot = inSplit ? dom.splitPane : dom.view;
+		selectedPara = paraEl ? resolveParagraphPath(paneRoot, paraEl) : "";
 		const rect = sel.getRangeAt(0).getBoundingClientRect();
 		dom.askFloat.hidden = false;
 		positionPopover(dom.askFloat, rect, {
@@ -12023,7 +13484,11 @@ document.addEventListener("mouseup", () => {
 			placement: "auto",
 			padding: 10
 		});
-	} else dom.askFloat.hidden = true;
+	} else {
+		dom.askFloat.hidden = true;
+		selectedPara = "";
+		selectedFromSplit = false;
+	}
 });
 for (const scroller of [dom.main, dom.splitPane]) if (scroller) scroller.addEventListener("scroll", () => {
 	if (!dom.askFloat.hidden) dom.askFloat.hidden = true;
@@ -12031,6 +13496,24 @@ for (const scroller of [dom.main, dom.splitPane]) if (scroller) scroller.addEven
 dom.askFloat.addEventListener("click", (e) => {
 	const action = e.target.dataset.ask;
 	if (!action || !state.selectedText) return;
+	if (action === "clip") {
+		const splitDoc = selectedFromSplit ? getActiveSplitDoc() : null;
+		const ref = splitDoc ? {
+			title: splitDoc.title,
+			id: splitDoc.id,
+			label: splitDoc.label || `§ ${splitDoc.id}`,
+			heading: splitDoc.section_title || splitDoc.title_label || "",
+			part: splitDoc.part || ""
+		} : currentSectionRef();
+		if (ref) clipToWorkspace(ref, {
+			para: selectedPara,
+			quote: state.selectedText,
+			cite: formatCfrCitation(ref.title, ref.label, selectedPara)
+		});
+		dom.askFloat.hidden = true;
+		window.getSelection()?.removeAllRanges();
+		return;
+	}
 	openChat();
 	if (action === "explain") dom.chatText.value = `Can you explain what this clause means in plain English?\n\n"${state.selectedText}"`;
 	else dom.chatText.value = `Regarding this provision: "${state.selectedText}"\n\n`;
@@ -12270,8 +13753,39 @@ async function openSectionHrefPeek(trigger, root, parsed) {
     </div>
   `, { interactive: false });
 }
+function renderIbrPeek(trigger, root) {
+	const code = trigger.dataset.ibrCode;
+	if (!code) return null;
+	const t = root === dom.splitPane ? state.splitState?.title || state.currentTitle : state.currentTitle;
+	const secId = root === dom.splitPane ? state.splitState?.sectionId || "" : state.currentSection?.id || "";
+	const item = (secId ? state.graphCache.get(`${t}|${secId}`) : null)?.ibr?.find((x) => x.code === code);
+	if (!item) return null;
+	const app = item.approved_in;
+	const appHref = app ? `#/title/${t}/section/${encodeURIComponent(app.section_id)}${app.para ? "?p=" + encodeURIComponent(app.para) : ""}` : "";
+	lastHoverContext = app ? {
+		root,
+		split: {
+			title: t,
+			sectionId: app.section_id,
+			para: app.para || null
+		}
+	} : null;
+	return `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${escapeHtml(item.code)}</div>
+      <span class="peek-badge">${escapeHtml(item.org)}</span>
+    </div>
+    ${item.org_name ? `<div class="peek-title">${escapeHtml(item.org_name)}</div>` : ""}
+    ${app ? `<p class="peek-text"><strong>${item.exact ? "IBR approved" : "Closest approved edition"} in ${escapeHtml(app.label)}${escapeHtml(app.para || "")}:</strong> ${escapeHtml(app.excerpt)}</p>` : `<p class="peek-text">Consensus technical standard published by ${escapeHtml(item.org_name || item.org)}.</p>`}
+    <div class="peek-foot">
+      ${app ? `<a class="btn btn-small" href="${escapeHtml(appHref)}">Open ${escapeHtml(app.label)}</a>` : ""}
+      ${app ? "<button type=\"button\" class=\"btn btn-small\" data-peek-split=\"1\">Open side-by-side</button>" : ""}
+      ${item.org_url ? `<a class="btn btn-small" href="${escapeHtml(item.org_url)}" target="_blank" rel="noopener noreferrer">${icon("external")} ${escapeHtml(item.org)}</a>` : ""}
+    </div>
+  `;
+}
 function getPeekTrigger(el) {
-	return el.closest?.("a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], a.xref-external[data-cfr-title], a.xref[href], a.xref-cross[href]") || null;
+	return el.closest?.("a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], button.xref-ibr[data-ibr-code], a.xref-external[data-cfr-title], a.xref[href], a.xref-cross[href], a.citation-chip[href*=\"/section/\"]") || null;
 }
 function handleHoverOver(e, root) {
 	if (citePop.isOpen() && citePop.isInteractive()) return;
@@ -12304,6 +13818,11 @@ function handleHoverOver(e, root) {
 			if (html) citePop.open(trigger, html, { interactive: false });
 			return;
 		}
+		if (trigger.matches("button.xref-ibr[data-ibr-code]")) {
+			const html = renderIbrPeek(trigger, root);
+			if (html) citePop.open(trigger, html, { interactive: false });
+			return;
+		}
 		if (trigger.matches("a.xref-external[data-cfr-title]")) {
 			lastHoverContext = null;
 			citePop.open(trigger, renderExternalHintPeek(trigger), { interactive: false });
@@ -12326,6 +13845,19 @@ function handleHoverOut(e) {
 for (const root of [dom.view, dom.splitPane].filter(Boolean)) {
 	root.addEventListener("mouseover", (e) => handleHoverOver(e, root));
 	root.addEventListener("mouseout", handleHoverOut);
+	root.addEventListener("click", (e) => {
+		const ibrBtn = e.target.closest("button.xref-ibr[data-ibr-code]");
+		if (!ibrBtn || !root.contains(ibrBtn)) return;
+		const html = renderIbrPeek(ibrBtn, root);
+		if (html) {
+			e.preventDefault();
+			cancelHoverTimers();
+			citePop.open(ibrBtn, html, {
+				interactive: true,
+				returnFocus: ibrBtn
+			});
+		}
+	});
 }
 if (citePopEl) {
 	citePopEl.addEventListener("mouseenter", () => {

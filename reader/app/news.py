@@ -42,6 +42,12 @@ VIOL_TYPE_LABELS = {"W": "Willful", "R": "Repeat", "S": "Serious", "O": "Other-t
 INSP_TYPE_LABELS = {"A": "Accident investigation", "B": "Complaint inspection",
                     "C": "Referral inspection", "F": "Follow-up inspection",
                     "H": "Planned inspection", "M": "Fatality/catastrophe investigation"}
+SAFETY_HLTH_LABELS = {"S": "Safety", "H": "Health", "B": "Safety & Health"}
+INSP_SCOPE_LABELS = {"A": "Complete", "B": "Partial", "C": "Records only", "D": "No inspection"}
+OWNER_TYPE_LABELS = {"A": "Private sector", "B": "Local government", "C": "State government", "D": "Federal agency"}
+UNION_STATUS_LABELS = {"A": "Unionized", "B": "Non-union", "N": "Not specified"}
+VIOL_EVENT_LABELS = {"I": "Issued", "C": "Contested", "F": "Final order", "M": "Modified",
+                     "S": "Informal settlement", "D": "Deleted", "P": "Penalty modified", "A": "Abated"}
 
 
 class SourceUnavailable(Exception):
@@ -165,7 +171,9 @@ def fetch_dol_recent_violations(c: httpx.Client, key: str, days: int, limit: int
     params = {
         "limit": limit, "sort": "desc", "sort_by": "issuance_date",
         "fields": "activity_nr,citation_id,delete_flag,standard,viol_type,issuance_date,"
-                  "initial_penalty,current_penalty,nr_instances,nr_exposed",
+                  "abate_date,abate_complete,initial_penalty,current_penalty,"
+                  "contest_date,final_order_date,nr_instances,nr_exposed,gravity,emphasis,hazcat,"
+                  "fta_insp_nr,fta_issuance_date,fta_penalty,hazsub1,hazsub2,hazsub3",
         "filter_object": json.dumps({"field": "issuance_date", "operator": "gt", "value": since}),
     }
     return _dol_get(c, key, "violation", params)
@@ -182,8 +190,10 @@ def fetch_dol_inspections(c: httpx.Client, key: str, activity_nrs: list[int]) ->
         batch = activity_nrs[i:i + DOL_INSP_BATCH]
         params = {
             "limit": len(batch),
-            "fields": "activity_nr,estab_name,site_city,site_state,naics_code,insp_type,"
-                      "safety_hlth,open_date,close_case_date",
+            "fields": "activity_nr,reporting_id,state_flag,estab_name,site_address,site_city,"
+                      "site_state,site_zip,owner_type,adv_notice,safety_hlth,sic_code,naics_code,"
+                      "insp_type,insp_scope,why_no_insp,union_status,nr_in_estab,open_date,"
+                      "case_mod_date,close_conf_date,close_case_date",
             "filter_object": json.dumps({"field": "activity_nr", "operator": "in", "value": batch}),
         }
         rows.extend(_dol_get(c, key, "inspection", params))
@@ -225,31 +235,133 @@ def _money(v) -> float:
         return 0.0
 
 
+def _opt_int(v) -> int | None:
+    try:
+        if v is None or str(v).strip() == "":
+            return None
+        return int(float(str(v).strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+def _iso_day(v) -> str | None:
+    s = str(v or "").strip()
+    return s[:10] if len(s) >= 10 else (s or None)
+
+
+def _norm_violation_row(v: dict) -> dict:
+    raw_std = (v.get("standard") or "").strip()
+    parsed = parse_dol_standard(raw_std)
+    vt = (v.get("viol_type") or "").strip().upper()
+    init_p = _money(v.get("initial_penalty")) if v.get("initial_penalty") not in (None, "") else 0.0
+    cur_raw = v.get("current_penalty")
+    cur_p = _money(cur_raw) if cur_raw not in (None, "") else init_p
+    fta_p = _money(v.get("fta_penalty")) if v.get("fta_penalty") not in (None, "") else 0.0
+    hazsubs = [str(v.get(k)).strip() for k in ("hazsub1", "hazsub2", "hazsub3", "hazsub4", "hazsub5")
+               if v.get(k) not in (None, "", "0")]
+    return {
+        "citation_id": str(v.get("citation_id") or "").strip(),
+        "raw_standard": raw_std,
+        "section_id": parsed["section"],
+        "para": parsed["para"],
+        "standard_display": parsed["display"],
+        "is_general_duty": parsed["is_general_duty"],
+        "is_state_plan": parsed["is_state_plan"],
+        "viol_type": vt,
+        "viol_label": VIOL_TYPE_LABELS.get(vt, vt or "Unknown"),
+        "issuance_date": _iso_day(v.get("issuance_date")),
+        "abate_date": _iso_day(v.get("abate_date")),
+        "abate_complete": str(v.get("abate_complete") or "").strip() or None,
+        "initial_penalty": round(init_p, 2),
+        "current_penalty": round(cur_p, 2),
+        "contest_date": _iso_day(v.get("contest_date")),
+        "final_order_date": _iso_day(v.get("final_order_date")),
+        "nr_instances": _opt_int(v.get("nr_instances")),
+        "nr_exposed": _opt_int(v.get("nr_exposed")),
+        "gravity": str(v.get("gravity") or "").strip() or None,
+        "emphasis": str(v.get("emphasis") or "").strip() or None,
+        "hazcat": str(v.get("hazcat") or "").strip() or None,
+        "fta_penalty": round(fta_p, 2) if fta_p > 0 else None,
+        "hazsubs": hazsubs,
+    }
+
+
 def build_enforcement_article(insp: dict, violations: list[dict]) -> dict:
     act_nr = int(insp["activity_nr"])
     company = (insp.get("estab_name") or "Unknown establishment").strip().title()
     city = (insp.get("site_city") or "").strip().title() or None
     state = (insp.get("site_state") or "").strip().upper() or None
     loc = ", ".join(p for p in (city, state) if p)
-    label = INSP_TYPE_LABELS.get((insp.get("insp_type") or "").upper(), "OSHA inspection")
+    insp_type_code = (insp.get("insp_type") or "").strip().upper()
+    label = INSP_TYPE_LABELS.get(insp_type_code, "OSHA inspection")
 
-    total, sections, counts, gdc, unmapped = 0.0, set(), {}, 0, 0
+    total, initial_total, sections, counts, gdc, unmapped = 0.0, 0.0, set(), {}, 0, 0
+    total_instances, max_exposed = 0, 0
+    viol_rows: list[dict] = []
     for v in violations:
-        # current_penalty reflects settlements and contest outcomes; fall back to the initial amount.
-        cur = v.get("current_penalty")
-        total += _money(cur) if cur not in (None, "") else _money(v.get("initial_penalty"))
-        std = v.get("standard") or ""
-        if (sec := normalize_dol_standard(std)):
-            sections.add(sec)
-        elif is_general_duty(std):
+        if v.get("delete_flag"):
+            continue
+        row = _norm_violation_row(v)
+        viol_rows.append(row)
+        total += row["current_penalty"]
+        initial_total += row["initial_penalty"]
+        if row["nr_instances"]:
+            total_instances += row["nr_instances"]
+        if row["nr_exposed"] and row["nr_exposed"] > max_exposed:
+            max_exposed = row["nr_exposed"]
+        if row["section_id"]:
+            sections.add(row["section_id"])
+        elif row["is_general_duty"]:
             gdc += 1
-        elif std.strip():
+        elif row["raw_standard"]:
             unmapped += 1
-        vt = (v.get("viol_type") or "").strip().upper()
+        vt = row["viol_type"]
         if vt:
             counts[vt] = counts.get(vt, 0) + 1
 
-    issued = max((str(v.get("issuance_date") or "")[:10] for v in violations), default="")
+    viol_rows.sort(key=lambda r: (r["citation_id"], r["raw_standard"]))
+    issued = max((str(v.get("issuance_date") or "")[:10] for v in violations if not v.get("delete_flag")), default="")
+
+    sh_code = (insp.get("safety_hlth") or "").strip().upper()
+    scope_code = (insp.get("insp_scope") or "").strip().upper()
+    owner_code = (insp.get("owner_type") or "").strip().upper()
+    union_code = (insp.get("union_status") or "").strip().upper()
+    address = (insp.get("site_address") or "").strip().title() or None
+
+    inspection_detail = {
+        "activity_nr": act_nr,
+        "reporting_id": str(insp.get("reporting_id") or "").strip() or None,
+        "estab_name": company,
+        "site_address": address,
+        "site_city": city,
+        "site_state": state,
+        "site_zip": str(insp.get("site_zip") or "").strip() or None,
+        "naics_code": str(insp.get("naics_code") or "").strip() or None,
+        "sic_code": str(insp.get("sic_code") or "").strip() or None,
+        "insp_type": insp_type_code or None,
+        "insp_type_label": label,
+        "safety_hlth": sh_code or None,
+        "safety_hlth_label": SAFETY_HLTH_LABELS.get(sh_code, sh_code or None),
+        "insp_scope": scope_code or None,
+        "insp_scope_label": INSP_SCOPE_LABELS.get(scope_code, scope_code or None),
+        "owner_type": owner_code or None,
+        "owner_type_label": OWNER_TYPE_LABELS.get(owner_code, owner_code or None),
+        "union_status": union_code or None,
+        "union_status_label": UNION_STATUS_LABELS.get(union_code, union_code or None),
+        "adv_notice": str(insp.get("adv_notice") or "").strip().upper() or None,
+        "why_no_insp": str(insp.get("why_no_insp") or "").strip().upper() or None,
+        "nr_in_estab": _opt_int(insp.get("nr_in_estab")),
+        "open_date": _iso_day(insp.get("open_date")),
+        "close_conf_date": _iso_day(insp.get("close_conf_date")),
+        "close_case_date": _iso_day(insp.get("close_case_date")),
+        "case_mod_date": _iso_day(insp.get("case_mod_date")),
+        "initial_penalty_usd": round(initial_total, 2),
+        "current_penalty_usd": round(total, 2),
+        "total_instances": total_instances,
+        "max_exposed": max_exposed,
+        "citation_count": len(viol_rows),
+    }
+
     return {
         **empty_item(),
         "guid": f"dol-insp:{act_nr}",
@@ -270,6 +382,123 @@ def build_enforcement_article(insp: dict, violations: list[dict]) -> dict:
         "unmapped_standards": unmapped,
         "opened_on": str(insp.get("open_date") or "")[:10] or None,  # used by takeaways
         "sections": sorted(sections),
+        "inspection_detail": inspection_detail,
+        "violations_list": viol_rows,
+    }
+
+
+def _dol_get_optional(c: httpx.Client, key: str, dataset: str, params: dict) -> list[dict]:
+    """Fetch supplementary DOL dataset rows, degrading cleanly on 204/429/500."""
+    try:
+        return _dol_get(c, key, dataset, params)
+    except SourceUnavailable:
+        return []
+
+
+def fetch_inspection_case(c: httpx.Client, key: str, activity_nr: int) -> dict | None:
+    """On-demand full case file fetch for one inspection via DOL Open Data API v4."""
+    insp_rows = _dol_get(c, key, "inspection", {
+        "limit": 1,
+        "fields": "activity_nr,reporting_id,state_flag,estab_name,site_address,site_city,"
+                  "site_state,site_zip,owner_type,adv_notice,safety_hlth,sic_code,naics_code,"
+                  "insp_type,insp_scope,why_no_insp,union_status,nr_in_estab,open_date,"
+                  "case_mod_date,close_conf_date,close_case_date",
+        "filter_object": json.dumps({"field": "activity_nr", "operator": "eq", "value": activity_nr}),
+    })
+    if not insp_rows:
+        return None
+    insp = insp_rows[0]
+    viol_rows = _dol_get(c, key, "violation", {
+        "limit": 200,
+        "fields": "activity_nr,citation_id,delete_flag,standard,viol_type,issuance_date,"
+                  "abate_date,abate_complete,initial_penalty,current_penalty,"
+                  "contest_date,final_order_date,nr_instances,nr_exposed,gravity,emphasis,hazcat,"
+                  "fta_insp_nr,fta_issuance_date,fta_penalty,hazsub1,hazsub2,hazsub3",
+        "filter_object": json.dumps({"field": "activity_nr", "operator": "eq", "value": activity_nr}),
+    })
+    active_viols = [v for v in viol_rows if not v.get("delete_flag")]
+    article = enrich_item(build_enforcement_article(insp, active_viols))
+
+    events_raw = _dol_get_optional(c, key, "violation_event", {
+        "limit": 100,
+        "fields": "activity_nr,citation_id,pen_fta,hist_event,hist_date,hist_penalty,hist_abate_date,hist_vtype",
+        "filter_object": json.dumps({"field": "activity_nr", "operator": "eq", "value": activity_nr}),
+    })
+    events = []
+    for ev in events_raw:
+        code = str(ev.get("hist_event") or "").strip().upper()
+        events.append({
+            "citation_id": str(ev.get("citation_id") or "").strip(),
+            "event": code,
+            "event_label": VIOL_EVENT_LABELS.get(code, code or "Update"),
+            "date": _iso_day(ev.get("hist_date")),
+            "penalty": round(_money(ev.get("hist_penalty")), 2) if ev.get("hist_penalty") not in (None, "") else None,
+            "abate_date": _iso_day(ev.get("hist_abate_date")),
+            "viol_type": str(ev.get("hist_vtype") or "").strip().upper() or None,
+        })
+    events.sort(key=lambda e: (e["date"] or "", e["citation_id"]))
+
+    gdc_list: list[dict] = []
+    if article.get("general_duty"):
+        gdc_rows = _dol_get_optional(c, key, "violation_gen_duty_std", {
+            "limit": 200,
+            "fields": "activity_nr,citation_id,line_nr,line_text",
+            "filter_object": json.dumps({"field": "activity_nr", "operator": "eq", "value": activity_nr}),
+        })
+        by_cit: dict[str, list[tuple[int, str]]] = {}
+        for gr in gdc_rows:
+            cid = str(gr.get("citation_id") or "").strip()
+            ln = _opt_int(gr.get("line_nr")) or 0
+            txt = str(gr.get("line_text") or "").rstrip()
+            if txt:
+                by_cit.setdefault(cid, []).append((ln, txt))
+        for cid, lines in sorted(by_cit.items()):
+            lines.sort(key=lambda x: x[0])
+            gdc_list.append({"citation_id": cid, "text": " ".join(t for _, t in lines)})
+
+    accidents: list[dict] = []
+    if (insp.get("insp_type") or "").strip().upper() in ("A", "M"):
+        inj_rows = _dol_get_optional(c, key, "accident_injury", {
+            "limit": 20,
+            "fields": "summary_nr,rel_insp_nr,degree_of_inj,fall_distance,fall_ht,fat_cause",
+            "filter_object": json.dumps({"field": "rel_insp_nr", "operator": "eq", "value": activity_nr}),
+        })
+        sum_nrs = sorted({int(r["summary_nr"]) for r in inj_rows if r.get("summary_nr")})
+        if sum_nrs:
+            acc_rows = _dol_get_optional(c, key, "accident", {
+                "limit": len(sum_nrs),
+                "fields": "summary_nr,event_date,event_desc,event_keyword,fatality,abstract_text",
+                "filter_object": json.dumps({"field": "summary_nr", "operator": "in", "value": sum_nrs}),
+            })
+            abs_rows = _dol_get_optional(c, key, "accident_abstract", {
+                "limit": 200,
+                "fields": "summary_nr,line_nr,abstract_text",
+                "filter_object": json.dumps({"field": "summary_nr", "operator": "in", "value": sum_nrs}),
+            })
+            abs_by_sum: dict[int, list[tuple[int, str]]] = {}
+            for ar in abs_rows:
+                snr = _opt_int(ar.get("summary_nr"))
+                if snr is not None and ar.get("abstract_text"):
+                    abs_by_sum.setdefault(snr, []).append((_opt_int(ar.get("line_nr")) or 0, str(ar["abstract_text"]).strip()))
+            for ac in acc_rows:
+                snr = int(ac["summary_nr"])
+                lines = sorted(abs_by_sum.get(snr, []), key=lambda x: x[0])
+                narrative = " ".join(t for _, t in lines) or str(ac.get("abstract_text") or "").strip()
+                accidents.append({
+                    "summary_nr": snr,
+                    "event_date": _iso_day(ac.get("event_date")),
+                    "event_desc": str(ac.get("event_desc") or "").strip(),
+                    "keywords": str(ac.get("event_keyword") or "").strip(),
+                    "fatality": str(ac.get("fatality") or "").strip() or None,
+                    "abstract": narrative,
+                })
+
+    return {
+        "activity_nr": activity_nr,
+        "article": article,
+        "events": events,
+        "gdc": gdc_list,
+        "accidents": accidents,
     }
 
 
@@ -280,6 +509,8 @@ def build_enforcement_article(insp: dict, violations: list[dict]) -> dict:
 # DOL `violation.standard` is fixed-width: 4-digit part, zero-padded 4-digit section,
 # then the paragraph code ("19101030 G02   IIA").
 DOL_STANDARD_RE = re.compile(r"^(19\d{2})(\d{4})(?=\s|$|[A-Z])")
+_DOL_CLAUSE_RE = re.compile(r"^([A-Z])(\d{1,2})?$")
+_DOL_ROMAN_LETTER_RE = re.compile(r"^(X{0,3}(?:IX|IV|V?I{1,3}|V))([A-Z])?$")
 
 # "29 CFR parts 1910 and 1926" — _CROSS_TITLE only handles the singular "part N".
 _CFR_PARTS = re.compile(
@@ -288,6 +519,56 @@ _CFR_PARTS = re.compile(
     re.IGNORECASE,
 )
 _PART_NUM = re.compile(r"\d{1,4}")
+
+
+def parse_dol_standard(raw: str | None) -> dict:
+    """Parse a DOL IMIS standard code like '19101030 G02   IIA' or '19100028 B03 IV'
+    into section id + CFR paragraph path (e.g. '(g)(2)(ii)(A)')."""
+    s = (raw or "").strip()
+    if is_general_duty(s):
+        return {
+            "section": None, "para": None,
+            "display": "General Duty Clause · Section 5(a)(1)",
+            "is_general_duty": True, "is_state_plan": False,
+        }
+    m = DOL_STANDARD_RE.match(s)
+    if not m:
+        return {
+            "section": None, "para": None,
+            "display": s or "Unknown standard",
+            "is_general_duty": False, "is_state_plan": bool(s),
+        }
+    section = f"{m.group(1)}.{int(m.group(2))}"
+    rest = s[m.end():].strip().split()
+    tokens: list[str] = []
+    if rest:
+        first = _DOL_CLAUSE_RE.match(rest[0].upper())
+        if first:
+            tokens.append(f"({first.group(1).lower()})")
+            if first.group(2):
+                tokens.append(f"({int(first.group(2))})")
+            rest = rest[1:]
+        for tok in rest:
+            up = tok.upper()
+            if up.isdigit():
+                tokens.append(f"({int(up)})")
+                continue
+            rm = _DOL_ROMAN_LETTER_RE.match(up)
+            if rm:
+                tokens.append(f"({rm.group(1).lower()})")
+                if rm.group(2):
+                    tokens.append(f"({rm.group(2)})")
+                continue
+            if len(up) == 1 and up.isalpha():
+                tokens.append(f"({up})")
+    para = "".join(tokens) or None
+    return {
+        "section": section,
+        "para": para,
+        "display": f"§ {section}{para or ''}",
+        "is_general_duty": False,
+        "is_state_plan": False,
+    }
 
 
 def normalize_dol_standard(raw: str | None) -> str | None:

@@ -347,6 +347,22 @@ while OSHA is the only agency) and return `{"section_id"|"part", "count", "artic
 with at most 15 articles, newest first. A section matches exact citations plus
 part-level references to its part; a part matches everything inside it.
 
+### `GET /api/news/enforcement/summary`
+Local enforcement analytics aggregated over cached DOL OSHA inspections (`total_cases`,
+`total_penalty_usd`, `avg_penalty_usd`, `max_penalty_usd`, `gravity_counts`,
+`top_sections`, `top_states`, `largest_case`). Makes no external HTTP calls.
+
+### `GET /api/news/inspection/{activity_nr}`
+Local inspection case file (`article`, `detail`, `violations` with parsed section &
+paragraph links, `events`, `gdc`, `accidents`, `needs_enrichment`, `dol_configured`).
+Returns `404` when absent locally and `DOL_API_KEY` is unconfigured.
+
+### `POST /api/news/inspection/{activity_nr}/enrich`
+Requires `DOL_API_KEY`. Fetches live inspection details, individual violations, citation
+event history (`violation_event`), General Duty Clause narratives (`violation_gen_duty_std`),
+and accident investigation abstracts (`accident*`) from `apiprod.dol.gov/v4`, caches them
+in `osha_news.sqlite3`, and returns the full case file.
+
 ---
 
 ## Settings (reader/.env)

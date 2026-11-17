@@ -464,20 +464,30 @@ export function renderLibrary(fresh) {
 
   if (!title) {
     document.title = 'Library · FRAMEWORK';
-    // Keep focus on the filter or a sort button across a re-render (a job starting or ending).
-    const active = document.activeElement;
-    const refocus = active && active.id === 'lib-filter' ? '#lib-filter'
-      : active && active.dataset && active.dataset.sort ? `.lib-seg [data-sort="${active.dataset.sort}"]` : null;
-    const caret = active && active.id === 'lib-filter' ? active.selectionStart : null;
+    const existingList = !fresh && document.getElementById('lib-list');
+    const frontShell = dom.view.querySelector('.lib-front');
+    if (existingList && frontShell) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = libFrontHtml(d);
+      const nextMetrics = tmp.querySelector('.lib-metrics');
+      const curMetrics = frontShell.querySelector('.lib-metrics');
+      if (nextMetrics && curMetrics) curMetrics.replaceWith(nextMetrics);
+      const nextBroad = tmp.querySelector('.lib-broadsheet');
+      const curBroad = frontShell.querySelector('.lib-broadsheet');
+      if (nextBroad && curBroad) curBroad.replaceWith(nextBroad);
+      const nextSuites = tmp.querySelector('.lib-suites');
+      const curSuites = frontShell.querySelector('.lib-suites');
+      if (nextSuites && curSuites) curSuites.replaceWith(nextSuites);
+      for (const btn of frontShell.querySelectorAll('.lib-seg [data-sort]')) {
+        btn.setAttribute('aria-pressed', String(btn.dataset.sort === lib.sort));
+      }
+      existingList.innerHTML = libTitleList(d, lib.sort);
+      applyLibraryFilter();
+      dom.main.scrollTop = scrollTop;
+      return;
+    }
     dom.view.innerHTML = libFrontHtml(d);
     applyLibraryFilter();
-    if (refocus) {
-      const el = dom.view.querySelector(refocus);
-      if (el) {
-        el.focus({ preventScroll: true });
-        if (caret != null) el.setSelectionRange(caret, caret);
-      }
-    }
     if (fresh) enterView();
     else dom.main.scrollTop = scrollTop;
     return;
@@ -536,15 +546,29 @@ export function renderLibrary(fresh) {
       }).join('')}`).join('');
   }
 
+  const viewKey = `${title}|${part || ''}`;
+  const curShell = !fresh && dom.view.querySelector(`.lib[data-lib-view="${CSS.escape(viewKey)}"]`);
+  if (curShell) {
+    const subEl = document.getElementById('lib-sub-slot');
+    const headEl = document.getElementById('lib-head-act-slot');
+    const listEl = document.getElementById('lib-list');
+    if (subEl) subEl.textContent = sub;
+    if (headEl) headEl.innerHTML = head;
+    if (listEl) listEl.innerHTML = body;
+    applyLibraryFilter();
+    dom.main.scrollTop = scrollTop;
+    return;
+  }
+
   dom.view.innerHTML = `
-    <div class="lib">
+    <div class="lib" data-lib-view="${escapeHtml(viewKey)}">
       <div class="doc-kicker">${crumbs}</div>
       <div class="lib-head">
         <div class="lib-head-text">
           <h1 class="doc-title">${escapeHtml(heading)}</h1>
-          <p class="lib-sub">${escapeHtml(sub)}</p>
+          <p class="lib-sub" id="lib-sub-slot">${escapeHtml(sub)}</p>
         </div>
-        ${head}
+        <span id="lib-head-act-slot">${head}</span>
       </div>
       <input class="lib-filter" id="lib-filter" type="search" placeholder="${placeholder}…" aria-label="${placeholder}" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
       <div class="lib-list" id="lib-list">${body}</div>

@@ -102,6 +102,35 @@ export function currentSectionRef() {
 }
 
 
+export function clipToWorkspace(sec, { para = '', quote = '', cite = '', projectId = null } = {}) {
+  if (!sec || !sec.id) return null;
+  let list = loadProjects();
+  let targetProj = projectId ? list.find(x => x.id === projectId) : list[0];
+  if (!targetProj) {
+    targetProj = createProject('Research clips');
+    list = loadProjects();
+    targetProj = list.find(x => x.id === targetProj.id) || list[0];
+  }
+  if (!targetProj) return null;
+
+  const cleanQuote = String(quote || '').replace(/\s+/g, ' ').trim();
+  const clippedCite = cite || `${sec.title} C.F.R. ${sec.label || '§ ' + sec.id}${para || ''}`;
+  const entryLine = cleanQuote ? `[${clippedCite}] "${cleanQuote}"` : `[${clippedCite}]`;
+
+  updateProject(targetProj.id, (p) => {
+    let item = p.sections.find(s => s.title === sec.title && s.id === sec.id);
+    if (!item) {
+      item = { ...sec, pinned_at: nowIso(), note: entryLine };
+      p.sections.push(item);
+    } else if (!item.note || !item.note.includes(entryLine)) {
+      item.note = item.note ? `${item.note}\n\n${entryLine}` : entryLine;
+    }
+  });
+  showToast(`Clipped ${clippedCite} to ${targetProj.name}`);
+  return targetProj;
+}
+
+
 // --- Export / import (JSON) ---
 export function downloadJson(name, data) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));

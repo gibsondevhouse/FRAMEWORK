@@ -80,6 +80,30 @@ CREATE TABLE IF NOT EXISTS sync_status (
     last_error_at TEXT,
     fail_count INTEGER NOT NULL DEFAULT 0   -- consecutive failures; drives backoff; 0 after a success
 );
+
+CREATE TABLE IF NOT EXISTS enforcement_cases (
+    activity_nr INTEGER PRIMARY KEY,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    violations_json TEXT NOT NULL DEFAULT '[]',
+    events_json TEXT NOT NULL DEFAULT '[]',
+    gdc_json TEXT NOT NULL DEFAULT '[]',
+    accidents_json TEXT NOT NULL DEFAULT '[]',
+    enriched_at TEXT,
+    fetched_at TEXT NOT NULL
+);
+"""
+
+_ENFORCEMENT_CASE_DDL = """
+CREATE TABLE IF NOT EXISTS enforcement_cases (
+    activity_nr INTEGER PRIMARY KEY,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    violations_json TEXT NOT NULL DEFAULT '[]',
+    events_json TEXT NOT NULL DEFAULT '[]',
+    gdc_json TEXT NOT NULL DEFAULT '[]',
+    accidents_json TEXT NOT NULL DEFAULT '[]',
+    enriched_at TEXT,
+    fetched_at TEXT NOT NULL
+);
 """
 
 
@@ -131,12 +155,17 @@ def connect(readonly: bool = False) -> sqlite3.Connection | None:
         if version:
             # The store is a cache of public data: on a schema mismatch, drop and let the
             # next sync refill it.
-            con.executescript("DROP TABLE IF EXISTS article_citations;"
+            con.executescript("DROP TABLE IF EXISTS enforcement_cases;"
+                              "DROP TABLE IF EXISTS article_citations;"
                               "DROP TABLE IF EXISTS articles_fts;"
                               "DROP TABLE IF EXISTS articles;"
                               "DROP TABLE IF EXISTS sync_status;")
         con.executescript(SCHEMA)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        con.commit()
+    else:
+        # Additive table upgrade without wiping existing cached articles.
+        con.execute(_ENFORCEMENT_CASE_DDL)
         con.commit()
     return con
 
@@ -197,7 +226,59 @@ def upsert_article(con: sqlite3.Connection, item: dict, now: datetime | None = N
     con.execute("DELETE FROM articles_fts WHERE guid = ?", (guid,))
     con.execute("INSERT INTO articles_fts (guid, title, description, company) VALUES (?, ?, ?, ?)",
                 (guid, item["title"], item.get("description") or "", item.get("company") or ""))
+    if item.get("source") == "dol_osha" and item.get("inspection_detail") is not None:
+        save_enforcement_case(
+            con,
+            int(item["inspection_detail"]["activity_nr"]),
+            details=item["inspection_detail"],
+            violations=item.get("violations_list") or [],
+            now=now,
+        )
     return True
+
+
+def save_enforcement_case(
+    con: sqlite3.Connection,
+    activity_nr: int,
+    *,
+    details: dict,
+    violations: list[dict],
+    events: list[dict] | None = None,
+    gdc: list[dict] | None = None,
+    accidents: list[dict] | None = None,
+    enriched_at: str | None = None,
+    now: datetime | None = None,
+) -> None:
+    """Persist structured DOL inspection details and individual citation rows."""
+    fetched_iso = (now or datetime.now(timezone.utc)).isoformat()
+    if enriched_at is None and any(x is not None for x in (events, gdc, accidents)):
+        enriched_at = fetched_iso
+    con.execute(
+        """INSERT INTO enforcement_cases
+             (activity_nr, details_json, violations_json, events_json, gdc_json, accidents_json, enriched_at, fetched_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(activity_nr) DO UPDATE SET
+             details_json = excluded.details_json,
+             violations_json = excluded.violations_json,
+             events_json = CASE WHEN ? THEN excluded.events_json ELSE enforcement_cases.events_json END,
+             gdc_json = CASE WHEN ? THEN excluded.gdc_json ELSE enforcement_cases.gdc_json END,
+             accidents_json = CASE WHEN ? THEN excluded.accidents_json ELSE enforcement_cases.accidents_json END,
+             enriched_at = COALESCE(excluded.enriched_at, enforcement_cases.enriched_at),
+             fetched_at = excluded.fetched_at""",
+        (
+            int(activity_nr),
+            json.dumps(details or {}),
+            json.dumps(violations or []),
+            json.dumps(events or []),
+            json.dumps(gdc or []),
+            json.dumps(accidents or []),
+            enriched_at,
+            fetched_iso,
+            1 if events is not None else 0,
+            1 if gdc is not None else 0,
+            1 if accidents is not None else 0,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +371,7 @@ def prune(con: sqlite3.Connection, today: date | None = None) -> None:
         ((today - timedelta(days=7)).isoformat(),))
     # FTS5 has no foreign keys; article_citations goes by cascade.
     con.execute("DELETE FROM articles_fts WHERE guid NOT IN (SELECT guid FROM articles)")
+    con.execute("DELETE FROM enforcement_cases WHERE 'dol-insp:' || activity_nr NOT IN (SELECT guid FROM articles)")
 
 
 # ---------------------------------------------------------------------------
@@ -400,3 +482,131 @@ def state_facets(con: sqlite3.Connection) -> list[dict]:
         "SELECT state, count(*) AS n FROM articles WHERE category = 'enforcement' "
         "AND state IS NOT NULL AND state != '' GROUP BY state ORDER BY state").fetchall()
     return [{"code": r["state"], "count": r["n"]} for r in rows]
+
+
+def _json_load(raw: str | None, fallback):
+    if not raw:
+        return fallback
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def get_enforcement_case(con: sqlite3.Connection, activity_nr: int) -> dict | None:
+    """Return local article + detailed inspection/citation rows for `activity_nr`."""
+    guid = f"dol-insp:{int(activity_nr)}"
+    art_row = con.execute("SELECT *, NULL AS snippet FROM articles WHERE guid = ?", (guid,)).fetchone()
+    case_row = None
+    try:
+        case_row = con.execute(
+            "SELECT * FROM enforcement_cases WHERE activity_nr = ?",
+            (int(activity_nr),),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        case_row = None
+    if art_row is None and case_row is None:
+        return None
+    article = _article(art_row) if art_row is not None else None
+    detail = _json_load(case_row["details_json"], {}) if case_row else None
+    violations = _json_load(case_row["violations_json"], []) if case_row else []
+    events = _json_load(case_row["events_json"], []) if case_row else []
+    gdc = _json_load(case_row["gdc_json"], []) if case_row else []
+    accidents = _json_load(case_row["accidents_json"], []) if case_row else []
+    enriched_at = case_row["enriched_at"] if case_row else None
+    return {
+        "activity_nr": int(activity_nr),
+        "article": article,
+        "detail": detail,
+        "violations": violations,
+        "events": events,
+        "gdc": gdc,
+        "accidents": accidents,
+        "enriched_at": enriched_at,
+    }
+
+
+def enforcement_summary(con: sqlite3.Connection) -> dict:
+    """Aggregate local enforcement telemetry over cached DOL OSHA inspections."""
+    rows = con.execute(
+        "SELECT guid, company, state, penalty_usd, violation_types, published_at "
+        "FROM articles WHERE category = 'enforcement'"
+    ).fetchall()
+    if not rows:
+        return {
+            "total_cases": 0,
+            "total_penalty_usd": 0.0,
+            "avg_penalty_usd": 0.0,
+            "max_penalty_usd": 0.0,
+            "gravity_counts": {"W": 0, "R": 0, "S": 0, "O": 0},
+            "top_sections": [],
+            "top_states": [],
+            "largest_case": None,
+        }
+
+    total_penalty = 0.0
+    penalized = 0
+    max_penalty = 0.0
+    largest_row = None
+    gravity_counts = {"W": 0, "R": 0, "S": 0, "O": 0}
+    state_totals: dict[str, dict] = {}
+
+    for r in rows:
+        p = float(r["penalty_usd"] or 0.0)
+        if p > 0:
+            total_penalty += p
+            penalized += 1
+            if p >= max_penalty:
+                max_penalty = p
+                largest_row = r
+        vtypes = _json_load(r["violation_types"], [])
+        for vt in vtypes:
+            if vt in gravity_counts:
+                gravity_counts[vt] += 1
+        st = (r["state"] or "").strip().upper()
+        if st:
+            entry = state_totals.setdefault(st, {"code": st, "count": 0, "total_penalty_usd": 0.0})
+            entry["count"] += 1
+            entry["total_penalty_usd"] += p
+
+    sec_rows = con.execute(
+        """SELECT c.section_id, count(*) AS cnt, COALESCE(sum(a.penalty_usd), 0) AS pen
+           FROM article_citations c
+           JOIN articles a ON a.guid = c.article_guid
+           WHERE a.category = 'enforcement' AND c.title_num = 29 AND c.section_id != ''
+           GROUP BY c.section_id
+           ORDER BY cnt DESC, pen DESC, c.section_id
+           LIMIT 8"""
+    ).fetchall()
+
+    top_sections = [
+        {"section_id": r["section_id"], "count": int(r["cnt"]), "total_penalty_usd": round(float(r["pen"]), 2)}
+        for r in sec_rows
+    ]
+    top_states = sorted(
+        ({**v, "total_penalty_usd": round(v["total_penalty_usd"], 2)} for v in state_totals.values()),
+        key=lambda x: (-x["total_penalty_usd"], -x["count"], x["code"]),
+    )[:6]
+
+    largest_case = None
+    if largest_row is not None:
+        guid = largest_row["guid"] or ""
+        act_nr = int(guid.split(":", 1)[1]) if guid.startswith("dol-insp:") else None
+        largest_case = {
+            "activity_nr": act_nr,
+            "company": largest_row["company"],
+            "state": largest_row["state"],
+            "penalty_usd": round(float(largest_row["penalty_usd"] or 0.0), 2),
+            "published_at": largest_row["published_at"],
+        }
+
+    return {
+        "total_cases": len(rows),
+        "total_penalty_usd": round(total_penalty, 2),
+        "avg_penalty_usd": round(total_penalty / penalized, 2) if penalized else 0.0,
+        "max_penalty_usd": round(max_penalty, 2),
+        "gravity_counts": gravity_counts,
+        "top_sections": top_sections,
+        "top_states": top_states,
+        "largest_case": largest_case,
+    }

@@ -262,6 +262,120 @@ export function enhanceDomAnchors(root = dom.view) {
 }
 
 
+export function resolveParagraphPath(root, paraEl) {
+  if (!root || !paraEl) return '';
+  const pm = paraEl.querySelector('.pmark');
+  if (!pm) return '';
+  const firstTok = (pm.textContent || '').match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
+  if (!firstTok.length) return '';
+  // If pmark already starts at full hierarchical tuple (e.g. "(c)(1)(ii)"), keep it directly.
+  if (firstTok.length > 1) return firstTok.join('');
+  const lvlMatch = /\blvl-(\d+)\b/.exec(paraEl.className);
+  let targetLvl = lvlMatch ? Number(lvlMatch[1]) : 0;
+  if (targetLvl <= 1) return firstTok[0];
+
+  const paras = [...root.querySelectorAll('.reg-p')];
+  let idx = paras.indexOf(paraEl);
+  if (idx < 0) return firstTok[0];
+  const chain = [firstTok[0]];
+  for (let i = idx - 1; i >= 0 && targetLvl > 1; i--) {
+    const p = paras[i];
+    const lm = /\blvl-(\d+)\b/.exec(p.className);
+    const lvl = lm ? Number(lm[1]) : 0;
+    if (lvl > 0 && lvl < targetLvl) {
+      const pMark = p.querySelector('.pmark')?.textContent || '';
+      const toks = pMark.match(/\([a-zA-Z0-9]{1,4}\)/g);
+      if (toks && toks.length) {
+        chain.unshift(...toks);
+        targetLvl = lvl;
+      }
+    }
+  }
+  return chain.join('');
+}
+
+
+export function formatCfrCitation(title, sectionLabelOrId, para = '') {
+  const cleanLabel = String(sectionLabelOrId || '').trim();
+  const numPart = cleanLabel.startsWith('§') ? cleanLabel : `§ ${cleanLabel}`;
+  return `${title} C.F.R. ${numPart}${para || ''}`;
+}
+
+
+export function wrapIbrMentions(root, ibrList) {
+  if (!root || !Array.isArray(ibrList) || !ibrList.length) return;
+  const byMatch = new Map();
+  for (const item of ibrList) {
+    if (!item || !item.match_text) continue;
+    byMatch.set(item.match_text.toLowerCase(), item);
+    if (item.code) byMatch.set(item.code.toLowerCase(), item);
+  }
+  if (!byMatch.size) return;
+  const escaped = [...byMatch.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  const re = new RegExp(`(${escaped})`, 'gi');
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || !parent.closest('.reg-body') || parent.closest('a, button, .pmark, .runin')) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+  for (const textNode of nodes) {
+    const val = textNode.nodeValue || '';
+    re.lastIndex = 0;
+    if (!re.test(val)) continue;
+    re.lastIndex = 0;
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    let match;
+    while ((match = re.exec(val)) !== null) {
+      if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
+      const item = byMatch.get(match[1].toLowerCase());
+      if (item) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'xref xref-ibr';
+        btn.dataset.ibrCode = item.code;
+        btn.title = item.approved_in
+          ? `${item.code} — IBR approved in ${item.approved_in.label}${item.approved_in.para || ''}`
+          : `${item.code} (${item.org_name || item.org})`;
+        btn.textContent = match[0];
+        frag.appendChild(btn);
+      } else {
+        frag.appendChild(document.createTextNode(match[0]));
+      }
+      last = match.index + match[0].length;
+    }
+    if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
+    textNode.parentNode.replaceChild(frag, textNode);
+  }
+}
+
+
+export function renderViewError(container, title, message, { retryLabel = 'Try again', onRetry = null } = {}) {
+  if (!container) return;
+  container.innerHTML = `
+    <div class="empty-state">
+      <h2>${escapeHtml(title)}</h2>
+      <p>${escapeHtml(message)}</p>
+      ${onRetry ? `<button type="button" class="btn" id="view-err-retry">${escapeHtml(retryLabel)}</button>` : ''}
+    </div>
+  `;
+  if (onRetry) {
+    document.getElementById('view-err-retry')?.addEventListener('click', onRetry);
+  }
+}
+
+
 export function parseCfrHref(href, fallbackTitle = 29) {
   if (!href) return null;
   if (href.startsWith('#')) {

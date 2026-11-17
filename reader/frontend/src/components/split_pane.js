@@ -2,7 +2,7 @@ import { state } from '../state';
 import { cleanInlineLabel, escapeHtml, icon, skeletonHtml } from '../dom';
 import { scrollToAnchor, unitShort } from './rail';
 import { dom } from '../state_init';
-import { enhanceDomAnchors, highlightTarget, openFigureModal, parseCfrHref } from '../views/doc_utils';
+import { enhanceDomAnchors, highlightTarget, openFigureModal, parseCfrHref, wrapIbrMentions } from '../views/doc_utils';
 
 // --- Secondary side-by-side reference pane inside .main-stage ---
 let splitAbort = null;
@@ -153,6 +153,18 @@ export async function openSplitPane({ title, sectionId, para = null, unit = null
     const bodyEl = dom.splitPane.querySelector('.split-body');
     if (bodyEl) {
       enhanceDomAnchors(bodyEl);
+      const cachedGraph = state.graphCache.get(`${tNum}|${data.id}`);
+      if (cachedGraph?.ibr?.length) wrapIbrMentions(bodyEl, cachedGraph.ibr);
+      else {
+        fetch(`/api/${tNum}/citations/${encodeURIComponent(data.id)}`, { signal: splitAbort?.signal })
+          .then(r => (r.ok ? r.json() : null))
+          .then(g => {
+            if (!g || seq !== splitSeq || !bodyEl.isConnected) return;
+            state.graphCache.set(`${tNum}|${data.id}`, g);
+            if (g.ibr?.length) wrapIbrMentions(bodyEl, g.ibr);
+          })
+          .catch(() => {});
+      }
       if (para) {
         highlightTarget(bodyEl, para, 60);
       } else {

@@ -260,8 +260,43 @@ async function openSectionHrefPeek(trigger, root, parsed) {
   `, { interactive: false });
 }
 
+function renderIbrPeek(trigger, root) {
+  const code = trigger.dataset.ibrCode;
+  if (!code) return null;
+  const t = root === dom.splitPane ? (state.splitState?.title || state.currentTitle) : state.currentTitle;
+  const secId = root === dom.splitPane ? (state.splitState?.sectionId || '') : (state.currentSection?.id || '');
+  const graph = secId ? state.graphCache.get(`${t}|${secId}`) : null;
+  const item = graph?.ibr?.find(x => x.code === code);
+  if (!item) return null;
+
+  const app = item.approved_in;
+  const appHref = app
+    ? `#/title/${t}/section/${encodeURIComponent(app.section_id)}${app.para ? '?p=' + encodeURIComponent(app.para) : ''}`
+    : '';
+  lastHoverContext = app
+    ? { root, split: { title: t, sectionId: app.section_id, para: app.para || null } }
+    : null;
+
+  return `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${escapeHtml(item.code)}</div>
+      <span class="peek-badge">${escapeHtml(item.org)}</span>
+    </div>
+    ${item.org_name ? `<div class="peek-title">${escapeHtml(item.org_name)}</div>` : ''}
+    ${app
+      ? `<p class="peek-text"><strong>${item.exact ? 'IBR approved' : 'Closest approved edition'} in ${escapeHtml(app.label)}${escapeHtml(app.para || '')}:</strong> ${escapeHtml(app.excerpt)}</p>`
+      : `<p class="peek-text">Consensus technical standard published by ${escapeHtml(item.org_name || item.org)}.</p>`}
+    <div class="peek-foot">
+      ${app ? `<a class="btn btn-small" href="${escapeHtml(appHref)}">Open ${escapeHtml(app.label)}</a>` : ''}
+      ${app ? '<button type="button" class="btn btn-small" data-peek-split="1">Open side-by-side</button>' : ''}
+      ${item.org_url ? `<a class="btn btn-small" href="${escapeHtml(item.org_url)}" target="_blank" rel="noopener noreferrer">${icon('external')} ${escapeHtml(item.org)}</a>` : ''}
+    </div>
+  `;
+}
+
+
 function getPeekTrigger(el) {
-  return el.closest?.('a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], a.xref-external[data-cfr-title], a.xref[href], a.xref-cross[href]') || null;
+  return el.closest?.('a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], button.xref-ibr[data-ibr-code], a.xref-external[data-cfr-title], a.xref[href], a.xref-cross[href], a.citation-chip[href*="/section/"]') || null;
 }
 
 function handleHoverOver(e, root) {
@@ -298,6 +333,11 @@ function handleHoverOver(e, root) {
       if (html) citePop.open(trigger, html, { interactive: false });
       return;
     }
+    if (trigger.matches('button.xref-ibr[data-ibr-code]')) {
+      const html = renderIbrPeek(trigger, root);
+      if (html) citePop.open(trigger, html, { interactive: false });
+      return;
+    }
     if (trigger.matches('a.xref-external[data-cfr-title]')) {
       lastHoverContext = null;
       citePop.open(trigger, renderExternalHintPeek(trigger), { interactive: false });
@@ -324,6 +364,16 @@ function handleHoverOut(e) {
 for (const root of [dom.view, dom.splitPane].filter(Boolean)) {
   root.addEventListener('mouseover', (e) => handleHoverOver(e, root));
   root.addEventListener('mouseout', handleHoverOut);
+  root.addEventListener('click', (e) => {
+    const ibrBtn = e.target.closest('button.xref-ibr[data-ibr-code]');
+    if (!ibrBtn || !root.contains(ibrBtn)) return;
+    const html = renderIbrPeek(ibrBtn, root);
+    if (html) {
+      e.preventDefault();
+      cancelHoverTimers();
+      citePop.open(ibrBtn, html, { interactive: true, returnFocus: ibrBtn });
+    }
+  });
 }
 
 if (citePopEl) {

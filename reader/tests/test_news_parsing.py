@@ -28,6 +28,23 @@ class DolStandardTests(HermeticTestCase):
             with self.subTest(raw=raw):
                 self.assertEqual(news.normalize_dol_standard(raw), want)
 
+    def test_parse_dol_standard_extracts_paragraphs(self):
+        cases = {
+            "19101030 G02   IIA": ("1910.1030", "(g)(2)(ii)(A)", "§ 1910.1030(g)(2)(ii)(A)"),
+            "19100028 B03 IV": ("1910.28", "(b)(3)(iv)", "§ 1910.28(b)(3)(iv)"),
+            "19100022 A01": ("1910.22", "(a)(1)", "§ 1910.22(a)(1)"),
+            "19260501 B13": ("1926.501", "(b)(13)", "§ 1926.501(b)(13)"),
+        }
+        for raw, (sec, para, disp) in cases.items():
+            with self.subTest(raw=raw):
+                parsed = news.parse_dol_standard(raw)
+                self.assertEqual((parsed["section"], parsed["para"], parsed["display"]), (sec, para, disp))
+        gdc = news.parse_dol_standard("5A0001")
+        self.assertTrue(gdc["is_general_duty"])
+        sp = news.parse_dol_standard("83590050 A01")
+        self.assertTrue(sp["is_state_plan"])
+        self.assertIsNone(sp["section"])
+
     def test_is_general_duty(self):
         self.assertTrue(news.is_general_duty("5A0001"))
         self.assertTrue(news.is_general_duty(" 5a0001 "))

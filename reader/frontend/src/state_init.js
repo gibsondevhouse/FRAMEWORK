@@ -32,6 +32,8 @@ state.routeAbort = null;
 state.splitState = null;
 state.pendingDownloads = new Map();
 state.peekCache = new Map();
+state.graphCache = new Map();
+state.refsCache = new Map();
 
 
 // Cache DOM

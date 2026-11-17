@@ -209,6 +209,13 @@ export function agencyOf(k) {
   return null;
 }
 
+export function partForSection(sectionId) {
+  for (let p = treeIdx.sections.get(String(sectionId)); p != null && p >= 0; p = treeIdx.parent[p]) {
+    if (treeIdx.nodes[p]?.t === 'part') return treeIdx.nodes[p].id || null;
+  }
+  return null;
+}
+
 
 export function indexTree(root) {
   const walk = (node, parentKey) => {

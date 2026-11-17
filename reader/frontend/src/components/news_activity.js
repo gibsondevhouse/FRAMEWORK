@@ -3,7 +3,7 @@ import { createPopover } from './popover';
 import { escapeHtml, icon } from '../dom';
 import { dom } from '../state_init';
 import { fmtDate, getJSON } from '../views/library';
-import { extLink, fmtMoney } from '../views/news';
+import { extLink, fmtMoney, inspectionActivityNr } from '../views/news';
 
 // --- In-reader activity: "N rules & citations" next to Pin, with a timeline popover ---
 
@@ -64,10 +64,14 @@ export function newsTimelineHtml(ctx) {
     }
     const title = a.category === 'enforcement' && second ? second : a.title;
     const hay = `${meta} ${title} ${a.citation || ''}`.toLowerCase();
+    const actNr = inspectionActivityNr(a);
+    const titleHtml = actNr
+      ? `<a href="#/news/inspection/${actNr}" data-pop-nav><span class="tl-title">${escapeHtml(title)}</span></a>`
+      : extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`);
     return `<li class="tl-node" data-kind="${escapeHtml(a.category)}" data-hay="${escapeHtml(hay)}">
       <span class="tl-dot" aria-hidden="true"></span>
       <div class="tl-meta">${escapeHtml(meta)}</div>
-      ${extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`)}
+      ${titleHtml}
     </li>`;
   }).join('');
   const allHref = ctx.kind === 'part'
@@ -107,6 +111,7 @@ export function closeNewsActivity(returnFocus = true) {
 
 newsPop.addEventListener('click', (e) => {
   if (e.target.closest('[data-pop-close]')) closeNewsActivity(true);
+  else if (e.target.closest('[data-pop-nav]')) closeNewsActivity(false);
 });
 
 newsPop.addEventListener('input', (e) => {

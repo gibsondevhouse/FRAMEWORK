@@ -10,7 +10,7 @@ import { renderHome } from './views/core';
 import { renderHomeScreen } from './views/home';
 import { loadHelp } from './views/help';
 import { loadLibrary } from './views/library';
-import { loadNews } from './views/news';
+import { loadInspection, loadNews } from './views/news';
 import { renderProjects } from './views/projects';
 import { loadSection } from './views/reader';
 import { loadPart, loadPartFull } from './views/reader_part';
@@ -108,6 +108,9 @@ export async function handleRoute() {
   } else if (!titleMatch && (checkPath === '/news' || checkPath === '/news/')) {
     // Like projects, News is cross-title: #/title/29/news falls through to not-found.
     await loadNews(params);
+  } else if (!titleMatch && /^\/news\/inspection\/\d+\/?$/.test(checkPath)) {
+    const actNr = parseInt(checkPath.split('/')[3], 10);
+    await loadInspection(actNr);
   } else if (!titleMatch && (checkPath === '/help' || checkPath === '/help/')) {
     await loadHelp(params);
   } else if (!titleMatch && (checkPath === '/settings' || checkPath === '/settings/')) {

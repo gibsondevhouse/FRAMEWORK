@@ -9,13 +9,14 @@ well-formed results, never a 500. No GET endpoint ever queues or runs a sync.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
-from .. import config, news_schedule as sched, news_store, news_worker
+from .. import config, news, news_schedule as sched, news_store, news_worker
 from .. import store as reg_store
 
 
@@ -172,3 +173,103 @@ def news_for_section(section_id: str, title: int = Query(29, ge=1, le=50)) -> di
 def news_for_part(part: str, title: int = Query(29, ge=1, le=50)) -> dict:
     """Articles with any citation inside the part."""
     return {"part": part, **_related(None, part, title)}
+
+
+@news_router.get("/enforcement/summary")
+def enforcement_summary() -> dict:
+    """Local enforcement analytics across cached DOL inspections."""
+    with news_store.read_con() as con:
+        if con is None:
+            return {
+                "total_cases": 0, "total_penalty_usd": 0.0, "avg_penalty_usd": 0.0, "max_penalty_usd": 0.0,
+                "gravity_counts": {"W": 0, "R": 0, "S": 0, "O": 0},
+                "top_sections": [], "top_states": [], "largest_case": None,
+            }
+        try:
+            return news_store.enforcement_summary(con)
+        except sqlite3.Error:
+            return {
+                "total_cases": 0, "total_penalty_usd": 0.0, "avg_penalty_usd": 0.0, "max_penalty_usd": 0.0,
+                "gravity_counts": {"W": 0, "R": 0, "S": 0, "O": 0},
+                "top_sections": [], "top_states": [], "largest_case": None,
+            }
+
+
+@news_router.get("/inspection/{activity_nr}")
+def get_inspection_case(activity_nr: int) -> dict:
+    """Return local inspection summary + cached violation rows for `activity_nr`."""
+    dol = config.dol_api_key() is not None
+    case = None
+    with news_store.read_con() as con:
+        if con is not None:
+            try:
+                case = news_store.get_enforcement_case(con, activity_nr)
+            except sqlite3.Error:
+                case = None
+    if case is None:
+        if not dol:
+            raise HTTPException(404, f"Inspection {activity_nr} is not in local news cache.")
+        return {
+            "activity_nr": activity_nr,
+            "article": None,
+            "detail": None,
+            "violations": [],
+            "events": [],
+            "gdc": [],
+            "accidents": [],
+            "enriched_at": None,
+            "cached": False,
+            "needs_enrichment": True,
+            "dol_configured": dol,
+        }
+    return {
+        **case,
+        "cached": True,
+        "needs_enrichment": not case.get("violations") or not case.get("enriched_at"),
+        "dol_configured": dol,
+    }
+
+
+@news_router.post("/inspection/{activity_nr}/enrich")
+def enrich_inspection_case(activity_nr: int) -> dict:
+    """Fetch full case details, citations, GDC narratives, and accident abstracts from DOL v4."""
+    key = config.dol_api_key()
+    if not key:
+        raise HTTPException(400, "DOL_API_KEY is not configured in reader/.env.")
+    try:
+        with news.client() as c:
+            fetched = news.fetch_inspection_case(c, key, activity_nr)
+    except news.SourceUnavailable as e:
+        msg = str(e)
+        if "HTTP 429" in msg:
+            raise HTTPException(429, "DOL API rate limit reached. Try again in a moment.") from None
+        raise HTTPException(503, f"Could not fetch inspection from DOL ({msg}).") from None
+    if fetched is None:
+        raise HTTPException(404, f"OSHA inspection {activity_nr} was not found in DOL records.")
+
+    article = fetched["article"]
+    now = datetime.now(timezone.utc)
+    with closing(news_store.connect()) as con:
+        news_store.upsert_article(con, article, now)
+        news_store.save_enforcement_case(
+            con,
+            activity_nr,
+            details=article["inspection_detail"],
+            violations=article.get("violations_list") or [],
+            events=fetched["events"],
+            gdc=fetched["gdc"],
+            accidents=fetched["accidents"],
+            enriched_at=now.isoformat(),
+            now=now,
+        )
+        con.commit()
+    with news_store.read_con() as con:
+        saved = news_store.get_enforcement_case(con, activity_nr) if con else None
+    if saved is None:
+        raise HTTPException(500, "Failed to persist inspection case.")
+    return {
+        **saved,
+        "cached": True,
+        "needs_enrichment": False,
+        "dol_configured": True,
+    }

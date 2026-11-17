@@ -329,6 +329,11 @@ async function upgradeDomExternalLinks(finishedTitles) {
     const tNum = Number(key.split('|', 1)[0]);
     if (finishedTitles.has(tNum)) state.peekCache.delete(key);
   }
+  for (const tNum of finishedTitles) state.refsCache.delete(tNum);
+  for (const key of [...state.graphCache.keys()]) {
+    const tNum = Number(key.split('|', 1)[0]);
+    if (finishedTitles.has(tNum)) state.graphCache.delete(key);
+  }
   for (const root of [dom.view, dom.splitPane].filter(Boolean)) {
     for (const a of root.querySelectorAll('a.xref-external[data-cfr-title]')) {
       const t = Number(a.dataset.cfrTitle);

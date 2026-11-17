@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 from app import config, news, news_store, news_worker
 from app.main import app
 from tests.news_fixtures import (DOL_INSPECTIONS, DOL_VIOLATIONS, FR_DOC_NOTICE,
-                                 FR_DOC_PROPOSED, FR_DOC_RULE, NetworkGuardTestCase,
-                                 PI_DOC_ONLY)
+                                 FR_DOC_PROPOSED, FR_DOC_RULE, FakeAPI,
+                                 NetworkGuardTestCase, PI_DOC_ONLY)
 
 AGENCY = "occupational-safety-and-health-administration"
 
@@ -283,7 +283,38 @@ class FreshInstallTests(ApiTestCase):
         self.assertEqual(self.client.get("/api/news/facets").json(), {"states": []})
         self.assertEqual(self.client.get("/api/news/section/1910.1030").json()["count"], 0)
         self.assertEqual(self.client.get("/api/news/part/1910").json()["count"], 0)
+        self.assertEqual(self.client.get("/api/news/enforcement/summary").json()["total_cases"], 0)
+        self.assertEqual(self.client.get("/api/news/inspection/306953084").status_code, 404)
         self.assertFalse(news_store.db_path().exists())
+
+
+class InspectionCaseTests(ApiTestCase):
+    def test_summary_and_cached_case_file(self):
+        s = self.client.get("/api/news/enforcement/summary").json()
+        self.assertEqual(s["total_cases"], 2)
+        self.assertEqual(s["total_penalty_usd"], 55000.0)
+        self.assertEqual(s["largest_case"]["activity_nr"], 306953084)
+        res = self.client.get("/api/news/inspection/306953084")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data["cached"])
+        self.assertEqual(len(data["violations"]), 4)
+        self.assertEqual(data["violations"][0]["para"], "(g)(2)(ii)(A)")
+
+    def test_enrich_fetches_events_and_gdc_with_key(self):
+        fake = FakeAPI()
+        with mock.patch.dict("os.environ", {"DOL_API_KEY": "secret-key"}), fake.patch_client():
+            res = self.client.post("/api/news/inspection/306953084/enrich")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertFalse(data["needs_enrichment"])
+        self.assertEqual(len(data["events"]), 2)
+        self.assertEqual(len(data["gdc"]), 1)
+        self.assertIn("recognized hazards", data["gdc"][0]["text"])
+
+    def test_enrich_requires_key(self):
+        res = self.client.post("/api/news/inspection/306953084/enrich")
+        self.assertEqual(res.status_code, 400)
 
     def test_no_worker_thread_is_alive(self):
         self.assertNotIn("news-worker", [t.name for t in threading.enumerate()])

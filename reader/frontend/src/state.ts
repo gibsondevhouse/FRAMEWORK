@@ -1,5 +1,5 @@
 // Shared mutable app state + strict TypeScript DTO boundaries.
-// Modules read and mutate fields here (ES module bindings themselves are read-only).
+// Zero `any` fields: every API response and UI state container carries a typed shape.
 
 export interface InstalledTitleMeta {
   title: number;
@@ -9,6 +9,37 @@ export interface InstalledTitleMeta {
   section_count?: number;
   partial?: boolean;
   ai_configured?: boolean;
+}
+
+export interface TitleSnapshotRow extends InstalledTitleMeta {
+  unreadable?: boolean;
+  scope_parts?: string[] | null;
+  scope_sections_count?: number;
+  desk?: string;
+  agencies?: string[];
+  summary?: string;
+  news?: { count: number; latest_title?: string | null; latest_date?: string | null };
+}
+
+export interface HomeSnapshot {
+  ai_configured: boolean;
+  titles: TitleSnapshotRow[];
+}
+
+export interface ProfileInfo {
+  id: string;
+  name: string;
+  description?: string;
+  titles?: number[];
+}
+
+export interface TreeNode {
+  t?: string;
+  id?: string;
+  l?: string;
+  d?: string;
+  r?: boolean;
+  c?: TreeNode[];
 }
 
 export interface SectionOutlineItem {
@@ -49,6 +80,73 @@ export interface SectionDocData {
   next?: SectionNeighbor | null;
 }
 
+export interface ChatConfig {
+  configured: boolean;
+  models: string[];
+  default: string | null;
+  selected?: string | null;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface SearchResultItem {
+  id: string;
+  kind?: string;
+  part?: string;
+  label?: string;
+  title: number;
+  title_label?: string;
+  snippet?: string;
+  exact?: boolean;
+  score?: number;
+}
+
+export interface SearchResponse {
+  query: string;
+  title: number | string;
+  total: number;
+  results: SearchResultItem[];
+  ms: number;
+}
+
+export interface SearchViewState {
+  query: string;
+  allTitles: boolean;
+  data: SearchResponse;
+  view: 'compact' | 'grouped';
+  filters: {
+    title: number | null;
+    part: string | null;
+    kind: 'all' | 'section' | 'appendix';
+    text: string;
+  };
+  collapsed: Set<number>;
+}
+
+export interface NewsArticle {
+  guid?: string;
+  category: string;
+  title: string;
+  link: string;
+  published_at: string;
+  citation?: string;
+  comments_close_on?: string;
+  scheduled_on?: string;
+  penalty_usd?: number;
+  company?: string;
+  city?: string;
+  state?: string;
+}
+
+export interface NewsActivityCtx {
+  kind: 'section' | 'part';
+  id: string;
+  data: { count: number; articles: NewsArticle[] };
+}
+
 export interface TransferJob {
   id: number;
   title: number;
@@ -86,57 +184,119 @@ export interface PendingDownloadEntry {
   fromHash?: string;
 }
 
+export interface LegacyRefHint {
+  replacement_url: string;
+  replacement_label: string;
+  note: string;
+}
+
+export interface RefCiter {
+  id: string;
+  part: string;
+  label: string;
+  title: string;
+}
+
+export interface ReferenceItem {
+  url: string;
+  display: string;
+  host: string;
+  category: 'standards' | 'portals' | 'agencies' | 'technical';
+  legacy: LegacyRefHint | null;
+  cite_count: number;
+  cited_in: RefCiter[];
+}
+
+export interface ReferencesResponse {
+  title: number;
+  total: number;
+  category_counts: Record<string, number>;
+  items: ReferenceItem[];
+}
+
+export interface IbrCatalogEntry {
+  code: string;
+  base_code: string;
+  org: string;
+  section_id: string;
+  part: string;
+  label: string;
+  para: string;
+  excerpt: string;
+  urls: string[];
+}
+
+export interface IbrMatch {
+  code: string;
+  match_text: string;
+  org: string;
+  org_name: string;
+  org_url: string;
+  exact: boolean;
+  approved_in: IbrCatalogEntry | null;
+}
+
+export interface SectionGraphData {
+  title: number;
+  section_id: string;
+  cited_by_count: number;
+  cited_by: RefCiter[];
+  ibr: IbrMatch[];
+}
+
 export interface AppState {
   currentTitle: number;
   installedTitles: InstalledTitleMeta[];
-  homeSnapshot: any;
+  homeSnapshot: HomeSnapshot | undefined;
   noTitles: boolean;
-  profilesData: any;
-  treeData: any;
+  profilesData: { profiles: ProfileInfo[]; title_names: Record<string, string> } | undefined;
+  treeData: TreeNode | null;
   currentSection: SectionDocData | null;
   currentPart: string | null;
   activeRoute: string;
-  metaInfo: Partial<InstalledTitleMeta> & Record<string, any>;
-  chatConfig: any;
-  chatHistory: any;
+  metaInfo: Partial<InstalledTitleMeta> & { scope?: string };
+  chatConfig: ChatConfig;
+  chatHistory: ChatMessage[];
   isGenerating: boolean;
   routeSeq: number;
   jobs: JobsSnapshot;
-  jobsTimer: any;
+  jobsTimer: ReturnType<typeof setTimeout> | null | undefined;
   jobsSeenActive: Set<number>;
   lastJobsKey: string;
-  railObserver: IntersectionObserver | null;
-  searchState: any;
-  searchTimer: any;
-  sdActive: any;
+  railObserver: IntersectionObserver | { disconnect: () => void } | null;
+  searchState: SearchViewState | null;
+  searchTimer: ReturnType<typeof setTimeout> | null | undefined;
+  sdActive: number | undefined;
   visited: Set<string>;
   treePromise: Promise<void> | null;
-  currentTreeKey: any;
-  currentPartKey: any;
-  currentAgencyKey: any;
-  rootViewMode: any;
-  sideView: any;
-  treeFilterState: any;
-  foldedGroups: any;
-  filterTimer: any;
-  newProjectOpen: any;
-  projEditT: any;
-  newsQTimer: any;
-  newsActivityCtx: any;
-  navRetracted: any;
-  historyFor: any;
-  goPending: any;
-  navTransferKey: any;
-  navStorage: any;
-  navNewsStatus: any;
-  navEnvStatus: any;
-  envModalReturnFocus: any;
-  envModalSnapshot: any;
+  currentTreeKey: number | null | undefined;
+  currentPartKey: number | null | undefined;
+  currentAgencyKey: number | null | undefined;
+  rootViewMode: 'agencies' | 'all-parts' | undefined;
+  sideView: 'agencies' | 'all-parts' | 'agency' | 'part' | undefined;
+  treeFilterState: unknown;
+  foldedGroups: Set<string> | undefined;
+  filterTimer: ReturnType<typeof setTimeout> | null | undefined;
+  newProjectOpen: boolean | undefined;
+  projEditT: ReturnType<typeof setTimeout> | null | undefined;
+  newsQTimer: ReturnType<typeof setTimeout> | null | undefined;
+  newsActivityCtx: NewsActivityCtx | null;
+  navRetracted: boolean | undefined;
+  historyFor: string | undefined;
+  goPending: boolean | undefined;
+  navTransferKey: string | undefined;
+  navStorage: unknown;
+  navNewsStatus: unknown;
+  navEnvStatus: unknown;
+  envModalReturnFocus: Element | null | undefined;
+  envModalSnapshot: unknown;
   selectedText: string;
   routeAbort: AbortController | null;
   splitState: SplitState | null;
   pendingDownloads: Map<number, PendingDownloadEntry>;
   peekCache: Map<string, SectionDocData>;
+  graphCache: Map<string, SectionGraphData>;
+  refsCache: Map<number, ReferencesResponse>;
 }
 
 export const state: AppState = {
@@ -145,13 +305,13 @@ export const state: AppState = {
   homeSnapshot: undefined,
   noTitles: false,
   profilesData: undefined,
-  treeData: undefined,
+  treeData: null,
   currentSection: null,
   currentPart: null,
   activeRoute: '',
   metaInfo: {},
-  chatConfig: undefined,
-  chatHistory: undefined,
+  chatConfig: { configured: false, models: [], default: null },
+  chatHistory: [],
   isGenerating: false,
   routeSeq: 0,
   jobs: { current: null, queued: [], recent: [] },
@@ -159,7 +319,7 @@ export const state: AppState = {
   jobsSeenActive: new Set(),
   lastJobsKey: '',
   railObserver: null,
-  searchState: undefined,
+  searchState: null,
   searchTimer: undefined,
   sdActive: undefined,
   visited: new Set(),
@@ -175,7 +335,7 @@ export const state: AppState = {
   newProjectOpen: undefined,
   projEditT: undefined,
   newsQTimer: undefined,
-  newsActivityCtx: undefined,
+  newsActivityCtx: null,
   navRetracted: undefined,
   historyFor: undefined,
   goPending: undefined,
@@ -190,4 +350,6 @@ export const state: AppState = {
   splitState: null,
   pendingDownloads: new Map(),
   peekCache: new Map(),
+  graphCache: new Map(),
+  refsCache: new Map(),
 };

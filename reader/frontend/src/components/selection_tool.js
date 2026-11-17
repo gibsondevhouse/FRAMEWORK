@@ -1,23 +1,36 @@
 import { state } from '../state';
 import { openChat } from '../components/chat';
 import { positionPopover } from './popover';
+import { getActiveSplitDoc } from './split_pane';
 import { dom } from '../state_init';
+import { formatCfrCitation, resolveParagraphPath } from '../views/doc_utils';
+import { clipToWorkspace, currentSectionRef } from '../views/projects';
 
-// --- Selection Floating Tool ("Ask about this") ---
+// --- Selection Floating Tool ("Explain", "Ask about this", "Clip") ---
 state.selectedText = '';
+let selectedPara = '';
+let selectedFromSplit = false;
 
 document.addEventListener('mouseup', () => {
   const sel = window.getSelection();
   const str = sel.toString().trim();
-  const inView = dom.view.contains(sel.anchorNode) || (dom.splitPane && dom.splitPane.contains(sel.anchorNode));
-  if (str.length > 10 && inView && sel.rangeCount > 0) {
+  const inMain = dom.view.contains(sel.anchorNode);
+  const inSplit = Boolean(dom.splitPane && dom.splitPane.contains(sel.anchorNode));
+  if (str.length > 10 && (inMain || inSplit) && sel.rangeCount > 0) {
     state.selectedText = str;
+    selectedFromSplit = inSplit;
+    const anchorEl = sel.anchorNode instanceof Element ? sel.anchorNode : sel.anchorNode?.parentElement;
+    const paraEl = anchorEl?.closest?.('.reg-p');
+    const paneRoot = inSplit ? dom.splitPane : dom.view;
+    selectedPara = paraEl ? resolveParagraphPath(paneRoot, paraEl) : '';
     const range = sel.getRangeAt(0);
     const rect = range.getBoundingClientRect();
     dom.askFloat.hidden = false;
     positionPopover(dom.askFloat, rect, { offset: 8, placement: 'auto', padding: 10 });
   } else {
     dom.askFloat.hidden = true;
+    selectedPara = '';
+    selectedFromSplit = false;
   }
 });
 
@@ -35,6 +48,28 @@ for (const scroller of [dom.main, dom.splitPane]) {
 dom.askFloat.addEventListener('click', (e) => {
   const action = e.target.dataset.ask;
   if (!action || !state.selectedText) return;
+  if (action === 'clip') {
+    const splitDoc = selectedFromSplit ? getActiveSplitDoc() : null;
+    const ref = splitDoc
+      ? {
+        title: splitDoc.title,
+        id: splitDoc.id,
+        label: splitDoc.label || `§ ${splitDoc.id}`,
+        heading: splitDoc.section_title || splitDoc.title_label || '',
+        part: splitDoc.part || '',
+      }
+      : currentSectionRef();
+    if (ref) {
+      clipToWorkspace(ref, {
+        para: selectedPara,
+        quote: state.selectedText,
+        cite: formatCfrCitation(ref.title, ref.label, selectedPara),
+      });
+    }
+    dom.askFloat.hidden = true;
+    window.getSelection()?.removeAllRanges();
+    return;
+  }
   openChat();
   if (action === 'explain') {
     dom.chatText.value = `Can you explain what this clause means in plain English?\n\n"${state.selectedText}"`;
