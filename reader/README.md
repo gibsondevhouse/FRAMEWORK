@@ -12,23 +12,31 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a lightw
 - **Three ways to view a regulation.** Long sections open **clause by clause** (one lettered paragraph or appendix chapter at a time, with a quiet navigation rail in the margin so you don't lose your place). Need the whole picture? Switch to **See full section** or **See full part** to view everything on one page. Short sections open as a single page automatically.
 - **True-to-life legal structure.** Paragraph levels `(a)` → `(1)` → `(i)` → `(A)` are properly nested and indented. Tables, footnotes, figures, and embedded appendices render right where they belong.
 - **Automatic citation links.** References like `§ 541.100`, `§§ 1910.120 through 1910.126`, `541.100(a)(1)`, and cross-title citations like `40 CFR 261.3` turn into clickable links—jumping straight to the section if you have that title installed, or opening eCFR if you don't.
-- **Themes & comfort.** Dark mode is the default for long reading sessions, with a light mode toggle and adjustable text size whenever you want it.
+- **Themes & comfort.** Dark mode is the default for long reading sessions, with a light mode toggle and adjustable text size whenever you want it. Figures open in a lightbox with an invert-contrast toggle for white Federal Register drawings in dark mode.
+
+### Citations that do the legwork
+- **Peek before you jump.** Hover a cross-reference, footnote number, table or figure mention and the cited text appears in a small preview card. Nothing navigates until you ask it to.
+- **Read side-by-side.** Alt/⌥-click any section link (or press **Open side-by-side** in a peek) to open it in a second pane next to what you're reading. Step through its clauses there, or promote it to the main view.
+- **Download what you're missing.** A citation into a title you haven't installed opens a small card offering to fetch just that section, the whole part, or the whole title; the link turns local the moment the download lands.
+- **See who cites a section.** Every section header shows **Cited by N** with a searchable list of the sections that reference it, and consensus standards mentioned in the text (ANSI, NFPA, ASTM, …) resolve to the title's incorporation-by-reference catalog.
+- **References & Authorities.** Each title's start page is a broadsheet front page with a resume bar, key parts, and an almanac of every standards body, federal portal and agency the title cites — with the sections that cite them and a flag on retired URLs that points to the modern replacement.
+- **Copy cite / Clip.** Hover a clause to copy a formal citation (`29 C.F.R. § 1910.134(c)(1)(ii)`) or clip the clause into a workspace. The reader also remembers, per part, whether you prefer clause-by-clause or full-section reading.
 
 ### Instant local search
 - **Milliseconds, not seconds.** Local SQLite FTS5 full-text search with BM25 ranking lets you search across one title or all of your installed titles at once.
 - **Direct section jump.** Type a section number like `1910.134` into the search bar to hop straight to it.
-- **Command mode.** Type `>` in the search box to quickly jump between views, open panels, switch themes, or open a project dossier.
+- **Command mode.** Type `>` in the search box to quickly jump between views, open panels, switch themes, or open a workspace.
 
 ### Sliding rail & workspace
-- **Dual-track navigation.** A slim 48px activity rail along the edge gives you one-click access to **Overview**, **Title Home**, **Contents**, **Projects**, **Library**, and **Settings**.
+- **Dual-track navigation.** A slim 48px activity rail along the edge gives you one-click access to **Home**, **Title start**, **Contents**, **Workspaces**, **News**, **Library**, and **Settings**.
 - **Pinned or flyout drawer.** Keep the secondary drawer pinned beside your reading, or switch it to flyout mode so it slides over the page only when you need it.
 - **Drill-down Table of Contents.** Browse by agency → part → section (with foldable subparts) or switch to a flat list of every part, with an instant filter box at the top.
-- **Overview & Recent history.** See your most-visited titles, parts, and sections, plus a timeline of what you've read recently. Usage stats stay strictly in your browser.
+- **Home & Recent history.** Home picks up where you left off (down to the clause), lists your workspaces, shows a living snapshot of every downloaded title and a quiet regulatory pulse; click Home again for a timeline of what you've read recently. Usage stats stay strictly in your browser.
 
-### Project Dossiers
-- **Collect what matters.** Pin any section to a **Project Dossier** using the **Pin** button or `Ctrl/Cmd+D`.
-- **Add your own context.** Give dossiers a name, description, and color-coded tags, and attach personal notes to each pinned section.
-- **Portable by default.** Dossiers live in your browser's `localStorage` and can be exported or imported as JSON files anytime for backups or sharing.
+### Workspaces
+- **Collect what matters.** Pin any section to a **Workspace** using the **Pin** button or `Ctrl/Cmd+D`, or clip a single clause from its hover pill or from selected text.
+- **Add your own context.** Give workspaces a name, description, and color-coded tags, and attach personal notes to each pinned section.
+- **Portable by default.** Workspaces live in your browser's `localStorage` and can be exported or imported as JSON files anytime for backups or sharing.
 
 ### The Library & Transfer Dock
 - **Newsroom-style catalog.** Browse all 50 CFR titles organized by topic desk, see what's installed or outdated at a glance, and check the **Regulatory Wire** to see which titles were amended most recently.
@@ -41,6 +49,7 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a lightw
 - **A newsroom for Title 29.** The **News** rail item (`#/news`, `G N`) shows OSHA **Final Rules**, **Proposed Rules**, **Notices**, and **Public Inspection** filings from the official **Federal Register API** — no credentials needed — plus **Enforcement & Penalties** from the **DOL Open Data API** when you add a free `DOL_API_KEY`.
 - **Facts, not summaries.** Every card carries three fixed bullets (*Action*, *CFR*, *Dates* — or *Incident*, *Standards*, *Penalty* for enforcement) built directly from the record's own fields. No language model writes or summarises anything.
 - **Linked into the reader.** CFR citations on cards are chips straight into your installed titles, and Title 29 section and part pages grow an activity button ("3 rules & citations") with a timeline of related rulemaking and enforcement.
+- **Inspection case files.** Each enforcement item opens an in-app case file instead of a CAPTCHA-guarded osha.gov page: establishment facts, every violation with its standard decoded to the exact CFR paragraph, the citation history (contested, modified, final order), General Duty Clause narratives and accident abstracts, with a one-click **Enrich from DOL** when the local cache is thin. The Enforcement tab opens with a four-card briefing of totals, gravity mix, most-cited sections and states.
 - **Search & facets inside News.** The filter box finds items by keyword, company, `§ 1910.1030` or `91 FR 55744`; the Enforcement tab can be narrowed by state, penalty and gravity.
 - **Polite syncing.** A background worker fetches each source only after its publication window (FR by 06:15 ET, Public Inspection three times a day, DOL daily), identifies itself honestly, and never scrapes osha.gov. The page paints instantly from a local cache and quietly revalidates.
 
@@ -57,11 +66,12 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a lightw
 | :--- | :--- |
 | `/` or `Ctrl/Cmd+K` | Focus the search bar (type `>` for commands) |
 | `Ctrl/Cmd+B` | Show or hide the sliding drawer |
-| `Ctrl/Cmd+D` | Pin the current section to a project dossier |
+| `Ctrl/Cmd+D` | Pin the current section to a workspace |
 | `Ctrl/Cmd+J` or `Ctrl/Cmd+Shift+K` | Open or close the Claude assistant |
-| `G` then `O` / `H` / `C` / `P` / `N` / `L` / `S` | Jump to Overview, Title Home, Contents, Projects, News, Library, or Settings |
+| `G` then `H` / `T` / `C` / `P` / `N` / `L` / `S` | Jump to Home, Title start, Contents, Workspaces, News, Library, or Settings (`G O` also goes Home) |
 | `Alt+1` through `Alt+7` | Same quick jump to each rail item |
-| `Esc` | Close a floating drawer or popover |
+| `Alt/⌥ + click` a section link | Open it side-by-side instead of navigating |
+| `Esc` | Close a floating drawer, popover, or the split pane |
 
 ---
 
@@ -154,20 +164,25 @@ The test suite is completely self-contained—it builds tiny offline fake titles
 ```
 FRAMEWORK/
 ├── CLAUDE.md                  # Detailed technical notes for working on the code
+├── AGENTS.md                  # Short entry point for coding agents (defers to CLAUDE.md)
 ├── README.md                  # Top-level overview
 ├── Start FRAMEWORK.command    # One-click macOS launcher
-├── docs/plans/                # Design plans and future roadmaps
+├── docs/
+│   ├── plans/                 # Design plans by subject (10-series) + MAPPED_PLAN_OVERVIEW.md
+│   ├── notes/                 # Lightweight dev logs for cleanup and follow-ups
+│   └── bugs,quirks/           # eCFR ingest quirks register (duplicate appendix ids, reserved titles)
 └── reader/
     ├── app/
     │   ├── config.py          # Paths, .env loading, installed-title discovery
     │   ├── profiles.py        # First-run profiles + static names for all 50 CFR titles
     │   ├── build.py           # eCFR download, streaming XML ingest, SQLite FTS5 indexer
     │   ├── store.py           # Per-title SQLite connections, caches, federated search
-    │   ├── render/            # XML → HTML: text, hierarchy, linkifier, units, html
+    │   ├── citations/         # One citation grammar (parser.py) + per-title references / cited-by / IBR graph (graph.py)
+    │   ├── render/            # XML → HTML: text, hierarchy, linkifier, units, html (deterministic anchors)
     │   ├── ingest/            # Structure-tree utilities + streaming XML parse (for build.py)
     │   ├── library/           # eCFR client, suites, disk, job queue, views
-    │   ├── news.py            # Federal Register + DOL fetchers, citations, takeaway bullets
-    │   ├── news_store.py      # osha_news.sqlite3: articles, citations, FTS5, sync status
+    │   ├── news.py            # Federal Register + DOL fetchers, DOL standard decoder, inspection case files, takeaway bullets
+    │   ├── news_store.py      # osha_news.sqlite3: articles, citations, FTS5, sync status, enforcement_cases
     │   ├── news_schedule.py   # Publication windows, staleness, backoff (pure functions)
     │   ├── news_worker.py     # Schedule-gated background sync thread
     │   ├── routers/           # Domain routers: settings, library, news, reader, chat (+deps)

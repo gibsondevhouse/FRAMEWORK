@@ -199,6 +199,94 @@ Every section of a part in reading order, each with its rendered HTML.
 
 ---
 
+## References and citation graph
+
+Both routes are computed from a single pass over every section's text of the title, cached in
+memory until that title is installed, updated or removed, and never call out to the network.
+They power the Title start page's **References & Authorities** hub and the reader's
+**Cited by** button and IBR peeks.
+
+### `GET /api/{title}/references`
+The title's web references, grouped by host, plus its incorporation-by-reference (IBR)
+standards and most-cited sections.
+
+```json
+{
+  "title": 29,
+  "total": 227,
+  "category_counts": {"standards": 61, "portals": 48, "agencies": 90, "technical": 28},
+  "items": [
+    {"url": "https://webstore.ansi.org", "display": "webstore.ansi.org", "host": "webstore.ansi.org",
+     "category": "standards", "legacy": null, "cite_count": 3,
+     "cited_in": [{"id": "1910.6", "part": "1910", "label": "§ 1910.6", "title": "Incorporation by reference."}]}
+  ],
+  "host_total": 82,
+  "host_category_counts": {"standards": 24, "portals": 19, "agencies": 29, "technical": 10},
+  "hosts": [
+    {"host": "wdol.gov", "category": "portals",
+     "legacy": {"replacement_url": "https://sam.gov/content/wage-determinations",
+                "replacement_label": "SAM.gov Wage Determinations",
+                "note": "Retired URL — Wage Determinations Online migrated to SAM.gov."},
+     "url": "https://www.wdol.gov", "display": "www.wdol.gov", "url_count": 2,
+     "urls": [{"url": "https://www.wdol.gov", "display": "www.wdol.gov", "cite_count": 3}],
+     "cite_count": 3, "cited_in": [{"id": "4.1", "part": "4", "label": "§ 4.1", "title": "…"}]}
+  ],
+  "ibr_total": 312,
+  "ibr_standards": [
+    {"code": "ANSI Z89.1-2009", "base_code": "ANSI Z89.1", "org": "ANSI",
+     "org_name": "American National Standards Institute", "org_url": "https://www.ansi.org",
+     "section_id": "1910.6", "part": "1910", "label": "§ 1910.6", "para": "(e)",
+     "excerpt": "…IBR approved for § 1910.135…", "urls": ["https://webstore.ansi.org"],
+     "section_count": 1, "approved_in": [{"id": "1910.6", "part": "1910", "label": "§ 1910.6", "para": "(e)"}]}
+  ],
+  "most_cited_total": 540,
+  "most_cited": [{"id": "1910.1200", "part": "1910", "label": "§ 1910.1200", "title": "Hazard communication.", "cited_by_count": 41}]
+}
+```
+
+- `items` is one row per distinct URL (sorted by `cite_count`); `hosts` rolls them up per host with
+  that host's most-cited URL first. `cited_in` is capped at 8 citing sections per row and `urls` at 8.
+- `category` is `standards` (ANSI, ASTM, NFPA, ISO, … stores), `portals` (SAM.gov, GovInfo,
+  Regulations.gov, eCFR, …), `agencies` (other `.gov` hosts) or `technical` (everything else).
+- `legacy` is set for retired hosts (wdol.gov, epls.arnet.gov, alpha.sam.gov, thomas.loc.gov, …)
+  with the modern replacement to show instead.
+- `ibr_standards` are parsed from the title's incorporation-by-reference sections (§ 1910.6, § 1926.6
+  and the like), one row per full designator, sorted by how many IBR sections list it; `approved_in`
+  (capped at 6) names those catalog sections and the paragraph. `most_cited` is capped at 12 rows;
+  the `*_total` fields are the uncapped counts.
+
+### `GET /api/{title}/citations/{section_id}`
+Reverse citations and IBR matches for one section. `section_id` accepts the same forms as the
+section route (`1910.134`, `§ 1910.134`, `1910.134(c)`). `404` for an unknown section.
+
+```json
+{
+  "title": 29,
+  "section_id": "1910.134",
+  "cited_by_count": 17,
+  "cited_by": [{"id": "1910.120", "part": "1910", "label": "§ 1910.120", "title": "Hazardous waste operations and emergency response."}],
+  "ibr": [
+    {"code": "ANSI Z88.2-1992", "match_text": "ANSI Z88.2-1992", "org": "ANSI",
+     "org_name": "American National Standards Institute", "org_url": "https://www.ansi.org",
+     "exact": true,
+     "approved_in": {"code": "ANSI Z88.2-1992", "base_code": "ANSI Z88.2", "org": "ANSI",
+                     "section_id": "1910.6", "part": "1910", "label": "§ 1910.6", "para": "(e)",
+                     "excerpt": "…ANSI Z88.2-1992, Practices for Respiratory Protection; IBR approved for § 1910.134…",
+                     "urls": ["https://webstore.ansi.org"]}}
+  ]
+}
+```
+
+- `cited_by` lists the sections of the same title whose text cites this one (`§`, "section",
+  bare-number, "paragraph (x) of §" and same-title `N CFR` forms), in reading order; a section never
+  cites itself.
+- `ibr[].exact` is `true` when the full designator (with edition year) is in the IBR catalog, `false`
+  when only the base code matched (the catalog lists another edition); `approved_in` is the matching
+  catalog row (preferring one in the same part) or `null` when the standard is mentioned but not
+  incorporated by reference anywhere in the title.
+
+---
+
 ## Library (download from eCFR)
 
 ### `GET /api/library`
