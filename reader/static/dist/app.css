@@ -1609,6 +1609,7 @@ h5.reg-subhead { font-size: .94em; color: var(--fg-2); }
 .table-wrap .reg-table tr:first-child > * { border-top: 0; }
 .table-wrap .reg-table tr:last-child > * { border-bottom: 0; }
 
+.reg-p, .reg-footnote, .table-wrap, .reg-appendix, .reg-figure, .ftref { scroll-margin-top: 76px; }
 .reg-p.flash, .reg-footnote.flash, .table-wrap.flash, .reg-appendix.flash, .reg-figure.flash { animation: flash 1.8s var(--ease); border-radius: var(--r-4); }
 @keyframes flash { from { background: var(--mark); box-shadow: 0 0 0 4px var(--mark); } to { background: transparent; box-shadow: 0 0 0 4px transparent; } }
 

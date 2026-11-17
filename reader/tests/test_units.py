@@ -118,12 +118,30 @@ class AnchorAndFootnoteTests(HermeticTestCase):
         d = section_doc(xml, known=lambda s: False, title=29)
         html_a = d.unit_html("a")
         self.assertIn('class="ftref"', html_a)
-        self.assertIn('data-anchor="fn-u1-1"', html_a)
-        self.assertIn('id="fn-u1-1"', html_a)
+        self.assertIn('data-anchor="fn-1"', html_a)
+        self.assertIn('id="fn-1"', html_a)
         self.assertIn('class="fn-back"', html_a)
         self.assertIn('id="table-z-1"', html_a)
         html_full = d.full_html()
         self.assertIn('id="u-appendix-a"', html_full)
+
+    def test_cross_unit_and_repeated_footnote_ids(self):
+        xml = (
+            '<DIV8 N="1.2" TYPE="SECTION"><HEAD>§ 1.2 Multi.</HEAD>'
+            '<P>(a) First unit cites.<SU>1</SU><FTREF /></P>'
+            '<P>(b) Second unit holds note.</P>'
+            '<FTNT><P><SU>1</SU> Section note one.</P></FTNT>'
+            '<EXTRACT><HD1>Appendix A to § 1.2—App</HD1>'
+            '<P>App cites.<SU>1</SU><FTREF /></P>'
+            '<FTNT><P><SU>1</SU> Appendix note one.</P></FTNT></EXTRACT>'
+            '</DIV8>'
+        )
+        d = section_doc(xml, known=lambda s: False, title=29)
+        html_full = d.full_html()
+        self.assertIn('data-anchor="fn-1"', html_full)
+        self.assertIn('id="fn-1"', html_full)
+        self.assertIn('data-anchor="fn-1-2"', html_full)
+        self.assertIn('id="fn-1-2"', html_full)
 
     def test_fragment_emits_front_matter_footnotes(self):
         frag = '<FRONT><P>Subpart rule.<SU>2</SU><FTREF /></P><FTNT><P><SU>2</SU> Front note.</P></FTNT></FRONT>'

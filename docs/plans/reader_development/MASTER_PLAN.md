@@ -163,4 +163,4 @@ Optimized for maximum architectural cleanliness, long-term extensibility across 
 
 * **Corpus Reference Taxonomy:** [`docs/plans/reader_development/REFERENCE_TAXONOMY.md`](file:///Users/gibdevlite/Desktop/FRAMEWORK/docs/plans/reader_development/REFERENCE_TAXONOMY.md)
 * **Visual & Stack Audit (with 21 Live Captures):** Artifact [`UI_VISUAL_AUDIT.md`](file:///Users/gibdevlite/.gemini/antigravity/brain/7845c790-4a4f-4984-8c79-ca5f75efc66c/UI_VISUAL_AUDIT.md).
-* **Status:** **Milestone 1 (`Phases 1 & 2`) Complete** (`darwin` visual baselines inspected & updated; `win32` baselines will need CI `record_baselines` refresh if merging on Windows). Ready for **Milestone 2 (`Phases 3 & 4`)** on approval.
+* **Status:** **Milestone 1 (`Phases 1 & 2`) & Milestone 2 (`Phases 3 & 4`) Complete** (`darwin` visual baselines & Playwright parity green; `win32` baselines will need CI `record_baselines` refresh if merging on Windows). Ready for **Milestone 3 (`Phases 5, 6 & 7`)** on approval.

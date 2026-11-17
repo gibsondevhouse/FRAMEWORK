@@ -80,6 +80,7 @@ class Renderer:
         self.unit_seq = 0
         self._seen_anchors: set[str] = set()
         self._fn_refs: dict[str, str] = {}
+        self._fn_open_ids: dict[str, str] = {}
 
     def _unique_anchor(self, base: str) -> str:
         cand = base
@@ -91,7 +92,12 @@ class Renderer:
         return cand
 
     def _fn_dom_id(self, fn_label: str) -> str:
-        return f"fn-u{self.unit_seq}-{_slug(fn_label)}"
+        if fn_label in self._fn_open_ids:
+            return self._fn_open_ids[fn_label]
+        slug = _slug(fn_label) or "n"
+        fn_id = self._unique_anchor(f"fn-{slug}")
+        self._fn_open_ids[fn_label] = fn_id
+        return fn_id
 
     # -- public -------------------------------------------------------------
     def render_elements(self, elements: list[ET.Element], levels_map: dict[int, int]) -> str:
@@ -103,7 +109,6 @@ class Renderer:
         self.unit_seq += 1
         self.levels_map = levels_map
         self.footnotes = []
-        self._fn_refs = {}
         body = "".join(self.node(e) + self.text(e.tail) for e in elements)
         return self._wrap(body)
 
@@ -116,6 +121,7 @@ class Renderer:
         self.levels_map = compute_levels(el)
         self.footnotes = []
         self._fn_refs = {}
+        self._fn_open_ids = {}
         out = self.children(el)
         if self.footnotes:
             out += '<section class="reg-footnotes"><h4>Footnotes</h4>' + "".join(self.footnotes) + "</section>"
@@ -214,7 +220,10 @@ class Renderer:
             if not lbl:
                 m = re.match(r"^\s*([0-9]+[a-z]?|[a-z])\b", _plain(el))
                 lbl = m.group(1) if m else ""
-            fn_id = self._fn_dom_id(lbl) if lbl else self._unique_anchor(f"fn-u{self.unit_seq}")
+            if lbl:
+                fn_id = self._fn_open_ids.pop(lbl, None) or self._unique_anchor(f"fn-{_slug(lbl)}")
+            else:
+                fn_id = self._unique_anchor(f"fn-u{self.unit_seq}")
             back_id = self._fn_refs.get(fn_id)
             back_html = (
                 f' <button type="button" class="fn-back" data-anchor="{back_id}"'

@@ -1,7 +1,7 @@
 """Playwright behavioral tests for Milestone 2 (Phases 3 & 4):
-- Shared collision-aware popovers & News Activity filter/close
-- Inline hover peeks (paragraphs, installed sections, footnotes, tables)
-- Side-by-side split reading pane (Alt+Click, peek Split button, Promote)
+- Shared collision-aware popovers & mutual exclusion / close button
+- Inline hover peeks (local paragraphs, installed sections, footnotes, tables)
+- Side-by-side split reading pane (Alt+Click, peek Split button, unit switch, Promote, mobile stack)
 - Seamless Click-to-Download micro-card & direct uninstalled route resolver
 """
 from __future__ import annotations
@@ -25,23 +25,23 @@ except ImportError:
 from app import build, config, library, news_store, news_worker, store
 from app.library import client as lib_client
 from app.main import app
-from fake_titles import FakeTitles, XML
+import fake_titles
 from tests.base import HermeticTestCase, TRACKED_KEYS
 
 REQUIRE_BROWSER = os.environ.get("REQUIRE_BROWSER") == "1"
 _TITLE_IN_URL = re.compile(r"title-(\d+)\.(?:json|xml)")
 
-EXTRA_SECTION_XML = XML[29].replace(
-    "Respiratory protection.",
-    "Respiratory protection. Footnote test.<SU>1</SU><FTREF/>",
-).replace(
-    "</DIV6><DIV6 N=\"Subpart Z\"",
-    '<FTNT><P><SU>1</SU> Employer must inspect respirators before each use.</P></FTNT>'
+RICH_29_XML = fake_titles.XML[29].replace(
+    "<P>(a) <I>Permissible practice.</I> Respirators shall be provided.</P>",
+    "<P>(a) <I>Permissible practice.</I> Respirators shall be provided under "
+    "paragraph (b) of this section.<SU>1</SU><FTREF/> See Table I-1.</P>"
+    "<P>(b) <I>Inspection rule.</I> Facepieces must seal tightly.</P>"
+    "<FTNT><P><SU>1</SU> Employer must inspect respirators before each use.</P></FTNT>"
     '<DIV class="gpotbl_div"><TABLE><CAPTION>Table I-1 Respiratory Factors</CAPTION>'
-    '<THEAD><TR><TH>Type</TH><TH>APF</TH></TR></THEAD>'
-    '<TBODY><TR><TD>Half mask</TD><TD>10</TD></TR></TBODY></TABLE></DIV>'
-    '</DIV6><DIV6 N="Subpart Z"',
+    "<THEAD><TR><TH>Respirator Type</TH><TH>APF</TH></TR></THEAD>"
+    "<TBODY><TR><TD>Half mask</TD><TD>10</TD></TR></TBODY></TABLE></DIV>",
 )
+TEST_XML = {**fake_titles.XML, 29: RICH_29_XML}
 
 
 def scoped_download(_client, url: str, dest: Path, on_bytes=None) -> None:
@@ -49,7 +49,7 @@ def scoped_download(_client, url: str, dest: Path, on_bytes=None) -> None:
     if not m:
         raise AssertionError(f"unexpected download url: {url}")
     t = int(m.group(1))
-    dest.write_text(XML[t], encoding="utf-8")
+    dest.write_text(TEST_XML[t], encoding="utf-8")
     if on_bytes:
         on_bytes(10, 10)
 
@@ -64,9 +64,10 @@ class Milestone2BrowserTests(HermeticTestCase):
             os.environ.pop(k, None)
 
         # Install ONLY Title 29 initially so 40 CFR 261.3 and 49 CFR 172.101 render as uninstalled links!
-        cls.fake = FakeTitles(titles=(29,))
-        cls.fake.install()
-        # Reset library catalog cache cleanly
+        cls.fake = fake_titles.FakeTitles(titles=(29,))
+        with mock.patch.dict(fake_titles.XML, {29: RICH_29_XML}):
+            cls.fake.install()
+
         with lib_client._cache_lock:
             lib_client._catalog = None
             lib_client._structures.clear()
@@ -81,7 +82,6 @@ class Milestone2BrowserTests(HermeticTestCase):
         for p in cls.patches:
             p.start()
 
-        # Re-seed news minimal table so /api/news/* doesn't 500
         news_store.connect().close()
 
         uv_cfg = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning", lifespan="on")
@@ -154,29 +154,49 @@ class Milestone2BrowserTests(HermeticTestCase):
         page._page_errors = page_errors
         return page
 
-    def test_hover_peek_and_split_reading(self):
+    def test_peeks_split_and_popover_close(self):
         page = self._new_page()
+
+        # 1. Local paragraph, footnote, and table peeks in § 1910.134
+        page.goto(f"{self.base_url}/#/title/29/section/1910.134", wait_until="networkidle")
+        page.wait_for_selector(".doc-title:has-text('1910.134')", timeout=10000)
+
+        # Hover local para "(b)"
+        page.locator("a.xref-local[data-local-para='(b)']").first.hover()
+        page.wait_for_selector("#cite-pop:not([hidden]):has-text('Facepieces must seal tightly')", timeout=3000)
+
+        # Move pointer away to close, then hover footnote "1"
+        page.locator(".doc-title").hover()
+        page.wait_for_selector("#cite-pop", state="hidden", timeout=3000)
+        page.locator(".ftref").first.hover()
+        page.wait_for_selector("#cite-pop:not([hidden]):has-text('Employer must inspect respirators')", timeout=3000)
+
+        # Move away, then hover auto-linked "Table I-1"
+        page.locator(".doc-title").hover()
+        page.wait_for_selector("#cite-pop", state="hidden", timeout=3000)
+        page.locator("button.xref-anchor[data-anchor^='table-']").first.hover()
+        page.wait_for_selector("#cite-pop:not([hidden]) .peek-table:has-text('Half mask')", timeout=3000)
+
+        # Close via Pin menu mutual exclusion + close button [data-pop-close]
+        page.locator("#btn-pin").click()
+        page.wait_for_selector("#pin-pop:not([hidden])", timeout=3000)
+        self.assertTrue(page.locator("#cite-pop").is_hidden())
+        page.locator("#pin-pop [data-pop-close]").click()
+        page.wait_for_selector("#pin-pop", state="hidden", timeout=3000)
+
+        # 2. Installed section peek & Split Pane from § 1910.120
         page.goto(f"{self.base_url}/#/title/29/section/1910.120", wait_until="networkidle")
-        page.wait_for_selector(".doc-title", timeout=10000)
+        page.wait_for_selector(".doc-title:has-text('1910.120')", timeout=10000)
 
-        # Hover over installed section § 1910.134 to trigger inline peek
-        link_134 = page.locator("a.xref[href*='1910.134']").first
-        link_134.hover()
-        page.wait_for_selector("#cite-pop:not([hidden])", timeout=3000)
-        pop_text = page.locator("#cite-pop").inner_text()
-        self.assertIn("1910.134", pop_text)
-        self.assertIn("Respiratory protection", pop_text)
-        self.assertIn("Respirators shall be provided", pop_text)
+        page.locator("a.xref[href*='1910.134']").first.hover()
+        page.wait_for_selector("#cite-pop:not([hidden]):has-text('Respirators shall be provided')", timeout=3000)
 
-        # Click "Open side-by-side" inside peek -> opens #split-pane
         page.locator("#cite-pop [data-peek-split]").click()
-        page.wait_for_selector("#split-pane:not([hidden])", timeout=5000)
+        page.wait_for_selector("#split-pane:not([hidden]) .split-body:has-text('Respirators shall be provided')", timeout=5000)
         self.assertTrue(page.locator("#main-stage").evaluate("el => el.classList.contains('is-split')"))
-        self.assertIn("Respiratory protection", page.locator("#split-pane").inner_text())
 
-        # Alt+Click § 1910.1200 -> updates split pane directly to unitized section
-        link_1200 = page.locator("a.xref[href*='1910.1200']").first
-        link_1200.click(modifiers=["Alt"])
+        # Alt+Click § 1910.1200 -> switches split pane to unitized section
+        page.locator("a.xref[href*='1910.1200']").first.click(modifiers=["Alt"])
         page.wait_for_selector("#split-pane .split-units", timeout=5000)
         self.assertIn("1910.1200", page.locator("#split-pane .split-head-title").inner_text())
 
@@ -185,6 +205,11 @@ class Milestone2BrowserTests(HermeticTestCase):
         page.locator("#split-pane .split-unit-chip", has_text="(b)").click()
         page.wait_for_selector("#split-pane .split-body:has-text('Scope and application')", timeout=5000)
         self.assertEqual(page.evaluate("() => window.location.hash"), main_hash_before)
+
+        # Narrow mobile viewport: split pane stacks vertically with zero horizontal overflow
+        page.set_viewport_size({"width": 390, "height": 844})
+        overflow = page.evaluate("() => document.documentElement.scrollWidth > window.innerWidth")
+        self.assertFalse(overflow)
 
         # Promote split pane to main via Open button
         page.locator("#split-pane [data-split-act='promote']").click()
@@ -198,16 +223,15 @@ class Milestone2BrowserTests(HermeticTestCase):
         page.goto(f"{self.base_url}/#/title/29/section/1910.120", wait_until="networkidle")
         page.wait_for_selector(".doc-title", timeout=10000)
 
-        # 1. Click uninstalled 40 CFR 261.3 -> must NOT navigate externally; must open download micro-card
+        # 1. Click uninstalled 40 CFR 261.3 -> must NOT navigate externally; opens Download Micro-Card
         ext_link = page.locator("a.xref-external[data-cfr-title='40'][data-cfr-section='261.3']").first
         ext_link.click()
-        page.wait_for_selector("#cite-pop:not([hidden])", timeout=5000)
+        page.wait_for_selector("#cite-pop:not([hidden]):has-text('Protection of Environment')", timeout=5000)
         pop_text = page.locator("#cite-pop").inner_text()
         self.assertIn("40 CFR § 261.3", pop_text)
-        self.assertIn("Protection of Environment", pop_text)
         self.assertIn("Download § 261.3", pop_text)
 
-        # 2. Click "Download § 261.3" -> micro-scope ingest builds Title 40 & auto-navigates into it!
+        # 2. Click "Download § 261.3" -> builds Title 40 & auto-navigates into § 261.3
         page.locator("#cite-pop [data-res-dl='section']").click()
         page.wait_for_function("() => window.location.hash.includes('/title/40/section/261.3')", timeout=15000)
         page.wait_for_selector(".doc-title:has-text('261.3')", timeout=10000)
@@ -215,7 +239,7 @@ class Milestone2BrowserTests(HermeticTestCase):
 
         # 3. Direct route to still-uninstalled Title 49 section renders full-page resolver card, not 404
         page.goto(f"{self.base_url}/#/title/49/section/172.101", wait_until="networkidle")
-        page.wait_for_selector(".resolver-card", timeout=10000)
+        page.wait_for_selector(".resolver-card:has-text('Transportation')", timeout=10000)
         card_text = page.locator(".resolver-card").inner_text()
         self.assertIn("49 CFR § 172.101", card_text)
         self.assertIn("Download § 172.101", card_text)
