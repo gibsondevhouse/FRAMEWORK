@@ -57,10 +57,14 @@ class TestLinkifier(HermeticTestCase):
 
     def test_cross_title_uninstalled_fallback(self):
         # Title 21 is not installed
-        text = "Food safety under 21 CFR § 101.9 rules."
+        text = "Food safety under 21 CFR § 101.9(c)(1) rules."
         out = self.linkifier(text)
         self.assertIn('href="https://www.ecfr.gov/current/title-21/section-101.9"', out)
         self.assertIn('class="xref xref-external"', out)
+        self.assertIn('data-cfr-title="21"', out)
+        self.assertIn('data-cfr-section="101.9"', out)
+        self.assertIn('data-cfr-part="101"', out)
+        self.assertIn('data-cfr-para="(c)(1)"', out)
         self.assertIn('target="_blank"', out)
 
     def test_paragraph_suffix(self):

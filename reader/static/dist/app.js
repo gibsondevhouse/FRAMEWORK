@@ -7729,7 +7729,7 @@ function findParagraphElement(root, pText) {
 function findParagraphRange(root, pText) {
 	const clean = (pText || "").trim();
 	if (!clean || !root) return [];
-	const rangeM = /^\s*(\((?:[a-zA-Z0-9]{1,4}|[a-zA-Z0-9()]+\))\s*(?:-|–|through|to)\s*(\([a-zA-Z0-9()]+\))\s*$/i.exec(clean);
+	const rangeM = /^\s*((?:\([a-zA-Z0-9]{1,4}\))+)\s*(?:-|–|through|to)\s*((?:\([a-zA-Z0-9]{1,4}\))+)\s*$/i.exec(clean);
 	if (rangeM) {
 		const startEl = findParagraphElement(root, rangeM[1]);
 		const endEl = findParagraphElement(root, rangeM[2]);
