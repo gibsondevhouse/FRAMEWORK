@@ -33,11 +33,11 @@
 /* One card anatomy: icon left, text left-aligned, actions bottom-left. */
 .help-card {
   display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 20px; align-items: start;
-  padding: 20px 22px; scroll-margin-top: 20px;
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-12);
-  transition: background-color var(--t-quick) var(--ease), border-color var(--t-quick) var(--ease);
+  padding: 24px; scroll-margin-top: 20px;
+  background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--r-12); box-shadow: var(--card-top);
+  transition: transform var(--t-ui) var(--ease-out), background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out);
 }
-.help-card:hover { background: var(--card-hover); border-color: var(--line-strong); }
+.help-card:hover { transform: translateY(-1px); background: var(--card-hover); border-color: var(--line-strong); box-shadow: var(--shadow-card-hover); }
 
 .help-logo {
   display: grid; place-items: center; width: 96px; height: 96px;
@@ -125,9 +125,11 @@
 .settings-front { container: settings / inline-size; }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .set-card {
-  display: flex; flex-direction: column; gap: 10px; padding: 18px 20px;
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-12);
+  display: flex; flex-direction: column; gap: 10px; padding: 24px;
+  background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--r-12); box-shadow: var(--card-top);
+  transition: border-color var(--t-ui) var(--ease-out);
 }
+.set-card:hover { border-color: var(--line-strong); }
 .set-card-wide { grid-column: 1 / -1; }
 .set-card-label {
   margin: 0 0 2px; font-size: 11px; font-weight: var(--w-semibold); letter-spacing: .06em;

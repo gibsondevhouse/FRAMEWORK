@@ -9,11 +9,12 @@ after the news router (or /api/news/... would be captured as a title), and
 from __future__ import annotations
 
 import asyncio
+import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 
-from .. import config, profiles, store
+from .. import config, library, news_store, profiles, store
 from . import deps
 
 titles_router = APIRouter()
@@ -22,23 +23,81 @@ title_router = APIRouter(prefix="/api/{title}")
 legacy_router = APIRouter()
 
 
+def _safe_int(val, default: int = 0) -> int:
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_scope(raw: str | None) -> tuple[list[str] | None, int]:
+    if not raw:
+        return None, 0
+    try:
+        scope = json.loads(raw)
+    except (ValueError, TypeError):
+        return [], 0
+    if not isinstance(scope, dict):
+        return [], 0
+    parts: list[str] = []
+    for p in scope.get("parts") or []:
+        sp = str(p)
+        if sp and sp not in parts:
+            parts.append(sp)
+    sections = scope.get("sections") or []
+    for p in sorted({str(s.get("part")) for s in sections if isinstance(s, dict) and s.get("part")}):
+        if p not in parts:
+            parts.append(p)
+    return parts, len(sections)
+
+
 @titles_router.get("/api/titles")
 def list_titles() -> list[dict]:
     """List all installed CFR titles and their metadata."""
     installed = config.installed_titles()
+    ai_on = config.anthropic_key() is not None
     results = []
     for t in installed:
-        m = store.meta(t)
+        m, _unreadable = store.safe_meta(t)
         results.append({
             "title": t,
             "name": m.get("title_name") or f"Title {t}",
             "edition": m.get("edition"),
             "built_at": m.get("built_at"),
-            "section_count": int(m.get("section_count", 0)),
+            "section_count": _safe_int(m.get("section_count"), 0),
             "partial": bool(m.get("scope")),
-            "ai_configured": config.anthropic_key() is not None,
+            "ai_configured": ai_on,
         })
     return results
+
+
+@titles_router.get("/api/titles/snapshot")
+def titles_snapshot(response: Response) -> dict:
+    """Offline-safe living snapshot of installed titles for the Home screen."""
+    response.headers["Cache-Control"] = "no-store"
+    blurbs = library._BLURBS.get("titles", {})
+    ai_on = config.anthropic_key() is not None
+    rows = []
+    for t in config.installed_titles():
+        m, unreadable = store.safe_meta(t)
+        scope_parts, scope_sections_count = _parse_scope(m.get("scope"))
+        b = blurbs.get(str(t), {})
+        rows.append({
+            "title": t,
+            "name": m.get("title_name") or profiles.TITLE_NAMES.get(t) or f"Title {t}",
+            "edition": m.get("edition"),
+            "built_at": m.get("built_at"),
+            "section_count": _safe_int(m.get("section_count"), 0),
+            "partial": scope_parts is not None,
+            "unreadable": unreadable,
+            "scope_parts": scope_parts,
+            "scope_sections_count": scope_sections_count,
+            "desk": b.get("desk", library.OTHER_DESK),
+            "agencies": list(b.get("agencies", [])),
+            "summary": b.get("summary", ""),
+            "news": news_store.summary_for_title(t),
+        })
+    return {"ai_configured": ai_on, "titles": rows}
 
 
 @titles_router.get("/api/profiles")

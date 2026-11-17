@@ -21,12 +21,13 @@
 .chat-empty p { margin: 0; line-height: 1.55; }
 .suggestions { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; }
 .suggestions button {
-  text-align: left; padding: 8px 12px; border-radius: var(--r-8); cursor: pointer;
-  font: 13px/1.45 var(--sans); color: var(--fg-2); background: var(--field); border: 1px solid var(--line);
-  transition: background-color var(--t-base) var(--ease), border-color var(--t-base) var(--ease), color var(--t-base) var(--ease);
+  text-align: left; padding: 10px 14px; border-radius: var(--r-12); cursor: pointer;
+  font: 13px/1.45 var(--sans); color: var(--fg-2); background: var(--card-bg); border: 1px solid var(--line); box-shadow: var(--card-top);
+  transition: all var(--t-ui) var(--ease-out);
 }
-.suggestions button:hover { background: var(--hover); border-color: var(--line-strong); color: var(--fg); }
-.setup-card { padding: 16px 18px; border-radius: 10px; background: var(--raise); border: 1px solid var(--line); font-size: 13px; line-height: 1.55; color: var(--fg-2); }
+.suggestions button:hover { background: var(--card-hover); border-color: var(--line-strong); color: var(--fg-strong); }
+.suggestions button:active { transform: scale(.98); }
+.setup-card { padding: 20px 24px; border-radius: var(--r-12); background: var(--card-bg); border: 1px solid var(--line); box-shadow: var(--card-top); font-size: 13px; line-height: 1.55; color: var(--fg-2); }
 .setup-card h3 { font: var(--w-semibold) 14px/1.4 var(--sans); color: var(--fg); margin: 0 0 6px; }
 .setup-card p { margin: 0 0 10px; }
 .setup-card ol { margin: 0; padding-left: 18px; }
@@ -50,10 +51,10 @@
 .send-btn {
   display: grid; place-items: center; width: 28px; height: 28px; padding: 0; flex: 0 0 auto; border: 0; border-radius: 7px;
   background: var(--brand); color: var(--on-brand); cursor: pointer;
-  transition: background-color var(--t-base) var(--ease), transform var(--t-quick) var(--ease), opacity var(--t-base) var(--ease);
+  transition: all var(--t-ui) var(--ease-out);
 }
 .send-btn:hover { background: var(--brand-hover); }
-.send-btn:active { transform: scale(.94); }
+.send-btn:active { transform: scale(.96); }
 .send-btn:disabled { background: var(--active); color: var(--fg-4); cursor: not-allowed; transform: none; }
 
 /* Markdown (Claude output) */

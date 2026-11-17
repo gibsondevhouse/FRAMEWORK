@@ -54,10 +54,10 @@ export const ICON_PATHS = {
   pin: '<rect x="2.5" y="3" width="11" height="10" rx="2"/><path d="M6.5 3v10"/>',
   pinOff: '<rect x="2.5" y="3" width="11" height="10" rx="2"/><path d="M6.5 3v10" stroke-dasharray="1.5 1.5"/><path d="M9 8h2.5M10.5 6.5 12 8l-1.5 1.5"/>',
   activity: '<path d="M1.75 8.25h2.5l1.75-4.5 4 8.5 1.75-4h2.5"/>',
-  download: '<path d="M8 2.75v7.5M4.75 7 8 10.25 11.25 7"/><path d="M3 12.75h10"/>',
+  download: '<path d="M2.5 10.5v2A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5v-2"/><path d="M8 2.5v8M5 7.5 8 10.5 11 7.5"/>',
   check: '<path d="m3.75 8.25 2.75 2.75 5.75-6"/>',
   list: '<circle cx="3" cy="4" r=".6" fill="currentColor" stroke="none"/><circle cx="3" cy="8" r=".6" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r=".6" fill="currentColor" stroke="none"/><path d="M6 4h7.5M6 8h7.5M6 12h7.5"/>',
-  book: '<path d="M2.5 12.5A1.5 1.5 0 0 1 4 11h9.5"/><path d="M4 2.5h9.5v11H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 2.5Z"/>',
+  book: '<path d="M2.5 12.5A1.5 1.5 0 0 1 4 11h9.5"/><path d="M4 2.5h9.5v11H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 2.5Z"/><path d="M6 5.5h4.5M6 8h3"/>',
   file: '<path d="M9 2.5H4a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 4 14.5h8a1.5 1.5 0 0 0 1.5-1.5V6.5L9 2.5Z"/><path d="M9 2.5V6.5H13"/>',
   news: '<path d="M2.5 4.5H11V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12Z"/><path d="M11 6.5h1.5a1 1 0 0 1 1 1V12a1.5 1.5 0 0 1-1.5 1.5"/><path d="M4.5 7h4.5M4.5 9.25h4.5M4.5 11.5h3"/>',
   help: '<circle cx="8" cy="8" r="6"/><path d="M6.25 6.25a1.85 1.85 0 0 1 3.55.75c0 1.25-1.8 1.5-1.8 2.75"/><circle cx="8" cy="11.85" r=".55" fill="currentColor" stroke="none"/>',
@@ -73,6 +73,26 @@ export const ICON_PATHS = {
 
 export function icon(name, extraClass = '') {
   return `<svg class="icon${extraClass ? ' ' + extraClass : ''}" viewBox="0 0 16 16" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
+}
+
+
+export function skeletonHtml(kind = 'doc', label = 'Loading…') {
+  const line = (w, cls = '') => `<span class="skel skel-line${cls ? ' ' + cls : ''}" style="width:${w}"></span>`;
+  let body = '';
+  if (kind === 'tree') {
+    body = `<div class="skel-stack">${line('82%')}${line('64%')}${line('72%')}${line('58%')}</div>`;
+  } else if (kind === 'list') {
+    body = `<div class="skel-stack" style="gap:16px">${[78, 66, 84, 70].map(w =>
+      `<div class="skel-stack" style="gap:8px">${line('26%', 'is-sm')}${line(w + '%', 'is-lg')}${line('90%')}</div>`
+    ).join('')}</div>`;
+  } else if (kind === 'cards') {
+    body = `<div class="skel-stack" style="gap:18px">${line('18%', 'is-sm')}${line('36%', 'is-xl')}<div class="skel-grid-2">${[1, 2, 3, 4].map(() =>
+      `<div class="skel-card">${line('34%', 'is-sm')}${line('74%', 'is-lg')}${line('92%')}${line('64%')}</div>`
+    ).join('')}</div></div>`;
+  } else {
+    body = `<div class="skel-stack" style="gap:16px">${line('24%', 'is-sm')}${line('62%', 'is-xl')}<div class="skel-stack" style="gap:10px;margin-top:8px">${line('94%')}${line('88%')}${line('91%')}${line('76%')}${line('84%')}</div></div>`;
+  }
+  return `<div class="loading is-skel" role="status" aria-busy="true" aria-label="${escapeHtml(label)}">${body}</div>`;
 }
 
 

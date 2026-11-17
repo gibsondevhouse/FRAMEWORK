@@ -2,7 +2,7 @@ import { state } from '../state';
 import { updateChatContext } from '../components/chat';
 import { clearTreeSelection } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon } from '../dom';
+import { enterView, escapeHtml, icon, skeletonHtml } from '../dom';
 import { dom } from '../state_init';
 import { getJSON, statPill } from '../views/library';
 
@@ -57,7 +57,7 @@ export async function loadHelp() {
   setViewHead('');
   document.title = 'Connections & API Keys · FRAMEWORK';
   if (!state.navEnvStatus) {
-    dom.view.innerHTML = '<div class="loading">Loading setup guide…</div>';
+    dom.view.innerHTML = skeletonHtml('cards', 'Loading setup guide…');
     enterView();
   }
   try {

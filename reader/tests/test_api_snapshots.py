@@ -94,6 +94,7 @@ class GetRouteSnapshots(SnapshotBase):
 
     def test_titles(self):
         self.snap_get("get_titles", "/api/titles")
+        self.snap_get("get_titles_snapshot", "/api/titles/snapshot")
         self.snap_get("get_profiles", "/api/profiles")
 
     def test_legacy_title29_aliases(self):

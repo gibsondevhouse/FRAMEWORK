@@ -229,23 +229,33 @@ class BrowserCase(unittest.TestCase):
 
 class BehaviorTests(BrowserCase):
     def test_overview_and_section_routing(self):
-        page = self.open_page("/", ".hm-news[data-news-loaded='1']")
+        page = self.open_page("/", ".hm-titles[data-snapshot-loaded='1']")
+        page.wait_for_selector(".hm-news[data-news-loaded='1']", timeout=15000)
         self.assertIn("FRAMEWORK", page.title())
         self.assertIn("Home", page.inner_text("#view h1"))
-        self.assertIn("Resume reading", page.inner_text(".hm-resume"))
+        self.assertIn("Continue reading", page.text_content(".hm-resume"))
         self.assertIn("Workspaces", page.inner_text(".hm-ws"))
         self.assertIn("Regulatory Pulse", page.inner_text(".hm-news"))
-        self.assertIn("Installed Titles", page.inner_text(".hm-titles"))
+        titles_text = page.inner_text(".hm-titles")
+        self.assertIn("Downloaded Titles", titles_text)
+        self.assertIn("OSHA", titles_text)
+        self.assertEqual(page.locator("#hm-jump-input").count(), 0)
+        view_text = page.inner_text("#view").lower()
+        for clutter in ("import json", "commands", "connections", "dol inspection sync"):
+            self.assertNotIn(clutter, view_text)
         page.goto(f"{ENV.base_url}/#/section/1910.135")
         page.wait_for_selector("text=protective helmet", timeout=15000)
         self.assert_no_external_requests()
 
     def test_home_quick_jump_and_chords(self):
-        page = self.open_page("/", ".hm-news[data-news-loaded='1']")
-        page.fill("#hm-jump-input", "1910.135")
-        page.press("#hm-jump-input", "Enter")
-        page.wait_for_selector("text=protective helmet", timeout=15000)
-        self.assertIn("/section/1910.135", page.evaluate("location.hash"))
+        page = self.open_page("/", ".hm-titles[data-snapshot-loaded='1']")
+        page.wait_for_selector(".hm-news[data-news-loaded='1']", timeout=15000)
+        page.locator(".hm-titles a.hm-part-chip").first.click()
+        page.wait_for_function(
+            "() => /^#\\/title\\/\\d+\\/part\\//.test(location.hash)",
+            timeout=15000,
+        )
+        self.assertRegex(page.evaluate("location.hash"), r"^#/title/\d+/part/")
         page.keyboard.press("g")
         page.keyboard.press("t")
         page.wait_for_selector(".home-hero", timeout=15000)
@@ -421,7 +431,7 @@ class ScreenshotCase(BrowserCase):
             self.fail(f"{name}: size {actual.size} != baseline {expected.size}")
         mask = ImageChops.difference(actual, expected).convert("L").point(
             lambda v: 255 if v > PIXEL_DELTA else 0)
-        bad = sum(1 for px in mask.getdata() if px)
+        bad = sum(1 for px in mask.get_flattened_data() if px)
         frac = bad / (actual.size[0] * actual.size[1])
         if frac > MAX_DIFF_FRACTION:
             debug = platform_dir / f"{name}.actual.png"
@@ -432,7 +442,8 @@ class ScreenshotCase(BrowserCase):
 
 class DarkDesktopScreens(ScreenshotCase):
     def test_overview(self):
-        page = self.open_page("/", ".hm-news[data-news-loaded='1']")
+        page = self.open_page("/", ".hm-titles[data-snapshot-loaded='1']")
+        page.wait_for_selector(".hm-news[data-news-loaded='1']", timeout=15000)
         self.assert_baseline(page, "overview-dark-desktop")
         self.assert_no_external_requests()
 
@@ -457,7 +468,8 @@ class LightDesktopScreens(ScreenshotCase):
     theme = "light"
 
     def test_overview_light(self):
-        page = self.open_page("/", ".hm-news[data-news-loaded='1']")
+        page = self.open_page("/", ".hm-titles[data-snapshot-loaded='1']")
+        page.wait_for_selector(".hm-news[data-news-loaded='1']", timeout=15000)
         self.assert_baseline(page, "overview-light-desktop")
         self.assert_no_external_requests()
 

@@ -10,6 +10,8 @@
   .activity-rail {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 28; height: var(--bar-h); flex-direction: row; justify-content: center;
     padding: 0 8px env(safe-area-inset-bottom); border-right: 0; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+    -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
   }
   .ar-group { flex-direction: row; gap: 2px; }
   .ar-bottom { margin-left: 2px; }
@@ -55,7 +57,7 @@
   .dock-fill.is-indeterminate { animation: none; left: 0; width: 100% !important; opacity: .45; }
   .stat-dot.is-busy::after, .wire-badge::before { animation: none; }
   .stat-dot.is-busy::after, .ar-badge.is-busy::after { display: none; }
-  .wire-pending { animation: none; }
+  .wire-pending, .skel, .loading:not(.is-skel)::before { animation: none; }
 }
 
 @media print {

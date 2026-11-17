@@ -105,15 +105,18 @@ class Queue:
             cancelled = False
             try:
                 lib.run_job(job, self._progress(job))
-                job["state"] = "done"
+                with self._lock:
+                    job["state"] = "done"
             except JobCancelled:
                 cancelled = True
-                job["state"] = "cancelled"
-                job["phase"] = "Cancelled"
+                with self._lock:
+                    job["state"] = "cancelled"
+                    job["phase"] = "Cancelled"
             except Exception as exc:  # report, keep the worker alive
                 build.log(f"library job {job['id']} failed: {exc}")
-                job["state"] = "error"
-                job["error"] = _friendly(exc)
+                with self._lock:
+                    job["state"] = "error"
+                    job["error"] = _friendly(exc)
             finally:
                 with self._lock:
                     job["finished_at"] = time.time()
@@ -203,11 +206,13 @@ def run_job(job: dict, report) -> None:
         if inst is not None and scope == inst["scope"] and inst["edition"] == lib.ecfr_title(title)["up_to_date_as_of"]:
             report("Already installed", 1, 1)
             return
-    build.build(
-        title=title, force=True, scope=scope, progress=report,
-        before_install=lambda: store.release_title(title),
-    )
-    store.release_title(title)
+    try:
+        build.build(
+            title=title, force=True, scope=scope, progress=report,
+            before_install=lambda: store.begin_swap(title),
+        )
+    finally:
+        store.end_swap(title)
 
 
 queue = Queue()

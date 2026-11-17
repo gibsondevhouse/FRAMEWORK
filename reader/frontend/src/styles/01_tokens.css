@@ -1,8 +1,8 @@
 /* ==========================================================================
    FRAMEWORK: CFR reader
-   Design language: Linear (dark first). One sans family, a four-step grey
-   text ramp, hairline translucent borders, an indigo accent used sparingly,
-   and short ease-out motion. Tokens first; components only use tokens.
+   Design language: Monochromatic Linear/Vercel editorial UI (dark first).
+   Geist / Inter typography, strict white-opacity text ramp, hairline borders,
+   elevated card surfaces with top specular highlights, and status-only color.
    ========================================================================== */
 
 /* Self-hosted variable fonts (OFL licenses alongside the files in /static/fonts/).
@@ -35,8 +35,8 @@
           "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: "Berkeley Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --w-regular: 400;
-  --w-medium: 510;
-  --w-semibold: 590;
+  --w-medium: 500;
+  --w-semibold: 600;
   --reader-size: 16px;
 
   /* Shape */
@@ -55,83 +55,95 @@
   /* Motion */
   --ease: cubic-bezier(.25, .46, .45, .94);
   --ease-out: cubic-bezier(.165, .84, .44, 1);
-  --t-quick: .1s;
-  --t-base: .16s;
-  --t-slow: .25s;
+  --t-quick: .15s;
+  --t-base: .22s;
+  --t-slow: .3s;
+  --t-ui: .3s;
 
-  /* Status hues (shared by both themes) */
-  --blue: #4ea7fc;
+  /* Status & indicator hues (color reserved strictly for state/status) */
+  --blue: #71717a;
   --yellow: #f0bf00;
-  --brand: #5e6ad2;
-  --on-brand: #fff;
 }
-/* Raised surfaces inside a panel (library cards, metric tiles): one step off the panel. */
-:root { --card: color-mix(in srgb, var(--fg) 2.5%, var(--panel)); --card-hover: color-mix(in srgb, var(--fg) 5%, var(--panel)); }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0A0A0A;            /* Canvas background: obsidian ultra-dark */
-  --panel: #141414;         /* Card & sidebar background: charcoal */
-  --raise: #141414;         /* Cards and wells */
-  --pop: #1A1A1A;           /* Menus, popovers, dropdowns */
-  --hover: #1E1E1E;         /* Hover states */
-  --active: #252525;        /* Active / pressed states */
-  --field: #141414;         /* Input wells */
-  --line: rgba(255, 255, 255, 0.06);     /* 1px subtle border on cards */
-  --line-soft: rgba(255, 255, 255, 0.05);/* 1px horizontal line between rows */
-  --line-strong: rgba(255, 255, 255, 0.14);
-  --fg: #EDEDED;            /* Primary text */
-  --fg-2: #CCCCCC;          /* Secondary text ramp */
-  --fg-3: #888888;          /* Muted gray secondary text */
-  --fg-4: #555555;          /* Tertiary / faint text */
-  --fg-strong: #FFFFFF;     /* Text on hover / pressed */
-  --accent: #828fff;        /* Links and accent text */
-  --brand-hover: #6e7ae0;
-  --focus: #EAEAEA;         /* High-contrast focus rings */
+  --bg: #0A0A0A;            /* Deep neutral-950 canvas */
+  --panel: #0E0E0F;         /* Reading pane & sidebar base */
+  --card: #121212;          /* Elevated card surface */
+  --card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0%, rgba(255, 255, 255, 0) 100%), #121212;
+  --card-hover: #171718;    /* Hovered card surface */
+  --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --raise: #121212;         /* Wells & inset callouts */
+  --pop: #161617;           /* Menus, popovers, dropdowns */
+  --hover: rgba(255, 255, 255, 0.045);
+  --active: rgba(255, 255, 255, 0.085);
+  --field: rgba(255, 255, 255, 0.025);
+  --line: rgba(255, 255, 255, 0.055);
+  --line-soft: rgba(255, 255, 255, 0.045);
+  --line-strong: rgba(255, 255, 255, 0.15);
+  --fg: rgba(255, 255, 255, 0.90);      /* Primary headings & labels */
+  --fg-2: rgba(255, 255, 255, 0.60);    /* Body text */
+  --fg-3: rgba(255, 255, 255, 0.42);    /* Metadata, timestamps & quiet links */
+  --fg-4: rgba(255, 255, 255, 0.24);    /* Separators & faint markers */
+  --fg-strong: #ffffff;
+  --brand: #EDEDED;         /* Monochromatic high-contrast primary action */
+  --brand-hover: #FFFFFF;
+  --on-brand: #0A0A0A;
+  --accent: rgba(255, 255, 255, 0.90);
+  --focus: rgba(255, 255, 255, 0.72);
   --danger: #ff8583;
   --mark: rgba(240, 191, 0, .24);
   --scroll: rgba(255, 255, 255, .08);
   --scroll-hover: rgba(255, 255, 255, .18);
-  --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
-  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
-  /* Status (dot + word): installed & current, update available, partial install */
+  --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 12px 32px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.4);
+  /* Status (dot + word) */
   --ok: #4cb782;
   --warn: #f0b33c;
-  --partial: #9ba3ff;
-  --glow: 1;                /* status dots glow in dark mode only */
-  --shadow-lift: 0 6px 18px rgba(0, 0, 0, .32);
-  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23888888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
+  --partial: #a1a1aa;
+  --glow: 1;
+  --shadow-lift: 0 8px 30px rgba(0, 0, 0, 0.28);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2378787c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
 }
 
 [data-theme="light"] {
   color-scheme: light;
   --bg: #f5f5f6;
   --panel: #ffffff;
-  --raise: #f9f8f9;
+  --card: #fafafa;
+  --card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(250, 250, 250, 1) 100%);
+  --card-hover: #f4f4f5;
+  --card-top: inset 0 1px 0 rgba(255, 255, 255, 1);
+  --raise: #fafafa;
   --pop: #ffffff;
-  --hover: rgba(0, 0, 0, .04);
-  --active: rgba(0, 0, 0, .07);
+  --hover: rgba(0, 0, 0, .035);
+  --active: rgba(0, 0, 0, .065);
   --field: rgba(0, 0, 0, .02);
-  --line: rgba(0, 0, 0, .09);
-  --line-soft: rgba(0, 0, 0, .06);
-  --line-strong: rgba(0, 0, 0, .18);
-  --fg: #1f2126;
-  --fg-2: #3c4149;
-  --fg-3: #6b6f76;
-  --fg-4: #8f9299;
-  --fg-strong: #111318;
-  --accent: #5360cc;
-  --brand-hover: #4f5bc4;
-  --focus: #5e6ad2;
+  --line: rgba(0, 0, 0, .06);
+  --line-soft: rgba(0, 0, 0, .045);
+  --line-strong: rgba(0, 0, 0, .15);
+  --fg: rgba(9, 9, 11, 0.92);
+  --fg-2: rgba(9, 9, 11, 0.62);
+  --fg-3: rgba(9, 9, 11, 0.45);
+  --fg-4: rgba(9, 9, 11, 0.28);
+  --fg-strong: #09090b;
+  --brand: #18181b;
+  --brand-hover: #27272a;
+  --on-brand: #ffffff;
+  --accent: #18181b;
+  --focus: #18181b;
   --danger: #c53030;
-  --mark: rgba(240, 191, 0, .36);
+  --mark: rgba(240, 191, 0, .34);
   --scroll: rgba(0, 0, 0, .12);
   --scroll-hover: rgba(0, 0, 0, .24);
-  --shadow-pop: 0 0 0 1px rgba(0, 0, 0, .04), 0 3px 12px rgba(0, 0, 0, .09), 0 7px 24px rgba(0, 0, 0, .06);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, .04);
+  --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, .08), inset 0 1px 0 rgba(255, 255, 255, 1);
+  --shadow-pop: 0 0 0 1px rgba(0, 0, 0, .05), 0 4px 16px rgba(0, 0, 0, .09), 0 8px 28px rgba(0, 0, 0, .06);
   --ok: #23865a;
   --warn: #9a5b00;
-  --partial: #5e6ad2;
+  --partial: #71717a;
   --glow: 0;
-  --shadow-lift: 0 2px 10px rgba(0, 0, 0, .07);
+  --shadow-lift: 0 8px 30px rgba(0, 0, 0, .08);
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236b6f76' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
 }

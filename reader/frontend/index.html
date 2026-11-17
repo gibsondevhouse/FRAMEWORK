@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <title>FRAMEWORK</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23111214'/><text x='16' y='23' text-anchor='middle' font-family='Inter,Segoe UI,Arial,sans-serif' font-weight='600' font-size='20' fill='%235e6ad2'>E</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230a0a0a'/><text x='16' y='23' text-anchor='middle' font-family='Inter,Segoe UI,Arial,sans-serif' font-weight='600' font-size='20' fill='%23ededed'>E</text></svg>">
   <link rel="stylesheet" href="/src/styles/styles.css">
   <script>
     // Apply saved theme/size before first paint to avoid a flash. Dark is the default look.
@@ -84,7 +84,7 @@
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5H11V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12Z"/><path d="M11 6.5h1.5a1 1 0 0 1 1 1V12a1.5 1.5 0 0 1-1.5 1.5"/><path d="M4.5 7h4.5M4.5 9.25h4.5M4.5 11.5h3"/></svg>
         </a>
         <button type="button" class="ar-btn" data-target="library" aria-controls="sidebar" aria-expanded="false" aria-label="Library" data-tip="Library" data-keys="G L">
-          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.75v7.5M4.75 7 8 10.25 11.25 7"/><path d="M3 12.75h10"/></svg>
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 10.5v2A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5v-2"/><path d="M8 2.5v8M5 7.5 8 10.5 11 7.5"/></svg>
           <span class="ar-badge" id="ar-library-badge" hidden></span>
         </button>
       </div>
@@ -120,7 +120,7 @@
               <button type="button" class="side-nav-tab" id="tab-parts" role="tab" aria-selected="false" data-mode="all-parts">All parts</button>
             </div>
           </div>
-          <div class="tree" id="tree"><div class="loading">Loading contents…</div></div>
+          <div class="tree" id="tree"><div class="loading is-skel skel-stack" aria-label="Loading contents…"><span class="skel skel-line" style="width:76%"></span><span class="skel skel-line" style="width:58%"></span><span class="skel skel-line" style="width:68%"></span></div></div>
         </section>
         <section class="drawer-panel" data-panel="projects" id="panel-projects" aria-label="Projects" hidden></section>
         <section class="drawer-panel" data-panel="library" id="panel-library" aria-label="Library" hidden></section>

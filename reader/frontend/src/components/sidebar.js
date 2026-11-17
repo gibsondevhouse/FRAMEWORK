@@ -1,6 +1,6 @@
 import { state } from '../state';
 import { fillTitleSelect } from '../components/title_switcher';
-import { escapeHtml, icon, lsGet, lsSet } from '../dom';
+import { escapeHtml, icon, lsGet, lsSet, skeletonHtml } from '../dom';
 import { applyNav, closeDrawer, flyOpen, isFly, updateRailHome } from '../nav';
 import { dom } from '../state_init';
 
@@ -136,7 +136,7 @@ export async function switchTitle(newTitle) {
   clearFilterQuietly();
   state.visited = loadVisited();
   state.sideView = state.rootViewMode;
-  dom.tree.innerHTML = '<div class="loading">Loading contents…</div>';
+  dom.tree.innerHTML = skeletonHtml('tree', 'Loading contents…');
   await ensureTreeLoaded();
 }
 

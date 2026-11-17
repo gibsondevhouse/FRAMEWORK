@@ -6,7 +6,7 @@ import { adjustFontSize, bindRail, railHtml, sectionHref, unitShort, unitStepHtm
 import { selectTreeNode } from '../components/sidebar';
 import { renderNotFound } from '../components/title_switcher';
 import { docStepHtml, setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon, showToast } from '../dom';
+import { enterView, escapeHtml, icon, showToast, skeletonHtml } from '../dom';
 import { dom } from '../state_init';
 import { recordSectionUnit, recordSectionVisit } from '../usage';
 
@@ -19,7 +19,7 @@ export async function loadSection(sectionId, params, view) {
   const pClause = params && /^\(([a-z])\)/.exec(params.get('p') || '');
   const unit = full ? null : (view || (pClause ? pClause[1] : ''));
   const sameSection = state.currentSection && state.currentSection.id === sectionId && !dom.view.querySelector('.loading');
-  if (!sameSection) dom.view.innerHTML = '<div class="loading">Loading section ' + escapeHtml(sectionId) + '…</div>';
+  if (!sameSection) dom.view.innerHTML = skeletonHtml('doc', 'Loading section ' + sectionId + '…');
   try {
     const qs = unit === null ? '' : '?unit=' + encodeURIComponent(unit);
     const seq = state.routeSeq;

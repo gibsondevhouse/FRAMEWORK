@@ -5,6 +5,7 @@
 export interface AppState {
   currentTitle: any;
   installedTitles: any;
+  homeSnapshot: any;
   noTitles: boolean;
   profilesData: any;
   treeData: any;
@@ -53,6 +54,7 @@ export interface AppState {
 export const state: AppState = {
   currentTitle: undefined,
   installedTitles: undefined,
+  homeSnapshot: undefined,
   noTitles: false,
   profilesData: undefined,
   treeData: undefined,

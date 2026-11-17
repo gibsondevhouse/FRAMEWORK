@@ -9,8 +9,8 @@ well-formed results, never a 500. No GET endpoint ever queues or runs a sync.
 """
 from __future__ import annotations
 
-from contextlib import closing
 from datetime import datetime, timezone
+import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
@@ -48,10 +48,15 @@ def get_news(
     only match enforcement rows, so combined with category=all they narrow to enforcement."""
     if section:
         section = reg_store.normalize_id(section)
-    with closing(news_store.connect()) as con:
-        return news_store.query_articles(
-            con, category=category, q=q, section=section, part=part, state=state,
-            min_penalty=min_penalty, gravity=gravity, limit=limit, offset=offset)
+    with news_store.read_con() as con:
+        if con is None:
+            return {"articles": [], "total": 0, "offset": offset}
+        try:
+            return news_store.query_articles(
+                con, category=category, q=q, section=section, part=part, state=state,
+                min_penalty=min_penalty, gravity=gravity, limit=limit, offset=offset)
+        except sqlite3.Error:
+            return {"articles": [], "total": 0, "offset": offset}
 
 
 @news_router.get("/status")
@@ -93,8 +98,14 @@ def news_status() -> dict:
                 "next_due_at": _iso(next_due),
             })
         sources[s] = base
-    with closing(news_store.connect()) as con:
-        counts = news_store.category_counts(con)
+    with news_store.read_con() as con:
+        if con is None:
+            counts = {"all": 0, **{c: 0 for c in news_store.CATEGORIES}}
+        else:
+            try:
+                counts = news_store.category_counts(con)
+            except sqlite3.Error:
+                counts = {"all": 0, **{c: 0 for c in news_store.CATEGORIES}}
     return {
         "dol_configured": dol,
         "sync_enabled": config.news_sync_enabled(),
@@ -109,8 +120,13 @@ def news_status() -> dict:
 @news_router.get("/facets")
 def news_facets() -> dict:
     """States present among enforcement rows, with counts, for the state dropdown."""
-    with closing(news_store.connect()) as con:
-        return {"states": news_store.state_facets(con)}
+    with news_store.read_con() as con:
+        if con is None:
+            return {"states": []}
+        try:
+            return {"states": news_store.state_facets(con)}
+        except sqlite3.Error:
+            return {"states": []}
 
 
 class RefreshRequest(BaseModel):
@@ -135,8 +151,13 @@ def _related(section: str | None, part: str | None, title: int) -> dict:
     if title != 29:
         # No other title has news while OSHA is the only agency.
         return {"count": 0, "articles": []}
-    with closing(news_store.connect()) as con:
-        res = news_store.query_articles(con, section=section, part=part, title=title, limit=15)
+    with news_store.read_con() as con:
+        if con is None:
+            return {"count": 0, "articles": []}
+        try:
+            res = news_store.query_articles(con, section=section, part=part, title=title, limit=15)
+        except sqlite3.Error:
+            return {"count": 0, "articles": []}
     return {"count": res["total"], "articles": res["articles"]}
 
 

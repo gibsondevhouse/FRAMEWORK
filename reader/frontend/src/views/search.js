@@ -2,7 +2,7 @@ import { state } from '../state';
 import { updateChatContext } from '../components/chat';
 import { clearTreeSelection } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon, lsGet, lsSet } from '../dom';
+import { enterView, escapeHtml, icon, lsGet, lsSet, skeletonHtml } from '../dom';
 import { dom } from '../state_init';
 
 // --- Search Page ---
@@ -274,7 +274,7 @@ export async function loadSearchPage(query, scope) {
   }
 
   const allTitles = scope === 'all' && state.installedTitles.length > 1;
-  dom.view.innerHTML = `<div class="loading">Searching for “${escapeHtml(query)}”…</div>`;
+  dom.view.innerHTML = skeletonHtml('list', `Searching for “${query}”…`);
   try {
     const url = allTitles
       ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=100`

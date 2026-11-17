@@ -1,35 +1,37 @@
 /* ---------- Top bar ---------- */
 .topbar {
   position: fixed; inset: 0 0 auto 0; height: var(--topbar-h); z-index: 30;
-  display: flex; align-items: center; gap: 8px; padding: 0 12px 0 10px; background: var(--bg);
+  display: flex; align-items: center; gap: 8px; padding: 0 12px 0 10px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
   border-bottom: 1px solid var(--line);
 }
-/* The wordmark: FRAMEWORK, with the E in the brand colour. It is the home button. */
+/* The wordmark: FRAMEWORK. It is the home button. */
 .brand {
   display: flex; align-items: center; height: 28px; padding: 0 6px; margin-left: 0; border-radius: var(--r-6);
   color: var(--fg); font-weight: var(--w-semibold); font-size: 13px; letter-spacing: .08em; white-space: nowrap;
-  transition: background-color var(--t-quick) var(--ease), transform 100ms var(--ease);
+  transition: all var(--t-ui) var(--ease-out);
 }
-.brand:hover { text-decoration: none; background: var(--hover); }
+.brand:hover { text-decoration: none; background: var(--hover); color: var(--fg-strong); }
 .brand:active { transform: scale(.98); }
-.brand-e { color: var(--accent); } /* the brand indigo, lifted for contrast on dark chrome */
+.brand-e { color: var(--fg-strong); }
 .topbar-sep { color: var(--fg-4); font-size: 14px; margin: 0 -2px 0 2px; }
 .search-wrap { position: relative; flex: 1 1 auto; max-width: 520px; margin: 0 auto; min-width: 0; }
 .search-wrap > .icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--fg-3); pointer-events: none; }
 #search {
-  width: 100%; height: 32px; padding: 0 44px 0 32px; border-radius: var(--r-6);
+  width: 100%; height: 32px; padding: 0 44px 0 32px; border-radius: var(--r-8);
   font: 13px/1 var(--sans); color: var(--fg); outline: none;
-  border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.03);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
-  transition: border-color var(--t-base) var(--ease), background-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+  border: 1px solid var(--line); background: var(--field);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: all var(--t-ui) var(--ease-out);
 }
 #search::placeholder, #tree-filter::placeholder, .chat-input textarea::placeholder { color: var(--fg-4); opacity: 1; }
-#search:hover { border-color: rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.05); }
-#search:focus { border-color: rgba(255, 255, 255, 0.25); background: var(--panel); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); }
+#search:hover { border-color: var(--line-strong); background: var(--hover); }
+#search:focus { border-color: var(--line-strong); background: var(--panel); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--line-strong); }
 .search-kbd {
   position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none;
-  font: 500 11px/1 var(--sans); color: var(--fg-3); background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--r-4); padding: 2px 5px;
+  font: 500 11px/1 var(--sans); color: var(--fg-3); background: var(--hover);
+  border: 1px solid var(--line); border-radius: var(--r-4); padding: 2px 5px;
 }
 #search:focus ~ .search-kbd, #search:not(:placeholder-shown) ~ .search-kbd { display: none; }
 .search-dropdown {
@@ -73,20 +75,23 @@ body.resizing .layout { transition: none; }
    a 3px accent bar on the rail's left edge; a label with its shortcut shows on hover. */
 .activity-rail {
   position: relative; z-index: 27; display: flex; flex-direction: column; justify-content: space-between; align-items: center;
-  padding: 6px 0 calc(var(--gutter) + 6px); background: var(--bg); border-right: 1px solid var(--line-soft);
+  padding: 6px 0 calc(var(--gutter) + 6px);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
+  border-right: 1px solid var(--line-soft);
 }
 .ar-group { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .ar-sep { width: 18px; height: 1px; margin: 4px 0; background: var(--line); }
 .ar-btn {
   position: relative; display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
   border: 0; border-radius: var(--r-6); background: transparent; color: var(--fg-3); cursor: pointer;
-  transition: background-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease), transform 100ms var(--ease);
+  transition: all var(--t-ui) var(--ease-out);
 }
 .ar-btn:hover { background: var(--hover); color: var(--fg-strong); text-decoration: none; }
-.ar-btn:active { transform: scale(.94); }
+.ar-btn:active { transform: scale(.98); }
 .ar-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.ar-btn .icon { width: 17px; height: 17px; }
-.ar-btn.is-active { background: var(--active); color: var(--fg-strong); }
+.ar-btn .icon { width: 16px; height: 16px; }
+.ar-btn.is-active { background: var(--active); color: var(--fg-strong); box-shadow: var(--card-top); }
 .ar-btn::before {
   content: ""; position: absolute; left: -8px; top: 50%; width: 3px; height: 16px; border-radius: 0 2px 2px 0;
   background: var(--accent); transform: translateY(-50%) scaleY(0); transition: transform var(--t-base) var(--ease-out);

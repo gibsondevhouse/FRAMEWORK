@@ -3,7 +3,7 @@ import { updateChatContext } from '../components/chat';
 import { clearTreeSelection, plural } from '../components/sidebar';
 import { refreshTitles, updateDock } from '../components/transfer_dock';
 import { setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon, lsSet, reduceMotion, showToast } from '../dom';
+import { enterView, escapeHtml, icon, lsSet, reduceMotion, showToast, skeletonHtml } from '../dom';
 import { drawerShown, navState } from '../nav';
 import { ensureNavLibrary, navLib, renderLibraryPanel, updateNavTransfers } from '../panels/library_panel';
 import { onSettingsPage, refreshSettingsViews } from '../panels/settings_panel';
@@ -62,7 +62,7 @@ export async function loadLibrary(title, part) {
   const sameView = lib.view && lib.view.title === title && lib.view.part === part;
   if (!sameView) {
     lib.filter = '';
-    dom.view.innerHTML = '<div class="loading">Loading from eCFR…</div>';
+    dom.view.innerHTML = skeletonHtml(title ? 'list' : 'cards', 'Loading from eCFR…');
   }
   lib.view = { title, part };
   try {

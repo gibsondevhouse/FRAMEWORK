@@ -35,6 +35,38 @@ Every installed title.
 
 `partial` is true when only some parts/sections of the title are installed. Returns `[]` on a fresh server before any title is downloaded.
 
+### `GET /api/titles/snapshot`
+Local-only living snapshot of installed titles for the Home screen (`Cache-Control: no-store`; makes no external network requests).
+
+```json
+{
+  "ai_configured": true,
+  "titles": [
+    {
+      "title": 29,
+      "name": "Labor",
+      "edition": "2026-11-06",
+      "built_at": "2026-11-09T20:37:13",
+      "section_count": 7374,
+      "partial": false,
+      "unreadable": false,
+      "desk": "Workplace & Labor",
+      "summary": "Workplace safety (OSHA), wages and hours, family and medical leave, and employee benefit plans (ERISA).",
+      "agencies": ["OSHA", "WHD", "EBSA", "NLRB"],
+      "scope_parts": null,
+      "scope_sections_count": 0,
+      "news": {
+        "count": 6,
+        "latest_date": "2026-11-16",
+        "latest_title": "Nationally Recognized Testing Laboratories: Expansion of Recognition"
+      }
+    }
+  ]
+}
+```
+
+Combines installed title metadata, editorial metadata from `app/title_blurbs.json`, partial/curated scope counts (`scope_parts`, `scope_sections_count`), and local cached news counts (`news`). If a single title's database is temporarily unreadable, it stays listed with `unreadable: true` rather than failing the snapshot.
+
 ### `GET /api/profiles`
 Curated first-run profiles and static names for all 50 CFR titles (available before any title is installed or eCFR is reached).
 

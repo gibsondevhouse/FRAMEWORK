@@ -283,6 +283,7 @@ class FreshInstallTests(ApiTestCase):
         self.assertEqual(self.client.get("/api/news/facets").json(), {"states": []})
         self.assertEqual(self.client.get("/api/news/section/1910.1030").json()["count"], 0)
         self.assertEqual(self.client.get("/api/news/part/1910").json()["count"], 0)
+        self.assertFalse(news_store.db_path().exists())
 
     def test_no_worker_thread_is_alive(self):
         self.assertNotIn("news-worker", [t.name for t in threading.enumerate()])

@@ -3,7 +3,7 @@ import { state } from '../state';
 import { updateChatContext } from '../components/chat';
 import { clearTreeSelection } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon, lsGet, lsSet, showToast } from '../dom';
+import { enterView, escapeHtml, icon, lsGet, lsSet, showToast, skeletonHtml } from '../dom';
 import { routeTarget } from '../nav';
 import { timeUntil } from '../panels/settings_panel';
 import { handleRoute } from '../router';
@@ -213,7 +213,7 @@ export async function loadNews(params) {
   if (cached && cached.data && cachedStatus && cachedStatus.data) {
     renderNews(view, cached.data, cachedStatus.data, { enter: firstPaint, fromCache: true });
   } else {
-    dom.view.innerHTML = '<div class="loading">Loading news…</div>';
+    dom.view.innerHTML = skeletonHtml('cards', 'Loading news…');
     if (firstPaint) enterView();
   }
 

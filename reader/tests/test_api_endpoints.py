@@ -138,6 +138,57 @@ class TestApiEndpoints(HermeticTestCase):
         if models is not None:
             self.assertEqual(models, {"configured": False, "models": [], "default": None})
 
+    def test_titles_snapshot_and_fault_isolation(self):
+        from unittest import mock
+        import sqlite3
+        from app import store
+
+        res = self.client.get("/api/titles/snapshot")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.headers.get("cache-control"), "no-store")
+        body = res.json()
+        self.assertEqual([t["title"] for t in body["titles"]], [29, 40, 49])
+        self.assertIn("OSHA", body["titles"][0]["agencies"])
+        self.assertTrue(body["titles"][0]["summary"])
+        self.assertIsNone(body["titles"][0]["scope_parts"])
+
+        orig_meta = store.meta
+
+        def flaky_meta(t):
+            if t == 40:
+                raise sqlite3.OperationalError("database disk image is malformed")
+            return orig_meta(t)
+
+        with mock.patch.object(store, "meta", flaky_meta):
+            r_list = self.client.get("/api/titles")
+            r_snap = self.client.get("/api/titles/snapshot")
+        self.assertEqual(r_list.status_code, 200)
+        self.assertEqual([x["title"] for x in r_list.json()], [29, 40, 49])
+        self.assertEqual(r_snap.status_code, 200)
+        by_t = {x["title"]: x for x in r_snap.json()["titles"]}
+        self.assertFalse(by_t[29]["unreadable"])
+        self.assertTrue(by_t[40]["unreadable"])
+
+    def test_titles_snapshot_partial_scope_parts(self):
+        from unittest import mock
+        import json
+        from app import store
+
+        orig_safe = store.safe_meta
+
+        def partial_safe(t):
+            m, bad = orig_safe(t)
+            if t == 29:
+                m = {**m, "scope": json.dumps({"parts": ["1910"], "sections": [{"t": "section", "id": "1926.501", "part": "1926"}]})}
+            return m, bad
+
+        with mock.patch.object(store, "safe_meta", partial_safe):
+            snap = self.client.get("/api/titles/snapshot").json()
+        t29 = next(x for x in snap["titles"] if x["title"] == 29)
+        self.assertTrue(t29["partial"])
+        self.assertEqual(t29["scope_parts"], ["1910", "1926"])
+        self.assertEqual(t29["scope_sections_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

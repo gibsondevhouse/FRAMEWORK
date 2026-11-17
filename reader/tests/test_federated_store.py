@@ -85,6 +85,26 @@ class TestFederatedStore(HermeticTestCase):
         self.assertEqual([s["id"] for s in secs], ["1910.120", "1910.134", "1910.135", "1910.1200"])
         self.assertTrue(all(s["html"] for s in secs))
 
+    def test_known_ids_never_caches_transient_errors(self):
+        from unittest import mock
+        import sqlite3
+
+        store.known_ids.cache_clear()
+        orig_db = store.db
+        calls = 0
+
+        def flaky_db(title=29):
+            nonlocal calls
+            calls += 1
+            if calls == 1 and title == 29:
+                raise sqlite3.OperationalError("database is locked")
+            return orig_db(title)
+
+        with mock.patch.object(store, "db", flaky_db):
+            self.assertEqual(store.known_ids(29), frozenset())
+            ids = store.known_ids(29)
+        self.assertIn("1910.1200", ids)
+
 
 if __name__ == "__main__":
     unittest.main()

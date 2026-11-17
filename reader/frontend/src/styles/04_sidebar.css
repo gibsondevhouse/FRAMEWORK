@@ -59,7 +59,7 @@
 .side-item.current .side-text { font-weight: var(--w-medium); }
 .side-item.current .side-num { color: var(--fg-2); }
 .side-item.ancestor-current, .side-item.ancestor-current .side-num,
-.side-agency.ancestor-current .side-agency-name, .side-agency.ancestor-current .side-agency-code { color: var(--accent); }
+.side-agency.ancestor-current .side-agency-name, .side-agency.ancestor-current .side-agency-code { color: var(--fg-strong); font-weight: var(--w-medium); }
 /* Sections you've opened before read slightly quieter. */
 .side-item.visited:not(.current):not(:hover) .side-text { color: var(--fg-3); }
 

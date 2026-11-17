@@ -1,0 +1,76 @@
+{
+  "ai_configured": false,
+  "titles": [
+    {
+      "agencies": [
+        "OSHA",
+        "WHD",
+        "EBSA",
+        "NLRB"
+      ],
+      "built_at": "«normalized»",
+      "desk": "Workplace & Labor",
+      "edition": "2026-01-02",
+      "name": "Labor",
+      "news": {
+        "count": 6,
+        "latest_date": "2026-11-16",
+        "latest_title": "Nationally Recognized Testing Laboratories: Expansion of Recognition"
+      },
+      "partial": false,
+      "scope_parts": null,
+      "scope_sections_count": 0,
+      "section_count": 4,
+      "summary": "Workplace safety (OSHA), wages and hours, family and medical leave, and employee benefit plans (ERISA).",
+      "title": 29,
+      "unreadable": false
+    },
+    {
+      "agencies": [
+        "EPA",
+        "CEQ",
+        "CSB"
+      ],
+      "built_at": "«normalized»",
+      "desk": "Environment & Energy",
+      "edition": "2026-01-02",
+      "name": "Protection of Environment",
+      "news": {
+        "count": 0,
+        "latest_date": null,
+        "latest_title": null
+      },
+      "partial": false,
+      "scope_parts": null,
+      "scope_sections_count": 0,
+      "section_count": 2,
+      "summary": "EPA rules on air and water quality, hazardous waste, chemicals and pesticides, with permits and release reporting.",
+      "title": 40,
+      "unreadable": false
+    },
+    {
+      "agencies": [
+        "PHMSA",
+        "FMCSA",
+        "FRA",
+        "NHTSA"
+      ],
+      "built_at": "«normalized»",
+      "desk": "Transportation",
+      "edition": "2026-01-02",
+      "name": "Transportation",
+      "news": {
+        "count": 0,
+        "latest_date": null,
+        "latest_title": null
+      },
+      "partial": false,
+      "scope_parts": null,
+      "scope_sections_count": 0,
+      "section_count": 2,
+      "summary": "DOT rules: hazardous materials, motor carriers and drivers, rail, pipelines and vehicle safety.",
+      "title": 49,
+      "unreadable": false
+    }
+  ]
+}

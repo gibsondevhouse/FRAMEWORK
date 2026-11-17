@@ -5,13 +5,13 @@ import { sectionHref } from '../components/rail';
 import { ensureTreeLoaded, selectTreeNode } from '../components/sidebar';
 import { renderNotFound } from '../components/title_switcher';
 import { docStepBtn, docStepHtml, firstSectionOf, partNeighbors, setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon } from '../dom';
+import { enterView, escapeHtml, icon, skeletonHtml } from '../dom';
 import { dom } from '../state_init';
 import { recordPartVisit } from '../usage';
 
 // --- Load Part Table of Contents ---
 export async function loadPart(partId) {
-  dom.view.innerHTML = '<div class="loading">Loading Part ' + escapeHtml(partId) + '…</div>';
+  dom.view.innerHTML = skeletonHtml('list', 'Loading Part ' + partId + '…');
   state.currentSection = null;
   state.currentPart = partId;
   updateChatContext();
@@ -100,7 +100,7 @@ export async function loadPart(partId) {
 // section page scrolls that section into view; prev/next part in the header jump between
 // parts without leaving the full-text view.
 export async function loadPartFull(partId, params) {
-  dom.view.innerHTML = '<div class="loading">Loading Part ' + escapeHtml(partId) + '…</div>';
+  dom.view.innerHTML = skeletonHtml('doc', 'Loading Part ' + partId + '…');
   state.currentSection = null;
   state.currentPart = partId;
   updateChatContext();

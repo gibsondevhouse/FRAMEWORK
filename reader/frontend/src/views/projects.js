@@ -216,7 +216,7 @@ export function renderProjects(id) {
         <div class="lib-stories">${cards}</div></div>`
         : `<div class="proj-empty"><div class="dr-empty-title">Start a workspace</div>
             <p>Collect the sections a compliance program, audit, or permit review turns on, with a note on each. Open any section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>, or start an empty workspace here.</p>
-            <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon('plus')} New workspace</button><button type="button" class="btn" data-proj-act="import">Import JSON</button></span></div>`}
+            <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon('plus')} New workspace</button><button type="button" class="btn" data-proj-act="import">Import file</button></span></div>`}
     </div>`;
     if (fresh) enterView();
     return;

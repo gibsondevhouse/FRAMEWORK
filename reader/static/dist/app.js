@@ -2,6 +2,7 @@
 var state = {
 	currentTitle: void 0,
 	installedTitles: void 0,
+	homeSnapshot: void 0,
 	noTitles: false,
 	profilesData: void 0,
 	treeData: void 0,
@@ -4527,10 +4528,10 @@ var ICON_PATHS = {
 	pin: "<rect x=\"2.5\" y=\"3\" width=\"11\" height=\"10\" rx=\"2\"/><path d=\"M6.5 3v10\"/>",
 	pinOff: "<rect x=\"2.5\" y=\"3\" width=\"11\" height=\"10\" rx=\"2\"/><path d=\"M6.5 3v10\" stroke-dasharray=\"1.5 1.5\"/><path d=\"M9 8h2.5M10.5 6.5 12 8l-1.5 1.5\"/>",
 	activity: "<path d=\"M1.75 8.25h2.5l1.75-4.5 4 8.5 1.75-4h2.5\"/>",
-	download: "<path d=\"M8 2.75v7.5M4.75 7 8 10.25 11.25 7\"/><path d=\"M3 12.75h10\"/>",
+	download: "<path d=\"M2.5 10.5v2A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5v-2\"/><path d=\"M8 2.5v8M5 7.5 8 10.5 11 7.5\"/>",
 	check: "<path d=\"m3.75 8.25 2.75 2.75 5.75-6\"/>",
 	list: "<circle cx=\"3\" cy=\"4\" r=\".6\" fill=\"currentColor\" stroke=\"none\"/><circle cx=\"3\" cy=\"8\" r=\".6\" fill=\"currentColor\" stroke=\"none\"/><circle cx=\"3\" cy=\"12\" r=\".6\" fill=\"currentColor\" stroke=\"none\"/><path d=\"M6 4h7.5M6 8h7.5M6 12h7.5\"/>",
-	book: "<path d=\"M2.5 12.5A1.5 1.5 0 0 1 4 11h9.5\"/><path d=\"M4 2.5h9.5v11H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 2.5Z\"/>",
+	book: "<path d=\"M2.5 12.5A1.5 1.5 0 0 1 4 11h9.5\"/><path d=\"M4 2.5h9.5v11H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 2.5Z\"/><path d=\"M6 5.5h4.5M6 8h3\"/>",
 	file: "<path d=\"M9 2.5H4a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 4 14.5h8a1.5 1.5 0 0 0 1.5-1.5V6.5L9 2.5Z\"/><path d=\"M9 2.5V6.5H13\"/>",
 	news: "<path d=\"M2.5 4.5H11V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12Z\"/><path d=\"M11 6.5h1.5a1 1 0 0 1 1 1V12a1.5 1.5 0 0 1-1.5 1.5\"/><path d=\"M4.5 7h4.5M4.5 9.25h4.5M4.5 11.5h3\"/>",
 	help: "<circle cx=\"8\" cy=\"8\" r=\"6\"/><path d=\"M6.25 6.25a1.85 1.85 0 0 1 3.55.75c0 1.25-1.8 1.5-1.8 2.75\"/><circle cx=\"8\" cy=\"11.85\" r=\".55\" fill=\"currentColor\" stroke=\"none\"/>",
@@ -4545,6 +4546,25 @@ var ICON_PATHS = {
 };
 function icon(name, extraClass = "") {
 	return `<svg class="icon${extraClass ? " " + extraClass : ""}" viewBox="0 0 16 16" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
+}
+function skeletonHtml(kind = "doc", label = "Loading…") {
+	const line = (w, cls = "") => `<span class="skel skel-line${cls ? " " + cls : ""}" style="width:${w}"></span>`;
+	let body = "";
+	if (kind === "tree") body = `<div class="skel-stack">${line("82%")}${line("64%")}${line("72%")}${line("58%")}</div>`;
+	else if (kind === "list") body = `<div class="skel-stack" style="gap:16px">${[
+		78,
+		66,
+		84,
+		70
+	].map((w) => `<div class="skel-stack" style="gap:8px">${line("26%", "is-sm")}${line(w + "%", "is-lg")}${line("90%")}</div>`).join("")}</div>`;
+	else if (kind === "cards") body = `<div class="skel-stack" style="gap:18px">${line("18%", "is-sm")}${line("36%", "is-xl")}<div class="skel-grid-2">${[
+		1,
+		2,
+		3,
+		4
+	].map(() => `<div class="skel-card">${line("34%", "is-sm")}${line("74%", "is-lg")}${line("92%")}${line("64%")}</div>`).join("")}</div></div>`;
+	else body = `<div class="skel-stack" style="gap:16px">${line("24%", "is-sm")}${line("62%", "is-xl")}<div class="skel-stack" style="gap:10px;margin-top:8px">${line("94%")}${line("88%")}${line("91%")}${line("76%")}${line("84%")}</div></div>`;
+	return `<div class="loading is-skel" role="status" aria-busy="true" aria-label="${escapeHtml(label)}">${body}</div>`;
 }
 var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 function enterView() {
@@ -5103,7 +5123,7 @@ async function loadNews(params) {
 		fromCache: true
 	});
 	else {
-		dom.view.innerHTML = "<div class=\"loading\">Loading news…</div>";
+		dom.view.innerHTML = skeletonHtml("cards", "Loading news…");
 		if (firstPaint) enterView();
 	}
 	let data, status;
@@ -5798,7 +5818,7 @@ async function loadHelp() {
 	setViewHead("");
 	document.title = "Connections & API Keys · FRAMEWORK";
 	if (!state.navEnvStatus) {
-		dom.view.innerHTML = "<div class=\"loading\">Loading setup guide…</div>";
+		dom.view.innerHTML = skeletonHtml("cards", "Loading setup guide…");
 		enterView();
 	}
 	try {
@@ -6221,16 +6241,30 @@ function renderHome() {
 // src/views/home.js
 var HOME_NEWS_CACHE = "newsCache:v1:all";
 var HOME_STATUS_CACHE = "newsCache:v1:status";
-var CITE_JUMP_RE = /^(?:(\d+)\s*c\.?f\.?r\.?\s*)?(?:§§?\s*)?(\d{1,4}\.\d+[a-z0-9-]*)$/i;
-function installedList() {
-	if (state.installedTitles.length) return state.installedTitles;
-	if (state.metaInfo.edition) return [{
+function installedFallbackList() {
+	const base = state.installedTitles.length ? state.installedTitles : state.metaInfo.edition ? [{
 		title: state.currentTitle,
 		name: state.metaInfo.name || `Title ${state.currentTitle}`,
 		section_count: state.metaInfo.section_count,
 		edition: state.metaInfo.edition
-	}];
-	return [];
+	}] : [];
+	const cachedByTitle = new Map((state.homeSnapshot && state.homeSnapshot.titles || []).map((x) => [x.title, x]));
+	return base.map((t) => {
+		const cached = cachedByTitle.get(t.title) || {};
+		return {
+			agencies: cached.agencies || [],
+			summary: cached.summary || "",
+			scope_parts: cached.scope_parts ?? null,
+			scope_sections_count: cached.scope_sections_count || 0,
+			unreadable: Boolean(cached.unreadable),
+			news: cached.news || {
+				count: 0,
+				latest_title: null,
+				latest_date: null
+			},
+			...t
+		};
+	});
 }
 function sectionLinkHref(e) {
 	return titleHref(e.ti, "section/" + encodeURIComponent(e.id) + (e.u ? "/" + encodeURIComponent(e.u) : ""));
@@ -6253,7 +6287,7 @@ function resumeCardHtml(recent, titles) {
 	if (recent.length) {
 		const last = recent[0];
 		const href = sectionLinkHref(last);
-		const trail = recent.slice(1, 4);
+		const trail = recent.slice(1, 3);
 		return `
       <section class="hm-card hm-resume" aria-label="Continue reading">
         <div class="hm-card-top">
@@ -6269,7 +6303,6 @@ function resumeCardHtml(recent, titles) {
         <div class="hm-resume-acts">
           <a class="btn btn-sm btn-accent" href="${href}">Resume reading ${icon("chevronRight")}</a>
           ${last.p ? `<a class="btn btn-sm" href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
-          <button type="button" class="btn btn-sm" data-hm-act="open-contents" data-title="${last.ti}">${icon("book")} Contents</button>
         </div>
         ${trail.length ? `
           <div class="hm-trail">
@@ -6291,103 +6324,55 @@ function resumeCardHtml(recent, titles) {
 	}
 	const starters = [];
 	for (const t of titles) {
-		const c = HOME_CONTENT[t.title];
-		if (!c) continue;
-		for (const card of c.cards.slice(0, 2)) {
+		if (t.partial && t.scope_parts && t.scope_parts.length) for (const p of t.scope_parts.slice(0, 2)) {
 			starters.push({
 				ti: t.title,
-				part: card.part,
-				kicker: card.kicker,
-				title: card.title
+				part: p,
+				kicker: `${t.title} CFR`,
+				title: `Part ${p}`
 			});
 			if (starters.length >= 4) break;
+		}
+		else {
+			const c = HOME_CONTENT[t.title];
+			if (c) for (const card of c.cards.slice(0, 2)) {
+				starters.push({
+					ti: t.title,
+					part: card.part,
+					kicker: `${t.title} CFR · ${card.kicker}`,
+					title: card.title
+				});
+				if (starters.length >= 4) break;
+			}
 		}
 		if (starters.length >= 4) break;
 	}
 	return `
     <section class="hm-card hm-resume" aria-label="Start reading">
       <div class="hm-card-top">
-        <span class="hm-kicker">Start reading</span>
+        <span class="hm-kicker">Start here</span>
       </div>
-      <div class="hm-resume-title is-static">Jump into your installed regulations</div>
-      <p class="hm-muted">Open a key part below, search by section number, or browse the table of contents.</p>
+      <div class="hm-resume-title is-static">Open a regulation to begin</div>
+      <p class="hm-muted">Pick a key part below or search across your downloaded titles from the bar above.</p>
       ${starters.length ? `
         <div class="hm-starter-grid">
           ${starters.map((s) => `
             <a class="hm-starter" href="${titleHref(s.ti, "part/" + encodeURIComponent(s.part))}">
-              <span class="hm-starter-kicker">${s.ti} CFR${SEP}${escapeHtml(s.kicker)}</span>
+              <span class="hm-starter-kicker">${escapeHtml(s.kicker)}</span>
               <span class="hm-starter-name">${escapeHtml(s.title)}</span>
             </a>`).join("")}
         </div>` : ""}
-      <div class="hm-resume-acts">
-        <button type="button" class="btn btn-sm btn-accent" data-hm-act="open-contents" data-title="${state.currentTitle}">${icon("book")} Browse Contents</button>
-        <a class="btn btn-sm" href="${titleHref(state.currentTitle)}">Title ${state.currentTitle} start</a>
-      </div>
-    </section>`;
-}
-function quickLaunchHtml(last) {
-	const configured = state.chatConfig && state.chatConfig.configured;
-	const chatError = state.chatConfig && state.chatConfig.error;
-	let claudeBody = "";
-	if (configured && !chatError) {
-		const basePrompts = HOME_PROMPTS[state.currentTitle] || [
-			"What does this title cover, at a high level?",
-			"What are the most important definitions in this title?",
-			"Find the penalty and enforcement provisions in this title."
-		];
-		claudeBody = `
-      <div class="hm-prompts">
-        ${(last ? [`Summarize the key duties and exceptions in ${last.l}`, ...basePrompts.slice(0, 2)] : basePrompts.slice(0, 3)).map((p) => `<button type="button" class="hm-prompt-btn" data-hm-prompt="${escapeHtml(p)}">${escapeHtml(p)}</button>`).join("")}
-      </div>`;
-	} else if (chatError) claudeBody = `
-      <p class="hm-muted">${escapeHtml(chatError)}</p>
-      <div class="hm-claude-acts">
-        <a class="btn btn-sm" href="#/help">${icon("help")} Check connection</a>
-      </div>`;
-	else claudeBody = `
-      <p class="hm-muted">Ask questions, summarize provisions, or draft compliance checklists grounded in your local CFR text.</p>
-      <div class="hm-claude-acts">
-        <button type="button" class="btn btn-sm" data-open-env="anthropic_api_key">${icon("key")} Connect Claude</button>
-        <a class="btn btn-sm" href="#/help">Setup guide</a>
-      </div>`;
-	return `
-    <section class="hm-card hm-launch" aria-label="Quick jump and Claude">
-      <div class="hm-card-top">
-        <span class="hm-kicker">Quick jump &amp; search</span>
-        <kbd aria-hidden="true">/</kbd>
-      </div>
-      <form class="hm-jump-form" id="hm-jump-form">
-        <div class="hm-jump-wrap">
-          ${icon("search")}
-          <input id="hm-jump-input" class="hm-jump-input" type="search"
-            placeholder="Jump to § 1910.1200 or search all titles…"
-            aria-label="Jump to section or search all installed titles" autocomplete="off" spellcheck="false">
-        </div>
-        <button type="submit" class="btn btn-sm">Go</button>
-      </form>
-      <div class="hm-quick-links">
-        <button type="button" class="hm-chip-btn" data-hm-act="open-contents">${icon("book")} Contents</button>
-        <button type="button" class="hm-chip-btn" data-hm-act="open-palette">${icon("list")} Commands</button>
-        <a class="hm-chip-btn" href="#/help">${icon("key")} Connections</a>
-      </div>
-      <div class="hm-claude">
-        <div class="hm-claude-head">
-          <span class="hm-claude-title">${icon("sparkle", "icon-accent")} Ask Claude</span>
-          <span class="hm-claude-state">${configured && !chatError ? "Ready" : chatError ? "Unavailable" : "Optional"}</span>
-        </div>
-        ${claudeBody}
-      </div>
     </section>`;
 }
 function workspacesCardHtml(projects) {
-	const sorted = [...projects].sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || "")).slice(0, 4);
+	const sorted = [...projects].sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || "")).slice(0, 3);
 	const body = sorted.length ? `
     <div class="hm-ws-list">
       ${sorted.map((p) => {
 		const chips = (p.sections || []).slice(0, 3).map((s) => {
 			const ok = titleInstalled(s.title);
 			const href = ok ? `#/title/${s.title}/section/${encodeURIComponent(s.id)}` : `#/library/${s.title}`;
-			const tip = ok ? "" : ` title="Title ${s.title} isn’t installed. Open the library"`;
+			const tip = ok ? "" : ` title="Title ${s.title} isn’t installed. Open Library"`;
 			return `<a class="citation-chip${ok ? "" : " is-dim"}" href="${href}"${tip}>${escapeHtml(s.label || "§ " + s.id)}</a>`;
 		}).join("");
 		const extra = (p.sections || []).length - 3;
@@ -6404,12 +6389,10 @@ function workspacesCardHtml(projects) {
     </div>` : `
     <div class="hm-empty-block">
       <div class="hm-empty-title">Organize program compliance</div>
-      <p class="hm-muted">Group pinned regulations and notes for a safety program, facility audit, or permit review.</p>
+      <p class="hm-muted">Group pinned sections and notes for a safety program, facility audit, or permit review.</p>
       <div class="hm-empty-acts">
         <button type="button" class="btn btn-sm btn-accent" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
-        <button type="button" class="btn btn-sm" data-proj-act="import">Import JSON</button>
       </div>
-      <p class="hm-empty-tip">Tip: Press <kbd>${isMac ? "⌘" : "Ctrl "}D</kbd> while reading any section to pin it to a workspace.</p>
     </div>`;
 	return `
     <section class="hm-card hm-ws" aria-label="Workspaces">
@@ -6421,6 +6404,85 @@ function workspacesCardHtml(projects) {
         </div>
       </div>
       ${body}
+    </section>`;
+}
+function titleLivingSignalHtml(t, recent, projects) {
+	const lastInTitle = recent.find((e) => e.ti === t.title);
+	if (lastInTitle) return `<a class="hm-signal-link" href="${sectionLinkHref(lastInTitle)}">Last read ${escapeHtml(lastInTitle.l)}${SEP}${escapeHtml(timeAgo(lastInTitle.t))}</a>`;
+	const ws = projects.find((p) => (p.sections || []).some((s) => s.title === t.title));
+	if (ws) return `<a class="hm-signal-link" href="#/projects/${encodeURIComponent(ws.id)}">${projDot(ws)}In ${escapeHtml(ws.name)}</a>`;
+	if (t.news && t.news.count > 0) return `<a class="hm-signal-link" href="#/news">${escapeHtml(plural(t.news.count, "recent OSHA update"))}</a>`;
+	return `<span class="hm-signal-muted">${t.section_count ? `${fmt(t.section_count)} sections ready` : "Ready offline"}</span>`;
+}
+function titleStatusHtml(t, staleSet) {
+	if (t.unreadable) return statPill("stale", "Needs rebuild", { bare: true });
+	const j = jobFor(t.title, "title");
+	if (j) return statPill("busy", j.state === "running" ? "Updating" : "Queued", { bare: true });
+	if (staleSet.has(t.title)) return statPill("stale", "Update available", { bare: true });
+	if (t.partial) {
+		const parts = (t.scope_parts || []).length;
+		return statPill("partial", parts ? `Partial · ${plural(parts, "part")}` : "Partial", { bare: true });
+	}
+	return `<span class="hm-title-ed">${escapeHtml(shortDate(t.edition) || "Ready")}</span>`;
+}
+function titlePartsHtml(t) {
+	if (t.partial && t.scope_parts && t.scope_parts.length) return `
+      <div class="hm-title-parts">
+        ${t.scope_parts.slice(0, 3).map((p) => `<a class="hm-part-chip" href="${titleHref(t.title, "part/" + encodeURIComponent(p))}"><span class="hm-part-num">Part ${escapeHtml(p)}</span></a>`).join("")}
+        ${t.scope_parts.length > 3 ? `<span class="hm-part-more">+${t.scope_parts.length - 3} more</span>` : ""}
+      </div>`;
+	const parts = ((HOME_CONTENT[t.title] || {}).cards || []).slice(0, 3);
+	if (parts.length) return `
+      <div class="hm-title-parts">
+        ${parts.map((c) => {
+		const label = c.title.replace(/^Part\s+\d+\s*[—–-]\s*/, "");
+		return `<a class="hm-part-chip" href="${titleHref(t.title, "part/" + encodeURIComponent(c.part))}"><span class="hm-part-num">${escapeHtml(c.part)}</span><span>${escapeHtml(label)}</span></a>`;
+	}).join("")}
+      </div>`;
+	return `
+    <div class="hm-title-parts">
+      <button type="button" class="hm-part-chip" data-hm-act="open-contents" data-title="${t.title}">Browse contents</button>
+    </div>`;
+}
+function titlesBandHtml(titles, recent, projects, totalSections, totalRead) {
+	const staleSet = new Set((navLib.data && navLib.data.titles || []).filter(isStale).map((t) => t.title));
+	const cards = titles.map((t) => {
+		const read = visitedCountFor(t.title);
+		const count = Number(t.section_count || 0);
+		const pct = count ? Math.min(100, read / count * 100) : 0;
+		const agencies = (t.agencies || []).slice(0, 3);
+		return `
+      <article class="hm-title-card">
+        <div class="hm-title-top">
+          <span class="hm-title-kicker">${t.title} CFR${agencies.length ? `${SEP}<span class="hm-title-ag">${agencies.map(escapeHtml).join(" · ")}</span>` : ""}</span>
+          ${titleStatusHtml(t, staleSet)}
+        </div>
+        <h3 class="hm-title-name"><a href="${titleHref(t.title)}">${escapeHtml(t.name)}</a></h3>
+        ${t.summary ? `<p class="hm-title-desc">${escapeHtml(t.summary)}</p>` : !(state.homeSnapshot && Array.isArray(state.homeSnapshot.titles)) ? `<div class="skel-stack" style="margin-top:8px;gap:6px" aria-hidden="true"><span class="skel skel-line is-sm" style="width:92%"></span><span class="skel skel-line is-sm" style="width:68%"></span></div>` : ""}
+        ${titlePartsHtml(t)}
+        <div class="hm-title-foot">
+          <div class="hm-title-signal-row">
+            ${titleLivingSignalHtml(t, recent, projects)}
+            ${t.partial ? `<a class="hm-inline-link" href="#/library/${t.title}">Add parts</a>` : `<button type="button" class="hm-inline-link" data-hm-act="open-contents" data-title="${t.title}">Contents</button>`}
+          </div>
+          <div class="hm-prog-track" title="${fmt(read)} of ${fmt(count)} sections read" aria-hidden="true"><span style="width:${read ? Math.max(3, Math.round(pct)) : 0}%"></span></div>
+        </div>
+      </article>`;
+	}).join("");
+	return `
+    <section class="hm-titles" id="hm-titles" aria-label="Downloaded titles">
+      <div class="hm-sec-head">
+        <div class="hm-sec-head-left">
+          <h2 class="hm-sec-title">Downloaded Titles</h2>
+          <span class="hm-sec-meta">${joinSep([
+		plural(titles.length, "title"),
+		`${fmt(totalSections)} sections offline`,
+		totalRead ? `${fmt(totalRead)} read` : ""
+	])}</span>
+        </div>
+        <a class="hm-inline-link" href="#/library">Add or update titles ${icon("chevronRight")}</a>
+      </div>
+      <div class="hm-title-grid">${cards}</div>
     </section>`;
 }
 function pulseChipsHtml(a) {
@@ -6435,18 +6497,36 @@ function pulseChipsHtml(a) {
 	}
 	return chips.length ? `<div class="hm-news-chips">${chips.join("")}</div>` : "";
 }
-function newsCardBodyHtml(data, status) {
+function newsSkeletonHtml() {
+	return `
+    <div class="hm-panel-head">
+      <h2 class="hm-panel-title">${icon("news")} Regulatory Pulse</h2>
+      <div class="hm-panel-acts">
+        <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
+      </div>
+    </div>
+    <div class="hm-news-skel" aria-busy="true" aria-label="Loading OSHA news…">
+      ${[
+		1,
+		2,
+		3
+	].map(() => `
+        <div class="hm-news-skel-item">
+          <span class="skel skel-line is-sm" style="width:46%"></span>
+          <span class="skel skel-line" style="width:92%"></span>
+          <span class="skel skel-line" style="width:74%"></span>
+        </div>`).join("")}
+    </div>`;
+}
+function newsSectionHtml(data, status) {
 	const articles = data && data.articles || [];
+	const pill = newsStatusPillHtml(status);
 	if (!articles.length) return `
-      <div class="hm-empty-block">
-        <div class="hm-empty-title">No local OSHA news yet</div>
-        <p class="hm-muted">Check the Federal Register feed or open Newsroom to inspect rulemaking and enforcement activity.</p>
-        <div class="hm-empty-acts">
-          <button type="button" class="btn btn-sm" data-hm-act="refresh-news">Check news</button>
-          <a class="btn btn-sm" href="#/news">Open Newsroom</a>
-        </div>
+      <div class="hm-news-quiet">
+        <span class="hm-news-quiet-label">${icon("news")} No OSHA regulatory news cached yet</span>
+        <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
       </div>`;
-	return `<div class="hm-news-list">${articles.slice(0, 3).map((a) => `
+	const items = articles.slice(0, 3).map((a) => `
     <article class="hm-news-item">
       <div class="hm-news-top">
         <span class="hm-news-kicker">${escapeHtml(newsKicker(a))}</span>
@@ -6457,82 +6537,49 @@ function newsCardBodyHtml(data, status) {
       </div>
       <a class="hm-news-title" href="#/news?cat=${encodeURIComponent(a.category)}">${escapeHtml(a.title)}</a>
       ${pulseChipsHtml(a)}
-    </article>`).join("")}</div>${status && !status.dol_configured ? `<div class="hm-news-foot"><span>DOL inspection sync is off</span>${SEP}<button type="button" class="hm-inline-link" data-open-env="dol_api_key">Add free DOL key</button></div>` : ""}`;
-}
-function newsPanelHtml(cachedData, cachedStatus) {
-	const pill = newsStatusPillHtml(cachedStatus);
+    </article>`).join("");
 	return `
-    <section class="hm-card hm-news" id="hm-news" aria-label="Regulatory Pulse">
-      <div class="hm-panel-head">
-        <h2 class="hm-panel-title">${icon("news")} Regulatory Pulse</h2>
-        <div class="hm-panel-acts">
-          <span id="hm-news-pill">${pill}</span>
-          <a class="hm-inline-link" href="#/news">Newsroom</a>
-        </div>
+    <div class="hm-panel-head">
+      <h2 class="hm-panel-title">${icon("news")} Regulatory Pulse</h2>
+      <div class="hm-panel-acts">
+        <span id="hm-news-pill">${pill}</span>
+        <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
       </div>
-      <div id="hm-news-body">${newsCardBodyHtml(cachedData, cachedStatus)}</div>
-    </section>`;
+    </div>
+    <div class="hm-news-grid">${items}</div>`;
 }
-function titlesBandHtml(titles, readByTitle, totalSections, totalRead) {
-	const staleSet = new Set((navLib.data && navLib.data.titles || []).filter(isStale).map((t) => t.title));
-	const cards = titles.map((t) => {
-		const read = readByTitle.get(t.title) || 0;
-		const count = Number(t.section_count || 0);
-		const pct = count ? Math.min(100, read / count * 100) : 0;
-		const pctText = !read ? "" : pct < .1 ? "<0.1%" : `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
-		const parts = ((HOME_CONTENT[t.title] || {}).cards || []).slice(0, 3);
-		const status = t.partial ? statPill("partial", "Partial", { bare: true }) : staleSet.has(t.title) ? statPill("stale", "Update available", { bare: true }) : `<span class="hm-title-ed">${escapeHtml(shortDate(t.edition) || "Local")}</span>`;
-		return `
-      <article class="hm-title-card">
-        <div class="hm-title-top">
-          <span class="hm-title-kicker">${t.title} CFR</span>
-          ${status}
-        </div>
-        <h3 class="hm-title-name"><a href="${titleHref(t.title)}">${escapeHtml(t.name)}</a></h3>
-        <div class="hm-title-prog">
-          <span>${fmt(count)} sections${SEP}${read ? `${fmt(read)} read (${pctText})` : "Not started"}</span>
-          <div class="hm-prog-track" aria-hidden="true"><span style="width:${read ? Math.max(2, Math.round(pct)) : 0}%"></span></div>
-        </div>
-        ${parts.length ? `
-          <div class="hm-title-parts">
-            ${parts.map((c) => {
-			const label = c.title.replace(/^Part\s+\d+\s*[—–-]\s*/, "");
-			return `<a class="hm-part-chip" href="${titleHref(t.title, "part/" + encodeURIComponent(c.part))}"><span class="hm-part-num">${escapeHtml(c.part)}</span><span>${escapeHtml(label)}</span></a>`;
-		}).join("")}
-          </div>` : ""}
-        <div class="hm-title-acts">
-          <a class="lib-act" href="${titleHref(t.title)}">Title start</a>
-          <button type="button" class="lib-act" data-hm-act="open-contents" data-title="${t.title}">Contents</button>
-          ${t.partial ? `<a class="lib-act" href="#/library/${t.title}">Complete</a>` : staleSet.has(t.title) ? "<a class=\"lib-act\" href=\"#/library\">Update</a>" : ""}
-        </div>
-      </article>`;
-	}).join("");
-	return `
-    <section class="hm-titles" aria-label="Installed titles">
-      <div class="hm-sec-head">
-        <div class="hm-sec-head-left">
-          <h2 class="hm-sec-title">Installed Titles</h2>
-          <span class="hm-sec-meta">${joinSep([
-		plural(titles.length, "title"),
-		`${fmt(totalSections)} sections`,
-		totalRead ? `${fmt(totalRead)} read` : ""
-	])}</span>
-        </div>
-        <a class="hm-inline-link" href="#/library">Browse all 50 titles ${icon("chevronRight")}</a>
-      </div>
-      <div class="hm-title-grid">${cards}</div>
-    </section>`;
-}
-async function hydrateHomeNews(seq) {
-	if (!document.getElementById("hm-news")) return;
-	try {
-		const [data, status] = await Promise.all([getJSON("/api/news?limit=4"), getJSON("/api/news/status")]);
+async function hydrateHome(seq) {
+	const titlesPromise = getJSON("/api/titles/snapshot").then((snap) => {
 		if (seq !== state.routeSeq) return;
-		if (!document.getElementById("hm-news")) return;
-		const body = document.getElementById("hm-news-body");
-		const pill = document.getElementById("hm-news-pill");
-		if (body) body.innerHTML = newsCardBodyHtml(data, status);
-		if (pill) pill.innerHTML = newsStatusPillHtml(status);
+		if (snap && Array.isArray(snap.titles)) {
+			state.homeSnapshot = snap;
+			const u = loadUsage();
+			const installed = new Set(snap.titles.map((t) => t.title));
+			const split = (key) => {
+				const i = key.indexOf("|");
+				return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
+			};
+			const recent = Object.entries(u.s).map(([k, e]) => {
+				const [ti, id] = split(k);
+				return {
+					...e,
+					ti,
+					id
+				};
+			}).filter((e) => installed.has(e.ti)).sort((a, b) => (b.t || 0) - (a.t || 0));
+			const totalSections = snap.titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
+			const totalRead = snap.titles.reduce((a, t) => a + visitedCountFor(t.title), 0);
+			const box = document.getElementById("hm-titles");
+			if (box) box.outerHTML = titlesBandHtml(snap.titles, recent, loadProjects(), totalSections, totalRead);
+		}
+	}).catch(() => {}).finally(() => {
+		const el = document.getElementById("hm-titles");
+		if (el && seq === state.routeSeq) el.dataset.snapshotLoaded = "1";
+	});
+	const newsPromise = Promise.all([getJSON("/api/news?limit=3"), getJSON("/api/news/status")]).then(([data, status]) => {
+		if (seq !== state.routeSeq) return;
+		const box = document.getElementById("hm-news");
+		if (box) box.innerHTML = newsSectionHtml(data, status);
 		if (data && data.articles && data.articles.length) lsSetJSON(HOME_NEWS_CACHE, {
 			t: Date.now(),
 			data: {
@@ -6545,10 +6592,15 @@ async function hydrateHomeNews(seq) {
 			t: Date.now(),
 			data: status
 		});
-	} catch (e) {} finally {
+	}).catch(() => {
+		if (seq !== state.routeSeq) return;
+		const box = document.getElementById("hm-news");
+		if (box) box.innerHTML = newsSectionHtml({ articles: [] }, null);
+	}).finally(() => {
 		const el = document.getElementById("hm-news");
 		if (el && seq === state.routeSeq) el.dataset.newsLoaded = "1";
-	}
+	});
+	await Promise.allSettled([titlesPromise, newsPromise]);
 }
 function renderHomeScreen({ enter = true } = {}) {
 	state.currentSection = null;
@@ -6558,31 +6610,29 @@ function renderHomeScreen({ enter = true } = {}) {
 	document.title = "Home · FRAMEWORK";
 	setViewHead("");
 	const u = loadUsage();
-	const titles = installedList();
+	const titles = installedFallbackList();
 	const installed = new Set(titles.map((t) => t.title));
 	const split = (key) => {
 		const i = key.indexOf("|");
 		return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
 	};
-	const recent = [...Object.entries(u.s).map(([k, e]) => {
+	const recent = Object.entries(u.s).map(([k, e]) => {
 		const [ti, id] = split(k);
 		return {
 			...e,
 			ti,
 			id
 		};
-	}).filter((e) => installed.has(e.ti))].sort((a, b) => (b.t || 0) - (a.t || 0));
-	const last = recent[0] || null;
+	}).filter((e) => installed.has(e.ti)).sort((a, b) => (b.t || 0) - (a.t || 0));
 	const projects = loadProjects();
 	const totalSections = titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
-	const readByTitle = new Map(titles.map((t) => [t.title, visitedCountFor(t.title)]));
-	const totalRead = [...readByTitle.values()].reduce((a, b) => a + b, 0);
+	const totalRead = titles.reduce((a, t) => a + visitedCountFor(t.title), 0);
 	const cachedNews = lsGetJSON(HOME_NEWS_CACHE);
 	const cachedStatus = lsGetJSON(HOME_STATUS_CACHE);
 	const sub = joinSep([
-		escapeHtml(plural(titles.length, "installed title")),
-		projects.length ? escapeHtml(plural(projects.length, "workspace")) : "",
-		state.metaInfo.edition ? `eCFR ${escapeHtml(shortDate(state.metaInfo.edition))}` : ""
+		escapeHtml(`${plural(titles.length, "title")} ready offline`),
+		state.metaInfo.edition ? `Edition ${escapeHtml(shortDate(state.metaInfo.edition))}` : "",
+		projects.length ? escapeHtml(plural(projects.length, "workspace")) : ""
 	]);
 	const scrollTop = dom.main.scrollTop;
 	dom.view.innerHTML = `
@@ -6595,34 +6645,28 @@ function renderHomeScreen({ enter = true } = {}) {
         </div>
         <div class="hm-head-acts">
           <button type="button" class="btn btn-sm" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
-          <a class="btn btn-sm" href="#/library">${icon("download")} Library</a>
+          <a class="btn btn-sm" href="#/library">${icon("download")} Manage library</a>
         </div>
       </header>
       ${activeTransfersHtml()}
-      <div class="hm-hero">
+      <div class="hm-top">
         ${resumeCardHtml(recent, titles)}
-        ${quickLaunchHtml(last)}
-      </div>
-      <div class="hm-mid">
         ${workspacesCardHtml(projects)}
-        ${newsPanelHtml(cachedNews && cachedNews.data, cachedStatus && cachedStatus.data)}
       </div>
-      ${titlesBandHtml(titles, readByTitle, totalSections, totalRead)}
+      ${titlesBandHtml(titles, recent, projects, totalSections, totalRead)}
+      <section class="hm-card hm-news" id="hm-news" aria-label="Regulatory Pulse">
+        ${cachedNews && cachedNews.data ? newsSectionHtml(cachedNews.data, cachedStatus && cachedStatus.data) : newsSkeletonHtml()}
+      </section>
     </div>`;
 	if (enter) enterView();
 	else dom.main.scrollTop = scrollTop;
-	hydrateHomeNews(state.routeSeq);
+	hydrateHome(state.routeSeq);
 }
 function refreshHomeIfActive() {
 	if (routeTarget() === "overview" && dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
 }
 dom.view.addEventListener("click", async (e) => {
 	if (!dom.view.querySelector(".hm")) return;
-	const promptBtn = e.target.closest("[data-hm-prompt]");
-	if (promptBtn) {
-		launchChatPrompt(promptBtn.dataset.hmPrompt, { submit: true });
-		return;
-	}
 	const actEl = e.target.closest("[data-hm-act]");
 	if (!actEl) return;
 	const act = actEl.dataset.hmAct;
@@ -6634,46 +6678,7 @@ dom.view.addEventListener("click", async (e) => {
 		const t = Number(actEl.dataset.title);
 		if (t && t !== state.currentTitle) await switchTitle(t);
 		openPanel("reader", { focus: true });
-	} else if (act === "open-palette") {
-		dom.search.value = ">";
-		dom.search.focus();
-		dom.search.dispatchEvent(new Event("input"));
-	} else if (act === "refresh-news") {
-		await refreshNewsCommand();
-		hydrateHomeNews(state.routeSeq);
 	}
-});
-dom.view.addEventListener("submit", async (e) => {
-	if (e.target.id !== "hm-jump-form") return;
-	e.preventDefault();
-	const input = document.getElementById("hm-jump-input");
-	const q = (input && input.value || "").trim();
-	if (!q) {
-		dom.search.focus();
-		return;
-	}
-	if (q.startsWith(">")) {
-		dom.search.value = q;
-		dom.search.focus();
-		dom.search.dispatchEvent(new Event("input"));
-		return;
-	}
-	const cite = CITE_JUMP_RE.exec(q);
-	if (cite) {
-		const targetTitle = cite[1] ? Number(cite[1]) : null;
-		const secId = cite[2];
-		const searchTitle = targetTitle && titleInstalled(targetTitle) ? String(targetTitle) : "all";
-		try {
-			const data = await getJSON(`/api/search?q=${encodeURIComponent(secId)}&title=${searchTitle}&limit=1`);
-			const hit = data && data.results && data.results[0];
-			if (hit && String(hit.id).toLowerCase() === secId.toLowerCase()) {
-				window.location.hash = `#/title/${hit.title || state.currentTitle}/section/${encodeURIComponent(hit.id)}`;
-				return;
-			}
-		} catch (err) {}
-	}
-	const scope = state.installedTitles.length > 1 ? "&scope=all" : "";
-	window.location.hash = `#/search?q=${encodeURIComponent(q)}${scope}`;
 });
 // src/components/env_modal.js
 var envModalEl = document.getElementById("env-modal");
@@ -7229,7 +7234,7 @@ async function renderWelcome() {
 	document.title = "Welcome · FRAMEWORK";
 	setViewHead("");
 	if (!state.profilesData) {
-		dom.view.innerHTML = "<div class=\"loading\">Loading…</div>";
+		dom.view.innerHTML = skeletonHtml("list", "Loading…");
 		try {
 			state.profilesData = await getJSON("/api/profiles");
 		} catch (err) {
@@ -7362,7 +7367,7 @@ async function loadLibrary(title, part) {
 	const sameView = lib.view && lib.view.title === title && lib.view.part === part;
 	if (!sameView) {
 		lib.filter = "";
-		dom.view.innerHTML = "<div class=\"loading\">Loading from eCFR…</div>";
+		dom.view.innerHTML = skeletonHtml(title ? "list" : "cards", "Loading from eCFR…");
 	}
 	lib.view = {
 		title,
@@ -8271,7 +8276,7 @@ function renderProjects(id) {
       ${list.length ? `<div class="lib-desk"><header class="lib-desk-header"><h2 class="lib-desk-name">All workspaces</h2><span class="lib-desk-count">${plural(list.length, "workspace")}</span></header>
         <div class="lib-stories">${cards}</div></div>` : `<div class="proj-empty"><div class="dr-empty-title">Start a workspace</div>
             <p>Collect the sections a compliance program, audit, or permit review turns on, with a note on each. Open any section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>, or start an empty workspace here.</p>
-            <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon("plus")} New workspace</button><button type="button" class="btn" data-proj-act="import">Import JSON</button></span></div>`}
+            <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon("plus")} New workspace</button><button type="button" class="btn" data-proj-act="import">Import file</button></span></div>`}
     </div>`;
 		if (fresh) enterView();
 		return;
@@ -8849,16 +8854,6 @@ var HOME_PROMPTS = {
 		"Which carriers are subject to the FMCSA safety regulations?"
 	]
 };
-function launchChatPrompt(prompt, { submit = true } = {}) {
-	if (state.noTitles) return;
-	openChat();
-	if (!state.chatConfig.configured || state.chatConfig.error || state.isGenerating) return;
-	dom.chatText.value = prompt;
-	dom.chatText.style.height = "auto";
-	dom.chatText.style.height = Math.min(dom.chatText.scrollHeight, 120) + "px";
-	if (submit) submitChat();
-	else dom.chatText.focus();
-}
 function renderChatWelcome() {
 	if (!state.chatConfig.configured) {
 		dom.chatMessages.innerHTML = `
@@ -9140,7 +9135,7 @@ newsPop.addEventListener("keydown", (e) => {
 window.addEventListener("hashchange", () => closeNewsActivity(false));
 // src/views/reader_part.js
 async function loadPart(partId) {
-	dom.view.innerHTML = "<div class=\"loading\">Loading Part " + escapeHtml(partId) + "…</div>";
+	dom.view.innerHTML = skeletonHtml("list", "Loading Part " + partId + "…");
 	state.currentSection = null;
 	state.currentPart = partId;
 	updateChatContext();
@@ -9210,7 +9205,7 @@ async function loadPart(partId) {
 	}
 }
 async function loadPartFull(partId, params) {
-	dom.view.innerHTML = "<div class=\"loading\">Loading Part " + escapeHtml(partId) + "…</div>";
+	dom.view.innerHTML = skeletonHtml("doc", "Loading Part " + partId + "…");
 	state.currentSection = null;
 	state.currentPart = partId;
 	updateChatContext();
@@ -9653,7 +9648,7 @@ async function switchTitle(newTitle) {
 	clearFilterQuietly();
 	state.visited = loadVisited();
 	state.sideView = state.rootViewMode;
-	dom.tree.innerHTML = "<div class=\"loading\">Loading contents…</div>";
+	dom.tree.innerHTML = skeletonHtml("tree", "Loading contents…");
 	await ensureTreeLoaded();
 }
 function ensureTreeLoaded() {
@@ -10172,7 +10167,7 @@ async function loadSection(sectionId, params, view) {
 	const pClause = params && /^\(([a-z])\)/.exec(params.get("p") || "");
 	const unit = full ? null : view || (pClause ? pClause[1] : "");
 	const sameSection = state.currentSection && state.currentSection.id === sectionId && !dom.view.querySelector(".loading");
-	if (!sameSection) dom.view.innerHTML = "<div class=\"loading\">Loading section " + escapeHtml(sectionId) + "…</div>";
+	if (!sameSection) dom.view.innerHTML = skeletonHtml("doc", "Loading section " + sectionId + "…");
 	try {
 		const qs = unit === null ? "" : "?unit=" + encodeURIComponent(unit);
 		const seq = state.routeSeq;
@@ -10494,7 +10489,7 @@ async function loadSearchPage(query, scope) {
 		return;
 	}
 	const allTitles = scope === "all" && state.installedTitles.length > 1;
-	dom.view.innerHTML = `<div class="loading">Searching for “${escapeHtml(query)}”…</div>`;
+	dom.view.innerHTML = skeletonHtml("list", `Searching for “${query}”…`);
 	try {
 		const url = allTitles ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=100` : `/api/${state.currentTitle}/search?q=${encodeURIComponent(query)}&limit=100`;
 		const seq = state.routeSeq;

@@ -13,9 +13,10 @@ import json
 import os
 import re
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Iterator
 
 from . import config, store
 
@@ -95,10 +96,32 @@ def retention_days() -> int:
         return 365
 
 
-def connect() -> sqlite3.Connection:
+def connect(readonly: bool = False) -> sqlite3.Connection | None:
     path = db_path()
+    if readonly:
+        if not path.exists():
+            return None
+        con: sqlite3.Connection | None = None
+        try:
+            con = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0)
+            con.row_factory = sqlite3.Row
+            con.execute("PRAGMA busy_timeout=5000")
+            con.execute("PRAGMA query_only=ON")
+            version = con.execute("PRAGMA user_version").fetchone()[0]
+            if version != SCHEMA_VERSION:
+                con.close()
+                return None
+            return con
+        except sqlite3.Error:
+            if con is not None:
+                try:
+                    con.close()
+                except Exception:
+                    pass
+            return None
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(path)
+    con = sqlite3.connect(path, timeout=5.0)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")
@@ -116,6 +139,17 @@ def connect() -> sqlite3.Connection:
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         con.commit()
     return con
+
+
+@contextmanager
+def read_con() -> Iterator[sqlite3.Connection | None]:
+    """Short-lived read-only connection that yields None if the news DB is absent."""
+    con = connect(readonly=True)
+    try:
+        yield con
+    finally:
+        if con is not None:
+            con.close()
 
 
 def init_db() -> None:
@@ -206,8 +240,13 @@ def _parse_dt(s: str | None) -> datetime | None:
 def sync_rows() -> dict[str, dict]:
     """{source: row} with timestamps parsed to aware UTC datetimes. Used by the worker and
     by /api/news/status with news_schedule."""
-    with closing(connect()) as con:
-        rows = con.execute("SELECT * FROM sync_status").fetchall()
+    with read_con() as con:
+        if con is None:
+            return {}
+        try:
+            rows = con.execute("SELECT * FROM sync_status").fetchall()
+        except sqlite3.Error:
+            return {}
     out: dict[str, dict] = {}
     for r in rows:
         d = dict(r)
@@ -215,6 +254,28 @@ def sync_rows() -> dict[str, dict]:
         d["last_error_at"] = _parse_dt(d.get("last_error_at"))
         out[r["source"]] = d
     return out
+
+
+def summary_for_title(title: int = 29) -> dict:
+    """Lightweight read-only news summary for the Home snapshot (no DB creation or writes)."""
+    empty = {"count": 0, "latest_title": None, "latest_date": None}
+    if title != 29:
+        return empty
+    with read_con() as con:
+        if con is None:
+            return empty
+        try:
+            count = int(con.execute("SELECT count(*) FROM articles").fetchone()[0])
+            row = con.execute(
+                "SELECT title, published_at FROM articles ORDER BY published_at DESC, guid LIMIT 1"
+            ).fetchone()
+            return {
+                "count": count,
+                "latest_title": row["title"] if row else None,
+                "latest_date": row["published_at"] if row else None,
+            }
+        except sqlite3.Error:
+            return empty
 
 
 def prune(con: sqlite3.Connection, today: date | None = None) -> None:

@@ -3,7 +3,7 @@ import { updateChatContext } from '../components/chat';
 import { clearTreeSelection } from '../components/sidebar';
 import { DOCK_STEPS, dockModel } from '../components/transfer_dock';
 import { setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, showToast } from '../dom';
+import { enterView, escapeHtml, showToast, skeletonHtml } from '../dom';
 import { dom } from '../state_init';
 import { getJSON, pollJobs } from './library';
 
@@ -76,7 +76,7 @@ export async function renderWelcome() {
   document.title = 'Welcome · FRAMEWORK';
   setViewHead('');
   if (!state.profilesData) {
-    dom.view.innerHTML = '<div class="loading">Loading…</div>';
+    dom.view.innerHTML = skeletonHtml('list', 'Loading…');
     try {
       state.profilesData = await getJSON('/api/profiles');
     } catch (err) {

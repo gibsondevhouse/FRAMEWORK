@@ -18,6 +18,7 @@ _local = threading.local()
 _registry_lock = threading.Lock()
 _registry: list[tuple[int, sqlite3.Connection]] = []
 _generation: dict[int, int] = {}
+_swapping: set[int] = set()
 
 
 def db(title: int = config.DEFAULT_TITLE) -> sqlite3.Connection:
@@ -26,15 +27,18 @@ def db(title: int = config.DEFAULT_TITLE) -> sqlite3.Connection:
     if cons is None:
         cons = {}
         _local.cons = cons
-    gen = _generation.get(title, 0)
+    with _registry_lock:
+        gen = _generation.get(title, 0)
     entry = cons.get(title)
     if entry is not None and entry[1] == gen:
         return entry[0]
     path = config.db_path(title)
     if not path.exists():
         raise FileNotFoundError(f"Title {title} is not installed (no database at {path})")
-    con = sqlite3.connect(path, check_same_thread=False)
+    con = sqlite3.connect(path, timeout=5.0, check_same_thread=False)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA busy_timeout = 5000")
+    con.execute("PRAGMA query_only = ON")
     with _registry_lock:
         _registry.append((title, con))
     cons[title] = (con, gen)
@@ -59,6 +63,25 @@ def release_title(title: int) -> None:
     clear_caches()
 
 
+def begin_swap(title: int) -> None:
+    """Mark `title` as actively replacing its on-disk files and release existing handles."""
+    with _registry_lock:
+        _swapping.add(title)
+    release_title(title)
+
+
+def end_swap(title: int) -> None:
+    """Finish file replacement for `title` and drop any caches populated mid-swap."""
+    with _registry_lock:
+        _swapping.discard(title)
+    release_title(title)
+
+
+def _is_swapping(title: int) -> bool:
+    with _registry_lock:
+        return title in _swapping
+
+
 def clear_caches() -> None:
     known_ids.cache_clear()
     section_html.cache_clear()
@@ -72,6 +95,7 @@ def reset_connections() -> None:
     with _registry_lock:
         for t in {t for t, _ in _registry} | set(_generation):
             _generation[t] = _generation.get(t, 0) + 1
+        _swapping.clear()
         for _, c in _registry:
             try:
                 c.close()
@@ -87,8 +111,25 @@ def reset_connections() -> None:
 
 
 @lru_cache(maxsize=64)
-def meta(title: int = config.DEFAULT_TITLE) -> dict:
+def _meta_cached(title: int = config.DEFAULT_TITLE) -> dict:
     return {r["key"]: r["value"] for r in db(title).execute("SELECT key, value FROM meta")}
+
+
+def meta(title: int = config.DEFAULT_TITLE) -> dict:
+    if _is_swapping(title):
+        return {r["key"]: r["value"] for r in db(title).execute("SELECT key, value FROM meta")}
+    return _meta_cached(title)
+
+
+meta.cache_clear = _meta_cached.cache_clear  # type: ignore[attr-defined]
+
+
+def safe_meta(title: int) -> tuple[dict, bool]:
+    """Read `meta(title)` with fault isolation. Returns (meta_dict, unreadable)."""
+    try:
+        return meta(title), False
+    except (sqlite3.Error, OSError):
+        return {}, True
 
 
 def edition(title: int = config.DEFAULT_TITLE) -> str:
@@ -96,11 +137,21 @@ def edition(title: int = config.DEFAULT_TITLE) -> str:
 
 
 @lru_cache(maxsize=64)
+def _known_ids_cached(title: int = config.DEFAULT_TITLE) -> frozenset[str]:
+    return frozenset(r[0] for r in db(title).execute("SELECT id FROM sections"))
+
+
 def known_ids(title: int = config.DEFAULT_TITLE) -> frozenset[str]:
+    """Return known section IDs for `title`, never caching transient read failures."""
     try:
-        return frozenset(r[0] for r in db(title).execute("SELECT id FROM sections"))
-    except Exception:
+        if _is_swapping(title):
+            return frozenset(r[0] for r in db(title).execute("SELECT id FROM sections"))
+        return _known_ids_cached(title)
+    except (sqlite3.Error, OSError):
         return frozenset()
+
+
+known_ids.cache_clear = _known_ids_cached.cache_clear  # type: ignore[attr-defined]
 
 
 def is_known_in_title(title: int, section_id: str) -> bool:
@@ -170,8 +221,12 @@ def get_section(raw_id: str, title: int = config.DEFAULT_TITLE, unit: str | None
     mode = doc.mode if doc else "page"
     current = None
     if unit is not None and mode == "units":
-        current = doc.find(unit)["key"]
-        html = unit_html(row["id"], current, title)
+        found = doc.find(unit)
+        if found is not None:
+            current = found["key"]
+            html = unit_html(row["id"], current, title)
+        else:
+            html = section_html(row["id"], title)
     else:
         html = section_html(row["id"], title)
     keys = [u["key"] for u in outline]
