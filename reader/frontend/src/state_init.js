@@ -28,6 +28,10 @@ state.isGenerating = false;
 // Bumped on every route change. A loader that awaited the network checks it before painting,
 // so a slow page can't land on top of the one the reader has since moved to.
 state.routeSeq = 0;
+state.routeAbort = null;
+state.splitState = null;
+state.pendingDownloads = new Map();
+state.peekCache = new Map();
 
 
 // Cache DOM
@@ -47,9 +51,12 @@ export const dom = {
   navBackdrop: document.getElementById('nav-backdrop'),
   treeFilter: document.getElementById('tree-filter'),
   tree: document.getElementById('tree'),
+  mainStage: document.getElementById('main-stage'),
   main: document.getElementById('main'),
+  splitPane: document.getElementById('split-pane'),
   view: document.getElementById('view'),
   viewHead: document.getElementById('view-head'),
+  citePop: document.getElementById('cite-pop'),
   chat: document.getElementById('chat'),
   modelSelect: document.getElementById('model-select'),
   chatNew: document.getElementById('chat-new'),

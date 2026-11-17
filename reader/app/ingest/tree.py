@@ -11,6 +11,7 @@ import re
 import sqlite3
 
 from .. import config
+from ..render.text import clean_label
 
 LEAF_TYPES = {"section", "appendix"}
 
@@ -18,8 +19,8 @@ def trim_tree(node: dict) -> dict:
     out = {
         "t": node["type"],
         "id": node.get("identifier"),
-        "l": node.get("label_level") or node.get("label") or "",
-        "d": (node.get("label_description") or "").strip(),
+        "l": clean_label(node.get("label_level") or node.get("label") or ""),
+        "d": clean_label(node.get("label_description") or ""),
     }
     if node.get("reserved"):
         out["r"] = 1

@@ -1,29 +1,33 @@
 // src/state.ts
 var state = {
-	currentTitle: void 0,
-	installedTitles: void 0,
+	currentTitle: 29,
+	installedTitles: [],
 	homeSnapshot: void 0,
 	noTitles: false,
 	profilesData: void 0,
 	treeData: void 0,
-	currentSection: void 0,
-	currentPart: void 0,
-	activeRoute: void 0,
-	metaInfo: void 0,
+	currentSection: null,
+	currentPart: null,
+	activeRoute: "",
+	metaInfo: {},
 	chatConfig: void 0,
 	chatHistory: void 0,
-	isGenerating: void 0,
-	routeSeq: void 0,
-	jobs: void 0,
+	isGenerating: false,
+	routeSeq: 0,
+	jobs: {
+		current: null,
+		queued: [],
+		recent: []
+	},
 	jobsTimer: void 0,
-	jobsSeenActive: void 0,
-	lastJobsKey: void 0,
-	railObserver: void 0,
+	jobsSeenActive: /* @__PURE__ */ new Set(),
+	lastJobsKey: "",
+	railObserver: null,
 	searchState: void 0,
 	searchTimer: void 0,
 	sdActive: void 0,
-	visited: void 0,
-	treePromise: void 0,
+	visited: /* @__PURE__ */ new Set(),
+	treePromise: null,
 	currentTreeKey: void 0,
 	currentPartKey: void 0,
 	currentAgencyKey: void 0,
@@ -45,7 +49,11 @@ var state = {
 	navEnvStatus: void 0,
 	envModalReturnFocus: void 0,
 	envModalSnapshot: void 0,
-	selectedText: void 0
+	selectedText: "",
+	routeAbort: null,
+	splitState: null,
+	pendingDownloads: /* @__PURE__ */ new Map(),
+	peekCache: /* @__PURE__ */ new Map()
 };
 // src/state_init.js
 state.currentTitle = 29;
@@ -65,6 +73,10 @@ state.chatConfig = {
 state.chatHistory = [];
 state.isGenerating = false;
 state.routeSeq = 0;
+state.routeAbort = null;
+state.splitState = null;
+state.pendingDownloads = /* @__PURE__ */ new Map();
+state.peekCache = /* @__PURE__ */ new Map();
 var dom = {
 	topbar: document.querySelector(".topbar"),
 	titleSelect: document.getElementById("title-select"),
@@ -81,9 +93,12 @@ var dom = {
 	navBackdrop: document.getElementById("nav-backdrop"),
 	treeFilter: document.getElementById("tree-filter"),
 	tree: document.getElementById("tree"),
+	mainStage: document.getElementById("main-stage"),
 	main: document.getElementById("main"),
+	splitPane: document.getElementById("split-pane"),
 	view: document.getElementById("view"),
 	viewHead: document.getElementById("view-head"),
+	citePop: document.getElementById("cite-pop"),
 	chat: document.getElementById("chat"),
 	modelSelect: document.getElementById("model-select"),
 	chatNew: document.getElementById("chat-new"),
@@ -4496,6 +4511,10 @@ var HTML_ESCAPES = {
 	"\"": "&quot;",
 	"'": "&#39;"
 };
+var INLINE_MARKUP_RE = /<\/?(?:span|em|strong|i|b|sup|sub|small|u)\b[^>]*>/gi;
+function cleanInlineLabel(str) {
+	return String(str ?? "").replace(INLINE_MARKUP_RE, "").replace(/\s+/g, " ").trim();
+}
 function escapeHtml(str) {
 	return String(str ?? "").replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
 }
@@ -4582,6 +4601,143 @@ function enterView() {
 	});
 }
 var isMac = /Mac|iPhone|iPad/.test(navigator.platform || "");
+// src/components/popover.js
+var activePopovers = /* @__PURE__ */ new Set();
+var customClosers = /* @__PURE__ */ new Set();
+function registerPopoverCloser(fn) {
+	customClosers.add(fn);
+	return () => customClosers.delete(fn);
+}
+function closeAllPopovers(except = null, returnFocus = false) {
+	for (const ctrl of [...activePopovers]) if (ctrl !== except && ctrl.isOpen()) ctrl.close(returnFocus);
+	for (const fn of [...customClosers]) if (fn !== except) fn(false);
+}
+function getAnchorRect(anchor) {
+	if (!anchor) return {
+		left: Math.max(8, window.innerWidth / 2 - 140),
+		right: Math.min(window.innerWidth - 8, window.innerWidth / 2 + 140),
+		top: 120,
+		bottom: 120,
+		width: 280,
+		height: 0
+	};
+	return typeof anchor.getBoundingClientRect === "function" ? anchor.getBoundingClientRect() : anchor;
+}
+function positionPopover(el, anchor, { offset = 6, placement = "auto", padding = 10 } = {}) {
+	if (!el) return;
+	const r = getAnchorRect(anchor);
+	const w = el.offsetWidth;
+	const h = el.offsetHeight;
+	const vw = window.innerWidth;
+	const vh = window.innerHeight;
+	const below = r.bottom + offset;
+	const above = r.top - offset - h;
+	const preferTop = placement === "top" || placement === "auto" && below + h > vh - padding && (above >= padding || r.top > vh - r.bottom);
+	const top = Math.max(padding, Math.min(preferTop ? above : below, Math.max(padding, vh - h - padding)));
+	const left = Math.max(padding, Math.min(r.left, Math.max(padding, vw - w - padding)));
+	el.style.transformOrigin = preferTop ? "bottom left" : "top left";
+	el.style.left = `${Math.round(left)}px`;
+	el.style.top = `${Math.round(top)}px`;
+}
+function createPopover({ el, triggerSelector = null, placement = "auto", offset = 6, padding = 10, closeOnRoute = true, scrollContainer = null, onOpen = null, onClose = null } = {}) {
+	let currentAnchor = null;
+	let returnFocusEl = null;
+	let interactive = true;
+	let outsideBound = false;
+	let bindTimer = null;
+	function setExpanded(trigger, expanded) {
+		if (trigger && trigger instanceof Element && trigger.hasAttribute("aria-expanded")) trigger.setAttribute("aria-expanded", String(expanded));
+	}
+	function onOutsidePointerDown(e) {
+		if (!el || el.hidden) return;
+		if (el.contains(e.target)) return;
+		if (triggerSelector && e.target.closest?.(triggerSelector)) return;
+		if (currentAnchor instanceof Element && currentAnchor.contains(e.target)) return;
+		ctrl.close(false);
+	}
+	function onDocumentKeydown(e) {
+		if (e.key === "Escape" && el && !el.hidden) {
+			e.preventDefault();
+			e.stopPropagation();
+			ctrl.close(true);
+		}
+	}
+	function onContainerScroll() {
+		if (!el || el.hidden) return;
+		if (!interactive) ctrl.close(false);
+	}
+	function cleanupListeners() {
+		clearTimeout(bindTimer);
+		bindTimer = null;
+		if (outsideBound) {
+			document.removeEventListener("pointerdown", onOutsidePointerDown, true);
+			document.removeEventListener("keydown", onDocumentKeydown, true);
+			if (scrollContainer) scrollContainer.removeEventListener("scroll", onContainerScroll);
+			outsideBound = false;
+		}
+	}
+	const ctrl = {
+		el,
+		isOpen: () => Boolean(el && !el.hidden),
+		isInteractive: () => interactive,
+		getAnchor: () => currentAnchor,
+		setInteractive(next) {
+			interactive = Boolean(next);
+		},
+		reposition(anchor = currentAnchor) {
+			if (!el || el.hidden) return;
+			if (anchor) currentAnchor = anchor;
+			positionPopover(el, currentAnchor, {
+				offset,
+				placement,
+				padding
+			});
+		},
+		open(anchor, content, opts = {}) {
+			if (!el) return;
+			if (opts.closeOthers !== false) closeAllPopovers(ctrl, false);
+			interactive = opts.interactive !== false;
+			currentAnchor = anchor || null;
+			returnFocusEl = opts.returnFocus !== void 0 ? opts.returnFocus : anchor instanceof Element ? anchor : document.activeElement;
+			if (typeof content === "string") el.innerHTML = content;
+			else if (typeof content === "function") content(el);
+			el.hidden = false;
+			el.classList.toggle("is-peek", !interactive);
+			positionPopover(el, currentAnchor, {
+				offset: opts.offset ?? offset,
+				placement: opts.placement ?? placement,
+				padding: opts.padding ?? padding
+			});
+			if (currentAnchor instanceof Element) setExpanded(currentAnchor, true);
+			cleanupListeners();
+			bindTimer = setTimeout(() => {
+				if (!el || el.hidden) return;
+				document.addEventListener("pointerdown", onOutsidePointerDown, true);
+				document.addEventListener("keydown", onDocumentKeydown, true);
+				if (scrollContainer) scrollContainer.addEventListener("scroll", onContainerScroll, { passive: true });
+				outsideBound = true;
+			}, 0);
+			if (opts.focusSelector) el.querySelector(opts.focusSelector)?.focus?.({ preventScroll: true });
+			if (onOpen) onOpen(el, currentAnchor);
+		},
+		close(returnFocus = true) {
+			if (!el || el.hidden) return;
+			el.hidden = true;
+			el.classList.remove("is-peek");
+			cleanupListeners();
+			const prevAnchor = currentAnchor;
+			const prevReturn = returnFocusEl;
+			currentAnchor = null;
+			returnFocusEl = null;
+			if (prevAnchor instanceof Element) setExpanded(prevAnchor, false);
+			if (onClose) onClose(el, prevAnchor);
+			if (returnFocus && prevReturn && typeof prevReturn.focus === "function") prevReturn.focus({ preventScroll: true });
+		}
+	};
+	activePopovers.add(ctrl);
+	if (closeOnRoute) window.addEventListener("hashchange", () => ctrl.close(false));
+	return ctrl;
+}
 // src/panels/shared.js
 var drLabel = (text, extra = "") => `<h3 class="dr-label"><span>${text}</span>${extra}</h3>`;
 var drEmpty = (title, body) => `<div class="dr-empty"><div class="dr-empty-title">${title}</div><p>${body}</p></div>`;
@@ -4595,95 +4751,112 @@ function setPanel(panel, html) {
 	if (next) next.scrollTop = top;
 	if (navState.panel === panel) drawerEl.meta.textContent = panelMeta(panel);
 }
-// src/usage.js
-var USAGE_KEY = "usage";
-function loadUsage() {
-	try {
-		const u = JSON.parse(lsGet("usage") || "null");
-		if (u && u.v === 1 && u.s && u.p) return u;
-	} catch (e) {}
-	return {
-		v: 1,
-		since: Date.now(),
-		s: {},
-		p: {}
-	};
-}
-function bumpPart(u, title, part, heading, now) {
-	if (!part) return;
-	const key = title + "|" + part;
-	const e = u.p[key] || (u.p[key] = { n: 0 });
-	e.n += 1;
-	e.t = now;
-	if (heading) e.h = String(heading).trim();
-}
-function recordSectionVisit(data, unitInfo = null) {
-	if (!data || !data.id) return;
-	const u = loadUsage();
-	const now = Date.now();
-	const key = state.currentTitle + "|" + data.id;
-	const e = u.s[key] || (u.s[key] = { n: 0 });
-	e.n += 1;
-	e.t = now;
-	e.l = data.label || data.id;
-	e.h = data.section_title || data.title_label || "";
-	e.p = data.part || "";
-	if (unitInfo && unitInfo.key) {
-		e.u = unitInfo.key;
-		e.ul = unitInfo.label || unitInfo.key;
-	} else {
-		delete e.u;
-		delete e.ul;
-	}
-	const partNode = data.part && state.treeData ? findPartInTree(state.treeData, data.part) : null;
-	bumpPart(u, state.currentTitle, data.part, partNode && partNode.d, now);
-	lsSet(USAGE_KEY, JSON.stringify(u));
-}
-function recordSectionUnit(sectionId, unitInfo = null) {
-	if (!sectionId) return;
-	const u = loadUsage();
-	const key = state.currentTitle + "|" + sectionId;
-	const e = u.s[key];
-	if (!e) return;
-	e.t = Date.now();
-	if (unitInfo && unitInfo.key) {
-		e.u = unitInfo.key;
-		e.ul = unitInfo.label || unitInfo.key;
-	} else {
-		delete e.u;
-		delete e.ul;
-	}
-	lsSet(USAGE_KEY, JSON.stringify(u));
-}
-function recordPartVisit(partId, heading) {
-	const u = loadUsage();
-	bumpPart(u, state.currentTitle, partId, heading, Date.now());
-	lsSet(USAGE_KEY, JSON.stringify(u));
-}
-function visitedCountFor(title) {
-	try {
-		const raw = lsGet(title === 29 ? "visited" : "visited-" + title);
-		return raw ? JSON.parse(raw).length : 0;
-	} catch (e) {
-		return 0;
-	}
-}
-function timeAgo(ms) {
-	const s = Math.max(0, (Date.now() - ms) / 1e3);
-	if (s < 60) return "just now";
-	if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-	if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-	const d = Math.floor(s / 86400);
-	if (d === 1) return "yesterday";
-	if (d < 30) return `${d}d ago`;
-	return new Date(ms).toLocaleDateString(void 0, {
-		month: "short",
-		day: "numeric",
-		year: "numeric"
+// src/panels/library_panel.js
+var navLib = {
+	data: null,
+	at: 0,
+	loading: null
+};
+async function ensureNavLibrary(force = false) {
+	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
+	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
+		navLib.data = d;
+		navLib.at = Date.now();
+		return d;
+	}).finally(() => {
+		navLib.loading = null;
 	});
+	return navLib.loading;
 }
-var fmt = (n) => Number(n || 0).toLocaleString();
-var titleHref = (t, rest) => `#/title/${t}/${rest || ""}`;
+function transferHtml() {
+	const j = state.jobs.current;
+	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
+	const m = dockModel(j);
+	return (!j ? "" : `<div class="dr-job">
+      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
+      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
+      <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
+    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
+}
+state.navTransferKey = "";
+function updateNavTransfers() {
+	updateRailBadge();
+	if (navState.panel !== "library" || !drawerShown()) return;
+	const box = document.getElementById("dr-transfers");
+	if (!box) return;
+	const j = state.jobs.current;
+	const m = dockModel(j);
+	const key = [
+		j && j.id,
+		j && j.cancelling,
+		j && j.phase === "Installing",
+		m.pct == null,
+		state.jobs.queued.map((q) => q.id).join(".")
+	].join("|");
+	if (key !== state.navTransferKey) {
+		state.navTransferKey = key;
+		box.innerHTML = transferHtml();
+		const count = document.getElementById("dr-transfers-count");
+		const n = (j ? 1 : 0) + state.jobs.queued.length;
+		if (count) count.textContent = n ? String(n) : "";
+		const sec = document.getElementById("dr-transfers-sec");
+		if (sec) sec.hidden = !n;
+		return;
+	}
+	const set = (f, v) => {
+		const n = box.querySelector(`[data-f="${f}"]`);
+		if (n && n.textContent !== v) n.textContent = v;
+	};
+	set("pct", m.pct == null ? "" : `${m.pct}%`);
+	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
+	set("left", m.left);
+	set("right", m.right);
+	const fill = box.querySelector("[data-f=\"fill\"]");
+	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+}
+function renderLibraryPanel() {
+	const d = navLib.data;
+	state.navTransferKey = "";
+	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
+	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
+	if (!d) {
+		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
+		ensureNavLibrary().then(() => {
+			if (navState.panel === "library") renderLibraryPanel();
+			updateRailBadge();
+		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
+		return;
+	}
+	const live = d.titles.filter((t) => !t.reserved);
+	const installed = live.filter((t) => t.installed);
+	const stale = installed.filter(isStale);
+	const rows = installed.map((t) => {
+		const st = titleStatus(t);
+		return `<a class="dr-row" href="#/title/${t.title}/">
+      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
+      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
+	}).join("");
+	const suites = Object.values(d.suites || {}).map((s) => {
+		const st = suiteState(s, d);
+		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
+		return `<div class="dr-suite">
+      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
+        <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
+      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>"}
+    </div>`;
+	}).join("");
+	setPanel("library", `
+    <a class="dr-cta" href="#/library">
+      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
+    </a>
+    ${transfers}
+    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
+      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
+    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
+	updateRailBadge();
+}
 // src/components/rail.js
 function sectionHref(id, view) {
 	return `#/section/${encodeURIComponent(id)}${view ? "/" + encodeURIComponent(view) : ""}`;
@@ -4705,7 +4878,8 @@ function unitKind(u) {
 }
 function railHtml(data, mode) {
 	const units = data.outline || [];
-	if (units.length < 2) return "";
+	if (units.length < 2 || mode !== "units" && units.length < 4) return "";
+	const maxChars = Math.max(1, ...units.map((u) => Number(u.chars) || 0));
 	let html = "";
 	let lastGroup;
 	let rows = units.length;
@@ -4718,7 +4892,9 @@ function railHtml(data, mode) {
 		const current = mode === "units" && u.key === data.unit;
 		const href = mode === "units" ? sectionHref(data.id, u.key) : `#u-${u.key}`;
 		const name = unitName(u);
-		html += `<a class="rail-item${current ? " is-current" : ""}" href="${href}" data-unit="${escapeHtml(u.key)}"${mode === "units" ? "" : ` data-anchor="u-${escapeHtml(u.key)}"`}${current ? " aria-current=\"true\"" : ""} data-label="${escapeHtml(u.label || "")}" data-name="${escapeHtml(name)}" aria-label="${escapeHtml(`${u.label ? u.label + " " : ""}${name}`)}"><span class="rail-bar" aria-hidden="true"></span></a>`;
+		const ratio = Math.sqrt((Number(u.chars) || 0) / maxChars);
+		const barPx = Math.round(7 + ratio * 7);
+		html += `<a class="rail-item${current ? " is-current" : ""}" href="${href}" data-unit="${escapeHtml(u.key)}"${mode === "units" ? "" : ` data-anchor="u-${escapeHtml(u.key)}"`}${current ? " aria-current=\"true\"" : ""} data-label="${escapeHtml(u.label || "")}" data-name="${escapeHtml(name)}" aria-label="${escapeHtml(`${u.label ? u.label + " " : ""}${name}`)}"><span class="rail-bar" style="--w:${barPx}px" aria-hidden="true"></span></a>`;
 	});
 	return `<nav class="rail" style="--rows:${rows}" aria-label="Contents of this section">${html}<a class="rail-pop" tabindex="-1" aria-hidden="true"><span class="rail-pop-label"></span><span class="rail-pop-name"></span></a></nav>`;
 }
@@ -4836,20 +5012,33 @@ function watchRail() {
 	} };
 	update();
 }
-function scrollToAnchor(id) {
-	const target = document.getElementById(id);
+function scrollToAnchor(id, rootOrOpts = {}) {
+	const isNode = rootOrOpts && typeof rootOrOpts.querySelector === "function";
+	const root = isNode ? rootOrOpts : rootOrOpts.root || dom.view;
+	const flash = isNode ? true : rootOrOpts.flash !== false;
+	let target = null;
+	try {
+		target = root && root.querySelector(`#${CSS.escape(id)}`) || document.getElementById(id);
+	} catch (e) {
+		target = document.getElementById(id);
+	}
 	if (!target) return false;
 	target.scrollIntoView({
-		block: "start",
+		block: target.matches(".reg-footnote, .reg-p, .reg-figure") ? "center" : "start",
 		behavior: reduceMotion.matches ? "auto" : "smooth"
 	});
+	if (flash && target.matches(".reg-footnote, .reg-p, .table-wrap, .reg-appendix, .reg-figure")) {
+		target.classList.remove("flash");
+		target.offsetWidth;
+		target.classList.add("flash");
+	}
 	return true;
 }
-if (dom.viewHead) dom.viewHead.addEventListener("click", (e) => {
+for (const rootEl of [dom.viewHead, dom.view].filter(Boolean)) rootEl.addEventListener("click", (e) => {
 	const a = e.target.closest("[data-anchor]");
 	if (!a) return;
 	e.preventDefault();
-	scrollToAnchor(a.dataset.anchor);
+	scrollToAnchor(a.dataset.anchor, dom.view);
 });
 dom.view.addEventListener("error", (e) => {
 	const img = e.target;
@@ -4872,6 +5061,95 @@ function applyFontSize(v) {
 function adjustFontSize(delta) {
 	applyFontSize((parseInt(lsGet("fontSize"), 10) || 16) + delta);
 }
+// src/usage.js
+var USAGE_KEY = "usage";
+function loadUsage() {
+	try {
+		const u = JSON.parse(lsGet("usage") || "null");
+		if (u && u.v === 1 && u.s && u.p) return u;
+	} catch (e) {}
+	return {
+		v: 1,
+		since: Date.now(),
+		s: {},
+		p: {}
+	};
+}
+function bumpPart(u, title, part, heading, now) {
+	if (!part) return;
+	const key = title + "|" + part;
+	const e = u.p[key] || (u.p[key] = { n: 0 });
+	e.n += 1;
+	e.t = now;
+	if (heading) e.h = String(heading).trim();
+}
+function recordSectionVisit(data, unitInfo = null) {
+	if (!data || !data.id) return;
+	const u = loadUsage();
+	const now = Date.now();
+	const key = state.currentTitle + "|" + data.id;
+	const e = u.s[key] || (u.s[key] = { n: 0 });
+	e.n += 1;
+	e.t = now;
+	e.l = data.label || data.id;
+	e.h = data.section_title || data.title_label || "";
+	e.p = data.part || "";
+	if (unitInfo && unitInfo.key) {
+		e.u = unitInfo.key;
+		e.ul = unitInfo.label || unitInfo.key;
+	} else {
+		delete e.u;
+		delete e.ul;
+	}
+	const partNode = data.part && state.treeData ? findPartInTree(state.treeData, data.part) : null;
+	bumpPart(u, state.currentTitle, data.part, partNode && partNode.d, now);
+	lsSet(USAGE_KEY, JSON.stringify(u));
+}
+function recordSectionUnit(sectionId, unitInfo = null) {
+	if (!sectionId) return;
+	const u = loadUsage();
+	const key = state.currentTitle + "|" + sectionId;
+	const e = u.s[key];
+	if (!e) return;
+	e.t = Date.now();
+	if (unitInfo && unitInfo.key) {
+		e.u = unitInfo.key;
+		e.ul = unitInfo.label || unitInfo.key;
+	} else {
+		delete e.u;
+		delete e.ul;
+	}
+	lsSet(USAGE_KEY, JSON.stringify(u));
+}
+function recordPartVisit(partId, heading) {
+	const u = loadUsage();
+	bumpPart(u, state.currentTitle, partId, heading, Date.now());
+	lsSet(USAGE_KEY, JSON.stringify(u));
+}
+function visitedCountFor(title) {
+	try {
+		const raw = lsGet(title === 29 ? "visited" : "visited-" + title);
+		return raw ? JSON.parse(raw).length : 0;
+	} catch (e) {
+		return 0;
+	}
+}
+function timeAgo(ms) {
+	const s = Math.max(0, (Date.now() - ms) / 1e3);
+	if (s < 60) return "just now";
+	if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+	if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+	const d = Math.floor(s / 86400);
+	if (d === 1) return "yesterday";
+	if (d < 30) return `${d}d ago`;
+	return new Date(ms).toLocaleDateString(void 0, {
+		month: "short",
+		day: "numeric",
+		year: "numeric"
+	});
+}
+var fmt = (n) => Number(n || 0).toLocaleString();
+var titleHref = (t, rest) => `#/title/${t}/${rest || ""}`;
 // src/citations.ts
 var NEWS_CITE_RE = /\b29\s*C\.?F\.?R\.?\s*(?:§§?\s*)?(\d{1,4}\.\d+)(?:\([a-z0-9]{1,4}\))*|§§?\s*(19\d{2}\.\d+)(?:\([a-z0-9]{1,4}\))*/gi;
 // src/views/news.js
@@ -5775,293 +6053,6 @@ dom.view.addEventListener("change", (e) => {
 		dom.modelSelect.dispatchEvent(new Event("change"));
 	}
 });
-// src/views/help.js
-var HELP_LOGOS = {
-	dol: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <path d="M32 8 52 16v14c0 13.5-8.6 22.8-20 26-11.4-3.2-20-12.5-20-26V16L32 8Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M32 18v24M21 24h22" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
-    <path d="m21 24-4 9h8l-4-9Zm22 0-4 9h8l-4-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-    <path d="M25 44h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-  </svg>`,
-	anthropic: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <rect x="8" y="8" width="48" height="48" rx="14" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M25.5 44 33 20l7.5 24M28.2 36.5h9.6" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M18.5 44 26 20h3.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>
-  </svg>`,
-	fr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <rect x="10" y="10" width="44" height="44" rx="10" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <circle cx="22" cy="42" r="3.2" fill="var(--accent)"/>
-    <path d="M20 31.5a12.5 12.5 0 0 1 12.5 12.5M20 22a22 22 0 0 1 22 22" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round"/>
-    <path d="M36 18h10M36 24h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".7"/>
-  </svg>`,
-	ecfr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <path d="M12 18c0-2.2 1.8-4 4-4h13c2.2 0 3 1.2 3 3v31c0-1.5-1.3-2.5-3-2.5H16c-2.2 0-4 1.8-4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M52 18c0-2.2-1.8-4-4-4H35c-2.2 0-3 1.2-3 3v31c0-1.5 1.3-2.5 3-2.5h13c2.2 0 4 1.8 4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M18 23h8M18 29h8M38 23h8M38 29h8" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
-  </svg>`
-};
-var FR_RSS_FEEDS = [{
-	label: "OSHA Published Documents RSS",
-	desc: "Final Rules, Proposed Rules, and Notices from the Federal Register.",
-	url: "https://www.federalregister.gov/api/v1/documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
-}, {
-	label: "OSHA Public Inspection RSS",
-	desc: "Pre-publication filings scheduled to appear in tomorrow’s Federal Register.",
-	url: "https://www.federalregister.gov/api/v1/public-inspection-documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
-}];
-async function loadHelp() {
-	const seq = state.routeSeq;
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	document.title = "Connections & API Keys · FRAMEWORK";
-	if (!state.navEnvStatus) {
-		dom.view.innerHTML = skeletonHtml("cards", "Loading setup guide…");
-		enterView();
-	}
-	try {
-		const [env, newsSt] = await Promise.all([getJSON("/api/settings/env"), getJSON("/api/news/status").catch(() => null)]);
-		if (seq !== state.routeSeq) return;
-		state.navEnvStatus = env;
-		if (newsSt) state.navNewsStatus = newsSt;
-		renderHelp(env, { enter: true });
-	} catch (e) {
-		if (seq !== state.routeSeq) return;
-		renderHelp(state.navEnvStatus || {
-			env_exists: false,
-			env_file: "reader/.env",
-			keys: {}
-		}, { enter: true });
-	}
-}
-function renderHelp(env, opts = {}) {
-	const keys = env && env.keys || {};
-	const dol = keys.DOL_API_KEY || {};
-	const ant = keys.ANTHROPIC_API_KEY || {};
-	const syncOn = keys.NEWS_SYNC ? keys.NEWS_SYNC.value : true;
-	const retDays = keys.NEWS_RETENTION_DAYS ? keys.NEWS_RETENTION_DAYS.value : 365;
-	const titleCount = state.installedTitles.length;
-	const titlesWord = `${titleCount} ${titleCount === 1 ? "title" : "titles"}`;
-	const chip = (target, state, label) => `
-    <button type="button" class="help-status-chip" data-help-jump="${target}">
-      <span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(label)}</button>`;
-	const statusStrip = `
-    <nav class="help-status" aria-label="Connection status">
-      ${chip("federal-register", syncOn ? "synced" : "stale", syncOn ? "Federal Register · On" : "Federal Register · Sync off")}
-      ${chip("ecfr", "synced", `CFR Library · ${titlesWord}`)}
-      ${chip("dol", dol.configured ? "synced" : "uninstalled", `DOL enforcement · ${dol.configured ? "On" : "Off"}`)}
-      ${chip("anthropic", ant.configured ? "synced" : "uninstalled", `Claude assistant · ${ant.configured ? "On" : "Off"}`)}
-    </nav>`;
-	const optionalCards = [{
-		id: "dol",
-		logo: HELP_LOGOS.dol,
-		provider: "U.S. Department of Labor · Free key",
-		title: "OSHA Enforcement Data",
-		pill: dol.configured ? statPill("synced", `On (${dol.masked || "key saved"})`) : statPill("uninstalled", "Off"),
-		body: `
-        <p><strong>What this key allows:</strong> Unlocks the <em>Enforcement &amp; Penalties</em> tab in <a href="#/news?cat=enforcement">News</a> and adds workplace inspection citations to the regulation timeline inside Title 29 sections.</p>
-        <p>You’ll see cited companies, city/state locations, violation severity (Willful, Repeat, Serious), cited 29 CFR standards, and current penalty totals directly from <code>apiprod.dol.gov/v4</code>.</p>`,
-		actions: `
-        <button type="button" class="btn btn-accent" data-open-env="dol_api_key">${icon("key")} ${dol.configured ? "Update DOL key" : "Add DOL key"}</button>
-        <a class="btn" href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">${icon("external")} Get a free DOL key</a>`
-	}, {
-		id: "anthropic",
-		logo: HELP_LOGOS.anthropic,
-		provider: "Anthropic · Paid key",
-		title: "Claude Regulatory Assistant",
-		pill: ant.configured ? statPill("synced", `On (${ant.masked || "key saved"})`) : statPill("uninstalled", "Off"),
-		body: `
-        <p><strong>What this key allows:</strong> Turns on the <em>Ask Claude</em> side panel so you can ask plain-English compliance questions, summarize long sections, and trace requirements across your installed CFR titles.</p>
-        <p>Reading regulations, full-text search, projects, and Federal Register news all work without it—this key is only for the AI assistant.</p>`,
-		actions: `
-        <button type="button" class="btn btn-accent" data-open-env="anthropic_api_key">${icon("key")} ${ant.configured ? "Update Anthropic key" : "Add Anthropic key"}</button>
-        <a class="btn" href="https://console.anthropic.com" target="_blank" rel="noopener">${icon("external")} Get an Anthropic key</a>`
-	}];
-	const includedCards = [{
-		id: "federal-register",
-		logo: HELP_LOGOS.fr,
-		provider: "Federal Register · No key needed",
-		title: "OSHA Rulemaking & Official RSS Feeds",
-		pill: syncOn ? statPill("synced", `On · ${retDays}d history`) : statPill("stale", "Sync off"),
-		body: `
-        <p><strong>What this source allows:</strong> Keeps the <a href="#/news">Newsroom</a> updated on business days with OSHA Final Rules, Proposed Rules, Notices, and Public Inspection filings—automatically, with no key or setup.</p>
-        <div class="help-rss-list">${FR_RSS_FEEDS.map((f) => `
-          <div class="help-rss-row">
-            <div class="help-rss-text"><strong>${escapeHtml(f.label)}</strong><span>${escapeHtml(f.desc)}</span></div>
-            <div class="help-rss-btns">
-              <button type="button" class="btn btn-sm" data-copy-url="${escapeHtml(f.url)}">${icon("copy")} Copy RSS URL</button>
-              <a class="btn btn-sm" href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${icon("rss")} Open</a>
-            </div>
-          </div>`).join("")}
-        </div>
-        <p class="help-fineprint">The same updates, as official Federal Register feeds for any external RSS reader. FRAMEWORK itself reads the richer JSON API and skips <code>osha.gov/rss</code>, which rejects automated readers.</p>`,
-		actions: `
-        <button type="button" class="btn" data-open-env="news_sync">${icon("key")} Sync settings</button>
-        <a class="btn" href="#/news">${icon("news")} Open Newsroom</a>`
-	}, {
-		id: "ecfr",
-		logo: HELP_LOGOS.ecfr,
-		provider: "eCFR · No key needed",
-		title: "Federal Regulations Library (Titles 1–50)",
-		pill: statPill("synced", `On · ${titlesWord} installed`),
-		body: `
-        <p><strong>What this source allows:</strong> Downloads full Code of Federal Regulations titles, parts, or individual sections directly from <code>ecfr.gov</code> into your local SQLite library for fast offline reading and search.</p>`,
-		actions: `
-        <a class="btn" href="#/library">${icon("book")} Browse CFR Library</a>`
-	}];
-	const cardHtml = (c) => `
-    <article class="help-card" id="help-${c.id}">
-      <div class="help-logo" aria-hidden="true">${c.logo}</div>
-      <div class="help-body">
-        <div class="help-card-top">
-          <span class="help-provider">${escapeHtml(c.provider)}</span>
-          ${c.pill}
-        </div>
-        <h3 class="help-card-title">${escapeHtml(c.title)}</h3>
-        <div class="help-card-copy">${c.body}</div>
-        <div class="help-actions">${c.actions}</div>
-      </div>
-    </article>`;
-	dom.view.innerHTML = `
-    <div class="help-front">
-      <header class="help-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK Settings · Help</div>
-          <h1 class="doc-title">Connections &amp; API Keys</h1>
-          <p class="help-lead">Reading and search work offline out of the box. The optional keys below unlock more—each is saved locally and applies instantly, with no restart.</p>
-        </div>
-        <div class="help-head-actions">
-          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
-        </div>
-      </header>
-      ${statusStrip}
-      <section class="help-group" aria-labelledby="help-group-optional">
-        <h2 class="help-group-label" id="help-group-optional">Optional keys</h2>
-        ${optionalCards.map(cardHtml).join("")}
-      </section>
-      <section class="help-group" aria-labelledby="help-group-included">
-        <h2 class="help-group-label" id="help-group-included">Included · already running</h2>
-        ${includedCards.map(cardHtml).join("")}
-      </section>
-      <footer class="help-footnote">
-        <p>Keys are stored in <code>reader/.env</code>, a private plain-text file on your computer—never shared or uploaded. ${env && env.env_exists ? "Yours exists and is active." : "It’s created the first time you save a key here."}</p>
-        <details class="help-env-details">
-          <summary>What is a .env file?</summary>
-          <p>A <strong>.env</strong> file holds environment settings—API keys and preferences—as plain <code>KEY=value</code> lines. Normally, setting one up means copying example files in a terminal; here, <em>Edit API keys</em> creates and updates <code>reader/.env</code> for you, and changes take effect right away with no restart.</p>
-          <button type="button" class="btn btn-sm" data-open-env="">${icon("key")} Open the editor</button>
-        </details>
-      </footer>
-    </div>`;
-	if (opts.enter) enterView();
-}
-// src/panels/library_panel.js
-var navLib = {
-	data: null,
-	at: 0,
-	loading: null
-};
-async function ensureNavLibrary(force = false) {
-	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
-	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
-		navLib.data = d;
-		navLib.at = Date.now();
-		return d;
-	}).finally(() => {
-		navLib.loading = null;
-	});
-	return navLib.loading;
-}
-function transferHtml() {
-	const j = state.jobs.current;
-	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
-	const m = dockModel(j);
-	return (!j ? "" : `<div class="dr-job">
-      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
-      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
-      <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
-      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
-      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
-    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
-}
-state.navTransferKey = "";
-function updateNavTransfers() {
-	updateRailBadge();
-	if (navState.panel !== "library" || !drawerShown()) return;
-	const box = document.getElementById("dr-transfers");
-	if (!box) return;
-	const j = state.jobs.current;
-	const m = dockModel(j);
-	const key = [
-		j && j.id,
-		j && j.cancelling,
-		j && j.phase === "Installing",
-		m.pct == null,
-		state.jobs.queued.map((q) => q.id).join(".")
-	].join("|");
-	if (key !== state.navTransferKey) {
-		state.navTransferKey = key;
-		box.innerHTML = transferHtml();
-		const count = document.getElementById("dr-transfers-count");
-		const n = (j ? 1 : 0) + state.jobs.queued.length;
-		if (count) count.textContent = n ? String(n) : "";
-		const sec = document.getElementById("dr-transfers-sec");
-		if (sec) sec.hidden = !n;
-		return;
-	}
-	const set = (f, v) => {
-		const n = box.querySelector(`[data-f="${f}"]`);
-		if (n && n.textContent !== v) n.textContent = v;
-	};
-	set("pct", m.pct == null ? "" : `${m.pct}%`);
-	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
-	set("left", m.left);
-	set("right", m.right);
-	const fill = box.querySelector("[data-f=\"fill\"]");
-	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
-}
-function renderLibraryPanel() {
-	const d = navLib.data;
-	state.navTransferKey = "";
-	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
-	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
-	if (!d) {
-		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
-		ensureNavLibrary().then(() => {
-			if (navState.panel === "library") renderLibraryPanel();
-			updateRailBadge();
-		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
-		return;
-	}
-	const live = d.titles.filter((t) => !t.reserved);
-	const installed = live.filter((t) => t.installed);
-	const stale = installed.filter(isStale);
-	const rows = installed.map((t) => {
-		const st = titleStatus(t);
-		return `<a class="dr-row" href="#/title/${t.title}/">
-      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
-      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
-	}).join("");
-	const suites = Object.values(d.suites || {}).map((s) => {
-		const st = suiteState(s, d);
-		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
-		return `<div class="dr-suite">
-      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
-        <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
-      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>"}
-    </div>`;
-	}).join("");
-	setPanel("library", `
-    <a class="dr-cta" href="#/library">
-      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
-    </a>
-    ${transfers}
-    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
-      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
-    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
-	updateRailBadge();
-}
 // src/views/core.js
 var HOME_CONTENT = {
 	29: {
@@ -6680,496 +6671,6 @@ dom.view.addEventListener("click", async (e) => {
 		openPanel("reader", { focus: true });
 	}
 });
-// src/components/env_modal.js
-var envModalEl = document.getElementById("env-modal");
-var envModalDialog = envModalEl ? envModalEl.querySelector(".modal-dialog") : null;
-state.envModalReturnFocus = null;
-state.envModalSnapshot = null;
-function envPreviewText(form, snapshot) {
-	const keys = snapshot && snapshot.keys || {};
-	const dolInput = form.querySelector("#env-dol-key");
-	const dolClear = form.querySelector("#env-dol-clear");
-	const antInput = form.querySelector("#env-ant-key");
-	const antClear = form.querySelector("#env-ant-clear");
-	const modelInput = form.querySelector("#env-ant-model");
-	const syncInput = form.querySelector("#env-news-sync");
-	const retInput = form.querySelector("#env-news-retention");
-	const dolVal = dolClear && dolClear.checked ? "" : dolInput && dolInput.value.trim() ? "••••(new key)" : keys.DOL_API_KEY && keys.DOL_API_KEY.masked || "";
-	const antVal = antClear && antClear.checked ? "" : antInput && antInput.value.trim() ? "••••(new key)" : keys.ANTHROPIC_API_KEY && keys.ANTHROPIC_API_KEY.masked || "";
-	const modelVal = modelInput && modelInput.value.trim() || "";
-	const syncVal = syncInput && syncInput.checked ? "1" : "0";
-	const retVal = retInput && retInput.value.trim() || "365";
-	return [
-		`ANTHROPIC_API_KEY=${antVal}`,
-		`ANTHROPIC_MODEL=${modelVal}`,
-		`DOL_API_KEY=${dolVal}`,
-		`NEWS_SYNC=${syncVal}`,
-		`NEWS_RETENTION_DAYS=${retVal}`
-	].join("\n");
-}
-function renderEnvModal(env, focusKey = "") {
-	if (!envModalDialog) return;
-	const keys = env && env.keys || {};
-	const dol = keys.DOL_API_KEY || {};
-	const ant = keys.ANTHROPIC_API_KEY || {};
-	const model = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.value || "";
-	const modelDefault = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.default || "claude-sonnet-5-5";
-	const newsSync = keys.NEWS_SYNC ? Boolean(keys.NEWS_SYNC.value) : true;
-	const retDays = keys.NEWS_RETENTION_DAYS && keys.NEWS_RETENTION_DAYS.value || 365;
-	envModalDialog.innerHTML = `
-    <div class="modal-head">
-      <div>
-        <div class="doc-kicker">${env && env.env_exists ? "Update local settings" : "Create reader/.env"}</div>
-        <h2 id="env-modal-title" class="modal-title">Configure API Keys &amp; Sync Settings</h2>
-      </div>
-      <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button>
-    </div>
-    <form id="env-modal-form" class="modal-body" autocomplete="off">
-      <p class="modal-intro">Keys are saved privately to <code>reader/.env</code> on your computer and take effect immediately—no restart needed. Leave an existing key blank to keep it unchanged.</p>
-
-      <div class="env-field">
-        <div class="env-field-head">
-          <label for="env-dol-key">DOL API Key <code>DOL_API_KEY</code></label>
-          ${dol.configured ? statPill("synced", `Saved (${dol.masked || "set"})`) : statPill("uninstalled", "Not set")}
-        </div>
-        <p class="env-field-help">Free key from <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a> for OSHA inspections and penalties.</p>
-        <div class="env-secret-row">
-          <input id="env-dol-key" name="dol_api_key" type="password" placeholder="${dol.configured ? "Leave blank to keep existing key, or paste new key" : "Paste your DOL X-API-KEY"}" spellcheck="false" autocomplete="off">
-          <button type="button" class="btn btn-sm" data-env-reveal="env-dol-key" aria-label="Show or hide DOL key">${icon("eye")}</button>
-        </div>
-        ${dol.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-dol-clear" name="clear_dol_api_key"> Remove saved DOL key</label>` : ""}
-      </div>
-
-      <div class="env-field">
-        <div class="env-field-head">
-          <label for="env-ant-key">Anthropic API Key <code>ANTHROPIC_API_KEY</code></label>
-          ${ant.configured ? statPill("synced", `Saved (${ant.masked || "set"})`) : statPill("uninstalled", "Not set")}
-        </div>
-        <p class="env-field-help">From <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> to enable the Ask Claude side panel.</p>
-        <div class="env-secret-row">
-          <input id="env-ant-key" name="anthropic_api_key" type="password" placeholder="${ant.configured ? "Leave blank to keep existing key, or paste new key" : "sk-ant-…"}" spellcheck="false" autocomplete="off">
-          <button type="button" class="btn btn-sm" data-env-reveal="env-ant-key" aria-label="Show or hide Anthropic key">${icon("eye")}</button>
-        </div>
-        ${ant.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-ant-clear" name="clear_anthropic_api_key"> Remove saved Anthropic key</label>` : ""}
-      </div>
-
-      <details class="env-advanced"${focusKey === "news_sync" ? " open" : ""}>
-        <summary>Advanced options (Claude model &amp; News sync)</summary>
-        <div class="env-advanced-body">
-          <div class="env-field">
-            <label for="env-ant-model">Preferred Claude Model <code>ANTHROPIC_MODEL</code></label>
-            <input id="env-ant-model" name="anthropic_model" type="text" value="${escapeHtml(model)}" placeholder="${escapeHtml(modelDefault)}" spellcheck="false">
-          </div>
-          <div class="env-field-row">
-            <label class="env-toggle-row"><input type="checkbox" id="env-news-sync" name="news_sync"${newsSync ? " checked" : ""}> <span>Enable background news sync (<code>NEWS_SYNC</code>)</span></label>
-            <div class="env-days-field">
-              <label for="env-news-retention">Retention (days)</label>
-              <input id="env-news-retention" name="news_retention_days" type="number" min="1" max="3650" value="${Number(retDays)}">
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <div class="env-preview-wrap">
-        <span class="env-preview-label">Preview of <code>reader/.env</code></span>
-        <pre class="env-preview" id="env-preview"></pre>
-      </div>
-
-      <p class="modal-error" id="env-modal-error" hidden></p>
-
-      <div class="modal-foot">
-        <button type="button" class="btn" data-env-close>Cancel</button>
-        <button type="submit" class="btn btn-accent" id="env-modal-save">${icon("check")} Save to reader/.env</button>
-      </div>
-    </form>`;
-	const form = document.getElementById("env-modal-form");
-	const preview = document.getElementById("env-preview");
-	const syncPreview = () => {
-		if (preview) preview.textContent = envPreviewText(form, state.envModalSnapshot);
-	};
-	syncPreview();
-	form.addEventListener("input", syncPreview);
-	form.addEventListener("change", syncPreview);
-	form.addEventListener("submit", submitEnvModal);
-	requestAnimationFrame(() => {
-		const targetId = focusKey === "dol_api_key" ? "env-dol-key" : focusKey === "anthropic_api_key" ? "env-ant-key" : focusKey === "news_sync" ? "env-news-sync" : "env-dol-key";
-		(document.getElementById(targetId) || envModalDialog.querySelector("input, button"))?.focus();
-	});
-}
-async function openEnvModal(focusKey = "") {
-	if (!envModalEl || !envModalDialog) return;
-	state.envModalReturnFocus = document.activeElement;
-	envModalDialog.innerHTML = `<div class="modal-head"><h2 id="env-modal-title" class="modal-title">Configure reader/.env</h2>
-    <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button></div>
-    <div class="modal-body"><div class="loading">Loading current configuration…</div></div>`;
-	envModalEl.hidden = false;
-	try {
-		state.envModalSnapshot = await getJSON("/api/settings/env");
-		state.navEnvStatus = state.envModalSnapshot;
-		renderEnvModal(state.envModalSnapshot, focusKey);
-	} catch (err) {
-		state.envModalSnapshot = {
-			env_exists: false,
-			env_file: "reader/.env",
-			keys: {}
-		};
-		renderEnvModal(state.envModalSnapshot, focusKey);
-	}
-}
-function closeEnvModal(restoreFocus = true) {
-	if (!envModalEl || envModalEl.hidden) return;
-	envModalEl.hidden = true;
-	if (restoreFocus && state.envModalReturnFocus && document.contains(state.envModalReturnFocus)) state.envModalReturnFocus.focus();
-	state.envModalReturnFocus = null;
-}
-async function refreshModelsConfig() {
-	if (state.noTitles) return;
-	try {
-		const modelsRes = await fetch("/api/" + state.currentTitle + "/models");
-		if (!modelsRes.ok) return;
-		state.chatConfig = await modelsRes.json();
-		if (state.chatConfig.configured && state.chatConfig.models.length > 0) {
-			dom.modelSelect.innerHTML = state.chatConfig.models.map((m) => `
-        <option value="${escapeHtml(m.id)}" ${m.id === state.chatConfig.default ? "selected" : ""}>
-          ${escapeHtml(m.name)}
-        </option>
-      `).join("");
-			dom.modelSelect.hidden = false;
-		} else {
-			dom.modelSelect.innerHTML = "";
-			dom.modelSelect.hidden = true;
-		}
-		if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
-	} catch (e) {}
-}
-async function submitEnvModal(e) {
-	e.preventDefault();
-	const form = e.currentTarget;
-	const saveBtn = document.getElementById("env-modal-save");
-	const errEl = document.getElementById("env-modal-error");
-	if (errEl) {
-		errEl.hidden = true;
-		errEl.textContent = "";
-	}
-	if (saveBtn) saveBtn.disabled = true;
-	const payload = {
-		dol_api_key: form.dol_api_key ? form.dol_api_key.value : null,
-		clear_dol_api_key: Boolean(form.clear_dol_api_key && form.clear_dol_api_key.checked),
-		anthropic_api_key: form.anthropic_api_key ? form.anthropic_api_key.value : null,
-		clear_anthropic_api_key: Boolean(form.clear_anthropic_api_key && form.clear_anthropic_api_key.checked),
-		anthropic_model: form.anthropic_model ? form.anthropic_model.value : null,
-		news_sync: Boolean(form.news_sync && form.news_sync.checked),
-		news_retention_days: form.news_retention_days ? Number(form.news_retention_days.value) || 365 : 365
-	};
-	try {
-		const res = await getJSON("/api/settings/env", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(payload)
-		});
-		state.navEnvStatus = res.status;
-		state.envModalSnapshot = res.status;
-		const [newsSt] = await Promise.all([getJSON("/api/news/status").catch(() => null), refreshModelsConfig()]);
-		if (newsSt) state.navNewsStatus = newsSt;
-		closeEnvModal(true);
-		showToast((res.news_sync_queued || []).length > 0 ? "Saved to reader/.env · Syncing DOL enforcement data…" : "Saved to reader/.env — active immediately");
-		refreshSettingsViews();
-		refreshHomeIfActive();
-		if (state.activeRoute === "/help" || state.activeRoute === "/help/") renderHelp(state.navEnvStatus);
-		else if (routeTarget() === "news") handleRoute();
-	} catch (err) {
-		if (errEl) {
-			errEl.textContent = err.message || "Could not save reader/.env";
-			errEl.hidden = false;
-		}
-		if (saveBtn) saveBtn.disabled = false;
-	}
-}
-if (envModalEl) envModalEl.addEventListener("click", (e) => {
-	if (e.target === envModalEl || e.target.closest("[data-env-close]")) {
-		closeEnvModal(true);
-		return;
-	}
-	const rev = e.target.closest("[data-env-reveal]");
-	if (rev) {
-		const inp = document.getElementById(rev.dataset.envReveal);
-		if (inp) {
-			const show = inp.type === "password";
-			inp.type = show ? "text" : "password";
-			rev.innerHTML = icon(show ? "eyeOff" : "eye");
-		}
-	}
-});
-document.addEventListener("keydown", (e) => {
-	if (e.key === "Escape" && envModalEl && !envModalEl.hidden) {
-		e.preventDefault();
-		closeEnvModal(true);
-	}
-});
-document.addEventListener("click", (e) => {
-	const trigger = e.target.closest("[data-open-env]");
-	if (trigger) {
-		e.preventDefault();
-		openEnvModal(trigger.dataset.openEnv || "");
-		return;
-	}
-	const copyBtn = e.target.closest("[data-copy-url]");
-	if (copyBtn) {
-		const url = copyBtn.dataset.copyUrl;
-		if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(() => showToast("RSS feed URL copied")).catch(() => showToast(url, 5e3));
-		else showToast(url, 5e3);
-		return;
-	}
-	const jump = e.target.closest("[data-help-jump]");
-	if (jump) {
-		const el = document.getElementById("help-" + jump.dataset.helpJump);
-		if (el) el.scrollIntoView({
-			behavior: reduceMotion.matches ? "auto" : "smooth",
-			block: "start"
-		});
-	}
-});
-async function loadStorage() {
-	try {
-		state.navStorage = await getJSON("/api/library/storage");
-	} catch (e) {
-		state.navStorage = {
-			titles: [],
-			legacy_bytes: 0,
-			temp_files: 0,
-			temp_bytes: 0,
-			total_bytes: 0
-		};
-	}
-	refreshSettingsViews();
-}
-// src/components/transfer_dock.js
-var DOCK_STEPS = [
-	["Checking eCFR", "Connecting to eCFR"],
-	["Downloading contents", "Reading the table of contents"],
-	["Downloading text", "Streaming the regulation text"],
-	["Reading text", "Extracting sections and appendices"],
-	["Indexing", "Building the search index"],
-	["Installing", "Swapping in the new edition"]
-];
-var dock = {
-	el: document.getElementById("transfer-dock"),
-	min: lsGet("dockMinimized") === "1",
-	key: "",
-	hideT: null,
-	srText: ""
-};
-var rate = {
-	id: null,
-	t: 0,
-	done: 0,
-	bps: 0
-};
-function recordJobProgress(j) {
-	const streaming = j && j.phase === "Downloading text" && j.done > 0 && (j.total == null || j.total > 1e5);
-	if (!streaming || j.id !== rate.id) {
-		Object.assign(rate, {
-			id: streaming ? j.id : null,
-			t: streaming ? performance.now() : 0,
-			done: streaming ? j.done : 0,
-			bps: 0
-		});
-		return;
-	}
-	const now = performance.now();
-	const dt = (now - rate.t) / 1e3;
-	if (dt < .5) return;
-	const delta = j.done - rate.done;
-	if (delta > 0) rate.bps = rate.bps ? rate.bps * .7 + delta / dt * .3 : delta / dt;
-	rate.t = now;
-	rate.done = j.done;
-}
-function fmtEta(seconds) {
-	if (!isFinite(seconds) || seconds <= 0) return "";
-	if (seconds < 60) return `${Math.ceil(seconds)}s left`;
-	const m = Math.floor(seconds / 60);
-	return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m}m ${Math.round(seconds % 60)}s left`;
-}
-function dockModel(j) {
-	if (!j) return {
-		step: -1,
-		label: "Starting…",
-		pct: null,
-		left: "",
-		right: ""
-	};
-	const step = DOCK_STEPS.findIndex(([phase]) => phase === j.phase);
-	const label = step >= 0 ? DOCK_STEPS[step][1] : j.phase === "Waiting" ? "Starting…" : j.phase;
-	const has = j.total != null && j.total > 0 && j.done != null;
-	const pct = has ? Math.min(99, Math.floor(j.done / j.total * 100)) : null;
-	let left = "", right = "";
-	if (j.phase === "Downloading text" && (j.total == null || j.total > 1e5) && j.done) {
-		left = j.total ? `${fmtBytes(Math.min(j.done, j.total))} of ${fmtBytes(j.total)}` : fmtBytes(j.done);
-		const speed = rate.id === j.id && rate.bps > 51200 ? `${fmtBytes(rate.bps)}/s` : "";
-		right = [speed, speed && j.total ? fmtEta((j.total - j.done) / rate.bps) : ""].filter(Boolean).join(" · ");
-	} else if (j.phase === "Downloading text" && has) left = `${fmt(j.done)} of ${plural(j.total, "file")}`;
-	else if ((j.phase === "Reading text" || j.phase === "Indexing") && has) left = `${fmt(j.done)} of ${fmtSections(j.total)}`;
-	return {
-		step,
-		label,
-		pct,
-		left,
-		right
-	};
-}
-function dockHtml(j, m) {
-	const pctText = m.pct == null ? "" : `${m.pct}%`;
-	const title = j ? escapeHtml(j.label) : "Preparing download";
-	if (dock.min) return `<button type="button" class="dock-mini" data-dock="expand" aria-label="Show download progress: ${title}">
-      <span class="stat-dot is-busy" aria-hidden="true"></span><span class="dock-mini-text">${title}</span>
-      <span class="dock-mini-pct" data-f="pct">${pctText}</span>${icon("chevronUp")}</button>`;
-	const cancelling = j && j.cancelling;
-	const locked = j && j.phase === "Installing";
-	const steps = DOCK_STEPS.map((_, i) => `<span class="${i < m.step ? "is-done" : i === m.step ? "is-now" : ""}"></span>`).join("");
-	const queued = state.jobs.queued;
-	return `<section class="dock-card" aria-label="Downloads">
-    <div class="dock-head">
-      <span class="stat-dot is-busy" aria-hidden="true"></span>
-      <span class="dock-title">${title}</span>
-      <span class="dock-pct" data-f="pct">${pctText}</span>
-      <button type="button" class="dock-icon" data-dock="minimize" title="Minimize" aria-label="Minimize downloads">${icon("chevronDown")}</button>
-    </div>
-    <div class="dock-phase">
-      <span class="dock-phase-text">${escapeHtml(cancelling ? "Cancelling…" : m.label)}</span>
-      ${m.step >= 0 ? `<span class="dock-steps" role="img" aria-label="Step ${m.step + 1} of ${DOCK_STEPS.length}">${steps}</span>` : ""}
-    </div>
-    <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
-    <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
-    <div class="dock-foot">
-      <span class="dock-queue">${queued.length ? `<span class="dock-queue-count">+${queued.length} queued</span>${escapeHtml(queued.map((q) => q.label).join(", "))}` : "Nothing queued"}</span>
-      <span class="dock-acts">
-        ${queued.length ? "<button type=\"button\" class=\"lib-act\" data-dock=\"clear\">Clear queue</button>" : ""}
-        ${j ? `<button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${cancelling || locked ? " disabled" : ""}${locked ? " title=\"Installing: almost done\"" : ""}>${cancelling ? "Cancelling" : "Cancel"}</button>` : ""}
-      </span>
-    </div>
-  </section>`;
-}
-function updateDock() {
-	const el = dock.el;
-	if (!el) return;
-	const j = state.jobs.current;
-	if (!Boolean(j || state.jobs.queued.length)) {
-		if (!el.hidden && !dock.hideT) {
-			el.classList.remove("is-visible");
-			dock.hideT = setTimeout(() => {
-				dock.hideT = null;
-				if (!state.jobs.current && !state.jobs.queued.length) {
-					el.hidden = true;
-					el.innerHTML = "";
-					dock.key = "";
-				}
-			}, 260);
-		}
-		return;
-	}
-	clearTimeout(dock.hideT);
-	dock.hideT = null;
-	recordJobProgress(j);
-	const m = dockModel(j);
-	const key = [
-		dock.min,
-		j && j.id,
-		j && j.cancelling,
-		j && j.phase === "Installing",
-		m.step,
-		m.pct == null,
-		state.jobs.queued.map((q) => q.id).join(".")
-	].join("|");
-	if (key !== dock.key) {
-		const focused = el.contains(document.activeElement) ? document.activeElement.dataset.dock : null;
-		el.innerHTML = dockHtml(j, m);
-		dock.key = key;
-		if (focused) (el.querySelector(`[data-dock="${focused}"]`) || el.querySelector("[data-dock]"))?.focus();
-	} else {
-		const set = (f, v) => {
-			const n = el.querySelector(`[data-f="${f}"]`);
-			if (n && n.textContent !== v) n.textContent = v;
-		};
-		set("pct", m.pct == null ? "" : `${m.pct}%`);
-		set("left", m.left);
-		set("right", m.right);
-		const fill = el.querySelector("[data-f=\"fill\"]");
-		if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
-	}
-	const sr = `${j ? j.label : "Download"}: ${m.label}`;
-	if (sr !== dock.srText) {
-		dock.srText = sr;
-		const live = document.getElementById("transfer-dock-live");
-		if (live) live.textContent = sr;
-	}
-	if (el.hidden) {
-		el.hidden = false;
-		requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("is-visible")));
-	} else el.classList.add("is-visible");
-	el.classList.toggle("is-min", dock.min);
-}
-if (dock.el) dock.el.addEventListener("click", (e) => {
-	const btn = e.target.closest("[data-dock]");
-	if (btn) onDockAction(btn);
-});
-async function onDockAction(btn) {
-	{
-		const act = btn.dataset.dock;
-		if (act === "minimize" || act === "expand") {
-			dock.min = act === "minimize";
-			lsSet("dockMinimized", dock.min ? "1" : "0");
-			dock.key = "";
-			updateDock();
-			dock.el.querySelector("[data-dock]")?.focus();
-			return;
-		}
-		btn.disabled = true;
-		try {
-			if (act === "cancel") await getJSON(`/api/library/jobs/${btn.dataset.id}/cancel`, { method: "POST" });
-			else if (act === "clear") {
-				const res = await getJSON("/api/library/jobs/clear", { method: "POST" });
-				for (const j of res.cancelled || []) state.jobsSeenActive.delete(j.id);
-				if (res.count) showToast(`Cleared ${plural(res.count, "queued download")}`);
-			}
-			await pollJobs();
-		} catch (err) {
-			showToast(err.message, 5e3);
-			btn.disabled = false;
-		}
-	}
-}
-async function refreshTitles(changed = []) {
-	let list;
-	try {
-		list = await getJSON("/api/titles");
-	} catch (e) {
-		return;
-	}
-	const hadNone = state.noTitles;
-	state.installedTitles = list;
-	state.noTitles = list.length === 0;
-	fillTitleSelect();
-	updateRailHome();
-	if (hadNone && list.length) {
-		setReaderEnabled(true);
-		await switchTitle(list[0].title);
-		refreshModelsConfig();
-		if (dom.view.querySelector(".welcome")) {
-			const target = titleHref(list[0].title);
-			if (window.location.hash === target) handleRoute();
-			else window.location.hash = target;
-		}
-		return;
-	}
-	if (!list.some((t) => t.title === state.currentTitle) && list.length) await switchTitle(list[0].title);
-	else if (changed.includes(state.currentTitle)) {
-		state.treeData = null;
-		const meta = list.find((t) => t.title === state.currentTitle);
-		if (meta) state.metaInfo = meta;
-		await switchTitle(state.currentTitle);
-	}
-	if (dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
-}
 // src/views/welcome.js
 state.profilesData = null;
 function profileSummary(p, names) {
@@ -7973,6 +7474,7 @@ function setJobs(snapshot) {
 	for (const j of [state.jobs.current, ...state.jobs.queued]) if (j) state.jobsSeenActive.add(j.id);
 	updateDock();
 	updateNavTransfers();
+	document.dispatchEvent(new CustomEvent("framework:jobs-updated", { detail: { snap: snapshot } }));
 }
 function pollJobsIfActive() {
 	if ((state.jobs.current || state.jobs.queued.length) && !state.jobsTimer) state.jobsTimer = setTimeout(pollJobs, 700);
@@ -7998,6 +7500,10 @@ async function pollJobs() {
 	}
 	if (finished.some((j) => j.state === "done")) await refreshTitles(finished.filter((j) => j.state === "done").map((j) => j.title));
 	if (finished.length) {
+		document.dispatchEvent(new CustomEvent("framework:jobs-finished", { detail: {
+			finished,
+			snap
+		} }));
 		navLib.at = 0;
 		state.navStorage = null;
 		if (drawerShown() && navState.panel === "library") ensureNavLibrary(true).then(renderLibraryPanel).catch(() => {});
@@ -8017,6 +7523,1431 @@ async function pollJobs() {
 	refreshHomeIfActive();
 	pollJobsIfActive();
 }
+// src/components/news_activity.js
+var newsPop = document.getElementById("news-pop");
+var newsActivityCache = /* @__PURE__ */ new Map();
+state.newsActivityCtx = null;
+function newsActivityButtonHtml() {
+	return `<button type="button" class="btn" id="btn-news-activity" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("news")} <span>Activity</span></button>`;
+}
+async function fillNewsActivity(kind, id, seq) {
+	state.newsActivityCtx = null;
+	if (state.currentTitle !== 29) return;
+	const key = `29|${kind === "part" ? "part:" : ""}${id}`;
+	let data = newsActivityCache.get(key);
+	if (!data) {
+		try {
+			data = await getJSON(kind === "part" ? `/api/news/part/${encodeURIComponent(id)}?title=29` : `/api/news/section/${encodeURIComponent(id)}?title=29`);
+		} catch (e) {
+			return;
+		}
+		newsActivityCache.set(key, data);
+	}
+	if (seq !== state.routeSeq) return;
+	const btn = document.getElementById("btn-news-activity");
+	if (!btn || !data.count) return;
+	state.newsActivityCtx = {
+		kind,
+		id,
+		data
+	};
+	btn.querySelector("span").textContent = data.count === 1 ? "1 rule or citation" : `${data.count} rules & citations`;
+	btn.hidden = false;
+}
+function newsTimelineHtml(ctx) {
+	const label = ctx.kind === "part" ? `Part ${ctx.id}` : `§ ${ctx.id}`;
+	const articles = ctx.data.articles || [];
+	const nodes = articles.map((a) => {
+		let meta = fmtDate(a.published_at), second = "";
+		if (a.category === "rules") meta += ` · Final rule${a.citation ? " · " + a.citation : ""}`;
+		else if (a.category === "rulemaking") meta += " · Proposed rule" + (a.comments_close_on ? ` · comments close ${fmtDate(a.comments_close_on)}` : "");
+		else if (a.category === "public_inspection") meta += " · Public inspection" + (a.scheduled_on ? ` · publishes ${fmtDate(a.scheduled_on)}` : "");
+		else if (a.category === "enforcement") {
+			meta += " · Citation" + (a.penalty_usd ? ` · ${fmtMoney(a.penalty_usd)}` : "");
+			second = [a.company, [a.city, a.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
+		} else meta += " · Notice";
+		const title = a.category === "enforcement" && second ? second : a.title;
+		const hay = `${meta} ${title} ${a.citation || ""}`.toLowerCase();
+		return `<li class="tl-node" data-kind="${escapeHtml(a.category)}" data-hay="${escapeHtml(hay)}">
+      <span class="tl-dot" aria-hidden="true"></span>
+      <div class="tl-meta">${escapeHtml(meta)}</div>
+      ${extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`)}
+    </li>`;
+	}).join("");
+	const allHref = ctx.kind === "part" ? `#/news?part=${encodeURIComponent(ctx.id)}` : `#/news?section=${encodeURIComponent(ctx.id)}`;
+	const filterHtml = articles.length >= 6 ? `<input type="search" class="pop-filter" id="news-pop-filter" placeholder="Filter ${articles.length} events…" aria-label="Filter activity events" autocomplete="off">` : "";
+	return `<div class="news-pop-head-row">
+      <div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close activity">${icon("close")}</button>
+    </div>
+    ${filterHtml}
+    <ol class="reg-timeline">${nodes}</ol>
+    <a class="news-pop-foot" href="${allHref}">${icon("news")} See all in News</a>`;
+}
+var newsCtrl = createPopover({
+	el: newsPop,
+	triggerSelector: "#btn-news-activity"
+});
+function openNewsActivity() {
+	const btn = document.getElementById("btn-news-activity");
+	if (!btn || !state.newsActivityCtx) return;
+	newsPop.setAttribute("aria-label", `Federal Register and OSHA activity for ${state.newsActivityCtx.kind === "part" ? "Part " : "§ "}${state.newsActivityCtx.id}`);
+	newsCtrl.open(btn, newsTimelineHtml(state.newsActivityCtx), {
+		focusSelector: "#news-pop-filter, a, button",
+		returnFocus: btn
+	});
+}
+function closeNewsActivity(returnFocus = true) {
+	newsCtrl.close(returnFocus);
+}
+newsPop.addEventListener("click", (e) => {
+	if (e.target.closest("[data-pop-close]")) closeNewsActivity(true);
+});
+newsPop.addEventListener("input", (e) => {
+	if (e.target.id !== "news-pop-filter") return;
+	const q = e.target.value.trim().toLowerCase();
+	for (const li of newsPop.querySelectorAll(".tl-node")) {
+		const hay = li.dataset.hay || "";
+		li.hidden = Boolean(q && !hay.includes(q));
+	}
+	newsCtrl.reposition(document.getElementById("btn-news-activity"));
+});
+dom.view.addEventListener("click", (e) => {
+	if (e.target.closest("#btn-news-activity")) newsPop.hidden ? openNewsActivity() : closeNewsActivity();
+});
+newsPop.addEventListener("keydown", (e) => {
+	if (e.key === "Escape") {
+		e.preventDefault();
+		e.stopPropagation();
+		closeNewsActivity(true);
+	}
+});
+// src/views/doc_utils.js
+var figModal = document.getElementById("figure-modal");
+var figReturnFocus = null;
+function closeFigureModal() {
+	if (!figModal || figModal.hidden) return;
+	figModal.hidden = true;
+	const dialog = figModal.querySelector(".modal-dialog");
+	if (dialog) dialog.innerHTML = "";
+	if (figReturnFocus && typeof figReturnFocus.focus === "function") figReturnFocus.focus();
+	figReturnFocus = null;
+}
+function openFigureModal(figLink) {
+	if (!figModal || !figLink) return;
+	const img = figLink.querySelector(".reg-img");
+	const fullSrc = figLink.getAttribute("href") || img && img.src || "";
+	if (!fullSrc) return;
+	figReturnFocus = document.activeElement;
+	const caption = figLink.previousElementSibling?.classList.contains("reg-label") ? figLink.previousElementSibling.textContent.trim() : "Regulatory Figure";
+	const dialog = figModal.querySelector(".modal-dialog");
+	if (!dialog) return;
+	dialog.innerHTML = `
+    <div class="modal-head">
+      <div>
+        <div class="doc-kicker">Figure preview</div>
+        <h2 class="modal-title" id="fig-modal-title">${escapeHtml(caption)}</h2>
+      </div>
+      <div class="fig-modal-acts">
+        <button type="button" class="btn btn-sm" id="fig-invert-btn" aria-pressed="false">Invert contrast</button>
+        <a class="btn btn-sm" href="${escapeHtml(fullSrc)}" target="_blank" rel="noopener noreferrer">${icon("external")} Full image</a>
+        <button type="button" class="icon-btn" id="fig-close-btn" aria-label="Close preview">${icon("close")}</button>
+      </div>
+    </div>
+    <div class="fig-modal-stage">
+      <img src="${escapeHtml(fullSrc)}" alt="${escapeHtml(caption)}" id="fig-modal-img">
+    </div>
+  `;
+	figModal.hidden = false;
+	document.getElementById("fig-close-btn")?.focus();
+}
+if (figModal) {
+	figModal.addEventListener("click", (e) => {
+		if (e.target === figModal || e.target.closest("#fig-close-btn")) {
+			closeFigureModal();
+			return;
+		}
+		const inv = e.target.closest("#fig-invert-btn");
+		if (inv) {
+			const stage = figModal.querySelector(".fig-modal-stage");
+			if (!stage) return;
+			const on = !stage.classList.contains("is-inverted");
+			stage.classList.toggle("is-inverted", on);
+			inv.setAttribute("aria-pressed", String(on));
+		}
+	});
+	figModal.addEventListener("keydown", (e) => {
+		if (e.key === "Escape") {
+			e.preventDefault();
+			closeFigureModal();
+		}
+	});
+	window.addEventListener("hashchange", closeFigureModal);
+}
+function findParagraphElement(root, pText) {
+	if (!root) return null;
+	const clean = (pText || "").trim();
+	if (!clean) return null;
+	const paras = [...root.querySelectorAll(".reg-p")];
+	for (const p of paras) {
+		const pm = p.querySelector(".pmark");
+		if (pm && pm.textContent.includes(clean)) return p;
+	}
+	const tokens = clean.match(/\([a-zA-Z0-9]{1,4}\)/g);
+	if (!tokens || !tokens.length) return null;
+	let ti = 0;
+	let lastMatched = null;
+	let minLevel = 0;
+	for (const p of paras) {
+		const lvlMatch = /\blvl-(\d+)\b/.exec(p.className);
+		const lvl = lvlMatch ? Number(lvlMatch[1]) : 0;
+		const pm = p.querySelector(".pmark");
+		if (!pm) continue;
+		const pTokens = pm.textContent.match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
+		if (!pTokens.length) continue;
+		if (ti > 0 && lvl > 0 && lvl <= minLevel) {
+			if (lvl === 1 && tokens[0].toLowerCase() !== pTokens[0].toLowerCase()) {
+				ti = 0;
+				minLevel = 0;
+			}
+		}
+		let matchedHere = 0;
+		let tempIdx = ti;
+		for (const pt of pTokens) if (tempIdx < tokens.length && pt.toLowerCase() === tokens[tempIdx].toLowerCase()) {
+			tempIdx++;
+			matchedHere++;
+		} else break;
+		if (matchedHere > 0 && (ti === 0 || lvl > minLevel)) {
+			ti = tempIdx;
+			minLevel = lvl;
+			lastMatched = p;
+			if (ti === tokens.length) return p;
+		}
+	}
+	return lastMatched;
+}
+function findParagraphRange(root, pText) {
+	const clean = (pText || "").trim();
+	if (!clean || !root) return [];
+	const rangeM = /^\s*(\((?:[a-zA-Z0-9]{1,4}|[a-zA-Z0-9()]+\))\s*(?:-|–|through|to)\s*(\([a-zA-Z0-9()]+\))\s*$/i.exec(clean);
+	if (rangeM) {
+		const startEl = findParagraphElement(root, rangeM[1]);
+		const endEl = findParagraphElement(root, rangeM[2]);
+		if (startEl && endEl) {
+			const paras = [...root.querySelectorAll(".reg-p")];
+			const i1 = paras.indexOf(startEl);
+			const i2 = paras.indexOf(endEl);
+			if (i1 >= 0 && i2 >= i1 && i2 - i1 < 16) return paras.slice(i1, i2 + 1);
+			return [startEl];
+		}
+		if (startEl) return [startEl];
+	}
+	const hit = findParagraphElement(root, clean);
+	return hit ? [hit] : [];
+}
+function resolveAnchorTargets(root, target) {
+	if (!root || !target) return [];
+	const clean = String(target).trim();
+	if (!clean) return [];
+	const bareId = clean.startsWith("#") ? clean.slice(1) : clean;
+	if (/^(table|fig|figure|appendix|fn|ftref|sec|p)-?[a-zA-Z0-9_.\-]+$/i.test(bareId)) try {
+		const el = root.querySelector(`#${CSS.escape(bareId)}`);
+		if (el) return [el];
+	} catch (e) {}
+	return findParagraphRange(root, clean);
+}
+function flashElements(els, scroll = true) {
+	if (!els || !els.length) return;
+	for (const el of els) {
+		el.classList.remove("flash");
+		el.offsetWidth;
+		el.classList.add("flash");
+	}
+	if (scroll) els[0].scrollIntoView({
+		behavior: reduceMotion.matches ? "auto" : "smooth",
+		block: "center"
+	});
+}
+function highlightTarget(root, target, delay = 120) {
+	setTimeout(() => {
+		flashElements(resolveAnchorTargets(root, target), true);
+	}, delay);
+}
+function slugifyAnchor(raw) {
+	return raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+function enhanceDomAnchors(root = dom.view) {
+	if (!root) return;
+	const targets = /* @__PURE__ */ new Map();
+	let figSeq = 0;
+	for (const fig of root.querySelectorAll(".reg-figure")) {
+		const cap = fig.previousElementSibling?.classList.contains("reg-label") ? fig.previousElementSibling.textContent.trim() : "";
+		const m = /^\s*(Figure\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(cap);
+		if (!fig.id) {
+			figSeq++;
+			const base = m ? `fig-${slugifyAnchor(m[1].replace(/^figure\s+/i, ""))}` : `fig-${figSeq}`;
+			let id = base;
+			let n = 2;
+			while (root.querySelector(`#${CSS.escape(id)}`)) id = `${base}-${n++}`;
+			fig.id = id;
+		}
+		if (m) targets.set(m[1].toLowerCase(), {
+			label: m[1],
+			id: fig.id
+		});
+	}
+	for (const w of root.querySelectorAll(".table-wrap[id^=\"table-\"]")) {
+		const cap = w.querySelector("caption")?.textContent || "";
+		const m = /^\s*(Table\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(cap);
+		if (m) targets.set(m[1].toLowerCase(), {
+			label: m[1],
+			id: w.id
+		});
+	}
+	for (const appEl of root.querySelectorAll(".reg-appendix[id^=\"appendix-\"]")) {
+		const head = appEl.querySelector(".reg-subhead, .reg-label, .reg-p")?.textContent || "";
+		const m = /^\s*(Appendix\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(head);
+		if (m) targets.set(m[1].toLowerCase(), {
+			label: m[1],
+			id: appEl.id
+		});
+	}
+	if (!targets.size) return;
+	const pattern = [...targets.keys()].map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+	const re = new RegExp(`\\b(${pattern})\\b`, "gi");
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
+		const parent = node.parentElement;
+		if (!parent || !parent.closest(".reg-body") || parent.closest("a, button, caption, .reg-table")) return NodeFilter.FILTER_REJECT;
+		const txt = node.nodeValue || "";
+		return /(?:table|figure|appendix)/i.test(txt) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+	} });
+	const nodes = [];
+	let n;
+	while (n = walker.nextNode()) nodes.push(n);
+	for (const textNode of nodes) {
+		const val = textNode.nodeValue || "";
+		re.lastIndex = 0;
+		if (!re.test(val)) continue;
+		re.lastIndex = 0;
+		const frag = document.createDocumentFragment();
+		let last = 0;
+		let match;
+		while ((match = re.exec(val)) !== null) {
+			if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
+			const hit = targets.get(match[1].toLowerCase());
+			if (hit) {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = "xref xref-anchor";
+				btn.dataset.anchor = hit.id;
+				btn.textContent = match[0];
+				frag.appendChild(btn);
+			} else frag.appendChild(document.createTextNode(match[0]));
+			last = match.index + match[0].length;
+		}
+		if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
+		textNode.parentNode.replaceChild(frag, textNode);
+	}
+}
+function parseCfrHref(href, fallbackTitle = 29) {
+	if (!href) return null;
+	if (href.startsWith("#")) {
+		const [pathPart, qs] = href.slice(1).split("?");
+		const params = new URLSearchParams(qs || "");
+		const mTitleSec = /^\/title\/(\d+)\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
+		if (mTitleSec) return {
+			kind: "section",
+			title: parseInt(mTitleSec[1], 10),
+			section: decodeURIComponent(mTitleSec[2]),
+			unit: mTitleSec[3] ? decodeURIComponent(mTitleSec[3]) : null,
+			para: params.get("p") || null
+		};
+		const mSec = /^\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
+		if (mSec) return {
+			kind: "section",
+			title: fallbackTitle,
+			section: decodeURIComponent(mSec[1]),
+			unit: mSec[2] ? decodeURIComponent(mSec[2]) : null,
+			para: params.get("p") || null
+		};
+		const mTitlePart = /^\/title\/(\d+)\/part\/([^/]+)$/.exec(pathPart);
+		if (mTitlePart) return {
+			kind: "part",
+			title: parseInt(mTitlePart[1], 10),
+			part: decodeURIComponent(mTitlePart[2])
+		};
+		const mPart = /^\/part\/([^/]+)$/.exec(pathPart);
+		if (mPart) return {
+			kind: "part",
+			title: fallbackTitle,
+			part: decodeURIComponent(mPart[1])
+		};
+	}
+	return null;
+}
+// src/views/reader_part.js
+async function loadPart(partId) {
+	dom.view.innerHTML = skeletonHtml("list", "Loading Part " + partId + "…");
+	state.currentSection = null;
+	state.currentPart = partId;
+	updateChatContext();
+	try {
+		const seq = state.routeSeq;
+		const signal = state.routeAbort?.signal;
+		const [frontRes] = await Promise.all([fetch("/api/" + state.currentTitle + "/part/" + encodeURIComponent(partId), { signal }), ensureTreeLoaded()]);
+		const front = frontRes.ok ? await frontRes.json() : {
+			part: "",
+			subparts: {}
+		};
+		if (seq !== state.routeSeq) return;
+		const partNode = findPartInTree(state.treeData, partId);
+		if (!partNode) {
+			if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
+				clearTreeSelection();
+				setViewHead("");
+				await renderResolverPage(dom.view, {
+					title: state.currentTitle,
+					part: partId
+				});
+				return;
+			}
+			renderNotFound();
+			return;
+		}
+		let groupsHtml = "";
+		if (partNode.c) {
+			for (const child of partNode.c) if (child.t === "subpart" || child.t === "subject_group") {
+				const subpartFront = front.subparts[child.id] || "";
+				const sections = (child.c || []).map((s) => `
+            <li class="${s.r ? "reserved" : ""}">
+              <a href="#/section/${encodeURIComponent(s.id)}">
+                <span class="toc-num">${escapeHtml(s.l)}</span>
+                <span class="toc-title">${escapeHtml(tocTitle(s))}</span>
+              </a>
+            </li>
+          `).join("");
+				groupsHtml += `
+            <div class="toc-group">
+              <h3>${escapeHtml(child.d && child.d.trim() !== (child.l || "").trim() ? `${child.l}: ${child.d}` : child.l)}</h3>
+              ${subpartFront ? `<div class="front-matter"><details><summary>Subpart notes</summary>${subpartFront}</details></div>` : ""}
+              <ul class="toc-list">${sections}</ul>
+            </div>
+          `;
+			} else if (child.t === "section" || child.t === "appendix") groupsHtml += `
+            <ul class="toc-list">
+              <li class="${child.r ? "reserved" : ""}">
+                <a href="#/section/${encodeURIComponent(child.id)}">
+                  <span class="toc-num">${escapeHtml(child.l)}</span>
+                  <span class="toc-title">${escapeHtml(tocTitle(child))}</span>
+                </a>
+              </li>
+            </ul>
+          `;
+		}
+		document.title = `Part ${partId} · Title ${state.currentTitle}`;
+		setViewHead(docStepHtml(partId, null, firstSectionOf(partId)));
+		dom.view.innerHTML = `
+      <div class="doc-kicker">${state.currentTitle} CFR ${escapeHtml(partNode.l)}</div>
+      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
+      <div class="doc-actions">
+        <a class="btn" href="#/part/${encodeURIComponent(partId)}/full">${icon("list")} See full part</a>
+        ${newsActivityButtonHtml()}
+      </div>
+      ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ""}
+      ${groupsHtml || "<p class=\"muted\">No sections listed in this part.</p>"}
+    `;
+		enterView();
+		selectTreeNode("p-" + partId);
+		recordPartVisit(partId, partNode.d);
+		fillNewsActivity("part", partId, seq);
+	} catch (err) {
+		if (err && err.name === "AbortError") return;
+		console.error(err);
+		setViewHead("");
+		dom.view.innerHTML = `<div class="msg-error">Failed to load part: ${escapeHtml(err.message)}</div>`;
+	}
+}
+async function loadPartFull(partId, params) {
+	dom.view.innerHTML = skeletonHtml("doc", "Loading Part " + partId + "…");
+	state.currentSection = null;
+	state.currentPart = partId;
+	updateChatContext();
+	try {
+		const seq = state.routeSeq;
+		const signal = state.routeAbort?.signal;
+		await ensureTreeLoaded();
+		if (seq !== state.routeSeq) return;
+		const partNode = findPartInTree(state.treeData, partId);
+		if (!partNode) {
+			if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
+				clearTreeSelection();
+				setViewHead("");
+				await renderResolverPage(dom.view, {
+					title: state.currentTitle,
+					part: partId
+				});
+				return;
+			}
+			renderNotFound();
+			return;
+		}
+		const res = await fetch("/api/" + state.currentTitle + "/part/" + encodeURIComponent(partId) + "/full", { signal });
+		if (seq !== state.routeSeq) return;
+		if (!res.ok) {
+			renderNotFound();
+			return;
+		}
+		const data = await res.json();
+		if (seq !== state.routeSeq) return;
+		const from = params && params.get("from");
+		const anchorId = (id) => "sec-" + String(id).replace(/[^a-zA-Z0-9.\-]/g, "_");
+		const sectionsHtml = (data.sections || []).map((s) => {
+			const num = escapeHtml(s.label);
+			const title = escapeHtml(s.title || "");
+			const body = s.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : s.html || "";
+			return `<article class="full-section${s.id === from ? " is-from" : ""}" id="${anchorId(s.id)}">
+        <header class="full-section-head">
+          <a class="full-section-anchor" href="${sectionHref(s.id)}" title="Open this section on its own">
+            <span class="full-section-num">${num}</span>
+            <span class="full-section-title">${title}</span>
+          </a>
+        </header>
+        ${body}
+      </article>`;
+		}).join("");
+		document.title = `Part ${partId} (full) · Title ${state.currentTitle}`;
+		const [prevPart, nextPart] = partNeighbors(partId);
+		const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(node.id)}/full`, `Part ${node.id}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
+		setViewHead(prevPart || nextPart ? `<nav class="doc-step" aria-label="Previous and next part">${partBtn(prevPart, -1)}<span class="spacer"></span>${partBtn(nextPart, 1)}</nav>` : "");
+		dom.view.innerHTML = `
+      <div class="doc-kicker">${state.currentTitle} CFR ${escapeHtml(partNode.l)} · <a href="#/part/${encodeURIComponent(partId)}">Table of contents</a></div>
+      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
+      ${sectionsHtml || "<p class=\"muted\">No sections in this part.</p>"}
+    `;
+		enhanceDomAnchors(dom.view);
+		recordPartVisit(partId, partNode.d);
+		if (from) {
+			const el = document.getElementById(anchorId(from));
+			if (el) {
+				const start = performance.now();
+				let lastSet = -1;
+				const anchor = () => {
+					if (lastSet >= 0 && Math.abs(dom.main.scrollTop - lastSet) > 4) return;
+					const r = el.getBoundingClientRect();
+					const m = dom.main.getBoundingClientRect();
+					const rel = r.top - m.top;
+					if (rel < 60 || rel > 100) {
+						el.scrollIntoView({ block: "start" });
+						lastSet = dom.main.scrollTop;
+					}
+					if (performance.now() - start < 2500) requestAnimationFrame(anchor);
+				};
+				requestAnimationFrame(anchor);
+			}
+		} else dom.main.scrollTop = 0;
+		selectTreeNode("s-" + (from || data.sections[0] && data.sections[0].id));
+	} catch (err) {
+		if (err && err.name === "AbortError") return;
+		console.error(err);
+		setViewHead("");
+		dom.view.innerHTML = `<div class="msg-error">Failed to load part: ${escapeHtml(err.message)}</div>`;
+	}
+}
+function tocTitle(node) {
+	const l = cleanInlineLabel(node.l || "");
+	const d = cleanInlineLabel(node.d || "");
+	return l && d.startsWith(l) && d.length > l.length ? d.slice(l.length).trim() : d;
+}
+function findPartInTree(node, partId) {
+	if (!node) return null;
+	if (node.t === "part" && String(node.id) === String(partId)) return node;
+	if (node.c) for (const ch of node.c) {
+		const found = findPartInTree(ch, partId);
+		if (found) return found;
+	}
+	return null;
+}
+// src/components/view_head.js
+function setViewHead(html) {
+	const head = dom.viewHead;
+	if (!head) return;
+	const step = head.contains(document.activeElement) ? document.activeElement.dataset.step : null;
+	if (state.railObserver) {
+		state.railObserver.disconnect();
+		state.railObserver = null;
+	}
+	head.innerHTML = html || "";
+	head.hidden = !html;
+	if (step) (head.querySelector(`[data-step="${step}"]`) || head.querySelector("a"))?.focus({ preventScroll: true });
+}
+function firstSectionOf(partId) {
+	const k = treeIdx.parts.get(String(partId));
+	if (k === void 0) return null;
+	const find = (node) => {
+		for (const c of node.c || []) {
+			if (LEAF_TYPES.has(c.t)) return c;
+			const hit = find(c);
+			if (hit) return hit;
+		}
+		return null;
+	};
+	const leaf = find(treeIdx.nodes[k]);
+	return leaf ? {
+		id: leaf.id,
+		label: (leaf.l || "").trim(),
+		title: tocTitle(leaf)
+	} : null;
+}
+function docStepBtn(kind, dir, href, label, name, labelHtml) {
+	const prev = dir < 0;
+	const what = `${prev ? "Previous" : "Next"} ${kind}`;
+	const chevron = icon(prev ? "chevronLeft" : "chevronRight");
+	const title = (name || "").trim();
+	return `<a class="doc-step-btn is-${prev ? "prev" : "next"}" href="${href}" data-step="${kind}-${prev ? "prev" : "next"}" aria-label="${escapeHtml(`${what}: ${label}${title ? " " + title : ""}`)}">${prev ? chevron : ""}<span class="step-label">${labelHtml || escapeHtml(label)}</span>${prev ? "" : chevron}<span class="tip" aria-hidden="true"><span class="tip-kind">${what} · ${escapeHtml(label)}</span>${escapeHtml(title)}</span></a>`;
+}
+function partNeighbors(partId) {
+	const list = treeIdx.partList;
+	const k = treeIdx.parts.get(String(partId));
+	const i = k === void 0 ? -1 : list.indexOf(k);
+	if (i < 0) return [null, null];
+	return [treeIdx.nodes[list[i - 1]] || null, treeIdx.nodes[list[i + 1]] || null];
+}
+function docStepHtml(partId, prevSection, nextSection) {
+	const [prevPart, nextPart] = partNeighbors(partId);
+	const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(node.id)}`, `Part ${node.id}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
+	const sectionBtn = (s, dir) => s ? docStepBtn("section", dir, `#/section/${encodeURIComponent(s.id)}`, s.label, s.title) : "";
+	const sep = "<span class=\"doc-step-sep\" aria-hidden=\"true\"></span>";
+	const left = [partBtn(prevPart, -1), sectionBtn(prevSection, -1)].filter(Boolean).join(sep);
+	const right = [sectionBtn(nextSection, 1), partBtn(nextPart, 1)].filter(Boolean).join(sep);
+	if (!left && !right) return "";
+	return `<nav class="doc-step" aria-label="Previous and next">${left}<span class="spacer"></span>${right}</nav>`;
+}
+// src/components/title_switcher.js
+function searchPlaceholderFor(on) {
+	if (!on) return "Download a title to search";
+	if (window.matchMedia("(max-width: 600px)").matches) return "Search…";
+	return `Search Title ${state.currentTitle} or jump to a section…`;
+}
+function setReaderEnabled(on) {
+	dom.search.disabled = !on;
+	dom.search.placeholder = searchPlaceholderFor(on);
+	dom.chatToggle.disabled = !on;
+	if (!on) {
+		dom.edition.textContent = "";
+		dom.tree.innerHTML = "<div class=\"side-empty\">No titles installed yet. <a href=\"#/\">Pick a profile</a> or open the <a href=\"#/library\">library</a>.</div>";
+	}
+}
+window.matchMedia("(max-width: 600px)").addEventListener?.("change", () => {
+	if (dom.search) dom.search.placeholder = searchPlaceholderFor(!state.noTitles);
+});
+function fillTitleSelect() {
+	if (!dom.titleSelect) return;
+	const cur = state.installedTitles.find((t) => t.title === state.currentTitle);
+	const name = state.noTitles ? "" : cur ? cur.name : state.metaInfo.name || "";
+	document.getElementById("title-select-num").textContent = state.noTitles ? "No titles" : `Title ${state.currentTitle}`;
+	document.getElementById("title-select-name").textContent = name;
+	dom.titleSelect.title = state.noTitles ? "Nothing installed yet. Download titles" : `Title ${state.currentTitle}${name ? ": " + name : ""}. Switch title`;
+	dom.titlePop.innerHTML = `
+    <a class="tm-item tm-download" role="menuitem" href="#/library" tabindex="-1">${icon("download")}<span class="tm-name">Download titles…</span></a>
+    ${state.installedTitles.length ? "<div class=\"tm-sep\" role=\"separator\"></div>" : ""}
+    ${state.installedTitles.map((t) => {
+		const on = t.title === state.currentTitle;
+		return `<button type="button" class="tm-item${on ? " is-current" : ""}" role="menuitemradio" aria-checked="${on}" data-title="${t.title}" tabindex="-1">
+        <span class="tm-num">${t.title}</span><span class="tm-name">${escapeHtml(t.name)}</span>
+        ${t.partial ? "<span class=\"tm-meta\">Partial</span>" : ""}
+        ${on ? icon("check", "tm-check") : "<span class=\"tm-check\" aria-hidden=\"true\"></span>"}
+      </button>`;
+	}).join("")}`;
+}
+var titleMenuItems = () => [...dom.titlePop.querySelectorAll(".tm-item")];
+function openTitleMenu(focusWhich = "current") {
+	if (!dom.titlePop.hidden) return;
+	closeAllPopovers(closeTitleMenu, false);
+	dom.titlePop.hidden = false;
+	dom.titleSelect.setAttribute("aria-expanded", "true");
+	const items = titleMenuItems();
+	const target = focusWhich === "first" ? items[0] : focusWhich === "last" ? items[items.length - 1] : dom.titlePop.querySelector(".is-current") || items[0];
+	target?.focus({ preventScroll: true });
+	target?.scrollIntoView({ block: "nearest" });
+	document.addEventListener("pointerdown", onTitleMenuOutside, true);
+}
+function closeTitleMenu(returnFocus = false) {
+	if (dom.titlePop.hidden) return;
+	dom.titlePop.hidden = true;
+	dom.titleSelect.setAttribute("aria-expanded", "false");
+	document.removeEventListener("pointerdown", onTitleMenuOutside, true);
+	if (returnFocus) dom.titleSelect.focus();
+}
+registerPopoverCloser(closeTitleMenu);
+function onTitleMenuOutside(e) {
+	if (!document.getElementById("title-menu").contains(e.target)) closeTitleMenu(false);
+}
+dom.titleSelect.addEventListener("click", () => {
+	if (dom.titlePop.hidden) openTitleMenu();
+	else closeTitleMenu(false);
+});
+dom.titleSelect.addEventListener("keydown", (e) => {
+	if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+		e.preventDefault();
+		openTitleMenu(e.key === "ArrowUp" ? "last" : "current");
+	}
+});
+dom.titlePop.addEventListener("keydown", (e) => {
+	const items = titleMenuItems();
+	const i = items.indexOf(document.activeElement);
+	const go = (n) => {
+		e.preventDefault();
+		items[(n + items.length) % items.length].focus();
+	};
+	if (e.key === "ArrowDown") go(i + 1);
+	else if (e.key === "ArrowUp") go(i - 1);
+	else if (e.key === "Home") go(0);
+	else if (e.key === "End") go(items.length - 1);
+	else if (e.key === "Escape") {
+		e.preventDefault();
+		e.stopPropagation();
+		closeTitleMenu(true);
+	} else if (e.key === "Tab") closeTitleMenu(false);
+});
+dom.titlePop.addEventListener("click", async (e) => {
+	const item = e.target.closest(".tm-item");
+	if (!item) return;
+	closeTitleMenu(false);
+	if (item.classList.contains("tm-download")) return;
+	const newTitle = parseInt(item.dataset.title, 10);
+	if (newTitle && newTitle !== state.currentTitle) {
+		await switchTitle(newTitle);
+		window.location.hash = `#/title/${newTitle}/`;
+	} else dom.titleSelect.focus();
+});
+function renderNotFound() {
+	clearTreeSelection();
+	document.title = "Not found · FRAMEWORK";
+	setViewHead("");
+	dom.view.innerHTML = `
+    <div class="empty-state">
+      <h2>Page not found</h2>
+      <p>That section or part isn’t in Title ${state.currentTitle}.</p>
+      <a href="#/title/${state.currentTitle}/" class="btn">Back to Title ${state.currentTitle}</a>
+    </div>
+  `;
+	enterView();
+}
+// src/components/sidebar.js
+var LEAF_TYPES = /* @__PURE__ */ new Set(["section", "appendix"]);
+var AGENCY_META = {
+	29: {
+		"sub-A": {
+			code: "DOL",
+			name: "Office of the Secretary of Labor"
+		},
+		"ch-I": {
+			code: "NLRB",
+			name: "National Labor Relations Board"
+		},
+		"ch-II": {
+			code: "OLMS",
+			name: "Federal Transit Employee Protections"
+		},
+		"ch-III": {
+			code: "NRAB",
+			name: "National Railroad Adjustment Board"
+		},
+		"ch-IV": {
+			code: "OLMS",
+			name: "Labor-Management Standards (LMRDA)"
+		},
+		"ch-V": {
+			code: "WHD",
+			name: "Wage and Hour Division (FLSA, FMLA)"
+		},
+		"ch-IX": {
+			code: "CICBC",
+			name: "Construction Industry Collective Bargaining"
+		},
+		"ch-X": {
+			code: "NMB",
+			name: "National Mediation Board"
+		},
+		"ch-XII": {
+			code: "FMCS",
+			name: "Federal Mediation and Conciliation Service"
+		},
+		"ch-XIV": {
+			code: "EEOC",
+			name: "Equal Employment Opportunity Commission"
+		},
+		"ch-XVII": {
+			code: "OSHA",
+			name: "Occupational Safety and Health Admin"
+		},
+		"ch-XX": {
+			code: "OSHRC",
+			name: "Occupational Safety and Health Review"
+		},
+		"ch-XXV": {
+			code: "EBSA",
+			name: "Employee Benefits Security (ERISA)"
+		},
+		"ch-XXVII": {
+			code: "FMSHRC",
+			name: "Federal Mine Safety & Health Review"
+		},
+		"ch-XL": {
+			code: "PBGC",
+			name: "Pension Benefit Guaranty Corporation"
+		}
+	},
+	40: {
+		"ch-I": {
+			code: "EPA",
+			name: "Environmental Protection Agency"
+		},
+		"ch-IV": {
+			code: "DOJ",
+			name: "EPA and Department of Justice"
+		},
+		"ch-V": {
+			code: "CEQ",
+			name: "Council on Environmental Quality"
+		},
+		"ch-VI": {
+			code: "CSB",
+			name: "Chemical Safety and Hazard Investigation Board"
+		},
+		"ch-VII": {
+			code: "DOD",
+			name: "EPA and Defense: Vessel Discharge Standards"
+		},
+		"ch-VIII": {
+			code: "GCERC",
+			name: "Gulf Coast Ecosystem Restoration Council"
+		},
+		"ch-IX": {
+			code: "FPISC",
+			name: "Federal Permitting Improvement Steering Council"
+		}
+	},
+	49: {
+		"sub-A": {
+			code: "DOT",
+			name: "Office of the Secretary of Transportation"
+		},
+		"ch-I": {
+			code: "PHMSA",
+			name: "Pipeline and Hazardous Materials Safety Admin"
+		},
+		"ch-II": {
+			code: "FRA",
+			name: "Federal Railroad Administration"
+		},
+		"ch-III": {
+			code: "FMCSA",
+			name: "Federal Motor Carrier Safety Administration"
+		},
+		"ch-IV": {
+			code: "USCG",
+			name: "Coast Guard"
+		},
+		"ch-V": {
+			code: "NHTSA",
+			name: "National Highway Traffic Safety Admin"
+		},
+		"ch-VI": {
+			code: "FTA",
+			name: "Federal Transit Administration"
+		},
+		"ch-VII": {
+			code: "Amtrak",
+			name: "National Railroad Passenger Corporation"
+		},
+		"ch-VIII": {
+			code: "NTSB",
+			name: "National Transportation Safety Board"
+		},
+		"ch-X": {
+			code: "STB",
+			name: "Surface Transportation Board"
+		},
+		"ch-XII": {
+			code: "TSA",
+			name: "Transportation Security Administration"
+		}
+	}
+};
+function agencyMeta(node) {
+	return (AGENCY_META[state.currentTitle] || {})[agencyKeyForNode(node)] || null;
+}
+var treeIdx = {
+	nodes: [],
+	parent: [],
+	sections: /* @__PURE__ */ new Map(),
+	parts: /* @__PURE__ */ new Map(),
+	agencies: /* @__PURE__ */ new Map(),
+	partList: [],
+	agencyList: []
+};
+state.visited = loadVisited();
+state.treePromise = null;
+state.currentTreeKey = null;
+state.currentPartKey = null;
+state.currentAgencyKey = null;
+state.rootViewMode = lsGet("rootViewMode") === "all-parts" ? "all-parts" : "agencies";
+state.sideView = state.rootViewMode;
+state.treeFilterState = null;
+function visitedKey() {
+	return state.currentTitle === 29 ? "visited" : "visited-" + state.currentTitle;
+}
+function loadVisited() {
+	try {
+		return new Set(JSON.parse(lsGet(visitedKey()) || "[]"));
+	} catch (e) {
+		return /* @__PURE__ */ new Set();
+	}
+}
+async function switchTitle(newTitle) {
+	if (newTitle === state.currentTitle && state.treeData) return;
+	state.currentTitle = newTitle;
+	fillTitleSelect();
+	const titleMeta = state.installedTitles.find((t) => t.title === newTitle);
+	if (titleMeta) {
+		state.metaInfo = titleMeta;
+		dom.edition.textContent = `eCFR ${titleMeta.edition || ""}`;
+	}
+	dom.search.placeholder = searchPlaceholderFor(true);
+	dom.chatText.placeholder = `Ask about this section, or anything in Title ${newTitle}…`;
+	updateRailHome();
+	applyNav();
+	state.treePromise = null;
+	state.treeData = null;
+	treeIdx.nodes = [];
+	treeIdx.parent = [];
+	treeIdx.sections = /* @__PURE__ */ new Map();
+	treeIdx.parts = /* @__PURE__ */ new Map();
+	treeIdx.agencies = /* @__PURE__ */ new Map();
+	treeIdx.partList = [];
+	treeIdx.agencyList = [];
+	state.currentTreeKey = null;
+	state.currentPartKey = null;
+	state.currentAgencyKey = null;
+	clearFilterQuietly();
+	state.visited = loadVisited();
+	state.sideView = state.rootViewMode;
+	dom.tree.innerHTML = skeletonHtml("tree", "Loading contents…");
+	await ensureTreeLoaded();
+}
+function ensureTreeLoaded() {
+	if (!state.treePromise) state.treePromise = fetch("/api/" + state.currentTitle + "/tree").then((res) => {
+		if (!res.ok) throw new Error("HTTP " + res.status);
+		return res.json();
+	}).then((data) => {
+		state.treeData = data;
+		indexTree(data);
+		renderSidebar();
+	}).catch((err) => {
+		state.treePromise = null;
+		dom.tree.innerHTML = `<div class="side-empty">Couldn't load the contents (${escapeHtml(err.message)}).</div>`;
+		throw err;
+	});
+	return state.treePromise;
+}
+function normalizeForMatch(s) {
+	return " " + String(s).toLowerCase().replace(/[§,;:()[\]"'\/–—]/g, " ").replace(/\s+/g, " ").trim() + " ";
+}
+function plural(n, word) {
+	return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+function formatRange(range) {
+	return String(range || "").trim().replace(/\s*[–-]\s*/g, "–");
+}
+function isAgencyNode(node) {
+	return !!node && (node.t === "chapter" || node.t === "subtitle" && String(node.id) === "A");
+}
+function agencyKeyForNode(node) {
+	if (!node) return "";
+	if (node.t === "subtitle") return "sub-" + String(node.id || "").trim();
+	if (node.t === "chapter") return "ch-" + String(node.id || "").trim();
+	return "";
+}
+function agencyInfo(node) {
+	if (!node) return {
+		code: "CFR",
+		name: "",
+		range: ""
+	};
+	const meta = agencyMeta(node) || {};
+	const roman = /^[IVXLC]+$/.test(String(node.id)) ? node.id : "";
+	return {
+		code: meta.code || (node.t === "subtitle" ? `Sub. ${node.id}` : roman ? `Ch. ${roman}` : "Ch."),
+		name: meta.name || (node.d || node.l || "").trim().replace(/^Chapter\s+[IVXLC]+\s*[—–-]\s*/i, "").replace(/,\s*Department of [A-Z][A-Za-z ]+$/, ""),
+		range: formatRange(node.range)
+	};
+}
+function agencyOf(k) {
+	for (let p = k; p >= 0; p = treeIdx.parent[p]) if (isAgencyNode(treeIdx.nodes[p])) return p;
+	return null;
+}
+function indexTree(root) {
+	const walk = (node, parentKey) => {
+		const k = treeIdx.nodes.length;
+		node.k = k;
+		node.l = cleanInlineLabel(node.l);
+		node.d = cleanInlineLabel(node.d);
+		treeIdx.nodes.push(node);
+		treeIdx.parent.push(parentKey);
+		const label = node.l;
+		const desc = node.d;
+		let hayText = desc && desc !== label ? `${label} ${desc}` : label || desc;
+		node.partCount = 0;
+		if (isAgencyNode(node)) {
+			treeIdx.agencies.set(agencyKeyForNode(node), k);
+			treeIdx.agencyList.push(k);
+			const meta = agencyMeta(node);
+			if (meta) hayText += ` ${meta.code} ${meta.name}`;
+		}
+		node.hay = normalizeForMatch(hayText);
+		if (LEAF_TYPES.has(node.t)) {
+			treeIdx.sections.set(String(node.id), k);
+			node.n = node.r ? 0 : 1;
+			return;
+		}
+		if (node.t === "part") {
+			treeIdx.parts.set(String(node.id), k);
+			if (!node.r) treeIdx.partList.push(k);
+		}
+		node.n = 0;
+		for (const child of node.c || []) {
+			walk(child, k);
+			node.n += child.n;
+			if (child.t === "part" && !child.r) node.partCount += 1;
+			else if (child.partCount) node.partCount += child.partCount;
+		}
+	};
+	walk(root, -1);
+}
+function isWithin(k, ancestorK) {
+	for (let p = k; p >= 0; p = treeIdx.parent[p]) if (p === ancestorK) return true;
+	return false;
+}
+function partOf(k) {
+	for (let p = k; p >= 0; p = treeIdx.parent[p]) if (treeIdx.nodes[p].t === "part") return p;
+	return null;
+}
+function rowParts(node) {
+	const l = (node.l || "").trim();
+	let d = (node.d || "").trim();
+	if (l && d.startsWith(l) && d.length > l.length) d = d.slice(l.length).trim();
+	if (node.t === "appendix") {
+		const m = /^Appendix\s+(?!to\b)(\S+)/i.exec(l);
+		return [m ? `App. ${m[1]}` : "App.", d || l];
+	}
+	return [String(node.id), d];
+}
+function tooltipFor(node) {
+	const l = (node.l || "").trim();
+	const d = (node.d || "").trim();
+	return d && d !== l ? `${l} — ${d}` : l || d;
+}
+function hl(str) {
+	const text = String(str ?? "");
+	const re = state.treeFilterState && state.treeFilterState.re;
+	if (!re) return escapeHtml(text);
+	let out = "";
+	let last = 0;
+	for (const m of text.matchAll(re)) {
+		const start = m.index + m[1].length;
+		out += escapeHtml(text.slice(last, start)) + "<mark>" + escapeHtml(m[2]) + "</mark>";
+		last = start + m[2].length;
+	}
+	return out + escapeHtml(text.slice(last));
+}
+function itemHtml(node) {
+	const leaf = LEAF_TYPES.has(node.t);
+	const [num, text] = rowParts(node);
+	const href = `#/${leaf ? "section" : "part"}/${encodeURIComponent(node.id)}`;
+	const isPage = node.k === state.currentTreeKey;
+	const isAncestor = !isPage && !leaf && node.k === state.currentPartKey;
+	const cls = ["side-item", leaf ? "is-section" : "is-part"];
+	if (isPage) cls.push("current");
+	if (isAncestor) cls.push("ancestor-current");
+	if (leaf && state.visited.has(String(node.id))) cls.push("visited");
+	return `<a class="${cls.join(" ")}" href="${href}" data-k="${node.k}" title="${escapeHtml(tooltipFor(node))}"${isPage ? " aria-current=\"page\"" : ""}><span class="side-num">${hl(num)}</span><span class="side-text">${hl(text)}</span></a>`;
+}
+function agencyRowHtml(node) {
+	const info = agencyInfo(node);
+	const isAncestor = node.k === state.currentAgencyKey;
+	const meta = [info.range && `Parts ${info.range}`, plural(node.partCount || 0, "part")].filter(Boolean).join(" · ");
+	return `<button type="button" class="side-agency${isAncestor ? " ancestor-current" : ""}" data-action="agency" data-k="${node.k}" title="${escapeHtml(tooltipFor(node))}"><span class="side-agency-code">${hl(info.code)}</span><span class="side-agency-body"><span class="side-agency-name">${hl(info.name)}</span><span class="side-agency-meta">${escapeHtml(meta)}</span></span></button>`;
+}
+function agencyLabelHtml(agencyNode) {
+	const info = agencyInfo(agencyNode);
+	return `<div class="side-label"><span class="side-label-code">${escapeHtml(info.code)}</span> ${escapeHtml(info.name)}</div>`;
+}
+function groupedHtml(keys) {
+	let html = "";
+	let lastAgency = -2;
+	for (const k of keys) {
+		const node = treeIdx.nodes[k];
+		if (isAgencyNode(node)) {
+			html += agencyRowHtml(node);
+			lastAgency = k;
+			continue;
+		}
+		const agency = agencyOf(k);
+		if (agency !== lastAgency) {
+			if (agency != null) html += agencyLabelHtml(treeIdx.nodes[agency]);
+			lastAgency = agency;
+		}
+		html += itemHtml(node);
+	}
+	return `<div class="side-list">${html}</div>`;
+}
+function crumbsHtml(crumbs) {
+	return `<nav class="side-breadcrumbs" aria-label="Sidebar location">${crumbs.map((c, i) => {
+		if (i === crumbs.length - 1) return `<span class="side-crumb-current" aria-current="location">${escapeHtml(c.label)}</span>`;
+		const kAttr = c.k != null ? ` data-k="${c.k}"` : "";
+		return `<button type="button" class="side-crumb" data-action="${c.action}"${kAttr}>${escapeHtml(c.label)}</button>`;
+	}).join("<span class=\"side-sep\" aria-hidden=\"true\">›</span>")}</nav>`;
+}
+function agenciesListHtml() {
+	return `<div class="side-list side-agencies-list">${treeIdx.agencyList.map((k) => agencyRowHtml(treeIdx.nodes[k])).join("")}</div>`;
+}
+function agencyViewHtml(agency) {
+	const info = agencyInfo(agency);
+	let body = "";
+	for (const c of agency.c || []) {
+		if (c.r) continue;
+		if (c.t === "part") body += itemHtml(c);
+		else if (c.t === "subchapter") {
+			const parts = (c.c || []).filter((ch) => ch.t === "part" && !ch.r);
+			if (!parts.length) continue;
+			const l = (c.l || "").trim();
+			const d = (c.d || "").trim();
+			body += `<div class="side-label">${escapeHtml(d ? `${l} — ${d}` : l)}</div>`;
+			body += parts.map(itemHtml).join("");
+		}
+	}
+	const meta = [info.range && `Parts ${info.range}`, plural(agency.partCount || 0, "part")].filter(Boolean).join(" · ");
+	return `<div class="side-head">` + crumbsHtml([{
+		label: "Agencies",
+		action: "agencies"
+	}, { label: info.code }]) + `<div class="side-heading" title="${escapeHtml(tooltipFor(agency))}"><div class="side-heading-title">${escapeHtml(info.name)}</div><div class="side-heading-meta">${escapeHtml(meta)}</div></div></div><div class="side-list">${body}</div>`;
+}
+function partsListHtml() {
+	return groupedHtml(treeIdx.partList);
+}
+state.foldedGroups = (() => {
+	try {
+		return new Set(JSON.parse(lsGet("sideFolded") || "[]"));
+	} catch (e) {
+		return /* @__PURE__ */ new Set();
+	}
+})();
+function groupKey(part, sub) {
+	return `${state.currentTitle}|${part.id}|${sub.id}`;
+}
+function saveFolded() {
+	lsSet("sideFolded", JSON.stringify([...state.foldedGroups]));
+}
+function setGroupOpen(group, open, save = true) {
+	group.classList.toggle("is-folded", !open);
+	group.querySelector(".side-group-toggle")?.setAttribute("aria-expanded", String(open));
+	if (group.dataset.group) {
+		if (open) state.foldedGroups.delete(group.dataset.group);
+		else state.foldedGroups.add(group.dataset.group);
+		if (save) saveFolded();
+	}
+}
+function partViewHtml(part) {
+	const walk = (node) => {
+		let out = "";
+		for (const c of node.c || []) {
+			if (c.r) continue;
+			if (LEAF_TYPES.has(c.t)) out += itemHtml(c);
+			else if (c.n) {
+				const l = (c.l || "").trim();
+				const d = (c.d || "").trim();
+				if (c.t === "subpart") {
+					const key = groupKey(part, c);
+					const folded = state.foldedGroups.has(key) && !(state.currentTreeKey != null && isWithin(state.currentTreeKey, c.k));
+					out += `<div class="side-group${folded ? " is-folded" : ""}" data-group="${escapeHtml(key)}"><button type="button" class="side-label side-group-toggle" data-action="toggle-group" aria-expanded="${!folded}"><span class="side-group-name">${escapeHtml(d ? `${l} — ${d}` : l)}</span>${icon("chevronDown", "side-group-caret")}</button><div class="side-group-body"><div class="side-group-inner">${walk(c)}</div></div></div>`;
+				} else out += `<div class="side-label minor">${escapeHtml(d || l)}</div>` + walk(c);
+			}
+		}
+		return out;
+	};
+	const body = walk(part);
+	const agencyKey = agencyOf(part.k);
+	const crumbs = state.rootViewMode === "agencies" && agencyKey != null ? [{
+		label: "Agencies",
+		action: "agencies"
+	}, {
+		label: agencyInfo(treeIdx.nodes[agencyKey]).code,
+		action: "agency",
+		k: agencyKey
+	}] : [{
+		label: "All parts",
+		action: "parts"
+	}];
+	crumbs.push({ label: `Part ${part.id}` });
+	return `<div class="side-head">` + crumbsHtml(crumbs) + `<a class="side-part-title${part.k === state.currentTreeKey ? " current" : ""}" href="#/part/${encodeURIComponent(part.id)}"${part.k === state.currentTreeKey ? " aria-current=\"page\"" : ""}>${escapeHtml((part.d || "").trim())}</a></div><div class="side-list">${body}</div>`;
+}
+function filterResultsHtml() {
+	const f = state.treeFilterState;
+	const q = f.q.trim();
+	const fullText = `<a class="side-fulltext" href="#/search?q=${encodeURIComponent(q)}">Search the full text for “${escapeHtml(q)}”</a>`;
+	if (!f.results.length) return `<div class="side-empty">Nothing matches.</div>${fullText}`;
+	return groupedHtml(f.results) + fullText;
+}
+function updateNavTabsUI() {
+	const tabs = document.getElementById("side-nav-tabs");
+	if (!tabs) return;
+	tabs.hidden = !!state.treeFilterState;
+	const isAllParts = state.rootViewMode === "all-parts";
+	const tabAgencies = document.getElementById("tab-agencies");
+	const tabParts = document.getElementById("tab-parts");
+	if (tabAgencies && tabParts) {
+		tabAgencies.classList.toggle("active", !isAllParts);
+		tabAgencies.setAttribute("aria-selected", String(!isAllParts));
+		tabParts.classList.toggle("active", isAllParts);
+		tabParts.setAttribute("aria-selected", String(isAllParts));
+		tabParts.textContent = `All ${treeIdx.partList.length} parts`;
+	}
+}
+function renderSidebar() {
+	if (!state.treeData) return;
+	updateNavTabsUI();
+	if (state.treeFilterState) dom.tree.innerHTML = filterResultsHtml();
+	else if (state.sideView === "agencies") dom.tree.innerHTML = agenciesListHtml();
+	else if (state.sideView === "all-parts") dom.tree.innerHTML = partsListHtml();
+	else if (typeof state.sideView === "number") {
+		const node = treeIdx.nodes[state.sideView];
+		dom.tree.innerHTML = isAgencyNode(node) ? agencyViewHtml(node) : partViewHtml(node);
+	}
+	dom.tree.scrollTop = 0;
+}
+function clearFilterQuietly() {
+	if (!state.treeFilterState && !dom.treeFilter.value) return;
+	clearTimeout(state.filterTimer);
+	dom.treeFilter.value = "";
+	state.treeFilterState = null;
+}
+function showAgenciesList() {
+	state.rootViewMode = "agencies";
+	lsSet("rootViewMode", "agencies");
+	state.sideView = "agencies";
+	renderSidebar();
+	revealCurrent(false);
+}
+function showAgencyView(k) {
+	state.rootViewMode = "agencies";
+	lsSet("rootViewMode", "agencies");
+	state.sideView = k;
+	renderSidebar();
+	revealCurrent(false);
+}
+function showPartsList() {
+	state.rootViewMode = "all-parts";
+	lsSet("rootViewMode", "all-parts");
+	state.sideView = "all-parts";
+	renderSidebar();
+	revealCurrent(false);
+}
+function selectTreeNode(elementId) {
+	if (!state.treeData) return;
+	const m = /^([sp])-(.+)$/.exec(elementId);
+	if (!m) return;
+	const k = (m[1] === "s" ? treeIdx.sections : treeIdx.parts).get(m[2]);
+	if (k === void 0) return;
+	state.currentTreeKey = k;
+	state.currentPartKey = partOf(k);
+	state.currentAgencyKey = agencyOf(k);
+	if (m[1] === "s") markVisited(m[2]);
+	const switchPart = state.currentPartKey != null && state.sideView !== state.currentPartKey;
+	if (switchPart) state.sideView = state.currentPartKey;
+	if (state.treeFilterState) {
+		refreshCurrent();
+		return;
+	}
+	if (switchPart) {
+		const hadFocus = dom.tree.contains(document.activeElement);
+		renderSidebar();
+		revealCurrent(false);
+		if (hadFocus) (dom.tree.querySelector(".side-item.current") || dom.tree.querySelector(".side-part-title"))?.focus({ preventScroll: true });
+	} else {
+		refreshCurrent();
+		revealCurrent(true);
+	}
+}
+function refreshCurrent() {
+	dom.tree.querySelectorAll(".current, .ancestor-current").forEach((el) => {
+		el.classList.remove("current", "ancestor-current");
+		el.removeAttribute("aria-current");
+	});
+	if (state.currentTreeKey == null) return;
+	const markPage = (el) => {
+		if (el) {
+			el.classList.add("current");
+			el.setAttribute("aria-current", "page");
+		}
+	};
+	const markAncestor = (el) => {
+		if (el && !el.classList.contains("current")) el.classList.add("ancestor-current");
+	};
+	const page = dom.tree.querySelector(`.side-item[data-k="${state.currentTreeKey}"]`);
+	markPage(page);
+	const folded = page && page.closest(".side-group.is-folded");
+	if (folded) setGroupOpen(folded, true);
+	if (state.currentTreeKey === state.currentPartKey) {
+		if (state.sideView === state.currentPartKey) markPage(dom.tree.querySelector(".side-part-title"));
+	} else markAncestor(dom.tree.querySelector(`.side-item.is-part[data-k="${state.currentPartKey}"]`));
+	markAncestor(dom.tree.querySelector(`.side-agency[data-k="${state.currentAgencyKey}"]`));
+}
+function clearTreeSelection() {
+	if (state.currentTreeKey == null) return;
+	state.currentTreeKey = null;
+	state.currentPartKey = null;
+	state.currentAgencyKey = null;
+	refreshCurrent();
+}
+function revealCurrent(smooth = false) {
+	const el = dom.tree.querySelector(".side-item.current") || dom.tree.querySelector(".side-item.ancestor-current, .side-agency.ancestor-current");
+	if (el) scrollIntoTree(el, smooth);
+}
+function scrollIntoTree(el, smooth) {
+	const box = dom.tree.getBoundingClientRect();
+	if (!box.height) return;
+	const head = dom.tree.querySelector(".side-head");
+	const top = box.top + (head && !head.contains(el) ? head.offsetHeight : 0);
+	const r = el.getBoundingClientRect();
+	if (r.top < top + 4 || r.bottom > box.bottom - 4) dom.tree.scrollTo({
+		top: dom.tree.scrollTop + r.top - box.top - box.height / 3,
+		behavior: smooth ? "smooth" : "auto"
+	});
+}
+function markVisited(id) {
+	if (state.visited.has(id)) return;
+	state.visited.add(id);
+	lsSet(visitedKey(), JSON.stringify([...state.visited]));
+	dom.tree.querySelector(`.side-item.is-section[data-k="${treeIdx.sections.get(id)}"]`)?.classList.add("visited");
+}
+function escapeRegExp(s) {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function computeFilter(q) {
+	const cleaned = q.trim().replace(/^\d{1,2}\s*c\.?\s*f\.?\s*r\.?\s*/i, "");
+	const tokens = [...new Set(normalizeForMatch(cleaned).trim().split(" ").filter(Boolean))].slice(0, 12);
+	if (!tokens.length) return null;
+	const ALL = (1 << tokens.length) - 1;
+	const total = treeIdx.nodes.length;
+	const own = new Int32Array(total);
+	const anc = new Int32Array(total);
+	const ancFull = new Uint8Array(total);
+	const results = [];
+	for (const node of treeIdx.nodes) {
+		const k = node.k;
+		const p = treeIdx.parent[k];
+		let m = 0;
+		for (let i = 0; i < tokens.length; i++) if (node.hay.includes(" " + tokens[i])) m |= 1 << i;
+		own[k] = m;
+		if (p >= 0) {
+			anc[k] = anc[p] | own[p];
+			ancFull[k] = ancFull[p] || own[p] === ALL ? 1 : 0;
+		}
+		if (node.r || !(node.t === "part" || LEAF_TYPES.has(node.t) || isAgencyNode(node))) continue;
+		if (m === ALL || m !== 0 && (m | anc[k]) === ALL && !ancFull[k]) {
+			results.push(k);
+			if (results.length >= 100) break;
+		}
+	}
+	const alt = tokens.map(escapeRegExp).sort((a, b) => b.length - a.length).join("|");
+	return {
+		q,
+		re: new RegExp(`(^|[\\s§,;:()\\[\\]"'/\\u2013\\u2014])(${alt})`, "gi"),
+		results
+	};
+}
+function applyTreeFilter() {
+	if (!state.treeData) return;
+	state.treeFilterState = computeFilter(dom.treeFilter.value);
+	renderSidebar();
+	if (!state.treeFilterState) revealCurrent(false);
+}
+state.filterTimer = 0;
+dom.treeFilter.addEventListener("input", () => {
+	clearTimeout(state.filterTimer);
+	state.filterTimer = setTimeout(applyTreeFilter, 120);
+});
+dom.treeFilter.addEventListener("keydown", (e) => {
+	if (e.key === "Escape") {
+		e.preventDefault();
+		if (dom.treeFilter.value) {
+			dom.treeFilter.value = "";
+			applyTreeFilter();
+		} else dom.treeFilter.blur();
+	} else if (e.key === "ArrowDown") {
+		const first = dom.tree.querySelector("a, button");
+		if (first) {
+			e.preventDefault();
+			first.focus();
+		}
+	} else if (e.key === "Enter") {
+		e.preventDefault();
+		clearTimeout(state.filterTimer);
+		applyTreeFilter();
+		const q = dom.treeFilter.value.trim();
+		const first = dom.tree.querySelector(".side-item, .side-agency");
+		if (first) {
+			if (first.tagName === "A") window.location.hash = first.getAttribute("href");
+			else first.click();
+		} else if (q) window.location.hash = `#/search?q=${encodeURIComponent(q)}`;
+	}
+});
+dom.tree.addEventListener("click", (e) => {
+	const toggle = e.target.closest("[data-action=\"toggle-group\"]");
+	if (toggle) {
+		const group = toggle.closest(".side-group");
+		const open = group.classList.contains("is-folded");
+		if (e.altKey) {
+			dom.tree.querySelectorAll(".side-group").forEach((g) => setGroupOpen(g, open, false));
+			saveFolded();
+		} else setGroupOpen(group, open);
+		return;
+	}
+	const action = e.target.closest("[data-action]");
+	if (action) {
+		const kind = action.dataset.action;
+		const k = parseInt(action.dataset.k, 10);
+		clearFilterQuietly();
+		if (kind === "agencies") showAgenciesList();
+		else if (kind === "parts") showPartsList();
+		else if (kind === "agency" && !isNaN(k)) showAgencyView(k);
+		else return;
+		if (e.detail === 0) (dom.tree.querySelector(".current, .ancestor-current") || dom.tree.querySelector("a, button"))?.focus({ preventScroll: true });
+		return;
+	}
+	const link = e.target.closest("a");
+	if (link && link.getAttribute("href") === window.location.hash && isFly() && flyOpen()) closeDrawer();
+});
+var sideNavTabs = document.getElementById("side-nav-tabs");
+if (sideNavTabs) sideNavTabs.addEventListener("click", (e) => {
+	const btn = e.target.closest(".side-nav-tab");
+	if (!btn) return;
+	if (btn.dataset.mode === "agencies") showAgenciesList();
+	else showPartsList();
+});
+dom.tree.addEventListener("keydown", (e) => {
+	if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+	const items = [...dom.tree.querySelectorAll("a, button")].filter((el) => !el.closest(".side-group.is-folded .side-group-body"));
+	const i = items.indexOf(document.activeElement);
+	if (i < 0) return;
+	e.preventDefault();
+	const next = items[i + (e.key === "ArrowDown" ? 1 : -1)];
+	if (next) {
+		next.focus({ preventScroll: true });
+		scrollIntoTree(next, false);
+	} else if (e.key === "ArrowUp") dom.treeFilter.focus();
+});
 // src/panels/projects_panel.js
 state.newProjectOpen = false;
 function showNewProjectForm() {
@@ -8374,7 +9305,10 @@ function renderPinMenu() {
 	const sec = currentSectionRef();
 	if (!sec) return;
 	const list = loadProjects();
-	pinPop.innerHTML = `<div class="pin-head">Pin <strong>${escapeHtml(sec.label)}</strong> to</div>
+	pinPop.innerHTML = `<div class="pin-head">
+      <span>Pin <strong>${escapeHtml(sec.label)}</strong> to</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close pin menu">${icon("close")}</button>
+    </div>
     ${list.length ? `<div class="pin-list" role="group" aria-label="Workspaces">${list.map((p) => {
 		const on = p.sections.some((s) => s.title === sec.title && s.id === sec.id);
 		return `<button type="button" class="pin-opt" role="menuitemcheckbox" aria-checked="${on}" data-proj="${escapeHtml(p.id)}">
@@ -8382,41 +9316,33 @@ function renderPinMenu() {
 	}).join("")}</div>` : "<p class=\"pin-none\">No workspaces yet. Name one to start.</p>"}
     <form class="pin-new"><input class="dr-input" name="name" placeholder="New workspace…" maxlength="80" autocomplete="off" aria-label="New workspace name"></form>`;
 }
+var pinCtrl = createPopover({
+	el: pinPop,
+	triggerSelector: "#btn-pin"
+});
 function openPinMenu() {
 	if (!state.currentSection) return;
 	renderPinMenu();
-	pinPop.hidden = false;
 	const btn = document.getElementById("btn-pin");
-	const r = btn ? btn.getBoundingClientRect() : {
-		left: window.innerWidth / 2 - 140,
-		bottom: 120
-	};
-	const w = pinPop.offsetWidth;
-	pinPop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
-	pinPop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - pinPop.offsetHeight - 8)}px`;
-	if (btn) btn.setAttribute("aria-expanded", "true");
-	(pinPop.querySelector(".pin-opt") || pinPop.querySelector("input"))?.focus();
-	setTimeout(() => document.addEventListener("pointerdown", onPinOutside), 0);
+	pinCtrl.open(btn, null, {
+		focusSelector: ".pin-opt, .pin-new input",
+		returnFocus: btn || document.activeElement
+	});
 }
 function closePinMenu(returnFocus = true) {
-	if (pinPop.hidden) return;
-	pinPop.hidden = true;
-	document.removeEventListener("pointerdown", onPinOutside);
-	const btn = document.getElementById("btn-pin");
-	if (btn) {
-		btn.setAttribute("aria-expanded", "false");
-		if (returnFocus) btn.focus();
-	}
-}
-function onPinOutside(e) {
-	if (!pinPop.contains(e.target) && !e.target.closest("#btn-pin")) closePinMenu(false);
+	pinCtrl.close(returnFocus);
 }
 pinPop.addEventListener("click", (e) => {
+	if (e.target.closest("[data-pop-close]")) {
+		closePinMenu(true);
+		return;
+	}
 	const opt = e.target.closest(".pin-opt");
 	if (!opt) return;
 	togglePin(opt.dataset.proj, currentSectionRef());
 	const focusId = opt.dataset.proj;
 	renderPinMenu();
+	pinCtrl.reposition(document.getElementById("btn-pin"));
 	pinPop.querySelector(`.pin-opt[data-proj="${focusId}"]`)?.focus();
 });
 pinPop.addEventListener("submit", (e) => {
@@ -8426,16 +9352,19 @@ pinPop.addEventListener("submit", (e) => {
 	const p = createProject(name);
 	togglePin(p.id, currentSectionRef());
 	renderPinMenu();
+	pinCtrl.reposition(document.getElementById("btn-pin"));
 	pinPop.querySelector(`.pin-opt[data-proj="${p.id}"]`)?.focus();
 });
 pinPop.addEventListener("keydown", (e) => {
 	if (e.key === "Escape") {
 		e.preventDefault();
-		closePinMenu();
+		e.stopPropagation();
+		closePinMenu(true);
 		return;
 	}
 	if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
 	const items = [...pinPop.querySelectorAll(".pin-opt, input")];
+	if (!items.length) return;
 	const i = items.indexOf(document.activeElement);
 	e.preventDefault();
 	items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
@@ -8443,7 +9372,6 @@ pinPop.addEventListener("keydown", (e) => {
 dom.view.addEventListener("click", (e) => {
 	if (e.target.closest("#btn-pin")) pinPop.hidden ? openPinMenu() : closePinMenu();
 });
-window.addEventListener("hashchange", () => closePinMenu(false));
 // src/panels/recent_panel.js
 function renderHistoryPanel() {
 	const u = loadUsage();
@@ -9042,1126 +9970,1311 @@ dom.chatNew.addEventListener("click", () => {
 });
 dom.chatToggle.addEventListener("click", toggleChat);
 dom.chatClose.addEventListener("click", closeChat);
-// src/components/news_activity.js
-var newsPop = document.getElementById("news-pop");
-var newsActivityCache = /* @__PURE__ */ new Map();
-state.newsActivityCtx = null;
-function newsActivityButtonHtml() {
-	return `<button type="button" class="btn" id="btn-news-activity" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("news")} <span>Activity</span></button>`;
-}
-async function fillNewsActivity(kind, id, seq) {
-	state.newsActivityCtx = null;
-	if (state.currentTitle !== 29) return;
-	const key = `29|${kind === "part" ? "part:" : ""}${id}`;
-	let data = newsActivityCache.get(key);
-	if (!data) {
-		try {
-			data = await getJSON(kind === "part" ? `/api/news/part/${encodeURIComponent(id)}?title=29` : `/api/news/section/${encodeURIComponent(id)}?title=29`);
-		} catch (e) {
-			return;
-		}
-		newsActivityCache.set(key, data);
-	}
-	if (seq !== state.routeSeq) return;
-	const btn = document.getElementById("btn-news-activity");
-	if (!btn || !data.count) return;
-	state.newsActivityCtx = {
-		kind,
-		id,
-		data
-	};
-	btn.querySelector("span").textContent = data.count === 1 ? "1 rule or citation" : `${data.count} rules & citations`;
-	btn.hidden = false;
-}
-function newsTimelineHtml(ctx) {
-	const label = ctx.kind === "part" ? `Part ${ctx.id}` : `§ ${ctx.id}`;
-	const nodes = (ctx.data.articles || []).map((a) => {
-		let meta = fmtDate(a.published_at), second = "";
-		if (a.category === "rules") meta += ` · Final rule${a.citation ? " · " + a.citation : ""}`;
-		else if (a.category === "rulemaking") meta += " · Proposed rule" + (a.comments_close_on ? ` · comments close ${fmtDate(a.comments_close_on)}` : "");
-		else if (a.category === "public_inspection") meta += " · Public inspection" + (a.scheduled_on ? ` · publishes ${fmtDate(a.scheduled_on)}` : "");
-		else if (a.category === "enforcement") {
-			meta += " · Citation" + (a.penalty_usd ? ` · ${fmtMoney(a.penalty_usd)}` : "");
-			second = [a.company, [a.city, a.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
-		} else meta += " · Notice";
-		const title = a.category === "enforcement" && second ? second : a.title;
-		return `<li class="tl-node" data-kind="${escapeHtml(a.category)}">
-      <span class="tl-dot" aria-hidden="true"></span>
-      <div class="tl-meta">${escapeHtml(meta)}</div>
-      ${extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`)}
-    </li>`;
-	}).join("");
-	const allHref = ctx.kind === "part" ? `#/news?part=${encodeURIComponent(ctx.id)}` : `#/news?section=${encodeURIComponent(ctx.id)}`;
-	return `<div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
-    <ol class="reg-timeline">${nodes}</ol>
-    <a class="news-pop-foot" href="${allHref}">${icon("news")} See all in News</a>`;
-}
-function openNewsActivity() {
-	const btn = document.getElementById("btn-news-activity");
-	if (!btn || !state.newsActivityCtx) return;
-	newsPop.innerHTML = newsTimelineHtml(state.newsActivityCtx);
-	newsPop.setAttribute("aria-label", `Federal Register and OSHA activity for ${state.newsActivityCtx.kind === "part" ? "Part " : "§ "}${state.newsActivityCtx.id}`);
-	newsPop.hidden = false;
-	const r = btn.getBoundingClientRect();
-	const w = newsPop.offsetWidth;
-	newsPop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
-	newsPop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - newsPop.offsetHeight - 8)}px`;
-	btn.setAttribute("aria-expanded", "true");
-	(newsPop.querySelector("a, button") || newsPop).focus?.();
-	setTimeout(() => document.addEventListener("pointerdown", onNewsPopOutside), 0);
-}
-function closeNewsActivity(returnFocus = true) {
-	if (newsPop.hidden) return;
-	newsPop.hidden = true;
-	document.removeEventListener("pointerdown", onNewsPopOutside);
-	const btn = document.getElementById("btn-news-activity");
-	if (btn) {
-		btn.setAttribute("aria-expanded", "false");
-		if (returnFocus) btn.focus();
-	}
-}
-function onNewsPopOutside(e) {
-	if (!newsPop.contains(e.target) && !e.target.closest("#btn-news-activity")) closeNewsActivity(false);
-}
-dom.view.addEventListener("click", (e) => {
-	if (e.target.closest("#btn-news-activity")) newsPop.hidden ? openNewsActivity() : closeNewsActivity();
-});
-newsPop.addEventListener("keydown", (e) => {
-	if (e.key === "Escape") {
-		e.preventDefault();
-		closeNewsActivity();
-	}
-});
-window.addEventListener("hashchange", () => closeNewsActivity(false));
-// src/views/reader_part.js
-async function loadPart(partId) {
-	dom.view.innerHTML = skeletonHtml("list", "Loading Part " + partId + "…");
+// src/views/help.js
+var HELP_LOGOS = {
+	dol: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <path d="M32 8 52 16v14c0 13.5-8.6 22.8-20 26-11.4-3.2-20-12.5-20-26V16L32 8Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M32 18v24M21 24h22" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="m21 24-4 9h8l-4-9Zm22 0-4 9h8l-4-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M25 44h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  </svg>`,
+	anthropic: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <rect x="8" y="8" width="48" height="48" rx="14" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M25.5 44 33 20l7.5 24M28.2 36.5h9.6" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M18.5 44 26 20h3.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>
+  </svg>`,
+	fr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <rect x="10" y="10" width="44" height="44" rx="10" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <circle cx="22" cy="42" r="3.2" fill="var(--accent)"/>
+    <path d="M20 31.5a12.5 12.5 0 0 1 12.5 12.5M20 22a22 22 0 0 1 22 22" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M36 18h10M36 24h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".7"/>
+  </svg>`,
+	ecfr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <path d="M12 18c0-2.2 1.8-4 4-4h13c2.2 0 3 1.2 3 3v31c0-1.5-1.3-2.5-3-2.5H16c-2.2 0-4 1.8-4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M52 18c0-2.2-1.8-4-4-4H35c-2.2 0-3 1.2-3 3v31c0-1.5 1.3-2.5 3-2.5h13c2.2 0 4 1.8 4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M18 23h8M18 29h8M38 23h8M38 29h8" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+  </svg>`
+};
+var FR_RSS_FEEDS = [{
+	label: "OSHA Published Documents RSS",
+	desc: "Final Rules, Proposed Rules, and Notices from the Federal Register.",
+	url: "https://www.federalregister.gov/api/v1/documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
+}, {
+	label: "OSHA Public Inspection RSS",
+	desc: "Pre-publication filings scheduled to appear in tomorrow’s Federal Register.",
+	url: "https://www.federalregister.gov/api/v1/public-inspection-documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
+}];
+async function loadHelp() {
+	const seq = state.routeSeq;
 	state.currentSection = null;
-	state.currentPart = partId;
-	updateChatContext();
-	try {
-		const seq = state.routeSeq;
-		const [frontRes] = await Promise.all([fetch("/api/" + state.currentTitle + "/part/" + encodeURIComponent(partId)), ensureTreeLoaded()]);
-		const front = frontRes.ok ? await frontRes.json() : {
-			part: "",
-			subparts: {}
-		};
-		if (seq !== state.routeSeq) return;
-		const partNode = findPartInTree(state.treeData, partId);
-		if (!partNode) {
-			renderNotFound();
-			return;
-		}
-		let groupsHtml = "";
-		if (partNode.c) {
-			for (const child of partNode.c) if (child.t === "subpart" || child.t === "subject_group") {
-				const subpartFront = front.subparts[child.id] || "";
-				const sections = (child.c || []).map((s) => `
-            <li class="${s.r ? "reserved" : ""}">
-              <a href="#/section/${encodeURIComponent(s.id)}">
-                <span class="toc-num">${escapeHtml(s.l)}</span>
-                <span class="toc-title">${escapeHtml(tocTitle(s))}</span>
-              </a>
-            </li>
-          `).join("");
-				groupsHtml += `
-            <div class="toc-group">
-              <h3>${escapeHtml(child.d && child.d.trim() !== (child.l || "").trim() ? `${child.l}: ${child.d}` : child.l)}</h3>
-              ${subpartFront ? `<div class="front-matter"><details><summary>Subpart notes</summary>${subpartFront}</details></div>` : ""}
-              <ul class="toc-list">${sections}</ul>
-            </div>
-          `;
-			} else if (child.t === "section" || child.t === "appendix") groupsHtml += `
-            <ul class="toc-list">
-              <li class="${child.r ? "reserved" : ""}">
-                <a href="#/section/${encodeURIComponent(child.id)}">
-                  <span class="toc-num">${escapeHtml(child.l)}</span>
-                  <span class="toc-title">${escapeHtml(tocTitle(child))}</span>
-                </a>
-              </li>
-            </ul>
-          `;
-		}
-		document.title = `Part ${partId} · Title ${state.currentTitle}`;
-		setViewHead(docStepHtml(partId, null, firstSectionOf(partId)));
-		dom.view.innerHTML = `
-      <div class="doc-kicker">${state.currentTitle} CFR ${escapeHtml(partNode.l)}</div>
-      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
-      <div class="doc-actions">
-        <a class="btn" href="#/part/${encodeURIComponent(partId)}/full">${icon("list")} See full part</a>
-        ${newsActivityButtonHtml()}
-      </div>
-      ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ""}
-      ${groupsHtml || "<p class=\"muted\">No sections listed in this part.</p>"}
-    `;
-		enterView();
-		selectTreeNode("p-" + partId);
-		recordPartVisit(partId, partNode.d);
-		fillNewsActivity("part", partId, seq);
-	} catch (err) {
-		console.error(err);
-		setViewHead("");
-		dom.view.innerHTML = `<div class="msg-error">Failed to load part: ${escapeHtml(err.message)}</div>`;
-	}
-}
-async function loadPartFull(partId, params) {
-	dom.view.innerHTML = skeletonHtml("doc", "Loading Part " + partId + "…");
-	state.currentSection = null;
-	state.currentPart = partId;
-	updateChatContext();
-	try {
-		const seq = state.routeSeq;
-		await ensureTreeLoaded();
-		if (seq !== state.routeSeq) return;
-		const partNode = findPartInTree(state.treeData, partId);
-		if (!partNode) {
-			renderNotFound();
-			return;
-		}
-		const res = await fetch("/api/" + state.currentTitle + "/part/" + encodeURIComponent(partId) + "/full");
-		if (seq !== state.routeSeq) return;
-		if (!res.ok) {
-			renderNotFound();
-			return;
-		}
-		const data = await res.json();
-		if (seq !== state.routeSeq) return;
-		const from = params && params.get("from");
-		const anchorId = (id) => "sec-" + String(id).replace(/[^a-zA-Z0-9.\-]/g, "_");
-		const sectionsHtml = (data.sections || []).map((s) => {
-			const num = escapeHtml(s.label);
-			const title = escapeHtml(s.title || "");
-			const body = s.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : s.html || "";
-			return `<article class="full-section${s.id === from ? " is-from" : ""}" id="${anchorId(s.id)}">
-        <header class="full-section-head">
-          <a class="full-section-anchor" href="${sectionHref(s.id)}" title="Open this section on its own">
-            <span class="full-section-num">${num}</span>
-            <span class="full-section-title">${title}</span>
-          </a>
-        </header>
-        ${body}
-      </article>`;
-		}).join("");
-		document.title = `Part ${partId} (full) · Title ${state.currentTitle}`;
-		const [prevPart, nextPart] = partNeighbors(partId);
-		const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(node.id)}/full`, `Part ${node.id}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
-		setViewHead(prevPart || nextPart ? `<nav class="doc-step" aria-label="Previous and next part">${partBtn(prevPart, -1)}<span class="spacer"></span>${partBtn(nextPart, 1)}</nav>` : "");
-		dom.view.innerHTML = `
-      <div class="doc-kicker">${state.currentTitle} CFR ${escapeHtml(partNode.l)} · <a href="#/part/${encodeURIComponent(partId)}">Table of contents</a></div>
-      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
-      ${sectionsHtml || "<p class=\"muted\">No sections in this part.</p>"}
-    `;
-		recordPartVisit(partId, partNode.d);
-		if (from) {
-			const el = document.getElementById(anchorId(from));
-			if (el) {
-				const start = performance.now();
-				let lastSet = -1;
-				const anchor = () => {
-					if (lastSet >= 0 && Math.abs(dom.main.scrollTop - lastSet) > 4) return;
-					const r = el.getBoundingClientRect();
-					const m = dom.main.getBoundingClientRect();
-					const rel = r.top - m.top;
-					if (rel < 60 || rel > 100) {
-						el.scrollIntoView({ block: "start" });
-						lastSet = dom.main.scrollTop;
-					}
-					if (performance.now() - start < 2500) requestAnimationFrame(anchor);
-				};
-				requestAnimationFrame(anchor);
-			}
-		} else dom.main.scrollTop = 0;
-		selectTreeNode("s-" + (from || data.sections[0] && data.sections[0].id));
-	} catch (err) {
-		console.error(err);
-		setViewHead("");
-		dom.view.innerHTML = `<div class="msg-error">Failed to load part: ${escapeHtml(err.message)}</div>`;
-	}
-}
-function tocTitle(node) {
-	const l = (node.l || "").trim();
-	const d = (node.d || "").trim();
-	return l && d.startsWith(l) && d.length > l.length ? d.slice(l.length).trim() : d;
-}
-function findPartInTree(node, partId) {
-	if (!node) return null;
-	if (node.t === "part" && String(node.id) === String(partId)) return node;
-	if (node.c) for (const ch of node.c) {
-		const found = findPartInTree(ch, partId);
-		if (found) return found;
-	}
-	return null;
-}
-// src/components/view_head.js
-function setViewHead(html) {
-	const head = dom.viewHead;
-	if (!head) return;
-	const step = head.contains(document.activeElement) ? document.activeElement.dataset.step : null;
-	if (state.railObserver) {
-		state.railObserver.disconnect();
-		state.railObserver = null;
-	}
-	head.innerHTML = html || "";
-	head.hidden = !html;
-	if (step) (head.querySelector(`[data-step="${step}"]`) || head.querySelector("a"))?.focus({ preventScroll: true });
-}
-function firstSectionOf(partId) {
-	const k = treeIdx.parts.get(String(partId));
-	if (k === void 0) return null;
-	const find = (node) => {
-		for (const c of node.c || []) {
-			if (LEAF_TYPES.has(c.t)) return c;
-			const hit = find(c);
-			if (hit) return hit;
-		}
-		return null;
-	};
-	const leaf = find(treeIdx.nodes[k]);
-	return leaf ? {
-		id: leaf.id,
-		label: (leaf.l || "").trim(),
-		title: tocTitle(leaf)
-	} : null;
-}
-function docStepBtn(kind, dir, href, label, name, labelHtml) {
-	const prev = dir < 0;
-	const what = `${prev ? "Previous" : "Next"} ${kind}`;
-	const chevron = icon(prev ? "chevronLeft" : "chevronRight");
-	const title = (name || "").trim();
-	return `<a class="doc-step-btn is-${prev ? "prev" : "next"}" href="${href}" data-step="${kind}-${prev ? "prev" : "next"}" aria-label="${escapeHtml(`${what}: ${label}${title ? " " + title : ""}`)}">${prev ? chevron : ""}<span class="step-label">${labelHtml || escapeHtml(label)}</span>${prev ? "" : chevron}<span class="tip" aria-hidden="true"><span class="tip-kind">${what} · ${escapeHtml(label)}</span>${escapeHtml(title)}</span></a>`;
-}
-function partNeighbors(partId) {
-	const list = treeIdx.partList;
-	const k = treeIdx.parts.get(String(partId));
-	const i = k === void 0 ? -1 : list.indexOf(k);
-	if (i < 0) return [null, null];
-	return [treeIdx.nodes[list[i - 1]] || null, treeIdx.nodes[list[i + 1]] || null];
-}
-function docStepHtml(partId, prevSection, nextSection) {
-	const [prevPart, nextPart] = partNeighbors(partId);
-	const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(node.id)}`, `Part ${node.id}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
-	const sectionBtn = (s, dir) => s ? docStepBtn("section", dir, `#/section/${encodeURIComponent(s.id)}`, s.label, s.title) : "";
-	const sep = "<span class=\"doc-step-sep\" aria-hidden=\"true\"></span>";
-	const left = [partBtn(prevPart, -1), sectionBtn(prevSection, -1)].filter(Boolean).join(sep);
-	const right = [sectionBtn(nextSection, 1), partBtn(nextPart, 1)].filter(Boolean).join(sep);
-	if (!left && !right) return "";
-	return `<nav class="doc-step" aria-label="Previous and next">${left}<span class="spacer"></span>${right}</nav>`;
-}
-// src/components/title_switcher.js
-function setReaderEnabled(on) {
-	dom.search.disabled = !on;
-	dom.search.placeholder = on ? `Search Title ${state.currentTitle} or jump to a section…` : "Download a title to search";
-	dom.chatToggle.disabled = !on;
-	if (!on) {
-		dom.edition.textContent = "";
-		dom.tree.innerHTML = "<div class=\"side-empty\">No titles installed yet. <a href=\"#/\">Pick a profile</a> or open the <a href=\"#/library\">library</a>.</div>";
-	}
-}
-function fillTitleSelect() {
-	if (!dom.titleSelect) return;
-	const cur = state.installedTitles.find((t) => t.title === state.currentTitle);
-	const name = state.noTitles ? "" : cur ? cur.name : state.metaInfo.name || "";
-	document.getElementById("title-select-num").textContent = state.noTitles ? "No titles" : `Title ${state.currentTitle}`;
-	document.getElementById("title-select-name").textContent = name;
-	dom.titleSelect.title = state.noTitles ? "Nothing installed yet. Download titles" : `Title ${state.currentTitle}${name ? ": " + name : ""}. Switch title`;
-	dom.titlePop.innerHTML = `
-    <a class="tm-item tm-download" role="menuitem" href="#/library" tabindex="-1">${icon("download")}<span class="tm-name">Download titles…</span></a>
-    ${state.installedTitles.length ? "<div class=\"tm-sep\" role=\"separator\"></div>" : ""}
-    ${state.installedTitles.map((t) => {
-		const on = t.title === state.currentTitle;
-		return `<button type="button" class="tm-item${on ? " is-current" : ""}" role="menuitemradio" aria-checked="${on}" data-title="${t.title}" tabindex="-1">
-        <span class="tm-num">${t.title}</span><span class="tm-name">${escapeHtml(t.name)}</span>
-        ${t.partial ? "<span class=\"tm-meta\">Partial</span>" : ""}
-        ${on ? icon("check", "tm-check") : "<span class=\"tm-check\" aria-hidden=\"true\"></span>"}
-      </button>`;
-	}).join("")}`;
-}
-var titleMenuItems = () => [...dom.titlePop.querySelectorAll(".tm-item")];
-function openTitleMenu(focusWhich = "current") {
-	if (!dom.titlePop.hidden) return;
-	dom.titlePop.hidden = false;
-	dom.titleSelect.setAttribute("aria-expanded", "true");
-	const items = titleMenuItems();
-	const target = focusWhich === "first" ? items[0] : focusWhich === "last" ? items[items.length - 1] : dom.titlePop.querySelector(".is-current") || items[0];
-	target?.focus({ preventScroll: true });
-	target?.scrollIntoView({ block: "nearest" });
-	document.addEventListener("pointerdown", onTitleMenuOutside, true);
-}
-function closeTitleMenu(returnFocus) {
-	if (dom.titlePop.hidden) return;
-	dom.titlePop.hidden = true;
-	dom.titleSelect.setAttribute("aria-expanded", "false");
-	document.removeEventListener("pointerdown", onTitleMenuOutside, true);
-	if (returnFocus) dom.titleSelect.focus();
-}
-function onTitleMenuOutside(e) {
-	if (!document.getElementById("title-menu").contains(e.target)) closeTitleMenu(false);
-}
-dom.titleSelect.addEventListener("click", () => {
-	if (dom.titlePop.hidden) openTitleMenu();
-	else closeTitleMenu(false);
-});
-dom.titleSelect.addEventListener("keydown", (e) => {
-	if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-		e.preventDefault();
-		openTitleMenu(e.key === "ArrowUp" ? "last" : "current");
-	}
-});
-dom.titlePop.addEventListener("keydown", (e) => {
-	const items = titleMenuItems();
-	const i = items.indexOf(document.activeElement);
-	const go = (n) => {
-		e.preventDefault();
-		items[(n + items.length) % items.length].focus();
-	};
-	if (e.key === "ArrowDown") go(i + 1);
-	else if (e.key === "ArrowUp") go(i - 1);
-	else if (e.key === "Home") go(0);
-	else if (e.key === "End") go(items.length - 1);
-	else if (e.key === "Escape") {
-		e.preventDefault();
-		e.stopPropagation();
-		closeTitleMenu(true);
-	} else if (e.key === "Tab") closeTitleMenu(false);
-});
-dom.titlePop.addEventListener("click", async (e) => {
-	const item = e.target.closest(".tm-item");
-	if (!item) return;
-	closeTitleMenu(false);
-	if (item.classList.contains("tm-download")) return;
-	const newTitle = parseInt(item.dataset.title, 10);
-	if (newTitle && newTitle !== state.currentTitle) {
-		await switchTitle(newTitle);
-		window.location.hash = `#/title/${newTitle}/`;
-	} else dom.titleSelect.focus();
-});
-function renderNotFound() {
+	state.currentPart = null;
 	clearTreeSelection();
-	document.title = "Not found · FRAMEWORK";
+	updateChatContext();
 	setViewHead("");
-	dom.view.innerHTML = `
-    <div class="empty-state">
-      <h2>Page not found</h2>
-      <p>That section or part isn’t in Title ${state.currentTitle}.</p>
-      <a href="#/title/${state.currentTitle}/" class="btn">Back to Title ${state.currentTitle}</a>
-    </div>
-  `;
-	enterView();
-}
-// src/components/sidebar.js
-var LEAF_TYPES = /* @__PURE__ */ new Set(["section", "appendix"]);
-var AGENCY_META = {
-	29: {
-		"sub-A": {
-			code: "DOL",
-			name: "Office of the Secretary of Labor"
-		},
-		"ch-I": {
-			code: "NLRB",
-			name: "National Labor Relations Board"
-		},
-		"ch-II": {
-			code: "OLMS",
-			name: "Federal Transit Employee Protections"
-		},
-		"ch-III": {
-			code: "NRAB",
-			name: "National Railroad Adjustment Board"
-		},
-		"ch-IV": {
-			code: "OLMS",
-			name: "Labor-Management Standards (LMRDA)"
-		},
-		"ch-V": {
-			code: "WHD",
-			name: "Wage and Hour Division (FLSA, FMLA)"
-		},
-		"ch-IX": {
-			code: "CICBC",
-			name: "Construction Industry Collective Bargaining"
-		},
-		"ch-X": {
-			code: "NMB",
-			name: "National Mediation Board"
-		},
-		"ch-XII": {
-			code: "FMCS",
-			name: "Federal Mediation and Conciliation Service"
-		},
-		"ch-XIV": {
-			code: "EEOC",
-			name: "Equal Employment Opportunity Commission"
-		},
-		"ch-XVII": {
-			code: "OSHA",
-			name: "Occupational Safety and Health Admin"
-		},
-		"ch-XX": {
-			code: "OSHRC",
-			name: "Occupational Safety and Health Review"
-		},
-		"ch-XXV": {
-			code: "EBSA",
-			name: "Employee Benefits Security (ERISA)"
-		},
-		"ch-XXVII": {
-			code: "FMSHRC",
-			name: "Federal Mine Safety & Health Review"
-		},
-		"ch-XL": {
-			code: "PBGC",
-			name: "Pension Benefit Guaranty Corporation"
-		}
-	},
-	40: {
-		"ch-I": {
-			code: "EPA",
-			name: "Environmental Protection Agency"
-		},
-		"ch-IV": {
-			code: "DOJ",
-			name: "EPA and Department of Justice"
-		},
-		"ch-V": {
-			code: "CEQ",
-			name: "Council on Environmental Quality"
-		},
-		"ch-VI": {
-			code: "CSB",
-			name: "Chemical Safety and Hazard Investigation Board"
-		},
-		"ch-VII": {
-			code: "DOD",
-			name: "EPA and Defense: Vessel Discharge Standards"
-		},
-		"ch-VIII": {
-			code: "GCERC",
-			name: "Gulf Coast Ecosystem Restoration Council"
-		},
-		"ch-IX": {
-			code: "FPISC",
-			name: "Federal Permitting Improvement Steering Council"
-		}
-	},
-	49: {
-		"sub-A": {
-			code: "DOT",
-			name: "Office of the Secretary of Transportation"
-		},
-		"ch-I": {
-			code: "PHMSA",
-			name: "Pipeline and Hazardous Materials Safety Admin"
-		},
-		"ch-II": {
-			code: "FRA",
-			name: "Federal Railroad Administration"
-		},
-		"ch-III": {
-			code: "FMCSA",
-			name: "Federal Motor Carrier Safety Administration"
-		},
-		"ch-IV": {
-			code: "USCG",
-			name: "Coast Guard"
-		},
-		"ch-V": {
-			code: "NHTSA",
-			name: "National Highway Traffic Safety Admin"
-		},
-		"ch-VI": {
-			code: "FTA",
-			name: "Federal Transit Administration"
-		},
-		"ch-VII": {
-			code: "Amtrak",
-			name: "National Railroad Passenger Corporation"
-		},
-		"ch-VIII": {
-			code: "NTSB",
-			name: "National Transportation Safety Board"
-		},
-		"ch-X": {
-			code: "STB",
-			name: "Surface Transportation Board"
-		},
-		"ch-XII": {
-			code: "TSA",
-			name: "Transportation Security Administration"
-		}
+	document.title = "Connections & API Keys · FRAMEWORK";
+	if (!state.navEnvStatus) {
+		dom.view.innerHTML = skeletonHtml("cards", "Loading setup guide…");
+		enterView();
 	}
-};
-function agencyMeta(node) {
-	return (AGENCY_META[state.currentTitle] || {})[agencyKeyForNode(node)] || null;
-}
-var treeIdx = {
-	nodes: [],
-	parent: [],
-	sections: /* @__PURE__ */ new Map(),
-	parts: /* @__PURE__ */ new Map(),
-	agencies: /* @__PURE__ */ new Map(),
-	partList: [],
-	agencyList: []
-};
-state.visited = loadVisited();
-state.treePromise = null;
-state.currentTreeKey = null;
-state.currentPartKey = null;
-state.currentAgencyKey = null;
-state.rootViewMode = lsGet("rootViewMode") === "all-parts" ? "all-parts" : "agencies";
-state.sideView = state.rootViewMode;
-state.treeFilterState = null;
-function visitedKey() {
-	return state.currentTitle === 29 ? "visited" : "visited-" + state.currentTitle;
-}
-function loadVisited() {
 	try {
-		return new Set(JSON.parse(lsGet(visitedKey()) || "[]"));
+		const [env, newsSt] = await Promise.all([getJSON("/api/settings/env"), getJSON("/api/news/status").catch(() => null)]);
+		if (seq !== state.routeSeq) return;
+		state.navEnvStatus = env;
+		if (newsSt) state.navNewsStatus = newsSt;
+		renderHelp(env, { enter: true });
 	} catch (e) {
-		return /* @__PURE__ */ new Set();
+		if (seq !== state.routeSeq) return;
+		renderHelp(state.navEnvStatus || {
+			env_exists: false,
+			env_file: "reader/.env",
+			keys: {}
+		}, { enter: true });
 	}
 }
-async function switchTitle(newTitle) {
-	if (newTitle === state.currentTitle && state.treeData) return;
-	state.currentTitle = newTitle;
-	fillTitleSelect();
-	const titleMeta = state.installedTitles.find((t) => t.title === newTitle);
-	if (titleMeta) {
-		state.metaInfo = titleMeta;
-		dom.edition.textContent = `eCFR ${titleMeta.edition || ""}`;
-	}
-	dom.search.placeholder = `Search Title ${newTitle} or jump to a section…`;
-	dom.chatText.placeholder = `Ask about this section, or anything in Title ${newTitle}…`;
-	updateRailHome();
-	applyNav();
-	state.treePromise = null;
-	state.treeData = null;
-	treeIdx.nodes = [];
-	treeIdx.parent = [];
-	treeIdx.sections = /* @__PURE__ */ new Map();
-	treeIdx.parts = /* @__PURE__ */ new Map();
-	treeIdx.agencies = /* @__PURE__ */ new Map();
-	treeIdx.partList = [];
-	treeIdx.agencyList = [];
-	state.currentTreeKey = null;
-	state.currentPartKey = null;
-	state.currentAgencyKey = null;
-	clearFilterQuietly();
-	state.visited = loadVisited();
-	state.sideView = state.rootViewMode;
-	dom.tree.innerHTML = skeletonHtml("tree", "Loading contents…");
-	await ensureTreeLoaded();
+function renderHelp(env, opts = {}) {
+	const keys = env && env.keys || {};
+	const dol = keys.DOL_API_KEY || {};
+	const ant = keys.ANTHROPIC_API_KEY || {};
+	const syncOn = keys.NEWS_SYNC ? keys.NEWS_SYNC.value : true;
+	const retDays = keys.NEWS_RETENTION_DAYS ? keys.NEWS_RETENTION_DAYS.value : 365;
+	const titleCount = state.installedTitles.length;
+	const titlesWord = `${titleCount} ${titleCount === 1 ? "title" : "titles"}`;
+	const chip = (target, state, label) => `
+    <button type="button" class="help-status-chip" data-help-jump="${target}">
+      <span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(label)}</button>`;
+	const statusStrip = `
+    <nav class="help-status" aria-label="Connection status">
+      ${chip("federal-register", syncOn ? "synced" : "stale", syncOn ? "Federal Register · On" : "Federal Register · Sync off")}
+      ${chip("ecfr", "synced", `CFR Library · ${titlesWord}`)}
+      ${chip("dol", dol.configured ? "synced" : "uninstalled", `DOL enforcement · ${dol.configured ? "On" : "Off"}`)}
+      ${chip("anthropic", ant.configured ? "synced" : "uninstalled", `Claude assistant · ${ant.configured ? "On" : "Off"}`)}
+    </nav>`;
+	const optionalCards = [{
+		id: "dol",
+		logo: HELP_LOGOS.dol,
+		provider: "U.S. Department of Labor · Free key",
+		title: "OSHA Enforcement Data",
+		pill: dol.configured ? statPill("synced", `On (${dol.masked || "key saved"})`) : statPill("uninstalled", "Off"),
+		body: `
+        <p><strong>What this key allows:</strong> Unlocks the <em>Enforcement &amp; Penalties</em> tab in <a href="#/news?cat=enforcement">News</a> and adds workplace inspection citations to the regulation timeline inside Title 29 sections.</p>
+        <p>You’ll see cited companies, city/state locations, violation severity (Willful, Repeat, Serious), cited 29 CFR standards, and current penalty totals directly from <code>apiprod.dol.gov/v4</code>.</p>`,
+		actions: `
+        <button type="button" class="btn btn-accent" data-open-env="dol_api_key">${icon("key")} ${dol.configured ? "Update DOL key" : "Add DOL key"}</button>
+        <a class="btn" href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">${icon("external")} Get a free DOL key</a>`
+	}, {
+		id: "anthropic",
+		logo: HELP_LOGOS.anthropic,
+		provider: "Anthropic · Paid key",
+		title: "Claude Regulatory Assistant",
+		pill: ant.configured ? statPill("synced", `On (${ant.masked || "key saved"})`) : statPill("uninstalled", "Off"),
+		body: `
+        <p><strong>What this key allows:</strong> Turns on the <em>Ask Claude</em> side panel so you can ask plain-English compliance questions, summarize long sections, and trace requirements across your installed CFR titles.</p>
+        <p>Reading regulations, full-text search, projects, and Federal Register news all work without it—this key is only for the AI assistant.</p>`,
+		actions: `
+        <button type="button" class="btn btn-accent" data-open-env="anthropic_api_key">${icon("key")} ${ant.configured ? "Update Anthropic key" : "Add Anthropic key"}</button>
+        <a class="btn" href="https://console.anthropic.com" target="_blank" rel="noopener">${icon("external")} Get an Anthropic key</a>`
+	}];
+	const includedCards = [{
+		id: "federal-register",
+		logo: HELP_LOGOS.fr,
+		provider: "Federal Register · No key needed",
+		title: "OSHA Rulemaking & Official RSS Feeds",
+		pill: syncOn ? statPill("synced", `On · ${retDays}d history`) : statPill("stale", "Sync off"),
+		body: `
+        <p><strong>What this source allows:</strong> Keeps the <a href="#/news">Newsroom</a> updated on business days with OSHA Final Rules, Proposed Rules, Notices, and Public Inspection filings—automatically, with no key or setup.</p>
+        <div class="help-rss-list">${FR_RSS_FEEDS.map((f) => `
+          <div class="help-rss-row">
+            <div class="help-rss-text"><strong>${escapeHtml(f.label)}</strong><span>${escapeHtml(f.desc)}</span></div>
+            <div class="help-rss-btns">
+              <button type="button" class="btn btn-sm" data-copy-url="${escapeHtml(f.url)}">${icon("copy")} Copy RSS URL</button>
+              <a class="btn btn-sm" href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${icon("rss")} Open</a>
+            </div>
+          </div>`).join("")}
+        </div>
+        <p class="help-fineprint">The same updates, as official Federal Register feeds for any external RSS reader. FRAMEWORK itself reads the richer JSON API and skips <code>osha.gov/rss</code>, which rejects automated readers.</p>`,
+		actions: `
+        <button type="button" class="btn" data-open-env="news_sync">${icon("key")} Sync settings</button>
+        <a class="btn" href="#/news">${icon("news")} Open Newsroom</a>`
+	}, {
+		id: "ecfr",
+		logo: HELP_LOGOS.ecfr,
+		provider: "eCFR · No key needed",
+		title: "Federal Regulations Library (Titles 1–50)",
+		pill: statPill("synced", `On · ${titlesWord} installed`),
+		body: `
+        <p><strong>What this source allows:</strong> Downloads full Code of Federal Regulations titles, parts, or individual sections directly from <code>ecfr.gov</code> into your local SQLite library for fast offline reading and search.</p>`,
+		actions: `
+        <a class="btn" href="#/library">${icon("book")} Browse CFR Library</a>`
+	}];
+	const cardHtml = (c) => `
+    <article class="help-card" id="help-${c.id}">
+      <div class="help-logo" aria-hidden="true">${c.logo}</div>
+      <div class="help-body">
+        <div class="help-card-top">
+          <span class="help-provider">${escapeHtml(c.provider)}</span>
+          ${c.pill}
+        </div>
+        <h3 class="help-card-title">${escapeHtml(c.title)}</h3>
+        <div class="help-card-copy">${c.body}</div>
+        <div class="help-actions">${c.actions}</div>
+      </div>
+    </article>`;
+	dom.view.innerHTML = `
+    <div class="help-front">
+      <header class="help-head">
+        <div>
+          <div class="doc-kicker">FRAMEWORK Settings · Help</div>
+          <h1 class="doc-title">Connections &amp; API Keys</h1>
+          <p class="help-lead">Reading and search work offline out of the box. The optional keys below unlock more—each is saved locally and applies instantly, with no restart.</p>
+        </div>
+        <div class="help-head-actions">
+          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
+        </div>
+      </header>
+      ${statusStrip}
+      <section class="help-group" aria-labelledby="help-group-optional">
+        <h2 class="help-group-label" id="help-group-optional">Optional keys</h2>
+        ${optionalCards.map(cardHtml).join("")}
+      </section>
+      <section class="help-group" aria-labelledby="help-group-included">
+        <h2 class="help-group-label" id="help-group-included">Included · already running</h2>
+        ${includedCards.map(cardHtml).join("")}
+      </section>
+      <footer class="help-footnote">
+        <p>Keys are stored in <code>reader/.env</code>, a private plain-text file on your computer—never shared or uploaded. ${env && env.env_exists ? "Yours exists and is active." : "It’s created the first time you save a key here."}</p>
+        <details class="help-env-details">
+          <summary>What is a .env file?</summary>
+          <p>A <strong>.env</strong> file holds environment settings—API keys and preferences—as plain <code>KEY=value</code> lines. Normally, setting one up means copying example files in a terminal; here, <em>Edit API keys</em> creates and updates <code>reader/.env</code> for you, and changes take effect right away with no restart.</p>
+          <button type="button" class="btn btn-sm" data-open-env="">${icon("key")} Open the editor</button>
+        </details>
+      </footer>
+    </div>`;
+	if (opts.enter) enterView();
 }
-function ensureTreeLoaded() {
-	if (!state.treePromise) state.treePromise = fetch("/api/" + state.currentTitle + "/tree").then((res) => {
-		if (!res.ok) throw new Error("HTTP " + res.status);
-		return res.json();
-	}).then((data) => {
-		state.treeData = data;
-		indexTree(data);
-		renderSidebar();
-	}).catch((err) => {
-		state.treePromise = null;
-		dom.tree.innerHTML = `<div class="side-empty">Couldn't load the contents (${escapeHtml(err.message)}).</div>`;
-		throw err;
+// src/components/env_modal.js
+var envModalEl = document.getElementById("env-modal");
+var envModalDialog = envModalEl ? envModalEl.querySelector(".modal-dialog") : null;
+state.envModalReturnFocus = null;
+state.envModalSnapshot = null;
+function envPreviewText(form, snapshot) {
+	const keys = snapshot && snapshot.keys || {};
+	const dolInput = form.querySelector("#env-dol-key");
+	const dolClear = form.querySelector("#env-dol-clear");
+	const antInput = form.querySelector("#env-ant-key");
+	const antClear = form.querySelector("#env-ant-clear");
+	const modelInput = form.querySelector("#env-ant-model");
+	const syncInput = form.querySelector("#env-news-sync");
+	const retInput = form.querySelector("#env-news-retention");
+	const dolVal = dolClear && dolClear.checked ? "" : dolInput && dolInput.value.trim() ? "••••(new key)" : keys.DOL_API_KEY && keys.DOL_API_KEY.masked || "";
+	const antVal = antClear && antClear.checked ? "" : antInput && antInput.value.trim() ? "••••(new key)" : keys.ANTHROPIC_API_KEY && keys.ANTHROPIC_API_KEY.masked || "";
+	const modelVal = modelInput && modelInput.value.trim() || "";
+	const syncVal = syncInput && syncInput.checked ? "1" : "0";
+	const retVal = retInput && retInput.value.trim() || "365";
+	return [
+		`ANTHROPIC_API_KEY=${antVal}`,
+		`ANTHROPIC_MODEL=${modelVal}`,
+		`DOL_API_KEY=${dolVal}`,
+		`NEWS_SYNC=${syncVal}`,
+		`NEWS_RETENTION_DAYS=${retVal}`
+	].join("\n");
+}
+function renderEnvModal(env, focusKey = "") {
+	if (!envModalDialog) return;
+	const keys = env && env.keys || {};
+	const dol = keys.DOL_API_KEY || {};
+	const ant = keys.ANTHROPIC_API_KEY || {};
+	const model = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.value || "";
+	const modelDefault = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.default || "claude-sonnet-5-5";
+	const newsSync = keys.NEWS_SYNC ? Boolean(keys.NEWS_SYNC.value) : true;
+	const retDays = keys.NEWS_RETENTION_DAYS && keys.NEWS_RETENTION_DAYS.value || 365;
+	envModalDialog.innerHTML = `
+    <div class="modal-head">
+      <div>
+        <div class="doc-kicker">${env && env.env_exists ? "Update local settings" : "Create reader/.env"}</div>
+        <h2 id="env-modal-title" class="modal-title">Configure API Keys &amp; Sync Settings</h2>
+      </div>
+      <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button>
+    </div>
+    <form id="env-modal-form" class="modal-body" autocomplete="off">
+      <p class="modal-intro">Keys are saved privately to <code>reader/.env</code> on your computer and take effect immediately—no restart needed. Leave an existing key blank to keep it unchanged.</p>
+
+      <div class="env-field">
+        <div class="env-field-head">
+          <label for="env-dol-key">DOL API Key <code>DOL_API_KEY</code></label>
+          ${dol.configured ? statPill("synced", `Saved (${dol.masked || "set"})`) : statPill("uninstalled", "Not set")}
+        </div>
+        <p class="env-field-help">Free key from <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a> for OSHA inspections and penalties.</p>
+        <div class="env-secret-row">
+          <input id="env-dol-key" name="dol_api_key" type="password" placeholder="${dol.configured ? "Leave blank to keep existing key, or paste new key" : "Paste your DOL X-API-KEY"}" spellcheck="false" autocomplete="off">
+          <button type="button" class="btn btn-sm" data-env-reveal="env-dol-key" aria-label="Show or hide DOL key">${icon("eye")}</button>
+        </div>
+        ${dol.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-dol-clear" name="clear_dol_api_key"> Remove saved DOL key</label>` : ""}
+      </div>
+
+      <div class="env-field">
+        <div class="env-field-head">
+          <label for="env-ant-key">Anthropic API Key <code>ANTHROPIC_API_KEY</code></label>
+          ${ant.configured ? statPill("synced", `Saved (${ant.masked || "set"})`) : statPill("uninstalled", "Not set")}
+        </div>
+        <p class="env-field-help">From <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> to enable the Ask Claude side panel.</p>
+        <div class="env-secret-row">
+          <input id="env-ant-key" name="anthropic_api_key" type="password" placeholder="${ant.configured ? "Leave blank to keep existing key, or paste new key" : "sk-ant-…"}" spellcheck="false" autocomplete="off">
+          <button type="button" class="btn btn-sm" data-env-reveal="env-ant-key" aria-label="Show or hide Anthropic key">${icon("eye")}</button>
+        </div>
+        ${ant.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-ant-clear" name="clear_anthropic_api_key"> Remove saved Anthropic key</label>` : ""}
+      </div>
+
+      <details class="env-advanced"${focusKey === "news_sync" ? " open" : ""}>
+        <summary>Advanced options (Claude model &amp; News sync)</summary>
+        <div class="env-advanced-body">
+          <div class="env-field">
+            <label for="env-ant-model">Preferred Claude Model <code>ANTHROPIC_MODEL</code></label>
+            <input id="env-ant-model" name="anthropic_model" type="text" value="${escapeHtml(model)}" placeholder="${escapeHtml(modelDefault)}" spellcheck="false">
+          </div>
+          <div class="env-field-row">
+            <label class="env-toggle-row"><input type="checkbox" id="env-news-sync" name="news_sync"${newsSync ? " checked" : ""}> <span>Enable background news sync (<code>NEWS_SYNC</code>)</span></label>
+            <div class="env-days-field">
+              <label for="env-news-retention">Retention (days)</label>
+              <input id="env-news-retention" name="news_retention_days" type="number" min="1" max="3650" value="${Number(retDays)}">
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <div class="env-preview-wrap">
+        <span class="env-preview-label">Preview of <code>reader/.env</code></span>
+        <pre class="env-preview" id="env-preview"></pre>
+      </div>
+
+      <p class="modal-error" id="env-modal-error" hidden></p>
+
+      <div class="modal-foot">
+        <button type="button" class="btn" data-env-close>Cancel</button>
+        <button type="submit" class="btn btn-accent" id="env-modal-save">${icon("check")} Save to reader/.env</button>
+      </div>
+    </form>`;
+	const form = document.getElementById("env-modal-form");
+	const preview = document.getElementById("env-preview");
+	const syncPreview = () => {
+		if (preview) preview.textContent = envPreviewText(form, state.envModalSnapshot);
+	};
+	syncPreview();
+	form.addEventListener("input", syncPreview);
+	form.addEventListener("change", syncPreview);
+	form.addEventListener("submit", submitEnvModal);
+	requestAnimationFrame(() => {
+		const targetId = focusKey === "dol_api_key" ? "env-dol-key" : focusKey === "anthropic_api_key" ? "env-ant-key" : focusKey === "news_sync" ? "env-news-sync" : "env-dol-key";
+		(document.getElementById(targetId) || envModalDialog.querySelector("input, button"))?.focus();
 	});
-	return state.treePromise;
 }
-function normalizeForMatch(s) {
-	return " " + String(s).toLowerCase().replace(/[§,;:()[\]"'\/–—]/g, " ").replace(/\s+/g, " ").trim() + " ";
+async function openEnvModal(focusKey = "") {
+	if (!envModalEl || !envModalDialog) return;
+	state.envModalReturnFocus = document.activeElement;
+	envModalDialog.innerHTML = `<div class="modal-head"><h2 id="env-modal-title" class="modal-title">Configure reader/.env</h2>
+    <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button></div>
+    <div class="modal-body"><div class="loading">Loading current configuration…</div></div>`;
+	envModalEl.hidden = false;
+	try {
+		state.envModalSnapshot = await getJSON("/api/settings/env");
+		state.navEnvStatus = state.envModalSnapshot;
+		renderEnvModal(state.envModalSnapshot, focusKey);
+	} catch (err) {
+		state.envModalSnapshot = {
+			env_exists: false,
+			env_file: "reader/.env",
+			keys: {}
+		};
+		renderEnvModal(state.envModalSnapshot, focusKey);
+	}
 }
-function plural(n, word) {
-	return `${n} ${word}${n === 1 ? "" : "s"}`;
+function closeEnvModal(restoreFocus = true) {
+	if (!envModalEl || envModalEl.hidden) return;
+	envModalEl.hidden = true;
+	if (restoreFocus && state.envModalReturnFocus && document.contains(state.envModalReturnFocus)) state.envModalReturnFocus.focus();
+	state.envModalReturnFocus = null;
 }
-function formatRange(range) {
-	return String(range || "").trim().replace(/\s*[–-]\s*/g, "–");
-}
-function isAgencyNode(node) {
-	return !!node && (node.t === "chapter" || node.t === "subtitle" && String(node.id) === "A");
-}
-function agencyKeyForNode(node) {
-	if (!node) return "";
-	if (node.t === "subtitle") return "sub-" + String(node.id || "").trim();
-	if (node.t === "chapter") return "ch-" + String(node.id || "").trim();
-	return "";
-}
-function agencyInfo(node) {
-	if (!node) return {
-		code: "CFR",
-		name: "",
-		range: ""
-	};
-	const meta = agencyMeta(node) || {};
-	const roman = /^[IVXLC]+$/.test(String(node.id)) ? node.id : "";
-	return {
-		code: meta.code || (node.t === "subtitle" ? `Sub. ${node.id}` : roman ? `Ch. ${roman}` : "Ch."),
-		name: meta.name || (node.d || node.l || "").trim().replace(/^Chapter\s+[IVXLC]+\s*[—–-]\s*/i, "").replace(/,\s*Department of [A-Z][A-Za-z ]+$/, ""),
-		range: formatRange(node.range)
-	};
-}
-function agencyOf(k) {
-	for (let p = k; p >= 0; p = treeIdx.parent[p]) if (isAgencyNode(treeIdx.nodes[p])) return p;
-	return null;
-}
-function indexTree(root) {
-	const walk = (node, parentKey) => {
-		const k = treeIdx.nodes.length;
-		node.k = k;
-		treeIdx.nodes.push(node);
-		treeIdx.parent.push(parentKey);
-		const label = (node.l || "").trim();
-		const desc = (node.d || "").trim();
-		let hayText = desc && desc !== label ? `${label} ${desc}` : label || desc;
-		node.partCount = 0;
-		if (isAgencyNode(node)) {
-			treeIdx.agencies.set(agencyKeyForNode(node), k);
-			treeIdx.agencyList.push(k);
-			const meta = agencyMeta(node);
-			if (meta) hayText += ` ${meta.code} ${meta.name}`;
+async function refreshModelsConfig() {
+	if (state.noTitles) return;
+	try {
+		const modelsRes = await fetch("/api/" + state.currentTitle + "/models");
+		if (!modelsRes.ok) return;
+		state.chatConfig = await modelsRes.json();
+		if (state.chatConfig.configured && state.chatConfig.models.length > 0) {
+			dom.modelSelect.innerHTML = state.chatConfig.models.map((m) => `
+        <option value="${escapeHtml(m.id)}" ${m.id === state.chatConfig.default ? "selected" : ""}>
+          ${escapeHtml(m.name)}
+        </option>
+      `).join("");
+			dom.modelSelect.hidden = false;
+		} else {
+			dom.modelSelect.innerHTML = "";
+			dom.modelSelect.hidden = true;
 		}
-		node.hay = normalizeForMatch(hayText);
-		if (LEAF_TYPES.has(node.t)) {
-			treeIdx.sections.set(String(node.id), k);
-			node.n = node.r ? 0 : 1;
+		if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
+	} catch (e) {}
+}
+async function submitEnvModal(e) {
+	e.preventDefault();
+	const form = e.currentTarget;
+	const saveBtn = document.getElementById("env-modal-save");
+	const errEl = document.getElementById("env-modal-error");
+	if (errEl) {
+		errEl.hidden = true;
+		errEl.textContent = "";
+	}
+	if (saveBtn) saveBtn.disabled = true;
+	const payload = {
+		dol_api_key: form.dol_api_key ? form.dol_api_key.value : null,
+		clear_dol_api_key: Boolean(form.clear_dol_api_key && form.clear_dol_api_key.checked),
+		anthropic_api_key: form.anthropic_api_key ? form.anthropic_api_key.value : null,
+		clear_anthropic_api_key: Boolean(form.clear_anthropic_api_key && form.clear_anthropic_api_key.checked),
+		anthropic_model: form.anthropic_model ? form.anthropic_model.value : null,
+		news_sync: Boolean(form.news_sync && form.news_sync.checked),
+		news_retention_days: form.news_retention_days ? Number(form.news_retention_days.value) || 365 : 365
+	};
+	try {
+		const res = await getJSON("/api/settings/env", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload)
+		});
+		state.navEnvStatus = res.status;
+		state.envModalSnapshot = res.status;
+		const [newsSt] = await Promise.all([getJSON("/api/news/status").catch(() => null), refreshModelsConfig()]);
+		if (newsSt) state.navNewsStatus = newsSt;
+		closeEnvModal(true);
+		showToast((res.news_sync_queued || []).length > 0 ? "Saved to reader/.env · Syncing DOL enforcement data…" : "Saved to reader/.env — active immediately");
+		refreshSettingsViews();
+		refreshHomeIfActive();
+		if (state.activeRoute === "/help" || state.activeRoute === "/help/") renderHelp(state.navEnvStatus);
+		else if (routeTarget() === "news") handleRoute();
+	} catch (err) {
+		if (errEl) {
+			errEl.textContent = err.message || "Could not save reader/.env";
+			errEl.hidden = false;
+		}
+		if (saveBtn) saveBtn.disabled = false;
+	}
+}
+if (envModalEl) envModalEl.addEventListener("click", (e) => {
+	if (e.target === envModalEl || e.target.closest("[data-env-close]")) {
+		closeEnvModal(true);
+		return;
+	}
+	const rev = e.target.closest("[data-env-reveal]");
+	if (rev) {
+		const inp = document.getElementById(rev.dataset.envReveal);
+		if (inp) {
+			const show = inp.type === "password";
+			inp.type = show ? "text" : "password";
+			rev.innerHTML = icon(show ? "eyeOff" : "eye");
+		}
+	}
+});
+document.addEventListener("keydown", (e) => {
+	if (e.key === "Escape" && envModalEl && !envModalEl.hidden) {
+		e.preventDefault();
+		closeEnvModal(true);
+	}
+});
+document.addEventListener("click", (e) => {
+	const trigger = e.target.closest("[data-open-env]");
+	if (trigger) {
+		e.preventDefault();
+		openEnvModal(trigger.dataset.openEnv || "");
+		return;
+	}
+	const copyBtn = e.target.closest("[data-copy-url]");
+	if (copyBtn) {
+		const url = copyBtn.dataset.copyUrl;
+		if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(() => showToast("RSS feed URL copied")).catch(() => showToast(url, 5e3));
+		else showToast(url, 5e3);
+		return;
+	}
+	const jump = e.target.closest("[data-help-jump]");
+	if (jump) {
+		const el = document.getElementById("help-" + jump.dataset.helpJump);
+		if (el) el.scrollIntoView({
+			behavior: reduceMotion.matches ? "auto" : "smooth",
+			block: "start"
+		});
+	}
+});
+async function loadStorage() {
+	try {
+		state.navStorage = await getJSON("/api/library/storage");
+	} catch (e) {
+		state.navStorage = {
+			titles: [],
+			legacy_bytes: 0,
+			temp_files: 0,
+			temp_bytes: 0,
+			total_bytes: 0
+		};
+	}
+	refreshSettingsViews();
+}
+// src/components/transfer_dock.js
+var DOCK_STEPS = [
+	["Checking eCFR", "Connecting to eCFR"],
+	["Downloading contents", "Reading the table of contents"],
+	["Downloading text", "Streaming the regulation text"],
+	["Reading text", "Extracting sections and appendices"],
+	["Indexing", "Building the search index"],
+	["Installing", "Swapping in the new edition"]
+];
+var dock = {
+	el: document.getElementById("transfer-dock"),
+	min: lsGet("dockMinimized") === "1",
+	key: "",
+	hideT: null,
+	srText: ""
+};
+var rate = {
+	id: null,
+	t: 0,
+	done: 0,
+	bps: 0
+};
+function recordJobProgress(j) {
+	const streaming = j && j.phase === "Downloading text" && j.done > 0 && (j.total == null || j.total > 1e5);
+	if (!streaming || j.id !== rate.id) {
+		Object.assign(rate, {
+			id: streaming ? j.id : null,
+			t: streaming ? performance.now() : 0,
+			done: streaming ? j.done : 0,
+			bps: 0
+		});
+		return;
+	}
+	const now = performance.now();
+	const dt = (now - rate.t) / 1e3;
+	if (dt < .5) return;
+	const delta = j.done - rate.done;
+	if (delta > 0) rate.bps = rate.bps ? rate.bps * .7 + delta / dt * .3 : delta / dt;
+	rate.t = now;
+	rate.done = j.done;
+}
+function fmtEta(seconds) {
+	if (!isFinite(seconds) || seconds <= 0) return "";
+	if (seconds < 60) return `${Math.ceil(seconds)}s left`;
+	const m = Math.floor(seconds / 60);
+	return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m}m ${Math.round(seconds % 60)}s left`;
+}
+function dockModel(j) {
+	if (!j) return {
+		step: -1,
+		label: "Starting…",
+		pct: null,
+		left: "",
+		right: ""
+	};
+	const step = DOCK_STEPS.findIndex(([phase]) => phase === j.phase);
+	const label = step >= 0 ? DOCK_STEPS[step][1] : j.phase === "Waiting" ? "Starting…" : j.phase;
+	const has = j.total != null && j.total > 0 && j.done != null;
+	const pct = has ? Math.min(99, Math.floor(j.done / j.total * 100)) : null;
+	let left = "", right = "";
+	if (j.phase === "Downloading text" && (j.total == null || j.total > 1e5) && j.done) {
+		left = j.total ? `${fmtBytes(Math.min(j.done, j.total))} of ${fmtBytes(j.total)}` : fmtBytes(j.done);
+		const speed = rate.id === j.id && rate.bps > 51200 ? `${fmtBytes(rate.bps)}/s` : "";
+		right = [speed, speed && j.total ? fmtEta((j.total - j.done) / rate.bps) : ""].filter(Boolean).join(" · ");
+	} else if (j.phase === "Downloading text" && has) left = `${fmt(j.done)} of ${plural(j.total, "file")}`;
+	else if ((j.phase === "Reading text" || j.phase === "Indexing") && has) left = `${fmt(j.done)} of ${fmtSections(j.total)}`;
+	return {
+		step,
+		label,
+		pct,
+		left,
+		right
+	};
+}
+function dockHtml(j, m) {
+	const pctText = m.pct == null ? "" : `${m.pct}%`;
+	const title = j ? escapeHtml(j.label) : "Preparing download";
+	if (dock.min) return `<button type="button" class="dock-mini" data-dock="expand" aria-label="Show download progress: ${title}">
+      <span class="stat-dot is-busy" aria-hidden="true"></span><span class="dock-mini-text">${title}</span>
+      <span class="dock-mini-pct" data-f="pct">${pctText}</span>${icon("chevronUp")}</button>`;
+	const cancelling = j && j.cancelling;
+	const locked = j && j.phase === "Installing";
+	const steps = DOCK_STEPS.map((_, i) => `<span class="${i < m.step ? "is-done" : i === m.step ? "is-now" : ""}"></span>`).join("");
+	const queued = state.jobs.queued;
+	return `<section class="dock-card" aria-label="Downloads">
+    <div class="dock-head">
+      <span class="stat-dot is-busy" aria-hidden="true"></span>
+      <span class="dock-title">${title}</span>
+      <span class="dock-pct" data-f="pct">${pctText}</span>
+      <button type="button" class="dock-icon" data-dock="minimize" title="Minimize" aria-label="Minimize downloads">${icon("chevronDown")}</button>
+    </div>
+    <div class="dock-phase">
+      <span class="dock-phase-text">${escapeHtml(cancelling ? "Cancelling…" : m.label)}</span>
+      ${m.step >= 0 ? `<span class="dock-steps" role="img" aria-label="Step ${m.step + 1} of ${DOCK_STEPS.length}">${steps}</span>` : ""}
+    </div>
+    <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+    <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+    <div class="dock-foot">
+      <span class="dock-queue">${queued.length ? `<span class="dock-queue-count">+${queued.length} queued</span>${escapeHtml(queued.map((q) => q.label).join(", "))}` : "Nothing queued"}</span>
+      <span class="dock-acts">
+        ${queued.length ? "<button type=\"button\" class=\"lib-act\" data-dock=\"clear\">Clear queue</button>" : ""}
+        ${j ? `<button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${cancelling || locked ? " disabled" : ""}${locked ? " title=\"Installing: almost done\"" : ""}>${cancelling ? "Cancelling" : "Cancel"}</button>` : ""}
+      </span>
+    </div>
+  </section>`;
+}
+function updateDock() {
+	const el = dock.el;
+	if (!el) return;
+	const j = state.jobs.current;
+	if (!Boolean(j || state.jobs.queued.length)) {
+		if (!el.hidden && !dock.hideT) {
+			el.classList.remove("is-visible");
+			dock.hideT = setTimeout(() => {
+				dock.hideT = null;
+				if (!state.jobs.current && !state.jobs.queued.length) {
+					el.hidden = true;
+					el.innerHTML = "";
+					dock.key = "";
+				}
+			}, 260);
+		}
+		return;
+	}
+	clearTimeout(dock.hideT);
+	dock.hideT = null;
+	recordJobProgress(j);
+	const m = dockModel(j);
+	const key = [
+		dock.min,
+		j && j.id,
+		j && j.cancelling,
+		j && j.phase === "Installing",
+		m.step,
+		m.pct == null,
+		state.jobs.queued.map((q) => q.id).join(".")
+	].join("|");
+	if (key !== dock.key) {
+		const focused = el.contains(document.activeElement) ? document.activeElement.dataset.dock : null;
+		el.innerHTML = dockHtml(j, m);
+		dock.key = key;
+		if (focused) (el.querySelector(`[data-dock="${focused}"]`) || el.querySelector("[data-dock]"))?.focus();
+	} else {
+		const set = (f, v) => {
+			const n = el.querySelector(`[data-f="${f}"]`);
+			if (n && n.textContent !== v) n.textContent = v;
+		};
+		set("pct", m.pct == null ? "" : `${m.pct}%`);
+		set("left", m.left);
+		set("right", m.right);
+		const fill = el.querySelector("[data-f=\"fill\"]");
+		if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+	}
+	const sr = `${j ? j.label : "Download"}: ${m.label}`;
+	if (sr !== dock.srText) {
+		dock.srText = sr;
+		const live = document.getElementById("transfer-dock-live");
+		if (live) live.textContent = sr;
+	}
+	if (el.hidden) {
+		el.hidden = false;
+		requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("is-visible")));
+	} else el.classList.add("is-visible");
+	el.classList.toggle("is-min", dock.min);
+}
+if (dock.el) dock.el.addEventListener("click", (e) => {
+	const btn = e.target.closest("[data-dock]");
+	if (btn) onDockAction(btn);
+});
+async function onDockAction(btn) {
+	{
+		const act = btn.dataset.dock;
+		if (act === "minimize" || act === "expand") {
+			dock.min = act === "minimize";
+			lsSet("dockMinimized", dock.min ? "1" : "0");
+			dock.key = "";
+			updateDock();
+			dock.el.querySelector("[data-dock]")?.focus();
 			return;
 		}
-		if (node.t === "part") {
-			treeIdx.parts.set(String(node.id), k);
-			if (!node.r) treeIdx.partList.push(k);
+		btn.disabled = true;
+		try {
+			if (act === "cancel") await getJSON(`/api/library/jobs/${btn.dataset.id}/cancel`, { method: "POST" });
+			else if (act === "clear") {
+				const res = await getJSON("/api/library/jobs/clear", { method: "POST" });
+				for (const j of res.cancelled || []) state.jobsSeenActive.delete(j.id);
+				if (res.count) showToast(`Cleared ${plural(res.count, "queued download")}`);
+			}
+			await pollJobs();
+		} catch (err) {
+			showToast(err.message, 5e3);
+			btn.disabled = false;
 		}
-		node.n = 0;
-		for (const child of node.c || []) {
-			walk(child, k);
-			node.n += child.n;
-			if (child.t === "part" && !child.r) node.partCount += 1;
-			else if (child.partCount) node.partCount += child.partCount;
+	}
+}
+async function refreshTitles(changed = []) {
+	let list;
+	try {
+		list = await getJSON("/api/titles");
+	} catch (e) {
+		return;
+	}
+	const hadNone = state.noTitles;
+	state.installedTitles = list;
+	state.noTitles = list.length === 0;
+	fillTitleSelect();
+	updateRailHome();
+	if (hadNone && list.length) {
+		setReaderEnabled(true);
+		await switchTitle(list[0].title);
+		refreshModelsConfig();
+		if (dom.view.querySelector(".welcome")) {
+			const target = titleHref(list[0].title);
+			if (window.location.hash === target) handleRoute();
+			else window.location.hash = target;
 		}
+		return;
+	}
+	if (!list.some((t) => t.title === state.currentTitle) && list.length) await switchTitle(list[0].title);
+	else if (changed.includes(state.currentTitle)) {
+		state.treeData = null;
+		const meta = list.find((t) => t.title === state.currentTitle);
+		if (meta) state.metaInfo = meta;
+		await switchTitle(state.currentTitle);
+	}
+	if (dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
+}
+// src/components/split_pane.js
+var splitAbort = null;
+var splitSeq = 0;
+var splitHistory = [];
+var activeSplitDoc = null;
+function unitQueryFor(view, para) {
+	if (view === "full") return "";
+	if (view) return "?unit=" + encodeURIComponent(view);
+	const pClause = para && /^\(([a-z])\)/i.exec(para.trim());
+	return "?unit=" + encodeURIComponent(pClause ? pClause[1].toLowerCase() : "");
+}
+function buildSectionHash(title, sectionId, para = null, unit = null) {
+	let h = `#/title/${title}/section/${encodeURIComponent(sectionId)}`;
+	if (unit === "full") h += "/full";
+	else if (unit) h += `/${encodeURIComponent(unit)}`;
+	if (para) h += `?p=${encodeURIComponent(para)}`;
+	return h;
+}
+function closeSplitPane() {
+	if (splitAbort) {
+		try {
+			splitAbort.abort();
+		} catch (e) {}
+		splitAbort = null;
+	}
+	splitSeq++;
+	splitHistory = [];
+	activeSplitDoc = null;
+	state.splitState = null;
+	if (dom.splitPane) {
+		dom.splitPane.hidden = true;
+		dom.splitPane.innerHTML = "";
+	}
+	if (dom.mainStage) dom.mainStage.classList.remove("is-split");
+}
+function promoteSplitToMain() {
+	if (!state.splitState) return;
+	const { title, sectionId, para, unit } = state.splitState;
+	const target = buildSectionHash(title, sectionId, para, unit);
+	closeSplitPane();
+	window.location.hash = target;
+}
+function renderSplitLoading(title, sectionId) {
+	dom.splitPane.innerHTML = `
+    <div class="split-head">
+      <div class="split-head-meta">
+        <div class="doc-kicker">${title} CFR § ${escapeHtml(sectionId)}</div>
+        <div class="split-head-title">Loading…</div>
+      </div>
+      <div class="split-head-acts">
+        <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>
+      </div>
+    </div>
+    <div class="split-body">${skeletonHtml("doc", `Loading § ${sectionId}…`)}</div>
+  `;
+}
+async function openSplitPane({ title, sectionId, para = null, unit = null, pushHistory = true }) {
+	if (!dom.splitPane || !dom.mainStage || !sectionId) return;
+	const tNum = Number(title) || state.currentTitle || 29;
+	const nextEntry = {
+		title: tNum,
+		sectionId: String(sectionId),
+		para: para || null,
+		unit: unit || null
 	};
-	walk(root, -1);
-}
-function isWithin(k, ancestorK) {
-	for (let p = k; p >= 0; p = treeIdx.parent[p]) if (p === ancestorK) return true;
-	return false;
-}
-function partOf(k) {
-	for (let p = k; p >= 0; p = treeIdx.parent[p]) if (treeIdx.nodes[p].t === "part") return p;
-	return null;
-}
-function rowParts(node) {
-	const l = (node.l || "").trim();
-	let d = (node.d || "").trim();
-	if (l && d.startsWith(l) && d.length > l.length) d = d.slice(l.length).trim();
-	if (node.t === "appendix") {
-		const m = /^Appendix\s+(?!to\b)(\S+)/i.exec(l);
-		return [m ? `App. ${m[1]}` : "App.", d || l];
+	if (pushHistory) {
+		const top = splitHistory[splitHistory.length - 1];
+		if (!top || top.title !== nextEntry.title || top.sectionId !== nextEntry.sectionId || top.unit !== nextEntry.unit || top.para !== nextEntry.para) splitHistory.push(nextEntry);
 	}
-	return [String(node.id), d];
-}
-function tooltipFor(node) {
-	const l = (node.l || "").trim();
-	const d = (node.d || "").trim();
-	return d && d !== l ? `${l} — ${d}` : l || d;
-}
-function hl(str) {
-	const text = String(str ?? "");
-	const re = state.treeFilterState && state.treeFilterState.re;
-	if (!re) return escapeHtml(text);
-	let out = "";
-	let last = 0;
-	for (const m of text.matchAll(re)) {
-		const start = m.index + m[1].length;
-		out += escapeHtml(text.slice(last, start)) + "<mark>" + escapeHtml(m[2]) + "</mark>";
-		last = start + m[2].length;
+	if (splitAbort) try {
+		splitAbort.abort();
+	} catch (e) {}
+	splitAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+	const seq = ++splitSeq;
+	dom.mainStage.classList.add("is-split");
+	dom.splitPane.hidden = false;
+	state.splitState = nextEntry;
+	renderSplitLoading(tNum, sectionId);
+	try {
+		const qs = unitQueryFor(unit, para);
+		const res = await fetch(`/api/${tNum}/section/${encodeURIComponent(sectionId)}${qs}`, { signal: splitAbort?.signal });
+		if (seq !== splitSeq) return;
+		if (!res.ok) {
+			dom.splitPane.innerHTML = `
+        <div class="split-head">
+          <div class="split-head-meta">
+            <div class="doc-kicker">${tNum} CFR § ${escapeHtml(sectionId)}</div>
+            <div class="split-head-title">Unavailable</div>
+          </div>
+          <div class="split-head-acts">
+            <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>
+          </div>
+        </div>
+        <div class="split-body"><p class="muted">Couldn’t load § ${escapeHtml(sectionId)} from Title ${tNum}.</p></div>
+      `;
+			return;
+		}
+		let data = await res.json();
+		if (seq !== splitSeq) return;
+		activeSplitDoc = data;
+		state.peekCache.set(`${tNum}|${sectionId}|${data.unit || "full"}`, data);
+		const heading = cleanInlineLabel(data.section_title || data.title_label || "");
+		const label = cleanInlineLabel(data.label);
+		const hasBack = splitHistory.length > 1;
+		const outline = data.outline || [];
+		const unitsHtml = data.mode === "units" && outline.length > 1 ? `<div class="split-units" role="navigation" aria-label="Section parts">
+          ${outline.map((u) => `<button type="button" class="split-unit-chip${data.unit === u.key ? " is-active" : ""}" data-split-unit="${escapeHtml(u.key)}">${escapeHtml(unitShort(u))}</button>`).join("")}
+          <button type="button" class="split-unit-chip${!data.unit ? " is-active" : ""}" data-split-unit="full">Full</button>
+        </div>` : "";
+		const partLabel = data.part ? ` · Part ${escapeHtml(data.part)}` : "";
+		dom.splitPane.innerHTML = `
+      <header class="split-head">
+        ${hasBack ? `<button type="button" class="icon-btn" data-split-act="back" title="Back in split pane" aria-label="Back">${icon("chevronLeft")}</button>` : ""}
+        <div class="split-head-meta">
+          <div class="doc-kicker">${tNum} CFR${partLabel}</div>
+          <h2 class="split-head-title">${escapeHtml(label)} ${escapeHtml(heading)}</h2>
+        </div>
+        <div class="split-head-acts">
+          <button type="button" class="btn btn-small" data-split-act="promote" title="Open this section in the main reading pane">Open</button>
+          <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>
+        </div>
+      </header>
+      ${unitsHtml}
+      <div class="split-body">
+        ${data.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : ""}
+        ${data.html || ""}
+      </div>
+    `;
+		const bodyEl = dom.splitPane.querySelector(".split-body");
+		if (bodyEl) {
+			enhanceDomAnchors(bodyEl);
+			if (para) highlightTarget(bodyEl, para, 60);
+			else dom.splitPane.scrollTop = 0;
+		}
+	} catch (err) {
+		if (err && err.name === "AbortError") return;
+		if (seq !== splitSeq) return;
+		dom.splitPane.innerHTML = `
+      <div class="split-head">
+        <div class="split-head-meta">
+          <div class="doc-kicker">${tNum} CFR § ${escapeHtml(sectionId)}</div>
+          <div class="split-head-title">Load failed</div>
+        </div>
+        <div class="split-head-acts">
+          <button type="button" class="icon-btn" data-split-act="close" aria-label="Close split view">${icon("close")}</button>
+        </div>
+      </div>
+      <div class="split-body"><div class="msg-error">${escapeHtml(err?.message || "Error")}</div></div>
+    `;
 	}
-	return out + escapeHtml(text.slice(last));
 }
-function itemHtml(node) {
-	const leaf = LEAF_TYPES.has(node.t);
-	const [num, text] = rowParts(node);
-	const href = `#/${leaf ? "section" : "part"}/${encodeURIComponent(node.id)}`;
-	const isPage = node.k === state.currentTreeKey;
-	const isAncestor = !isPage && !leaf && node.k === state.currentPartKey;
-	const cls = ["side-item", leaf ? "is-section" : "is-part"];
-	if (isPage) cls.push("current");
-	if (isAncestor) cls.push("ancestor-current");
-	if (leaf && state.visited.has(String(node.id))) cls.push("visited");
-	return `<a class="${cls.join(" ")}" href="${href}" data-k="${node.k}" title="${escapeHtml(tooltipFor(node))}"${isPage ? " aria-current=\"page\"" : ""}><span class="side-num">${hl(num)}</span><span class="side-text">${hl(text)}</span></a>`;
+if (dom.splitPane) {
+	dom.splitPane.addEventListener("click", (e) => {
+		const actBtn = e.target.closest("[data-split-act]");
+		if (actBtn) {
+			const act = actBtn.dataset.splitAct;
+			if (act === "close") closeSplitPane();
+			else if (act === "promote") promoteSplitToMain();
+			else if (act === "back" && splitHistory.length > 1) {
+				splitHistory.pop();
+				const prev = splitHistory[splitHistory.length - 1];
+				if (prev) openSplitPane({
+					...prev,
+					pushHistory: false
+				});
+			}
+			return;
+		}
+		const unitBtn = e.target.closest("[data-split-unit]");
+		if (unitBtn && state.splitState) {
+			openSplitPane({
+				title: state.splitState.title,
+				sectionId: state.splitState.sectionId,
+				para: null,
+				unit: unitBtn.dataset.splitUnit,
+				pushHistory: false
+			});
+			return;
+		}
+		const anchorTrigger = e.target.closest("[data-anchor]");
+		if (anchorTrigger) {
+			e.preventDefault();
+			scrollToAnchor(anchorTrigger.dataset.anchor, dom.splitPane);
+			return;
+		}
+		const localPara = e.target.closest("a.xref-local[data-local-para]");
+		if (localPara) {
+			e.preventDefault();
+			highlightTarget(dom.splitPane, localPara.dataset.localPara, 0);
+			return;
+		}
+		const figLink = e.target.closest("a.reg-figure:not(.is-broken)");
+		if (figLink && dom.splitPane.contains(figLink)) {
+			e.preventDefault();
+			openFigureModal(figLink);
+			return;
+		}
+		const link = e.target.closest("a[href^=\"#\"]");
+		if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+			const parsed = parseCfrHref(link.getAttribute("href"), state.splitState?.title || state.currentTitle);
+			if (parsed && parsed.kind === "section") {
+				e.preventDefault();
+				openSplitPane({
+					title: parsed.title,
+					sectionId: parsed.section,
+					para: parsed.para,
+					unit: parsed.unit,
+					pushHistory: true
+				});
+			}
+		}
+	});
+	dom.splitPane.addEventListener("error", (e) => {
+		const img = e.target;
+		if (!(img instanceof HTMLImageElement) || !img.classList.contains("reg-img")) return;
+		const fig = img.closest(".reg-figure");
+		if (!fig || fig.classList.contains("is-broken")) return;
+		fig.classList.add("is-broken");
+		if (activeSplitDoc?.ecfr_url) fig.href = activeSplitDoc.ecfr_url;
+		fig.title = "This figure is only available on eCFR";
+		fig.innerHTML = `${icon("external")}<span>Figure — view on eCFR</span>`;
+	}, true);
 }
-function agencyRowHtml(node) {
-	const info = agencyInfo(node);
-	const isAncestor = node.k === state.currentAgencyKey;
-	const meta = [info.range && `Parts ${info.range}`, plural(node.partCount || 0, "part")].filter(Boolean).join(" · ");
-	return `<button type="button" class="side-agency${isAncestor ? " ancestor-current" : ""}" data-action="agency" data-k="${node.k}" title="${escapeHtml(tooltipFor(node))}"><span class="side-agency-code">${hl(info.code)}</span><span class="side-agency-body"><span class="side-agency-name">${hl(info.name)}</span><span class="side-agency-meta">${escapeHtml(meta)}</span></span></button>`;
+// src/components/cfr_resolver.js
+var titleInfoCache = /* @__PURE__ */ new Map();
+var INFO_TTL_MS = 3e5;
+var citePopEl = document.getElementById("cite-pop");
+var citePop = createPopover({
+	el: citePopEl,
+	scrollContainer: dom.main,
+	padding: 12
+});
+function normalizeCfrTarget(raw = {}) {
+	const title = Number(raw.title || raw.cfrTitle) || 0;
+	const section = raw.section ? String(raw.section).trim() : null;
+	const part = raw.part ? String(raw.part).trim() : section && section.includes(".") ? section.split(".", 1)[0] : null;
+	return {
+		title,
+		part,
+		section,
+		para: raw.para ? String(raw.para).trim() : null,
+		kind: raw.kind === "appendix" ? "appendix" : section ? "section" : "part",
+		ecfrUrl: raw.ecfrUrl || (section ? `https://www.ecfr.gov/current/title-${title}/section-${encodeURIComponent(section)}` : part ? `https://www.ecfr.gov/current/title-${title}/part-${encodeURIComponent(part)}` : `https://www.ecfr.gov/current/title-${title}`)
+	};
 }
-function agencyLabelHtml(agencyNode) {
-	const info = agencyInfo(agencyNode);
-	return `<div class="side-label"><span class="side-label-code">${escapeHtml(info.code)}</span> ${escapeHtml(info.name)}</div>`;
+async function fetchTitleInfo(title) {
+	const cached = titleInfoCache.get(title);
+	if (cached && Date.now() - cached.at < INFO_TTL_MS) return cached.info;
+	const info = await getJSON(`/api/library/${title}`);
+	titleInfoCache.set(title, {
+		info,
+		at: Date.now()
+	});
+	return info;
 }
-function groupedHtml(keys) {
-	let html = "";
-	let lastAgency = -2;
-	for (const k of keys) {
-		const node = treeIdx.nodes[k];
-		if (isAgencyNode(node)) {
-			html += agencyRowHtml(node);
-			lastAgency = k;
+async function checkLocalCfrTarget(target) {
+	const meta = state.installedTitles.find((t) => t.title === target.title);
+	if (!meta) return {
+		installed: false,
+		meta: null
+	};
+	if (target.section) try {
+		if ((await fetch(`/api/${target.title}/section/${encodeURIComponent(target.section)}?unit=`)).ok) return {
+			installed: true,
+			meta,
+			kind: "section"
+		};
+		return {
+			installed: false,
+			meta,
+			partialMissing: true
+		};
+	} catch (e) {
+		return {
+			installed: false,
+			meta,
+			partialMissing: true
+		};
+	}
+	if (target.part) try {
+		if ((await fetch(`/api/${target.title}/part/${encodeURIComponent(target.part)}/full`)).ok) return {
+			installed: true,
+			meta,
+			kind: "part"
+		};
+		return {
+			installed: false,
+			meta,
+			partialMissing: true
+		};
+	} catch (e) {
+		return {
+			installed: false,
+			meta,
+			partialMissing: true
+		};
+	}
+	return {
+		installed: true,
+		meta,
+		kind: "title"
+	};
+}
+function activeJobForTarget(target) {
+	if (target.section) return jobFor(target.title, "section", target.section) || (target.part ? jobFor(target.title, "part", target.part) : null) || jobFor(target.title, "title");
+	if (target.part) return jobFor(target.title, "part", target.part) || jobFor(target.title, "title");
+	return jobFor(target.title, "title");
+}
+function targetDisplayTitle(target) {
+	if (target.section) return `${target.title} CFR § ${target.section}`;
+	if (target.part) return `${target.title} CFR Part ${target.part}`;
+	return `Title ${target.title}`;
+}
+function targetHashFor(target) {
+	if (target.section) return `#/title/${target.title}/section/${encodeURIComponent(target.section)}` + (target.para ? `?p=${encodeURIComponent(target.para)}` : "");
+	if (target.part) return `#/title/${target.title}/part/${encodeURIComponent(target.part)}`;
+	return `#/title/${target.title}/`;
+}
+function resolverBodyHtml(target, { info = null, error = null, loading = false, openInSplit = false, isPage = false } = {}) {
+	const titleNum = target.title;
+	const installedMeta = state.installedTitles.find((t) => t.title === titleNum);
+	const job = activeJobForTarget(target);
+	const reserved = Boolean(info && info.reserved);
+	const titleName = info && info.name || installedMeta && installedMeta.name || `Title ${titleNum}`;
+	const edition = info && info.latest ? ` · Edition ${fmtDate(info.latest)}` : "";
+	const statusMsg = reserved ? `Title ${titleNum} is reserved on eCFR and contains no regulatory text.` : installedMeta?.partial ? `Title ${titleNum} is partially installed — this ${target.section ? "section" : "part"} hasn’t been downloaded yet.` : `Title ${titleNum} is not installed in the local reader.`;
+	let jobHtml = "";
+	if (job) {
+		const m = dockModel(job);
+		const pctText = m.pct == null ? "" : ` · ${m.pct}%`;
+		const isQueued = job.state === "queued";
+		const note = openInSplit ? "Downloading in background — will open side-by-side when ready." : "Downloading in background — will open automatically when ready.";
+		jobHtml = `
+      <div class="resolver-progress" data-res-job="${job.id}">
+        <div class="resolver-progress-head">
+          <span class="stat-dot is-busy" aria-hidden="true"></span>
+          <span>${escapeHtml(isQueued ? `Queued · ${job.label}` : `${m.label}${pctText}`)}</span>
+        </div>
+        <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+        <p class="resolver-note">${escapeHtml(note)}</p>
+      </div>
+    `;
+	}
+	let actionsHtml = "";
+	if (!reserved && !job) {
+		const primaryCls = isPage ? "btn btn-accent" : "btn btn-small btn-accent";
+		const secCls = isPage ? "btn" : "btn btn-small";
+		const btns = [];
+		if (target.section) {
+			btns.push(`<button type="button" class="${primaryCls}" data-res-dl="section">${icon("download")} Download § ${escapeHtml(target.section)}</button>`);
+			if (target.part) btns.push(`<button type="button" class="${secCls}" data-res-dl="part">Download Part ${escapeHtml(target.part)}</button>`);
+		} else if (target.part) {
+			btns.push(`<button type="button" class="${primaryCls}" data-res-dl="part">${icon("download")} Download Part ${escapeHtml(target.part)}</button>`);
+			btns.push(`<button type="button" class="${secCls}" data-res-dl="title">Download Title ${titleNum}</button>`);
+		} else btns.push(`<button type="button" class="${primaryCls}" data-res-dl="title">${icon("download")} Download Title ${titleNum}</button>`);
+		actionsHtml = `<div class="resolver-acts">
+      ${btns.join("")}
+      <a class="${secCls}" href="${escapeHtml(target.ecfrUrl)}" target="_blank" rel="noopener noreferrer">${icon("external")} View on eCFR</a>
+    </div>`;
+	} else actionsHtml = `<div class="resolver-acts">
+      <a class="${isPage ? "btn" : "btn btn-small"}" href="${escapeHtml(target.ecfrUrl)}" target="_blank" rel="noopener noreferrer">${icon("external")} View on eCFR</a>
+      ${isPage ? `<a class="btn" href="#/library/${titleNum}">Open in Library</a>` : ""}
+    </div>`;
+	return `
+    <div class="resolver-meta">${escapeHtml(titleName)}${escapeHtml(edition)}${loading ? " · Checking eCFR…" : ""}</div>
+    <p class="resolver-msg">${escapeHtml(error || statusMsg)}</p>
+    ${jobHtml}
+    ${actionsHtml}
+  `;
+}
+var activeModalCtx = null;
+var activePageCtx = null;
+async function submitCfrDownload(scopeKind, target, openInSplit = false) {
+	const body = {
+		title: target.title,
+		part: scopeKind === "section" || scopeKind === "part" ? target.part : null,
+		section: scopeKind === "section" ? target.section : null,
+		kind: target.kind === "appendix" ? "appendix" : "section"
+	};
+	const job = await getJSON("/api/library/download", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body)
+	});
+	state.jobsSeenActive.add(job.id);
+	state.pendingDownloads.set(job.id, {
+		title: target.title,
+		part: body.part,
+		section: body.section,
+		kind: body.section ? body.kind : body.part ? "part" : "title",
+		para: target.para || null,
+		openInSplit: Boolean(openInSplit && target.section),
+		fromHash: window.location.hash || "#/"
+	});
+	await pollJobs();
+	return job;
+}
+function renderPopResolver(ctx) {
+	if (!citePopEl || !citePop.isOpen() || !citePop.isInteractive()) return;
+	const { target, info, loading, error, openInSplit } = ctx;
+	citePopEl.innerHTML = `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${escapeHtml(targetDisplayTitle(target))}</div>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close download prompt">${icon("close")}</button>
+    </div>
+    ${resolverBodyHtml(target, {
+		info,
+		loading,
+		error,
+		openInSplit,
+		isPage: false
+	})}
+  `;
+	citePop.reposition();
+}
+async function openCfrDownloadCard(anchorEl, rawTarget, { openInSplit = false } = {}) {
+	const target = normalizeCfrTarget(rawTarget);
+	const ctx = {
+		target,
+		info: null,
+		loading: true,
+		error: null,
+		openInSplit
+	};
+	activeModalCtx = ctx;
+	citePop.open(anchorEl, "", {
+		interactive: true,
+		returnFocus: anchorEl
+	});
+	renderPopResolver(ctx);
+	try {
+		const info = await fetchTitleInfo(target.title);
+		if (activeModalCtx !== ctx || !citePop.isOpen()) return;
+		ctx.info = info;
+		ctx.loading = false;
+		renderPopResolver(ctx);
+	} catch (err) {
+		if (activeModalCtx !== ctx || !citePop.isOpen()) return;
+		ctx.loading = false;
+		ctx.error = err?.message || null;
+		renderPopResolver(ctx);
+	}
+}
+async function renderResolverPage(container, rawTarget) {
+	if (!container) return;
+	const target = normalizeCfrTarget(rawTarget);
+	const ctx = {
+		target,
+		info: null,
+		loading: true,
+		error: null,
+		container
+	};
+	activePageCtx = ctx;
+	const draw = () => {
+		if (activePageCtx !== ctx || !container.contains(container.querySelector(".resolver-card") || container)) return;
+		container.innerHTML = `
+      <div class="resolver-card">
+        <div class="doc-kicker">External Regulatory Reference</div>
+        <h1 class="doc-title">${escapeHtml(targetDisplayTitle(target))}</h1>
+        ${resolverBodyHtml(target, {
+			info: ctx.info,
+			loading: ctx.loading,
+			error: ctx.error,
+			isPage: true
+		})}
+      </div>
+    `;
+	};
+	document.title = `${targetDisplayTitle(target)} · FRAMEWORK`;
+	container.innerHTML = "";
+	container.innerHTML = `<div class="resolver-card">
+    <div class="doc-kicker">External Regulatory Reference</div>
+    <h1 class="doc-title">${escapeHtml(targetDisplayTitle(target))}</h1>
+    ${resolverBodyHtml(target, {
+		loading: true,
+		isPage: true
+	})}
+  </div>`;
+	enterView();
+	try {
+		ctx.info = await fetchTitleInfo(target.title);
+		ctx.loading = false;
+	} catch (err) {
+		ctx.loading = false;
+		ctx.error = err?.message || null;
+	}
+	if (activePageCtx === ctx && container.querySelector(".resolver-card")) draw();
+}
+async function handleResolverActionClick(btn, ctx, redraw) {
+	if (!btn || !ctx) return;
+	const scope = btn.dataset.resDl;
+	if (!scope) return;
+	btn.disabled = true;
+	try {
+		await submitCfrDownload(scope, ctx.target, Boolean(ctx.openInSplit));
+		ctx.error = null;
+		redraw();
+	} catch (err) {
+		btn.disabled = false;
+		ctx.error = err?.message || "Download failed";
+		showToast(ctx.error, 5e3);
+		redraw();
+	}
+}
+if (citePopEl) citePopEl.addEventListener("click", (e) => {
+	if (e.target.closest("[data-pop-close]")) {
+		activeModalCtx = null;
+		citePop.close(true);
+		return;
+	}
+	const dlBtn = e.target.closest("[data-res-dl]");
+	if (dlBtn && activeModalCtx) handleResolverActionClick(dlBtn, activeModalCtx, () => renderPopResolver(activeModalCtx));
+});
+dom.view.addEventListener("click", (e) => {
+	const dlBtn = e.target.closest(".resolver-card [data-res-dl]");
+	if (dlBtn && activePageCtx && dom.view.contains(dlBtn)) handleResolverActionClick(dlBtn, activePageCtx, () => {
+		if (activePageCtx && dom.view.querySelector(".resolver-card")) dom.view.querySelector(".resolver-card").innerHTML = `
+          <div class="doc-kicker">External Regulatory Reference</div>
+          <h1 class="doc-title">${escapeHtml(targetDisplayTitle(activePageCtx.target))}</h1>
+          ${resolverBodyHtml(activePageCtx.target, {
+			info: activePageCtx.info,
+			loading: activePageCtx.loading,
+			error: activePageCtx.error,
+			isPage: true
+		})}
+        `;
+	});
+});
+document.addEventListener("framework:jobs-updated", () => {
+	if (activeModalCtx && citePop.isOpen() && citePop.isInteractive() && citePopEl.querySelector("[data-res-dl], [data-res-job]")) renderPopResolver(activeModalCtx);
+	if (activePageCtx && dom.view.querySelector(".resolver-card")) {
+		const card = dom.view.querySelector(".resolver-card");
+		card.innerHTML = `
+      <div class="doc-kicker">External Regulatory Reference</div>
+      <h1 class="doc-title">${escapeHtml(targetDisplayTitle(activePageCtx.target))}</h1>
+      ${resolverBodyHtml(activePageCtx.target, {
+			info: activePageCtx.info,
+			loading: activePageCtx.loading,
+			error: activePageCtx.error,
+			isPage: true
+		})}
+    `;
+	}
+});
+async function upgradeDomExternalLinks(finishedTitles) {
+	if (!finishedTitles.size) return;
+	for (const key of [...state.peekCache.keys()]) {
+		const tNum = Number(key.split("|", 1)[0]);
+		if (finishedTitles.has(tNum)) state.peekCache.delete(key);
+	}
+	for (const root of [dom.view, dom.splitPane].filter(Boolean)) for (const a of root.querySelectorAll("a.xref-external[data-cfr-title]")) {
+		const t = Number(a.dataset.cfrTitle);
+		if (!finishedTitles.has(t)) continue;
+		const target = normalizeCfrTarget({
+			title: t,
+			part: a.dataset.cfrPart,
+			section: a.dataset.cfrSection,
+			para: a.dataset.cfrPara
+		});
+		if (!(await checkLocalCfrTarget(target)).installed || !a.isConnected) continue;
+		a.href = targetHashFor(target);
+		a.className = "xref xref-cross";
+		a.removeAttribute("target");
+		a.removeAttribute("rel");
+		a.removeAttribute("title");
+		delete a.dataset.cfrTitle;
+		delete a.dataset.cfrPart;
+		delete a.dataset.cfrSection;
+		delete a.dataset.cfrPara;
+	}
+}
+document.addEventListener("framework:jobs-finished", async (e) => {
+	const finished = e.detail?.finished || [];
+	if (!finished.length) return;
+	const doneJobs = finished.filter((j) => j.state === "done");
+	await upgradeDomExternalLinks(new Set(doneJobs.map((j) => j.title)));
+	for (const j of finished) {
+		const entry = state.pendingDownloads.get(j.id);
+		if (!entry) continue;
+		state.pendingDownloads.delete(j.id);
+		if (j.state !== "done") continue;
+		const target = normalizeCfrTarget(entry);
+		const label = targetDisplayTitle(target);
+		if (entry.openInSplit && target.section) {
+			if (activeModalCtx && citePop.isOpen()) {
+				activeModalCtx = null;
+				citePop.close(false);
+			}
+			openSplitPane({
+				title: target.title,
+				sectionId: target.section,
+				para: target.para,
+				pushHistory: true
+			});
+			showToast(`Ready — opened ${label} side-by-side`);
 			continue;
 		}
-		const agency = agencyOf(k);
-		if (agency !== lastAgency) {
-			if (agency != null) html += agencyLabelHtml(treeIdx.nodes[agency]);
-			lastAgency = agency;
-		}
-		html += itemHtml(node);
-	}
-	return `<div class="side-list">${html}</div>`;
-}
-function crumbsHtml(crumbs) {
-	return `<nav class="side-breadcrumbs" aria-label="Sidebar location">${crumbs.map((c, i) => {
-		if (i === crumbs.length - 1) return `<span class="side-crumb-current" aria-current="location">${escapeHtml(c.label)}</span>`;
-		const kAttr = c.k != null ? ` data-k="${c.k}"` : "";
-		return `<button type="button" class="side-crumb" data-action="${c.action}"${kAttr}>${escapeHtml(c.label)}</button>`;
-	}).join("<span class=\"side-sep\" aria-hidden=\"true\">›</span>")}</nav>`;
-}
-function agenciesListHtml() {
-	return `<div class="side-list side-agencies-list">${treeIdx.agencyList.map((k) => agencyRowHtml(treeIdx.nodes[k])).join("")}</div>`;
-}
-function agencyViewHtml(agency) {
-	const info = agencyInfo(agency);
-	let body = "";
-	for (const c of agency.c || []) {
-		if (c.r) continue;
-		if (c.t === "part") body += itemHtml(c);
-		else if (c.t === "subchapter") {
-			const parts = (c.c || []).filter((ch) => ch.t === "part" && !ch.r);
-			if (!parts.length) continue;
-			const l = (c.l || "").trim();
-			const d = (c.d || "").trim();
-			body += `<div class="side-label">${escapeHtml(d ? `${l} — ${d}` : l)}</div>`;
-			body += parts.map(itemHtml).join("");
-		}
-	}
-	const meta = [info.range && `Parts ${info.range}`, plural(agency.partCount || 0, "part")].filter(Boolean).join(" · ");
-	return `<div class="side-head">` + crumbsHtml([{
-		label: "Agencies",
-		action: "agencies"
-	}, { label: info.code }]) + `<div class="side-heading" title="${escapeHtml(tooltipFor(agency))}"><div class="side-heading-title">${escapeHtml(info.name)}</div><div class="side-heading-meta">${escapeHtml(meta)}</div></div></div><div class="side-list">${body}</div>`;
-}
-function partsListHtml() {
-	return groupedHtml(treeIdx.partList);
-}
-state.foldedGroups = (() => {
-	try {
-		return new Set(JSON.parse(lsGet("sideFolded") || "[]"));
-	} catch (e) {
-		return /* @__PURE__ */ new Set();
-	}
-})();
-function groupKey(part, sub) {
-	return `${state.currentTitle}|${part.id}|${sub.id}`;
-}
-function saveFolded() {
-	lsSet("sideFolded", JSON.stringify([...state.foldedGroups]));
-}
-function setGroupOpen(group, open, save = true) {
-	group.classList.toggle("is-folded", !open);
-	group.querySelector(".side-group-toggle")?.setAttribute("aria-expanded", String(open));
-	if (group.dataset.group) {
-		if (open) state.foldedGroups.delete(group.dataset.group);
-		else state.foldedGroups.add(group.dataset.group);
-		if (save) saveFolded();
-	}
-}
-function partViewHtml(part) {
-	const walk = (node) => {
-		let out = "";
-		for (const c of node.c || []) {
-			if (c.r) continue;
-			if (LEAF_TYPES.has(c.t)) out += itemHtml(c);
-			else if (c.n) {
-				const l = (c.l || "").trim();
-				const d = (c.d || "").trim();
-				if (c.t === "subpart") {
-					const key = groupKey(part, c);
-					const folded = state.foldedGroups.has(key) && !(state.currentTreeKey != null && isWithin(state.currentTreeKey, c.k));
-					out += `<div class="side-group${folded ? " is-folded" : ""}" data-group="${escapeHtml(key)}"><button type="button" class="side-label side-group-toggle" data-action="toggle-group" aria-expanded="${!folded}"><span class="side-group-name">${escapeHtml(d ? `${l} — ${d}` : l)}</span>${icon("chevronDown", "side-group-caret")}</button><div class="side-group-body"><div class="side-group-inner">${walk(c)}</div></div></div>`;
-				} else out += `<div class="side-label minor">${escapeHtml(d || l)}</div>` + walk(c);
+		const onResolverPage = Boolean(dom.view.querySelector(".resolver-card"));
+		if (window.location.hash === entry.fromHash || onResolverPage) {
+			if (activeModalCtx && citePop.isOpen()) {
+				activeModalCtx = null;
+				citePop.close(false);
 			}
-		}
-		return out;
-	};
-	const body = walk(part);
-	const agencyKey = agencyOf(part.k);
-	const crumbs = state.rootViewMode === "agencies" && agencyKey != null ? [{
-		label: "Agencies",
-		action: "agencies"
-	}, {
-		label: agencyInfo(treeIdx.nodes[agencyKey]).code,
-		action: "agency",
-		k: agencyKey
-	}] : [{
-		label: "All parts",
-		action: "parts"
-	}];
-	crumbs.push({ label: `Part ${part.id}` });
-	return `<div class="side-head">` + crumbsHtml(crumbs) + `<a class="side-part-title${part.k === state.currentTreeKey ? " current" : ""}" href="#/part/${encodeURIComponent(part.id)}"${part.k === state.currentTreeKey ? " aria-current=\"page\"" : ""}>${escapeHtml((part.d || "").trim())}</a></div><div class="side-list">${body}</div>`;
-}
-function filterResultsHtml() {
-	const f = state.treeFilterState;
-	const q = f.q.trim();
-	const fullText = `<a class="side-fulltext" href="#/search?q=${encodeURIComponent(q)}">Search the full text for “${escapeHtml(q)}”</a>`;
-	if (!f.results.length) return `<div class="side-empty">Nothing matches.</div>${fullText}`;
-	return groupedHtml(f.results) + fullText;
-}
-function updateNavTabsUI() {
-	const tabs = document.getElementById("side-nav-tabs");
-	if (!tabs) return;
-	tabs.hidden = !!state.treeFilterState;
-	const isAllParts = state.rootViewMode === "all-parts";
-	const tabAgencies = document.getElementById("tab-agencies");
-	const tabParts = document.getElementById("tab-parts");
-	if (tabAgencies && tabParts) {
-		tabAgencies.classList.toggle("active", !isAllParts);
-		tabAgencies.setAttribute("aria-selected", String(!isAllParts));
-		tabParts.classList.toggle("active", isAllParts);
-		tabParts.setAttribute("aria-selected", String(isAllParts));
-		tabParts.textContent = `All ${treeIdx.partList.length} parts`;
-	}
-}
-function renderSidebar() {
-	if (!state.treeData) return;
-	updateNavTabsUI();
-	if (state.treeFilterState) dom.tree.innerHTML = filterResultsHtml();
-	else if (state.sideView === "agencies") dom.tree.innerHTML = agenciesListHtml();
-	else if (state.sideView === "all-parts") dom.tree.innerHTML = partsListHtml();
-	else if (typeof state.sideView === "number") {
-		const node = treeIdx.nodes[state.sideView];
-		dom.tree.innerHTML = isAgencyNode(node) ? agencyViewHtml(node) : partViewHtml(node);
-	}
-	dom.tree.scrollTop = 0;
-}
-function clearFilterQuietly() {
-	if (!state.treeFilterState && !dom.treeFilter.value) return;
-	clearTimeout(state.filterTimer);
-	dom.treeFilter.value = "";
-	state.treeFilterState = null;
-}
-function showAgenciesList() {
-	state.rootViewMode = "agencies";
-	lsSet("rootViewMode", "agencies");
-	state.sideView = "agencies";
-	renderSidebar();
-	revealCurrent(false);
-}
-function showAgencyView(k) {
-	state.rootViewMode = "agencies";
-	lsSet("rootViewMode", "agencies");
-	state.sideView = k;
-	renderSidebar();
-	revealCurrent(false);
-}
-function showPartsList() {
-	state.rootViewMode = "all-parts";
-	lsSet("rootViewMode", "all-parts");
-	state.sideView = "all-parts";
-	renderSidebar();
-	revealCurrent(false);
-}
-function selectTreeNode(elementId) {
-	if (!state.treeData) return;
-	const m = /^([sp])-(.+)$/.exec(elementId);
-	if (!m) return;
-	const k = (m[1] === "s" ? treeIdx.sections : treeIdx.parts).get(m[2]);
-	if (k === void 0) return;
-	state.currentTreeKey = k;
-	state.currentPartKey = partOf(k);
-	state.currentAgencyKey = agencyOf(k);
-	if (m[1] === "s") markVisited(m[2]);
-	const switchPart = state.currentPartKey != null && state.sideView !== state.currentPartKey;
-	if (switchPart) state.sideView = state.currentPartKey;
-	if (state.treeFilterState) {
-		refreshCurrent();
-		return;
-	}
-	if (switchPart) {
-		const hadFocus = dom.tree.contains(document.activeElement);
-		renderSidebar();
-		revealCurrent(false);
-		if (hadFocus) (dom.tree.querySelector(".side-item.current") || dom.tree.querySelector(".side-part-title"))?.focus({ preventScroll: true });
-	} else {
-		refreshCurrent();
-		revealCurrent(true);
-	}
-}
-function refreshCurrent() {
-	dom.tree.querySelectorAll(".current, .ancestor-current").forEach((el) => {
-		el.classList.remove("current", "ancestor-current");
-		el.removeAttribute("aria-current");
-	});
-	if (state.currentTreeKey == null) return;
-	const markPage = (el) => {
-		if (el) {
-			el.classList.add("current");
-			el.setAttribute("aria-current", "page");
-		}
-	};
-	const markAncestor = (el) => {
-		if (el && !el.classList.contains("current")) el.classList.add("ancestor-current");
-	};
-	const page = dom.tree.querySelector(`.side-item[data-k="${state.currentTreeKey}"]`);
-	markPage(page);
-	const folded = page && page.closest(".side-group.is-folded");
-	if (folded) setGroupOpen(folded, true);
-	if (state.currentTreeKey === state.currentPartKey) {
-		if (state.sideView === state.currentPartKey) markPage(dom.tree.querySelector(".side-part-title"));
-	} else markAncestor(dom.tree.querySelector(`.side-item.is-part[data-k="${state.currentPartKey}"]`));
-	markAncestor(dom.tree.querySelector(`.side-agency[data-k="${state.currentAgencyKey}"]`));
-}
-function clearTreeSelection() {
-	if (state.currentTreeKey == null) return;
-	state.currentTreeKey = null;
-	state.currentPartKey = null;
-	state.currentAgencyKey = null;
-	refreshCurrent();
-}
-function revealCurrent(smooth = false) {
-	const el = dom.tree.querySelector(".side-item.current") || dom.tree.querySelector(".side-item.ancestor-current, .side-agency.ancestor-current");
-	if (el) scrollIntoTree(el, smooth);
-}
-function scrollIntoTree(el, smooth) {
-	const box = dom.tree.getBoundingClientRect();
-	if (!box.height) return;
-	const head = dom.tree.querySelector(".side-head");
-	const top = box.top + (head && !head.contains(el) ? head.offsetHeight : 0);
-	const r = el.getBoundingClientRect();
-	if (r.top < top + 4 || r.bottom > box.bottom - 4) dom.tree.scrollTo({
-		top: dom.tree.scrollTop + r.top - box.top - box.height / 3,
-		behavior: smooth ? "smooth" : "auto"
-	});
-}
-function markVisited(id) {
-	if (state.visited.has(id)) return;
-	state.visited.add(id);
-	lsSet(visitedKey(), JSON.stringify([...state.visited]));
-	dom.tree.querySelector(`.side-item.is-section[data-k="${treeIdx.sections.get(id)}"]`)?.classList.add("visited");
-}
-function escapeRegExp(s) {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function computeFilter(q) {
-	const cleaned = q.trim().replace(/^\d{1,2}\s*c\.?\s*f\.?\s*r\.?\s*/i, "");
-	const tokens = [...new Set(normalizeForMatch(cleaned).trim().split(" ").filter(Boolean))].slice(0, 12);
-	if (!tokens.length) return null;
-	const ALL = (1 << tokens.length) - 1;
-	const total = treeIdx.nodes.length;
-	const own = new Int32Array(total);
-	const anc = new Int32Array(total);
-	const ancFull = new Uint8Array(total);
-	const results = [];
-	for (const node of treeIdx.nodes) {
-		const k = node.k;
-		const p = treeIdx.parent[k];
-		let m = 0;
-		for (let i = 0; i < tokens.length; i++) if (node.hay.includes(" " + tokens[i])) m |= 1 << i;
-		own[k] = m;
-		if (p >= 0) {
-			anc[k] = anc[p] | own[p];
-			ancFull[k] = ancFull[p] || own[p] === ALL ? 1 : 0;
-		}
-		if (node.r || !(node.t === "part" || LEAF_TYPES.has(node.t) || isAgencyNode(node))) continue;
-		if (m === ALL || m !== 0 && (m | anc[k]) === ALL && !ancFull[k]) {
-			results.push(k);
-			if (results.length >= 100) break;
-		}
-	}
-	const alt = tokens.map(escapeRegExp).sort((a, b) => b.length - a.length).join("|");
-	return {
-		q,
-		re: new RegExp(`(^|[\\s§,;:()\\[\\]"'/\\u2013\\u2014])(${alt})`, "gi"),
-		results
-	};
-}
-function applyTreeFilter() {
-	if (!state.treeData) return;
-	state.treeFilterState = computeFilter(dom.treeFilter.value);
-	renderSidebar();
-	if (!state.treeFilterState) revealCurrent(false);
-}
-state.filterTimer = 0;
-dom.treeFilter.addEventListener("input", () => {
-	clearTimeout(state.filterTimer);
-	state.filterTimer = setTimeout(applyTreeFilter, 120);
-});
-dom.treeFilter.addEventListener("keydown", (e) => {
-	if (e.key === "Escape") {
-		e.preventDefault();
-		if (dom.treeFilter.value) {
-			dom.treeFilter.value = "";
-			applyTreeFilter();
-		} else dom.treeFilter.blur();
-	} else if (e.key === "ArrowDown") {
-		const first = dom.tree.querySelector("a, button");
-		if (first) {
-			e.preventDefault();
-			first.focus();
-		}
-	} else if (e.key === "Enter") {
-		e.preventDefault();
-		clearTimeout(state.filterTimer);
-		applyTreeFilter();
-		const q = dom.treeFilter.value.trim();
-		const first = dom.tree.querySelector(".side-item, .side-agency");
-		if (first) {
-			if (first.tagName === "A") window.location.hash = first.getAttribute("href");
-			else first.click();
-		} else if (q) window.location.hash = `#/search?q=${encodeURIComponent(q)}`;
+			if (activePageCtx) activePageCtx = null;
+			window.location.hash = targetHashFor(target);
+			showToast(`Ready — opened ${label}`);
+		} else showToast(`${label} ready in library`);
 	}
 });
-dom.tree.addEventListener("click", (e) => {
-	const toggle = e.target.closest("[data-action=\"toggle-group\"]");
-	if (toggle) {
-		const group = toggle.closest(".side-group");
-		const open = group.classList.contains("is-folded");
-		if (e.altKey) {
-			dom.tree.querySelectorAll(".side-group").forEach((g) => setGroupOpen(g, open, false));
-			saveFolded();
-		} else setGroupOpen(group, open);
-		return;
-	}
-	const action = e.target.closest("[data-action]");
-	if (action) {
-		const kind = action.dataset.action;
-		const k = parseInt(action.dataset.k, 10);
-		clearFilterQuietly();
-		if (kind === "agencies") showAgenciesList();
-		else if (kind === "parts") showPartsList();
-		else if (kind === "agency" && !isNaN(k)) showAgencyView(k);
-		else return;
-		if (e.detail === 0) (dom.tree.querySelector(".current, .ancestor-current") || dom.tree.querySelector("a, button"))?.focus({ preventScroll: true });
-		return;
-	}
-	const link = e.target.closest("a");
-	if (link && link.getAttribute("href") === window.location.hash && isFly() && flyOpen()) closeDrawer();
-});
-var sideNavTabs = document.getElementById("side-nav-tabs");
-if (sideNavTabs) sideNavTabs.addEventListener("click", (e) => {
-	const btn = e.target.closest(".side-nav-tab");
-	if (!btn) return;
-	if (btn.dataset.mode === "agencies") showAgenciesList();
-	else showPartsList();
-});
-dom.tree.addEventListener("keydown", (e) => {
-	if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-	const items = [...dom.tree.querySelectorAll("a, button")].filter((el) => !el.closest(".side-group.is-folded .side-group-body"));
-	const i = items.indexOf(document.activeElement);
-	if (i < 0) return;
-	e.preventDefault();
-	const next = items[i + (e.key === "ArrowDown" ? 1 : -1)];
-	if (next) {
-		next.focus({ preventScroll: true });
-		scrollIntoTree(next, false);
-	} else if (e.key === "ArrowUp") dom.treeFilter.focus();
+window.addEventListener("hashchange", () => {
+	activeModalCtx = null;
+	if (!dom.view.querySelector(".resolver-card")) activePageCtx = null;
 });
 // src/views/reader.js
+function highlightParagraph(pText, delay = 120) {
+	highlightTarget(dom.view, pText, delay);
+}
+dom.view.addEventListener("click", (e) => {
+	if (e.altKey) return;
+	const localPara = e.target.closest("a.xref-local[data-local-para]");
+	if (localPara) {
+		if (findParagraphElement(dom.view, localPara.dataset.localPara)) {
+			e.preventDefault();
+			highlightParagraph(localPara.dataset.localPara, 0);
+		}
+		return;
+	}
+	const figLink = e.target.closest("a.reg-figure:not(.is-broken)");
+	if (figLink && dom.view.contains(figLink)) {
+		e.preventDefault();
+		openFigureModal(figLink);
+	}
+});
 async function loadSection(sectionId, params, view) {
 	const full = view === "full";
 	const pClause = params && /^\(([a-z])\)/.exec(params.get("p") || "");
@@ -10171,9 +11284,20 @@ async function loadSection(sectionId, params, view) {
 	try {
 		const qs = unit === null ? "" : "?unit=" + encodeURIComponent(unit);
 		const seq = state.routeSeq;
-		const res = await fetch("/api/" + state.currentTitle + "/section/" + encodeURIComponent(sectionId) + qs);
+		const signal = state.routeAbort?.signal;
+		const res = await fetch("/api/" + state.currentTitle + "/section/" + encodeURIComponent(sectionId) + qs, { signal });
 		if (seq !== state.routeSeq) return;
 		if (!res.ok) {
+			if (state.metaInfo?.partial && /^\d+[a-z]?(?:\.\d+.*)?$/i.test(sectionId)) {
+				clearTreeSelection();
+				setViewHead("");
+				await renderResolverPage(dom.view, {
+					title: state.currentTitle,
+					section: sectionId,
+					para: params ? params.get("p") : null
+				});
+				return;
+			}
 			renderNotFound();
 			return;
 		}
@@ -10183,38 +11307,44 @@ async function loadSection(sectionId, params, view) {
 		state.currentPart = data.part;
 		updateChatContext();
 		const reading = data.mode === "units" && data.unit ? "units" : "scroll";
-		const current = reading === "units" ? (data.outline || []).find((u) => u.key === data.unit) : null;
-		const heading = data.section_title || data.title_label || "";
-		document.title = `${data.label}${current ? " " + unitShort(current) : ""} · Title ${state.currentTitle}`;
+		const outline = data.outline || [];
+		const unitIdx = reading === "units" ? outline.findIndex((u) => u.key === data.unit) : -1;
+		const current = unitIdx >= 0 ? outline[unitIdx] : null;
+		const heading = cleanInlineLabel(data.section_title || data.title_label || "");
+		const label = cleanInlineLabel(data.label);
+		document.title = `${label}${current ? " " + unitShort(current) : ""} · Title ${state.currentTitle}`;
 		setViewHead((reading === "units" ? unitStepHtml(data) : docStepHtml(data.part, data.prev, data.next)) + railHtml(data, reading));
 		const partLink = data.part ? `<a href="#/part/${encodeURIComponent(data.part)}">Part ${escapeHtml(data.part)}</a>` : "";
-		const i = current ? data.outline.indexOf(current) : -1;
-		const showContext = current && current.group && current.kind === "chapter" && i > 0 && data.outline[i - 1].group === current.group;
+		let unitBannerHtml = "";
+		if (current) unitBannerHtml = `<div class="unit-context"><span>${escapeHtml(current.group && current.kind === "chapter" ? `${current.group_label} · ${current.group_title || ""}` : `${current.label ? `Clause ${current.label}` : current.title}`)}</span><span class="sep" aria-hidden="true">·</span><span class="unit-pos">Unit ${unitIdx + 1} of ${outline.length}</span></div>`;
 		const fullPart = data.part ? `<a class="btn" href="#/part/${encodeURIComponent(data.part)}/full?from=${encodeURIComponent(data.id)}">${icon("list")} See full part</a>` : "";
 		const toggle = data.mode !== "units" ? "" : full ? `<a class="btn" href="${sectionHref(data.id)}">${icon("stack")} Read in parts</a>` : `<a class="btn" href="${sectionHref(data.id, "full")}">${icon("expand")} See full section</a>`;
 		dom.view.innerHTML = `
       <div class="doc-kicker">${state.currentTitle} CFR ${partLink}</div>
-      <h1 class="doc-title">${escapeHtml(data.label)} ${escapeHtml(heading)}</h1>
+      <h1 class="doc-title">${escapeHtml(label)} ${escapeHtml(heading)}</h1>
 
       <div class="doc-actions">
         ${toggle}
         ${fullPart}
-        <a class="btn" href="${escapeHtml(data.ecfr_url)}" target="_blank" rel="noopener">${icon("external")} eCFR</a>
-        <button class="btn" id="btn-copy-link">${icon("link")} Copy link</button>
         ${pinButtonHtml()}
         ${newsActivityButtonHtml()}
         <div class="spacer"></div>
-        <div class="size-ctl" role="group" aria-label="Text size">
-          <button id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
-          <button id="font-inc" title="Larger text" aria-label="Larger text">A+</button>
+        <div class="doc-actions-util">
+          <a class="btn" href="${escapeHtml(data.ecfr_url)}" target="_blank" rel="noopener" title="Open official text on eCFR">${icon("external")} eCFR</a>
+          <button class="btn" id="btn-copy-link" title="Copy direct link">${icon("link")} Copy link</button>
+          <div class="size-ctl" role="group" aria-label="Text size">
+            <button id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+            <button id="font-inc" title="Larger text" aria-label="Larger text">A+</button>
+          </div>
         </div>
       </div>
 
       ${data.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : ""}
-      ${showContext ? `<div class="unit-context">${escapeHtml(current.group_label)}<span class="sep" aria-hidden="true">·</span>${escapeHtml(current.group_title || "")}</div>` : ""}
+      ${unitBannerHtml}
 
       ${data.html || ""}
     `;
+		enhanceDomAnchors(dom.view);
 		enterView();
 		bindRail();
 		if (reading === "scroll") watchRail();
@@ -10242,25 +11372,11 @@ async function loadSection(sectionId, params, view) {
 		else recordSectionUnit(data.id, unitInfo);
 		fillNewsActivity("section", data.id, seq);
 	} catch (err) {
+		if (err && err.name === "AbortError") return;
 		console.error(err);
 		setViewHead("");
 		dom.view.innerHTML = `<div class="msg-error">Failed to load section: ${escapeHtml(err.message)}</div>`;
 	}
-}
-function highlightParagraph(pText) {
-	setTimeout(() => {
-		const clean = pText.trim();
-		const pmarks = document.querySelectorAll(".reg-p .pmark");
-		for (const el of pmarks) if (el.textContent.includes(clean)) {
-			const p = el.closest(".reg-p");
-			p.classList.add("flash");
-			p.scrollIntoView({
-				behavior: "smooth",
-				block: "center"
-			});
-			break;
-		}
-	}, 150);
 }
 // src/views/search.js
 state.searchState = null;
@@ -10493,7 +11609,8 @@ async function loadSearchPage(query, scope) {
 	try {
 		const url = allTitles ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=100` : `/api/${state.currentTitle}/search?q=${encodeURIComponent(query)}&limit=100`;
 		const seq = state.routeSeq;
-		const data = await (await fetch(url)).json();
+		const signal = state.routeAbort?.signal;
+		const data = await (await fetch(url, { signal })).json();
 		if (seq !== state.routeSeq) return;
 		state.searchState = {
 			query,
@@ -10511,6 +11628,7 @@ async function loadSearchPage(query, scope) {
 		renderSearchView();
 		enterView();
 	} catch (err) {
+		if (err && err.name === "AbortError") return;
 		dom.view.innerHTML = `<div class="msg-error">Search failed: ${escapeHtml(err.message)}</div>`;
 	}
 }
@@ -10527,6 +11645,10 @@ async function handleRoute() {
 	const { path, params } = parseHash();
 	state.activeRoute = path;
 	const seq = ++state.routeSeq;
+	if (state.routeAbort) try {
+		state.routeAbort.abort();
+	} catch (e) {}
+	state.routeAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
 	syncNavToRoute(path);
 	if (state.noTitles && !/^\/(library|news|projects|settings|help)(\/|$)/.test(path)) {
 		await renderWelcome();
@@ -10536,11 +11658,44 @@ async function handleRoute() {
 	const titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
 	if (titleMatch) {
 		const targetTitle = parseInt(titleMatch[1], 10);
+		const subPath = titleMatch[2] || "/";
+		const installed = state.installedTitles.some((t) => t.title === targetTitle);
+		if (!installed && targetTitle >= 1 && targetTitle <= 50) {
+			let section = null;
+			let part = null;
+			if (subPath.startsWith("/section/")) {
+				const rest = subPath.slice(9);
+				const slash = rest.indexOf("/");
+				try {
+					section = decodeURIComponent(slash < 0 ? rest : rest.slice(0, slash));
+				} catch (e) {
+					section = rest;
+				}
+			} else if (subPath.startsWith("/part/")) {
+				part = subPath.slice(6).replace(/\/full$/, "");
+				try {
+					part = decodeURIComponent(part);
+				} catch (e) {}
+			}
+			clearTreeSelection();
+			setViewHead("");
+			await renderResolverPage(dom.view, {
+				title: targetTitle,
+				section,
+				part,
+				para: params.get("p")
+			});
+			return;
+		}
+		if (!installed) {
+			renderNotFound();
+			return;
+		}
 		if (targetTitle && targetTitle !== state.currentTitle) {
 			await switchTitle(targetTitle);
 			if (seq !== state.routeSeq) return;
 		}
-		checkPath = titleMatch[2] || "/";
+		checkPath = subPath;
 	}
 	if (checkPath === "/" || checkPath === "") {
 		if (titleMatch) renderHome();
@@ -10858,20 +12013,19 @@ state.selectedText = "";
 document.addEventListener("mouseup", () => {
 	const sel = window.getSelection();
 	const str = sel.toString().trim();
-	if (str.length > 10 && dom.view.contains(sel.anchorNode)) {
+	const inView = dom.view.contains(sel.anchorNode) || dom.splitPane && dom.splitPane.contains(sel.anchorNode);
+	if (str.length > 10 && inView && sel.rangeCount > 0) {
 		state.selectedText = str;
 		const rect = sel.getRangeAt(0).getBoundingClientRect();
 		dom.askFloat.hidden = false;
-		const w = dom.askFloat.offsetWidth;
-		const h = dom.askFloat.offsetHeight;
-		const below = rect.bottom + 8;
-		const top = below + h > window.innerHeight - 8 ? Math.max(8, rect.top - h - 8) : below;
-		const left = Math.min(Math.max(10, rect.left), window.innerWidth - w - 10);
-		dom.askFloat.style.top = `${window.scrollY + top}px`;
-		dom.askFloat.style.left = `${window.scrollX + left}px`;
+		positionPopover(dom.askFloat, rect, {
+			offset: 8,
+			placement: "auto",
+			padding: 10
+		});
 	} else dom.askFloat.hidden = true;
 });
-dom.main.addEventListener("scroll", () => {
+for (const scroller of [dom.main, dom.splitPane]) if (scroller) scroller.addEventListener("scroll", () => {
 	if (!dom.askFloat.hidden) dom.askFloat.hidden = true;
 }, { passive: true });
 dom.askFloat.addEventListener("click", (e) => {
@@ -10883,6 +12037,390 @@ dom.askFloat.addEventListener("click", (e) => {
 	dom.askFloat.hidden = true;
 	dom.chatText.focus();
 });
+// src/components/peek.js
+var MAX_PEEK_CACHE = 40;
+var hoverTimer = null;
+var closeTimer = null;
+var hoverTarget = null;
+var hoverAbort = null;
+var lastHoverContext = null;
+function cancelHoverTimers() {
+	clearTimeout(hoverTimer);
+	hoverTimer = null;
+	clearTimeout(closeTimer);
+	closeTimer = null;
+}
+function scheduleCloseHover() {
+	clearTimeout(closeTimer);
+	closeTimer = setTimeout(() => {
+		if (citePop.isOpen() && !citePop.isInteractive()) citePop.close(false);
+		hoverTarget = null;
+	}, 180);
+}
+function cacheSet(key, val) {
+	if (state.peekCache.has(key)) state.peekCache.delete(key);
+	state.peekCache.set(key, val);
+	if (state.peekCache.size > MAX_PEEK_CACHE) {
+		const oldest = state.peekCache.keys().next().value;
+		if (oldest !== void 0) state.peekCache.delete(oldest);
+	}
+}
+function clipText(txt, max = 380) {
+	const s = (txt || "").replace(/\s+/g, " ").trim();
+	return s.length <= max ? s : s.slice(0, max - 1).trimEnd() + "…";
+}
+function extractBranchSnippet(root, paraEl) {
+	if (!paraEl) return "";
+	const all = [...root.querySelectorAll(".reg-p")];
+	const idx = all.indexOf(paraEl);
+	const lvlM = /\blvl-(\d+)\b/.exec(paraEl.className);
+	const baseLvl = lvlM ? Number(lvlM[1]) : 0;
+	const parts = [paraEl.textContent];
+	if (idx >= 0 && baseLvl > 0 && paraEl.textContent.trim().length < 220) for (let i = idx + 1; i < Math.min(all.length, idx + 3); i++) {
+		const next = all[i];
+		const m = /\blvl-(\d+)\b/.exec(next.className);
+		if ((m ? Number(m[1]) : 0) <= baseLvl) break;
+		parts.push(next.textContent);
+	}
+	return clipText(parts.join(" "), 440);
+}
+function renderLocalParaPeek(trigger, root) {
+	const para = trigger.dataset.localPara || "";
+	const hit = findParagraphElement(root, para);
+	if (!hit) return null;
+	const sec = root === dom.splitPane ? null : state.currentSection;
+	const t = root === dom.splitPane ? state.splitState?.title || state.currentTitle : state.currentTitle;
+	const secId = root === dom.splitPane ? state.splitState?.sectionId || "" : sec?.id || "";
+	const snippet = extractBranchSnippet(root, hit);
+	lastHoverContext = {
+		root,
+		jumpPara: para,
+		split: secId ? {
+			title: t,
+			sectionId: secId,
+			para
+		} : null
+	};
+	return `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${secId ? `${t} CFR § ${escapeHtml(secId)} ` : ""}${escapeHtml(para)}</div>
+    </div>
+    <p class="peek-text">${escapeHtml(snippet)}</p>
+    <div class="peek-foot">
+      <button type="button" class="btn btn-small" data-peek-jump="para">Jump to clause</button>
+      ${secId ? "<button type=\"button\" class=\"btn btn-small\" data-peek-split=\"1\">Open side-by-side</button>" : ""}
+    </div>
+  `;
+}
+function renderFootnotePeek(trigger, root) {
+	const fnId = trigger.dataset.anchor;
+	if (!fnId) return null;
+	const fnEl = root.querySelector(`#${CSS.escape(fnId)}`) || document.getElementById(fnId);
+	if (!fnEl) return null;
+	const clone = fnEl.cloneNode(true);
+	clone.querySelectorAll(".fn-back").forEach((b) => b.remove());
+	const txt = clipText(clone.textContent, 500);
+	lastHoverContext = {
+		root,
+		jumpAnchor: fnId
+	};
+	return `
+    <div class="pop-head-row">
+      <div class="pop-kicker">Footnote ${escapeHtml(trigger.textContent.trim())}</div>
+    </div>
+    <p class="peek-text">${escapeHtml(txt)}</p>
+    <div class="peek-foot">
+      <button type="button" class="btn btn-small" data-peek-jump="anchor">Jump to footnote</button>
+    </div>
+  `;
+}
+function renderAnchorPeek(trigger, root) {
+	const anchorId = trigger.dataset.anchor;
+	if (!anchorId) return null;
+	const el = root.querySelector(`#${CSS.escape(anchorId)}`) || document.getElementById(anchorId);
+	if (!el) return null;
+	lastHoverContext = {
+		root,
+		jumpAnchor: anchorId
+	};
+	if (el.classList.contains("table-wrap")) {
+		const caption = el.querySelector("caption")?.textContent?.trim() || trigger.textContent.trim();
+		const table = el.querySelector("table");
+		const headRows = [...table?.querySelectorAll("thead tr") || []].slice(0, 2);
+		const bodyRows = [...table?.querySelectorAll("tbody tr") || table?.querySelectorAll("tr") || []].filter((r) => !r.closest("thead")).slice(0, 4);
+		const rowHtml = (r) => "<tr>" + [...r.children].slice(0, 4).map((cell) => {
+			const tag = cell.tagName.toLowerCase() === "th" ? "th" : "td";
+			return `<${tag}>${escapeHtml(clipText(cell.textContent, 48))}</${tag}>`;
+		}).join("") + (r.children.length > 4 ? "<td>…</td>" : "") + "</tr>";
+		return `
+      <div class="pop-head-row">
+        <div class="pop-kicker">${escapeHtml(clipText(caption, 90))}</div>
+      </div>
+      <div class="peek-table-box">
+        <table class="peek-table">
+          ${headRows.length ? `<thead>${headRows.map(rowHtml).join("")}</thead>` : ""}
+          <tbody>${bodyRows.map(rowHtml).join("")}</tbody>
+        </table>
+      </div>
+      <div class="peek-foot">
+        <button type="button" class="btn btn-small" data-peek-jump="anchor">Jump to table</button>
+      </div>
+    `;
+	}
+	if (el.classList.contains("reg-figure")) {
+		const img = el.querySelector(".reg-img");
+		const caption = el.previousElementSibling?.classList.contains("reg-label") ? el.previousElementSibling.textContent.trim() : trigger.textContent.trim();
+		return `
+      <div class="pop-head-row">
+        <div class="pop-kicker">${escapeHtml(caption)}</div>
+      </div>
+      ${img?.src ? `<div class="peek-fig-mat"><img class="peek-fig-img" src="${escapeHtml(img.src)}" alt="${escapeHtml(caption)}"></div>` : ""}
+      <div class="peek-foot">
+        <button type="button" class="btn btn-small" data-peek-jump="anchor">Jump to figure</button>
+      </div>
+    `;
+	}
+	if (el.classList.contains("reg-appendix")) {
+		const head = el.querySelector(".reg-subhead, .reg-label")?.textContent?.trim() || trigger.textContent.trim();
+		const para = clipText(el.querySelector(".reg-p")?.textContent || el.textContent, 360);
+		return `
+      <div class="pop-head-row">
+        <div class="pop-kicker">${escapeHtml(clipText(head, 80))}</div>
+      </div>
+      <p class="peek-text">${escapeHtml(para)}</p>
+      <div class="peek-foot">
+        <button type="button" class="btn btn-small" data-peek-jump="anchor">Jump to appendix</button>
+      </div>
+    `;
+	}
+	return null;
+}
+function renderExternalHintPeek(trigger) {
+	const target = normalizeCfrTarget({
+		title: trigger.dataset.cfrTitle,
+		part: trigger.dataset.cfrPart,
+		section: trigger.dataset.cfrSection,
+		para: trigger.dataset.cfrPara,
+		ecfrUrl: trigger.getAttribute("href")
+	});
+	const label = target.section ? `${target.title} CFR § ${target.section}${target.para || ""}` : target.part ? `${target.title} CFR Part ${target.part}` : `Title ${target.title}`;
+	const sub = state.installedTitles.some((t) => t.title === target.title) ? `This ${target.section ? "section" : "part"} isn’t in your partial Title ${target.title} download yet.` : `Title ${target.title} is not installed yet.`;
+	return `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${escapeHtml(label)}</div>
+      <span class="peek-badge">External</span>
+    </div>
+    <p class="peek-text">${escapeHtml(sub)} Click to download into the reader or open on eCFR.</p>
+  `;
+}
+async function openSectionHrefPeek(trigger, root, parsed) {
+	const pClause = parsed.para && /^\(([a-z])\)/i.exec(parsed.para.trim());
+	const unitKey = parsed.unit === "full" ? null : parsed.unit || (pClause ? pClause[1].toLowerCase() : "");
+	const cacheKey = `${parsed.title}|${parsed.section}|${unitKey || "full"}`;
+	if (hoverAbort) try {
+		hoverAbort.abort();
+	} catch (e) {}
+	hoverAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+	const sig = hoverAbort?.signal;
+	let data = state.peekCache.get(cacheKey);
+	if (!data) {
+		const qs = unitKey === null ? "" : "?unit=" + encodeURIComponent(unitKey);
+		try {
+			const res = await fetch(`/api/${parsed.title}/section/${encodeURIComponent(parsed.section)}${qs}`, { signal: sig });
+			if (!res.ok) return;
+			data = await res.json();
+			cacheSet(cacheKey, data);
+		} catch (e) {
+			return;
+		}
+	}
+	if (hoverTarget !== trigger || citePop.isOpen() && citePop.isInteractive()) return;
+	const doc = new DOMParser().parseFromString(data.html || "", "text/html");
+	let snippet = "";
+	if (parsed.para) {
+		const hit = findParagraphElement(doc.body, parsed.para);
+		if (hit) snippet = extractBranchSnippet(doc.body, hit);
+	}
+	if (!snippet) snippet = clipText([...doc.body.querySelectorAll(".reg-p, .reg-callout")].slice(0, 2).map((p) => p.textContent).join(" "), 420) || (data.reserved ? "This section is reserved." : "");
+	const label = cleanInlineLabel(data.label);
+	const titleText = cleanInlineLabel(data.section_title || data.title_label || "");
+	const href = trigger.getAttribute("href") || targetHashFor({
+		title: parsed.title,
+		section: parsed.section,
+		para: parsed.para
+	});
+	lastHoverContext = {
+		root,
+		split: {
+			title: parsed.title,
+			sectionId: parsed.section,
+			para: parsed.para,
+			unit: parsed.unit
+		}
+	};
+	citePop.open(trigger, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${parsed.title} CFR ${escapeHtml(label)}${parsed.para ? " " + escapeHtml(parsed.para) : ""}</div>
+    </div>
+    ${titleText ? `<div class="peek-title">${escapeHtml(titleText)}</div>` : ""}
+    ${snippet ? `<p class="peek-text">${escapeHtml(snippet)}</p>` : ""}
+    <div class="peek-foot">
+      <a class="btn btn-small" href="${escapeHtml(href)}">Open</a>
+      <button type="button" class="btn btn-small" data-peek-split="1">Open side-by-side</button>
+    </div>
+  `, { interactive: false });
+}
+function getPeekTrigger(el) {
+	return el.closest?.("a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], a.xref-external[data-cfr-title], a.xref[href], a.xref-cross[href]") || null;
+}
+function handleHoverOver(e, root) {
+	if (citePop.isOpen() && citePop.isInteractive()) return;
+	if (e.sourceCapabilities?.firesTouchEvents) return;
+	if ((window.getSelection()?.toString() || "").trim().length > 0) return;
+	const trigger = getPeekTrigger(e.target);
+	if (!trigger || !root.contains(trigger)) return;
+	if (trigger === hoverTarget) {
+		clearTimeout(closeTimer);
+		closeTimer = null;
+		return;
+	}
+	cancelHoverTimers();
+	hoverTarget = trigger;
+	const rootTitle = root === dom.splitPane ? state.splitState?.title || state.currentTitle : state.currentTitle;
+	hoverTimer = setTimeout(() => {
+		if (hoverTarget !== trigger || citePop.isOpen() && citePop.isInteractive()) return;
+		if (trigger.matches("a.xref-local[data-local-para]")) {
+			const html = renderLocalParaPeek(trigger, root);
+			if (html) citePop.open(trigger, html, { interactive: false });
+			return;
+		}
+		if (trigger.matches(".ftref[data-anchor]")) {
+			const html = renderFootnotePeek(trigger, root);
+			if (html) citePop.open(trigger, html, { interactive: false });
+			return;
+		}
+		if (trigger.matches("button.xref-anchor[data-anchor]")) {
+			const html = renderAnchorPeek(trigger, root);
+			if (html) citePop.open(trigger, html, { interactive: false });
+			return;
+		}
+		if (trigger.matches("a.xref-external[data-cfr-title]")) {
+			lastHoverContext = null;
+			citePop.open(trigger, renderExternalHintPeek(trigger), { interactive: false });
+			return;
+		}
+		if (trigger.matches("a[href^=\"#\"]")) {
+			const parsed = parseCfrHref(trigger.getAttribute("href"), rootTitle);
+			if (parsed && parsed.kind === "section") openSectionHrefPeek(trigger, root, parsed);
+		}
+	}, 250);
+}
+function handleHoverOut(e) {
+	if (!hoverTarget) return;
+	const related = e.relatedTarget;
+	if (related && (hoverTarget.contains(related) || citePopEl?.contains(related))) return;
+	clearTimeout(hoverTimer);
+	hoverTimer = null;
+	if (!citePop.isInteractive()) scheduleCloseHover();
+}
+for (const root of [dom.view, dom.splitPane].filter(Boolean)) {
+	root.addEventListener("mouseover", (e) => handleHoverOver(e, root));
+	root.addEventListener("mouseout", handleHoverOut);
+}
+if (citePopEl) {
+	citePopEl.addEventListener("mouseenter", () => {
+		clearTimeout(closeTimer);
+		closeTimer = null;
+	});
+	citePopEl.addEventListener("mouseleave", () => {
+		if (!citePop.isInteractive()) scheduleCloseHover();
+	});
+	citePopEl.addEventListener("click", (e) => {
+		const jumpBtn = e.target.closest("[data-peek-jump]");
+		if (jumpBtn && lastHoverContext) {
+			const ctx = lastHoverContext;
+			citePop.close(false);
+			if (jumpBtn.dataset.peekJump === "para" && ctx.jumpPara) highlightTarget(ctx.root, ctx.jumpPara, 0);
+			else if (jumpBtn.dataset.peekJump === "anchor" && ctx.jumpAnchor) scrollToAnchor(ctx.jumpAnchor, ctx.root);
+			return;
+		}
+		if (e.target.closest("[data-peek-split]") && lastHoverContext?.split) {
+			const sp = lastHoverContext.split;
+			citePop.close(false);
+			openSplitPane({
+				...sp,
+				pushHistory: true
+			});
+			return;
+		}
+		if (e.target.closest("a[href^=\"#\"]")) citePop.close(false);
+	});
+}
+async function handleCfrLinkClick(e, root) {
+	if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+	const link = e.target.closest("a");
+	if (!link || !root.contains(link)) return;
+	const isSplitChild = root === dom.splitPane;
+	const rootTitle = isSplitChild ? state.splitState?.title || state.currentTitle : state.currentTitle;
+	if (link.matches("a.xref-external[data-cfr-title]")) {
+		e.preventDefault();
+		cancelHoverTimers();
+		const target = normalizeCfrTarget({
+			title: link.dataset.cfrTitle,
+			part: link.dataset.cfrPart,
+			section: link.dataset.cfrSection,
+			para: link.dataset.cfrPara,
+			ecfrUrl: link.getAttribute("href")
+		});
+		if ((await checkLocalCfrTarget(target)).installed) {
+			if ((e.altKey || isSplitChild) && target.section) openSplitPane({
+				title: target.title,
+				sectionId: target.section,
+				para: target.para,
+				pushHistory: true
+			});
+			else {
+				if (isSplitChild && !e.altKey) closeSplitPane();
+				window.location.hash = targetHashFor(target);
+			}
+			return;
+		}
+		openCfrDownloadCard(link, target, { openInSplit: e.altKey || isSplitChild });
+		return;
+	}
+	if (!e.altKey) return;
+	if (link.matches("a.xref-local[data-local-para]")) {
+		const secId = isSplitChild ? state.splitState?.sectionId : state.currentSection?.id;
+		if (secId) {
+			e.preventDefault();
+			cancelHoverTimers();
+			openSplitPane({
+				title: rootTitle,
+				sectionId: secId,
+				para: link.dataset.localPara,
+				pushHistory: true
+			});
+		}
+		return;
+	}
+	const parsed = parseCfrHref(link.getAttribute("href"), rootTitle);
+	if (parsed && parsed.kind === "section") {
+		e.preventDefault();
+		cancelHoverTimers();
+		openSplitPane({
+			title: parsed.title,
+			sectionId: parsed.section,
+			para: parsed.para,
+			unit: parsed.unit,
+			pushHistory: true
+		});
+	}
+}
+for (const root of [
+	dom.view,
+	dom.splitPane,
+	dom.tree
+].filter(Boolean)) root.addEventListener("click", (e) => handleCfrLinkClick(e, root));
 // src/main.js
 dom.themeToggle.addEventListener("click", () => {
 	setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
@@ -10910,6 +12448,7 @@ async function init() {
 				state.metaInfo = await metaRes.json();
 				dom.edition.textContent = `eCFR ${state.metaInfo.edition || ""}`;
 			}
+			setReaderEnabled(true);
 		}
 	} catch (e) {
 		console.warn("Initialization warnings:", e);

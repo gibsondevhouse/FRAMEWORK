@@ -12,7 +12,16 @@ BLOCK_TAGS = {
     "EFFDNOT", "CROSSREF", "STARS", "DIV", "MATH",
 }
 CELL_TAGS = {"TD", "TH"}
-_WS = re.compile(r"[ \t\r\n ]+")
+_WS = re.compile(r"[ \t\r\n\u00a0]+")
+_INLINE_HTML_TAG = re.compile(r"</?(?:span|em|strong|i|b|sup|sub|small|u)\b[^>]*>", re.IGNORECASE)
+
+
+def clean_label(text: str | None) -> str:
+    """Strip inline formatting tags leaked from eCFR structure JSON and normalize spaces."""
+    if not text:
+        return ""
+    cleaned = _INLINE_HTML_TAG.sub("", html.unescape(text))
+    return _WS.sub(" ", cleaned).strip()
 
 
 def element_to_text(el: ET.Element) -> str:

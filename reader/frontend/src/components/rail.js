@@ -41,7 +41,9 @@ export function unitKind(u) {
 
 export function railHtml(data, mode) {
   const units = data.outline || [];
-  if (units.length < 2) return '';
+  // Suppress on short single-screen pages (2-3 bars floating in the margin add noise).
+  if (units.length < 2 || (mode !== 'units' && units.length < 4)) return '';
+  const maxChars = Math.max(1, ...units.map(u => Number(u.chars) || 0));
   let html = '';
   let lastGroup;
   let rows = units.length;
@@ -51,11 +53,13 @@ export function railHtml(data, mode) {
     const current = mode === 'units' && u.key === data.unit;
     const href = mode === 'units' ? sectionHref(data.id, u.key) : `#u-${u.key}`;
     const name = unitName(u);
+    const ratio = Math.sqrt((Number(u.chars) || 0) / maxChars);
+    const barPx = Math.round(7 + ratio * 7); // 7px..14px proportional hint
     html += `<a class="rail-item${current ? ' is-current' : ''}" href="${href}" data-unit="${escapeHtml(u.key)}"`
       + `${mode === 'units' ? '' : ` data-anchor="u-${escapeHtml(u.key)}"`}${current ? ' aria-current="true"' : ''}`
       + ` data-label="${escapeHtml(u.label || '')}" data-name="${escapeHtml(name)}"`
       + ` aria-label="${escapeHtml(`${u.label ? u.label + ' ' : ''}${name}`)}">`
-      + `<span class="rail-bar" aria-hidden="true"></span></a>`;
+      + `<span class="rail-bar" style="--w:${barPx}px" aria-hidden="true"></span></a>`;
   });
   // One shared label (.rail-pop) glides to whichever bar is under the pointer; it is a link
   // itself, so the pointer can move onto it and click.
@@ -181,21 +185,37 @@ export function watchRail() {
 }
 
 
-// Scroll + brief highlight for in-page anchors (rail bars on a full page).
-export function scrollToAnchor(id) {
-  const target = document.getElementById(id);
+// Scroll + brief highlight for in-page anchors (rail bars, footnotes, tables, figures, appendices).
+export function scrollToAnchor(id, rootOrOpts = {}) {
+  const isNode = rootOrOpts && typeof rootOrOpts.querySelector === 'function';
+  const root = isNode ? rootOrOpts : (rootOrOpts.root || dom.view);
+  const flash = isNode ? true : (rootOrOpts.flash !== false);
+  let target = null;
+  try {
+    target = (root && root.querySelector(`#${CSS.escape(id)}`)) || document.getElementById(id);
+  } catch (e) {
+    target = document.getElementById(id);
+  }
   if (!target) return false;
-  target.scrollIntoView({ block: 'start', behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+  target.scrollIntoView({
+    block: target.matches('.reg-footnote, .reg-p, .reg-figure') ? 'center' : 'start',
+    behavior: reduceMotion.matches ? 'auto' : 'smooth',
+  });
+  if (flash && (target.matches('.reg-footnote, .reg-p, .table-wrap, .reg-appendix, .reg-figure'))) {
+    target.classList.remove('flash');
+    void target.offsetWidth;
+    target.classList.add('flash');
+  }
   return true;
 }
 
 
-if (dom.viewHead) {
-  dom.viewHead.addEventListener('click', (e) => {
+for (const rootEl of [dom.viewHead, dom.view].filter(Boolean)) {
+  rootEl.addEventListener('click', (e) => {
     const a = e.target.closest('[data-anchor]');
     if (!a) return;
     e.preventDefault();
-    scrollToAnchor(a.dataset.anchor);
+    scrollToAnchor(a.dataset.anchor, dom.view);
   });
 }
 

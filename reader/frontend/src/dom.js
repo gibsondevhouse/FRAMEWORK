@@ -20,6 +20,11 @@ export function renderMarkdown(md) {
 
 
 export const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const INLINE_MARKUP_RE = /<\/?(?:span|em|strong|i|b|sup|sub|small|u)\b[^>]*>/gi;
+
+export function cleanInlineLabel(str) {
+  return String(str ?? '').replace(INLINE_MARKUP_RE, '').replace(/\s+/g, ' ').trim();
+}
 
 export function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, ch => HTML_ESCAPES[ch]);

@@ -120,7 +120,8 @@
   background: var(--pop); border: 1px solid var(--line-strong); border-radius: var(--r-8);
   box-shadow: var(--shadow-pop);
 }
-.news-pop-head { font: var(--w-semibold) 12px/1.4 var(--sans); color: var(--fg-2); margin-bottom: 8px; }
+.news-pop-head-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.news-pop-head { font: var(--w-semibold) 12px/1.4 var(--sans); color: var(--fg-2); min-width: 0; }
 .reg-timeline { list-style: none; margin: 0; padding: 4px 0 4px 18px; border-left: 1px solid var(--line); }
 .tl-node { position: relative; padding: 6px 0 10px; }
 .tl-dot {

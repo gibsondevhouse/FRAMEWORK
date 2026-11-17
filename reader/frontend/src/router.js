@@ -1,6 +1,8 @@
 import { state } from './state';
-import { switchTitle } from './components/sidebar';
+import { renderResolverPage } from './components/cfr_resolver';
+import { clearTreeSelection, switchTitle } from './components/sidebar';
 import { renderNotFound } from './components/title_switcher';
+import { setViewHead } from './components/view_head';
 import { syncNavToRoute } from './nav';
 import { renderSettingsPage } from './panels/settings_panel';
 import { dom } from './state_init';
@@ -28,6 +30,8 @@ export async function handleRoute() {
   const { path, params } = parseHash();
   state.activeRoute = path;
   const seq = ++state.routeSeq;
+  if (state.routeAbort) { try { state.routeAbort.abort(); } catch (e) {} }
+  state.routeAbort = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
   // Light the rail, put the drawer away where the page wants the width, close a floating one.
   syncNavToRoute(path);
@@ -43,11 +47,33 @@ export async function handleRoute() {
   const titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
   if (titleMatch) {
     const targetTitle = parseInt(titleMatch[1], 10);
+    const subPath = titleMatch[2] || '/';
+    const installed = state.installedTitles.some(t => t.title === targetTitle);
+    if (!installed && targetTitle >= 1 && targetTitle <= 50) {
+      let section = null;
+      let part = null;
+      if (subPath.startsWith('/section/')) {
+        const rest = subPath.slice('/section/'.length);
+        const slash = rest.indexOf('/');
+        try { section = decodeURIComponent(slash < 0 ? rest : rest.slice(0, slash)); } catch (e) { section = rest; }
+      } else if (subPath.startsWith('/part/')) {
+        part = subPath.slice('/part/'.length).replace(/\/full$/, '');
+        try { part = decodeURIComponent(part); } catch (e) { /* keep raw */ }
+      }
+      clearTreeSelection();
+      setViewHead('');
+      await renderResolverPage(dom.view, { title: targetTitle, section, part, para: params.get('p') });
+      return;
+    }
+    if (!installed) {
+      renderNotFound();
+      return;
+    }
     if (targetTitle && targetTitle !== state.currentTitle) {
       await switchTitle(targetTitle);
       if (seq !== state.routeSeq) return;
     }
-    checkPath = titleMatch[2] || '/';
+    checkPath = subPath;
   }
 
   if (checkPath === '/' || checkPath === '') {

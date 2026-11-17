@@ -2,7 +2,7 @@
 import unittest
 import xml.etree.ElementTree as ET
 
-from app.render import compute_levels, image_urls, marker_tokens, section_doc
+from app.render import compute_levels, image_urls, marker_tokens, render_fragment_html, section_doc
 from tests.base import HermeticTestCase
 
 
@@ -102,6 +102,36 @@ class ImageTests(HermeticTestCase):
     def test_legacy_and_unsafe(self):
         self.assertTrue(image_urls("/graphics/53-49a.eps.gif")[0].startswith("https://www.ecfr.gov/"))
         self.assertIsNone(image_urls("javascript:alert(1)"))
+
+
+class AnchorAndFootnoteTests(HermeticTestCase):
+    def test_bidirectional_ftref_and_ftnt_and_table_anchors(self):
+        xml = (
+            '<DIV8 N="1.1" TYPE="SECTION"><HEAD>§ 1.1 Test.</HEAD>'
+            '<P>(a) Criteria.<SU>1</SU><FTREF /> See table.</P>'
+            '<FTNT><P><SU>1</SU> Footnote body text.</P></FTNT>'
+            '<DIV class="gpotbl_div"><TABLE><CAPTION><P>Table Z-1—Limits</P></CAPTION>'
+            '<THEAD><TR><TH>A</TH></TR></THEAD><TBODY><TR><TD>1</TD></TR></TBODY></TABLE></DIV>'
+            '<EXTRACT><HD1>Appendix A to § 1.1—Test Appendix</HD1><P>App body.</P></EXTRACT>'
+            '</DIV8>'
+        )
+        d = section_doc(xml, known=lambda s: False, title=29)
+        html_a = d.unit_html("a")
+        self.assertIn('class="ftref"', html_a)
+        self.assertIn('data-anchor="fn-u1-1"', html_a)
+        self.assertIn('id="fn-u1-1"', html_a)
+        self.assertIn('class="fn-back"', html_a)
+        self.assertIn('id="table-z-1"', html_a)
+        html_full = d.full_html()
+        self.assertIn('id="u-appendix-a"', html_full)
+
+    def test_fragment_emits_front_matter_footnotes(self):
+        frag = '<FRONT><P>Subpart rule.<SU>2</SU><FTREF /></P><FTNT><P><SU>2</SU> Front note.</P></FTNT></FRONT>'
+        rendered = render_fragment_html(frag, known=lambda s: False, title=29)
+        self.assertIn('class="reg-footnotes"', rendered)
+        self.assertIn('Front note.', rendered)
+        self.assertIn('class="ftref"', rendered)
+        self.assertIn('class="fn-back"', rendered)
 
 
 if __name__ == "__main__":

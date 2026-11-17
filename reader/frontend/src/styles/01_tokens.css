@@ -95,6 +95,7 @@
   --mark: rgba(240, 191, 0, .24);
   --scroll: rgba(255, 255, 255, .08);
   --scroll-hover: rgba(255, 255, 255, .18);
+  --fig-mat: #f4f4f5;
   --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.07);
   --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 12px 32px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.4);
@@ -137,6 +138,7 @@
   --mark: rgba(240, 191, 0, .34);
   --scroll: rgba(0, 0, 0, .12);
   --scroll-hover: rgba(0, 0, 0, .24);
+  --fig-mat: #ffffff;
   --shadow-card: 0 1px 3px rgba(0, 0, 0, .04);
   --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, .08), inset 0 1px 0 rgba(255, 255, 255, 1);
   --shadow-pop: 0 0 0 1px rgba(0, 0, 0, .05), 0 4px 16px rgba(0, 0, 0, .09), 0 8px 28px rgba(0, 0, 0, .06);

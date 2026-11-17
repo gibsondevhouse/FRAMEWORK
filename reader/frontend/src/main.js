@@ -31,6 +31,10 @@ import './panels/recent_panel';
 import './panels/drawer_width';
 import './components/chat';
 import './components/selection_tool';
+import './components/popover';
+import './components/split_pane';
+import './components/cfr_resolver';
+import './components/peek';
 import { state } from './state';
 import { refreshModelsConfig } from './components/env_modal';
 import { ensureTreeLoaded, switchTitle } from './components/sidebar';
@@ -84,6 +88,7 @@ export async function init() {
         state.metaInfo = await metaRes.json();
         dom.edition.textContent = `eCFR ${state.metaInfo.edition || ''}`;
       }
+      setReaderEnabled(true);
     }
   } catch (e) {
     console.warn('Initialization warnings:', e);

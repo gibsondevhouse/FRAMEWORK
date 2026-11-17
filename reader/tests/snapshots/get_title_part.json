@@ -1,4 +1,4 @@
 {
-  "part": "<aside class=\"reg-callout reg-auth\"><p class=\"reg-label\">Authority:</p><p class=\"reg-p\" id=\"p1\"><a class=\"xref xref-usc\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"View 29 U.S.C. 653 at Cornell LII\" href=\"https://www.law.cornell.edu/uscode/text/29/653\">29 U.S.C. 653</a>, 655, and 657.</p></aside>",
+  "part": "<aside class=\"reg-callout reg-auth\"><p class=\"reg-label\">Authority:</p><p class=\"reg-p\" id=\"p1\">29 U.S.C. <a class=\"xref xref-usc\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"View 29 U.S.C. 653 at Cornell LII\" href=\"https://www.law.cornell.edu/uscode/text/29/653\">653</a>, <a class=\"xref xref-usc\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"View 29 U.S.C. 655 at Cornell LII\" href=\"https://www.law.cornell.edu/uscode/text/29/655\">655</a>, and <a class=\"xref xref-usc\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"View 29 U.S.C. 657 at Cornell LII\" href=\"https://www.law.cornell.edu/uscode/text/29/657\">657</a>.</p></aside>",
   "subparts": {}
 }

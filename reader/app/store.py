@@ -9,7 +9,7 @@ import time
 from functools import lru_cache
 
 from . import config
-from .render import SectionDoc, render_fragment_html, section_doc
+from .render import SectionDoc, clean_label, render_fragment_html, section_doc
 
 _local = threading.local()
 # Every open connection, across threads, so a title's file can be let go of before the
@@ -84,6 +84,7 @@ def _is_swapping(title: int) -> bool:
 
 def clear_caches() -> None:
     known_ids.cache_clear()
+    known_parts.cache_clear()
     section_html.cache_clear()
     unit_html.cache_clear()
     _section_doc.cache_clear()
@@ -104,6 +105,7 @@ def reset_connections() -> None:
         _registry.clear()
     _local.__dict__.clear()
     known_ids.cache_clear()
+    known_parts.cache_clear()
     section_html.cache_clear()
     unit_html.cache_clear()
     _section_doc.cache_clear()
@@ -154,6 +156,24 @@ def known_ids(title: int = config.DEFAULT_TITLE) -> frozenset[str]:
 known_ids.cache_clear = _known_ids_cached.cache_clear  # type: ignore[attr-defined]
 
 
+@lru_cache(maxsize=64)
+def _known_parts_cached(title: int = config.DEFAULT_TITLE) -> frozenset[str]:
+    return frozenset(r[0] for r in db(title).execute("SELECT DISTINCT part FROM sections WHERE part IS NOT NULL"))
+
+
+def known_parts(title: int = config.DEFAULT_TITLE) -> frozenset[str]:
+    """Return known part IDs for `title`, never caching transient read failures."""
+    try:
+        if _is_swapping(title):
+            return frozenset(r[0] for r in db(title).execute("SELECT DISTINCT part FROM sections WHERE part IS NOT NULL"))
+        return _known_parts_cached(title)
+    except (sqlite3.Error, OSError):
+        return frozenset()
+
+
+known_parts.cache_clear = _known_parts_cached.cache_clear  # type: ignore[attr-defined]
+
+
 def is_known_in_title(title: int, section_id: str) -> bool:
     try:
         return section_id in known_ids(title)
@@ -183,6 +203,7 @@ def _section_doc(section_id: str, title: int = config.DEFAULT_TITLE) -> SectionD
         title=title,
         known_by_title=is_known_in_title,
         installed_titles=config.installed_titles,
+        known_parts=known_parts(title).__contains__,
     )
 
 
@@ -196,6 +217,26 @@ def section_html(section_id: str, title: int = config.DEFAULT_TITLE) -> str | No
 def unit_html(section_id: str, key: str, title: int = config.DEFAULT_TITLE) -> str | None:
     doc = _section_doc(section_id, title)
     return doc.unit_html(key) if doc else None
+
+
+def _clean_path(raw: str) -> list:
+    path = json.loads(raw)
+    for item in path:
+        if isinstance(item, dict):
+            if "l" in item:
+                item["l"] = clean_label(item["l"])
+            if "d" in item:
+                item["d"] = clean_label(item["d"])
+    return path
+
+
+def _clean_neighbor(row: sqlite3.Row | None) -> dict | None:
+    if not row:
+        return None
+    d = dict(row)
+    d["label"] = clean_label(d.get("label"))
+    d["title"] = clean_label(d.get("title"))
+    return d
 
 
 def get_section(raw_id: str, title: int = config.DEFAULT_TITLE, unit: str | None = None) -> dict | None:
@@ -214,7 +255,7 @@ def get_section(raw_id: str, title: int = config.DEFAULT_TITLE, unit: str | None
             f"SELECT id, label, title FROM sections WHERE ord {op} ? ORDER BY ord {order} LIMIT 1",
             (row["ord"],),
         ).fetchone()
-        neighbors[name] = dict(n) if n else None
+        neighbors[name] = _clean_neighbor(n)
 
     doc = _section_doc(row["id"], title)
     outline = doc.outline() if doc else []
@@ -231,16 +272,17 @@ def get_section(raw_id: str, title: int = config.DEFAULT_TITLE, unit: str | None
         html = section_html(row["id"], title)
     keys = [u["key"] for u in outline]
     i = keys.index(current) if current in keys else -1
+    clean_sec_title = clean_label(row["title"])
     return {
         "id": row["id"],
         "title": title,
         "kind": row["kind"],
         "part": row["part"],
-        "label": row["label"],
-        "section_title": row["title"],
-        "title_label": row["title"],
+        "label": clean_label(row["label"]),
+        "section_title": clean_sec_title,
+        "title_label": clean_sec_title,
         "reserved": bool(row["reserved"]),
-        "path": json.loads(row["path"]),
+        "path": _clean_path(row["path"]),
         "ecfr_url": config.ECFR_BASE + (row["ecfr_path"] or f"/current/title-{title}/part-{row['part']}"),
         "html": html,
         "mode": mode,          # "units": long, read a unit at a time; "page": one page
@@ -257,14 +299,25 @@ def section_text(raw_id: str, title: int = config.DEFAULT_TITLE) -> dict | None:
     row = db(title).execute(
         "SELECT id, kind, part, label, title, text FROM sections WHERE id = ?", (section_id,)
     ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    d = dict(row)
+    d["label"] = clean_label(d.get("label"))
+    d["title"] = clean_label(d.get("title"))
+    return d
 
 
 def part_sections(part: str, title: int = config.DEFAULT_TITLE) -> list[dict]:
     rows = db(title).execute(
         "SELECT id, label, title, reserved, path FROM sections WHERE part = ? ORDER BY ord", (part,)
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["label"] = clean_label(d.get("label"))
+        d["title"] = clean_label(d.get("title"))
+        out.append(d)
+    return out
 
 
 def part_full(part: str, title: int = config.DEFAULT_TITLE) -> list[dict]:
@@ -275,8 +328,8 @@ def part_full(part: str, title: int = config.DEFAULT_TITLE) -> list[dict]:
     ).fetchall()
     return [
         {
-            "id": r["id"], "kind": r["kind"], "label": r["label"],
-            "title": r["title"], "reserved": bool(r["reserved"]),
+            "id": r["id"], "kind": r["kind"], "label": clean_label(r["label"]),
+            "title": clean_label(r["title"]), "reserved": bool(r["reserved"]),
             "html": section_html(r["id"], title) or "",
         }
         for r in rows
@@ -296,6 +349,7 @@ def get_part_front_matter(part: str, title: int = config.DEFAULT_TITLE) -> dict:
             title=title,
             known_by_title=is_known_in_title,
             installed_titles=config.installed_titles,
+            known_parts=known_parts(title).__contains__,
         )
         if r["key"] == f"part/{part}":
             out["part"] = rendered
@@ -341,7 +395,10 @@ def search_single_title(q: str, title: int, part: str | None = None, limit: int 
             "SELECT id, kind, part, label, title FROM sections WHERE id = ?", (exact_id,)
         ).fetchone()
         if row:
-            results.append({**dict(row), "title_label": row["title"], "title": title,
+            d = dict(row)
+            d["label"] = clean_label(d.get("label"))
+            d["title"] = clean_label(d.get("title"))
+            results.append({**d, "title_label": d["title"], "title": title,
                             "snippet": "", "exact": True, "score": -999.0})
 
     match = fts_query(q)
@@ -372,7 +429,10 @@ def search_single_title(q: str, title: int, part: str | None = None, limit: int 
         seen = {r["id"] for r in results}
         for r in rows:
             if r["id"] not in seen:
-                results.append({**dict(r), "title_label": r["title"], "title": title, "exact": False})
+                d = dict(r)
+                d["label"] = clean_label(d.get("label"))
+                d["title"] = clean_label(d.get("title"))
+                results.append({**d, "title_label": d["title"], "title": title, "exact": False})
     return max(total, len(results)), results
 
 

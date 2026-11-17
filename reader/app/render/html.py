@@ -8,8 +8,8 @@ from typing import Callable
 
 from .hierarchy import _MARKERS, compute_levels
 from .linkifier import make_linkifier
-from .text import _esc
-from .units import appendix_heading, section_doc
+from .text import _esc, _plain
+from .units import _slug, appendix_heading, section_doc
 
 PARA_TAGS = {"P", "FP", "FP-1", "FP-2", "FP1-2", "FP2-3", "P-2", "FL-2", "FRP", "PSPACE"}
 FLUSH_INDENT = {"FP-1": 1, "FP-2": 2, "FP1-2": 2, "FP2-3": 3, "P-2": 2, "FL-2": 2}
@@ -66,6 +66,10 @@ def image_urls(src: str) -> tuple[str, str] | None:
     return None
 
 
+_TABLE_ID_RE = re.compile(r"^\s*Table\s+([A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b", re.IGNORECASE)
+_APP_ID_RE = re.compile(r"^\s*Appendix\s+([A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b", re.IGNORECASE)
+
+
 class Renderer:
     def __init__(self, linkify: Callable[[str], str]):
         self.linkify = linkify
@@ -73,6 +77,21 @@ class Renderer:
         self.history: list[str] = []
         self.footnotes: list[str] = []
         self.para_count = 0
+        self.unit_seq = 0
+        self._seen_anchors: set[str] = set()
+        self._fn_refs: dict[str, str] = {}
+
+    def _unique_anchor(self, base: str) -> str:
+        cand = base
+        n = 2
+        while cand in self._seen_anchors:
+            cand = f"{base}-{n}"
+            n += 1
+        self._seen_anchors.add(cand)
+        return cand
+
+    def _fn_dom_id(self, fn_label: str) -> str:
+        return f"fn-u{self.unit_seq}-{_slug(fn_label)}"
 
     # -- public -------------------------------------------------------------
     def render_elements(self, elements: list[ET.Element], levels_map: dict[int, int]) -> str:
@@ -81,8 +100,10 @@ class Renderer:
         `levels_map` comes from the whole section, so a slice indents exactly as it would in
         the full text. Footnotes are per unit; CITA history is left to the full view.
         """
+        self.unit_seq += 1
         self.levels_map = levels_map
         self.footnotes = []
+        self._fn_refs = {}
         body = "".join(self.node(e) + self.text(e.tail) for e in elements)
         return self._wrap(body)
 
@@ -91,8 +112,13 @@ class Renderer:
         return self._history()
 
     def render_fragment(self, el: ET.Element) -> str:
+        self.unit_seq += 1
         self.levels_map = compute_levels(el)
+        self.footnotes = []
+        self._fn_refs = {}
         out = self.children(el)
+        if self.footnotes:
+            out += '<section class="reg-footnotes"><h4>Footnotes</h4>' + "".join(self.footnotes) + "</section>"
         if self.history:
             out += "".join(f'<p class="reg-cita">{h}</p>' for h in self.history)
         return out
@@ -113,13 +139,52 @@ class Renderer:
     def text(self, value: str | None) -> str:
         return self.linkify(_esc(value))
 
+    def _try_ftref_pair(self, kids: list[ET.Element], i: int) -> str | None:
+        if i + 1 >= len(kids):
+            return None
+        cur, nxt = kids[i], kids[i + 1]
+        if (nxt.tag == "FTREF" and len(nxt) == 0 and not (nxt.text or "").strip()
+                and cur.tag in ("SU", "sup", "E") and not (cur.tail or "").strip()):
+            lbl = _plain(cur).strip()
+            if lbl and len(lbl) <= 12:
+                fn_id = self._fn_dom_id(lbl)
+                ref_id = self._unique_anchor(f"ftref-u{self.unit_seq}-{_slug(lbl)}")
+                self._fn_refs.setdefault(fn_id, ref_id)
+                return (
+                    f'<button type="button" class="ftref" id="{ref_id}" data-anchor="{fn_id}"'
+                    f' title="Footnote {html.escape(lbl)}" aria-label="Footnote {html.escape(lbl)}">'
+                    f'{html.escape(lbl)}</button>{self.text(nxt.tail)}'
+                )
+        return None
+
     def children(self, el: ET.Element, skip_head: bool = False) -> str:
         out = [self.text(el.text)]
-        for child in el:
-            if not (skip_head and child.tag == "HEAD"):
-                out.append(self.node(child))
+        kids = list(el)
+        i = 0
+        while i < len(kids):
+            child = kids[i]
+            if skip_head and child.tag == "HEAD":
+                out.append(self.text(child.tail))
+                i += 1
+                continue
+            pair = self._try_ftref_pair(kids, i)
+            if pair is not None:
+                out.append(pair)
+                i += 2
+                continue
+            out.append(self.node(child))
             out.append(self.text(child.tail))
+            i += 1
         return "".join(out)
+
+    def _table_anchor_attr(self, el: ET.Element) -> str:
+        cap = el.find(".//CAPTION")
+        if cap is not None:
+            m = _TABLE_ID_RE.match(_plain(cap))
+            if m:
+                tid = self._unique_anchor(f"table-{_slug(m.group(1))}")
+                return f' id="{tid}"'
+        return ""
 
     def node(self, el: ET.Element) -> str:
         tag = el.tag
@@ -144,12 +209,25 @@ class Renderer:
             self.history.append(self.children(el).strip())
             return ""
         if tag == "FTNT":
-            self.footnotes.append(f'<div class="reg-footnote">{self.children(el)}</div>')
+            su = el.find(".//SU")
+            lbl = _plain(su).strip() if su is not None else ""
+            if not lbl:
+                m = re.match(r"^\s*([0-9]+[a-z]?|[a-z])\b", _plain(el))
+                lbl = m.group(1) if m else ""
+            fn_id = self._fn_dom_id(lbl) if lbl else self._unique_anchor(f"fn-u{self.unit_seq}")
+            back_id = self._fn_refs.get(fn_id)
+            back_html = (
+                f' <button type="button" class="fn-back" data-anchor="{back_id}"'
+                f' title="Back to reference" aria-label="Back to reference">↩</button>'
+                if back_id else ""
+            )
+            self.footnotes.append(f'<div class="reg-footnote" id="{fn_id}">{self.children(el)}{back_html}</div>')
             return ""
         if tag == "FTREF":
-            return f'<span class="ftref">{self.children(el)}</span>'
+            inner = self.children(el).strip()
+            return f'<span class="ftref">{inner}</span>' if inner else ""
         if tag == "DIV" and el.get("class") == "gpotbl_div":
-            return f'<div class="table-wrap">{self.children(el)}</div>'
+            return f'<div class="table-wrap"{self._table_anchor_attr(el)}>{self.children(el)}</div>'
         if tag in TABLE_TAGS:
             return self.table_part(el)
         if tag == "img":
@@ -177,8 +255,11 @@ class Renderer:
     def callout(self, el: ET.Element) -> str:
         # An appendix embedded in a section is a document of its own, not a quoted extract:
         # render it plainly instead of inside an indented callout.
-        if appendix_heading(el):
-            return f'<section class="reg-appendix">{self.children(el)}</section>'
+        app_head = appendix_heading(el)
+        if app_head:
+            m = _APP_ID_RE.match(app_head)
+            aid = self._unique_anchor(f"appendix-{_slug(m.group(1))}") if m else self._unique_anchor("appendix")
+            return f'<section class="reg-appendix" id="{aid}">{self.children(el)}</section>'
         cls, default_title = CALLOUTS[el.tag]
         has_head = len(el) and el[0].tag == "HED"
         title = "" if has_head or not default_title else f'<p class="reg-label">{default_title}</p>'
@@ -234,15 +315,22 @@ class Renderer:
             classes.append("reg-flush")
 
         body = [self.text(body_el_text)]
-        for i, child in enumerate(el):
-            if i < start_index:
+        kids = list(el)
+        i = start_index
+        while i < len(kids):
+            pair = self._try_ftref_pair(kids, i)
+            if pair is not None:
+                body.append(pair)
+                i += 2
                 continue
+            child = kids[i]
             rendered = self.node(child)
             # "(a) <I>Definitions.</I> ..." -> bold run-in heading
             if i == start_index and marker_html and not body_el_text.strip() and child.tag in ("I", "E"):
                 rendered = f'<strong class="runin">{self.children(child)}</strong>'
             body.append(rendered)
             body.append(self.text(child.tail))
+            i += 1
 
         self.para_count += 1
         pid = f"p{self.para_count}"
@@ -255,9 +343,10 @@ def render_leaf_html(
     title: int = 29,
     known_by_title: Callable[[int, str], bool] | None = None,
     installed_titles: Callable[[], list[int]] | None = None,
+    known_parts: Callable[[str], bool] | None = None,
 ) -> str:
     """HTML for a section or appendix, with cross-references linked."""
-    return section_doc(xml, known, title, known_by_title, installed_titles).full_html()
+    return section_doc(xml, known, title, known_by_title, installed_titles, known_parts).full_html()
 
 
 def render_fragment_html(
@@ -266,9 +355,16 @@ def render_fragment_html(
     title: int = 29,
     known_by_title: Callable[[int, str], bool] | None = None,
     installed_titles: Callable[[], list[int]] | None = None,
+    known_parts: Callable[[str], bool] | None = None,
 ) -> str:
     """HTML for part/subpart front matter (authority, source, notes)."""
     if not xml:
         return ""
-    linkify = make_linkifier(known, title=title, known_by_title=known_by_title, installed_titles=installed_titles)
+    linkify = make_linkifier(
+        known,
+        title=title,
+        known_by_title=known_by_title,
+        installed_titles=installed_titles,
+        known_parts=known_parts,
+    )
     return Renderer(linkify).render_fragment(ET.fromstring(xml))

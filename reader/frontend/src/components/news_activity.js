@@ -1,4 +1,5 @@
 import { state } from '../state';
+import { createPopover } from './popover';
 import { escapeHtml, icon } from '../dom';
 import { dom } from '../state_init';
 import { fmtDate, getJSON } from '../views/library';
@@ -43,10 +44,11 @@ export async function fillNewsActivity(kind, id, seq) {
 
 export function newsTimelineHtml(ctx) {
   const label = ctx.kind === 'part' ? `Part ${ctx.id}` : `§ ${ctx.id}`;
+  const articles = ctx.data.articles || [];
   // Node kinds: rules, rulemaking, notices, public_inspection, enforcement. There are
   // no interpretation nodes: OSHA letters of interpretation live only on osha.gov,
   // which FRAMEWORK does not scrape (decision 4).
-  const nodes = (ctx.data.articles || []).map(a => {
+  const nodes = articles.map(a => {
     let meta = fmtDate(a.published_at), second = '';
     if (a.category === 'rules') {
       meta += ` · Final rule${a.citation ? ' · ' + a.citation : ''}`;
@@ -61,7 +63,8 @@ export function newsTimelineHtml(ctx) {
       meta += ' · Notice';
     }
     const title = a.category === 'enforcement' && second ? second : a.title;
-    return `<li class="tl-node" data-kind="${escapeHtml(a.category)}">
+    const hay = `${meta} ${title} ${a.citation || ''}`.toLowerCase();
+    return `<li class="tl-node" data-kind="${escapeHtml(a.category)}" data-hay="${escapeHtml(hay)}">
       <span class="tl-dot" aria-hidden="true"></span>
       <div class="tl-meta">${escapeHtml(meta)}</div>
       ${extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`)}
@@ -69,46 +72,57 @@ export function newsTimelineHtml(ctx) {
   }).join('');
   const allHref = ctx.kind === 'part'
     ? `#/news?part=${encodeURIComponent(ctx.id)}` : `#/news?section=${encodeURIComponent(ctx.id)}`;
-  return `<div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
+  const filterHtml = articles.length >= 6
+    ? `<input type="search" class="pop-filter" id="news-pop-filter" placeholder="Filter ${articles.length} events…" aria-label="Filter activity events" autocomplete="off">`
+    : '';
+  return `<div class="news-pop-head-row">
+      <div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close activity">${icon('close')}</button>
+    </div>
+    ${filterHtml}
     <ol class="reg-timeline">${nodes}</ol>
     <a class="news-pop-foot" href="${allHref}">${icon('news')} See all in News</a>`;
 }
 
 
+const newsCtrl = createPopover({
+  el: newsPop,
+  triggerSelector: '#btn-news-activity',
+});
+
 export function openNewsActivity() {
   const btn = document.getElementById('btn-news-activity');
   if (!btn || !state.newsActivityCtx) return;
-  newsPop.innerHTML = newsTimelineHtml(state.newsActivityCtx);
   newsPop.setAttribute('aria-label',
     `Federal Register and OSHA activity for ${state.newsActivityCtx.kind === 'part' ? 'Part ' : '§ '}${state.newsActivityCtx.id}`);
-  newsPop.hidden = false;
-  const r = btn.getBoundingClientRect();
-  const w = newsPop.offsetWidth;
-  newsPop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
-  newsPop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - newsPop.offsetHeight - 8)}px`;
-  btn.setAttribute('aria-expanded', 'true');
-  (newsPop.querySelector('a, button') || newsPop).focus?.();
-  setTimeout(() => document.addEventListener('pointerdown', onNewsPopOutside), 0);
+  newsCtrl.open(btn, newsTimelineHtml(state.newsActivityCtx), {
+    focusSelector: '#news-pop-filter, a, button',
+    returnFocus: btn,
+  });
 }
 
 export function closeNewsActivity(returnFocus = true) {
-  if (newsPop.hidden) return;
-  newsPop.hidden = true;
-  document.removeEventListener('pointerdown', onNewsPopOutside);
-  const btn = document.getElementById('btn-news-activity');
-  if (btn) { btn.setAttribute('aria-expanded', 'false'); if (returnFocus) btn.focus(); }
+  newsCtrl.close(returnFocus);
 }
 
-export function onNewsPopOutside(e) {
-  if (!newsPop.contains(e.target) && !e.target.closest('#btn-news-activity')) closeNewsActivity(false);
-}
+newsPop.addEventListener('click', (e) => {
+  if (e.target.closest('[data-pop-close]')) closeNewsActivity(true);
+});
+
+newsPop.addEventListener('input', (e) => {
+  if (e.target.id !== 'news-pop-filter') return;
+  const q = e.target.value.trim().toLowerCase();
+  for (const li of newsPop.querySelectorAll('.tl-node')) {
+    const hay = li.dataset.hay || '';
+    li.hidden = Boolean(q && !hay.includes(q));
+  }
+  newsCtrl.reposition(document.getElementById('btn-news-activity'));
+});
 
 dom.view.addEventListener('click', (e) => {
   if (e.target.closest('#btn-news-activity')) newsPop.hidden ? openNewsActivity() : closeNewsActivity();
 });
 
 newsPop.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { e.preventDefault(); closeNewsActivity(); }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeNewsActivity(true); }
 });
-
-window.addEventListener('hashchange', () => closeNewsActivity(false));

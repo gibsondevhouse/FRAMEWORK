@@ -280,7 +280,8 @@ export async function loadSearchPage(query, scope) {
       ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=100`
       : `/api/${state.currentTitle}/search?q=${encodeURIComponent(query)}&limit=100`;
     const seq = state.routeSeq;
-    const res = await fetch(url);
+    const signal = state.routeAbort?.signal;
+    const res = await fetch(url, { signal });
     const data = await res.json();
     if (seq !== state.routeSeq) return;
 
@@ -296,6 +297,7 @@ export async function loadSearchPage(query, scope) {
     renderSearchView();
     enterView();
   } catch (err) {
+    if (err && err.name === 'AbortError') return;
     dom.view.innerHTML = `<div class="msg-error">Search failed: ${escapeHtml(err.message)}</div>`;
   }
 }

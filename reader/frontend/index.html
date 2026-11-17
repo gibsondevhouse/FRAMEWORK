@@ -131,10 +131,13 @@
     </aside>
     <div class="nav-backdrop" id="nav-backdrop"></div>
 
-    <main class="main" id="main" tabindex="-1">
-      <div id="view-head" class="view-head" hidden></div>
-      <div id="view" class="view"></div>
-    </main>
+    <div class="main-stage" id="main-stage">
+      <main class="main" id="main" tabindex="-1">
+        <div id="view-head" class="view-head" hidden></div>
+        <div id="view" class="view"></div>
+      </main>
+      <aside class="split-pane" id="split-pane" aria-label="Reference split view" hidden></aside>
+    </div>
 
     <aside class="chat" id="chat" aria-label="Ask Claude" hidden>
       <div class="chat-head">
@@ -171,8 +174,12 @@
   <div id="nav-live" class="sr-only" role="status" aria-live="polite"></div>
   <div id="pin-pop" class="pin-pop" role="dialog" aria-label="Pin to a workspace" hidden></div>
   <div id="news-pop" class="news-pop" role="dialog" aria-label="Federal Register and OSHA activity" hidden></div>
+  <div id="cite-pop" class="cite-pop" role="dialog" aria-label="Citation preview" hidden></div>
   <div id="env-modal" class="modal-backdrop" hidden>
     <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="env-modal-title"></div>
+  </div>
+  <div id="figure-modal" class="modal-backdrop" hidden>
+    <div class="modal-dialog fig-modal" role="dialog" aria-modal="true" aria-labelledby="fig-modal-title"></div>
   </div>
   <input type="file" id="projects-import" accept="application/json,.json" hidden>
 

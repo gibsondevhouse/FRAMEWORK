@@ -1,6 +1,6 @@
 import { state } from '../state';
-import { fillTitleSelect } from '../components/title_switcher';
-import { escapeHtml, icon, lsGet, lsSet, skeletonHtml } from '../dom';
+import { fillTitleSelect, searchPlaceholderFor } from '../components/title_switcher';
+import { cleanInlineLabel, escapeHtml, icon, lsGet, lsSet, skeletonHtml } from '../dom';
 import { applyNav, closeDrawer, flyOpen, isFly, updateRailHome } from '../nav';
 import { dom } from '../state_init';
 
@@ -117,7 +117,7 @@ export async function switchTitle(newTitle) {
     state.metaInfo = titleMeta;
     dom.edition.textContent = `eCFR ${titleMeta.edition || ''}`;
   }
-  dom.search.placeholder = `Search Title ${newTitle} or jump to a section…`;
+  dom.search.placeholder = searchPlaceholderFor(true);
   dom.chatText.placeholder = `Ask about this section, or anything in Title ${newTitle}…`;
   updateRailHome();
   applyNav();
@@ -214,10 +214,12 @@ export function indexTree(root) {
   const walk = (node, parentKey) => {
     const k = treeIdx.nodes.length;
     node.k = k;
+    node.l = cleanInlineLabel(node.l);
+    node.d = cleanInlineLabel(node.d);
     treeIdx.nodes.push(node);
     treeIdx.parent.push(parentKey);
-    const label = (node.l || '').trim();
-    const desc = (node.d || '').trim();
+    const label = node.l;
+    const desc = node.d;
     let hayText = desc && desc !== label ? `${label} ${desc}` : label || desc;
     node.partCount = 0;
 

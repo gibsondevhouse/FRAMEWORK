@@ -77,7 +77,7 @@
 .md th { background: var(--hover); font-weight: var(--w-medium); color: var(--fg); }
 
 /* Floating "ask about this" */
-.ask-float { position: absolute; z-index: 40; display: flex; gap: 2px; padding: 3px; background: var(--pop); border: 1px solid var(--line); border-radius: var(--r-8); box-shadow: var(--shadow-pop); animation: pop-in .12s var(--ease-out); }
+.ask-float { position: fixed; z-index: 40; display: flex; gap: 2px; padding: 3px; background: var(--pop); border: 1px solid var(--line); border-radius: var(--r-8); box-shadow: var(--shadow-pop); animation: pop-in .12s var(--ease-out); }
 .ask-float .btn { border-color: transparent; background: transparent; }
 .ask-float .btn:hover { background: var(--active); }
 .toast {

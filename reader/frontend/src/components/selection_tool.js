@@ -1,5 +1,6 @@
 import { state } from '../state';
 import { openChat } from '../components/chat';
+import { positionPopover } from './popover';
 import { dom } from '../state_init';
 
 // --- Selection Floating Tool ("Ask about this") ---
@@ -8,29 +9,27 @@ state.selectedText = '';
 document.addEventListener('mouseup', () => {
   const sel = window.getSelection();
   const str = sel.toString().trim();
-  if (str.length > 10 && dom.view.contains(sel.anchorNode)) {
+  const inView = dom.view.contains(sel.anchorNode) || (dom.splitPane && dom.splitPane.contains(sel.anchorNode));
+  if (str.length > 10 && inView && sel.rangeCount > 0) {
     state.selectedText = str;
     const range = sel.getRangeAt(0);
     const rect = range.getBoundingClientRect();
     dom.askFloat.hidden = false;
-    // Keep the popover inside the viewport: flip above the selection near the bottom edge.
-    const w = dom.askFloat.offsetWidth;
-    const h = dom.askFloat.offsetHeight;
-    const below = rect.bottom + 8;
-    const top = below + h > window.innerHeight - 8 ? Math.max(8, rect.top - h - 8) : below;
-    const left = Math.min(Math.max(10, rect.left), window.innerWidth - w - 10);
-    dom.askFloat.style.top = `${window.scrollY + top}px`;
-    dom.askFloat.style.left = `${window.scrollX + left}px`;
+    positionPopover(dom.askFloat, rect, { offset: 8, placement: 'auto', padding: 10 });
   } else {
     dom.askFloat.hidden = true;
   }
 });
 
 
-// The popover is positioned against the viewport; hide it once the text scrolls away.
-dom.main.addEventListener('scroll', () => {
-  if (!dom.askFloat.hidden) dom.askFloat.hidden = true;
-}, { passive: true });
+// Hide when either reading pane scrolls.
+for (const scroller of [dom.main, dom.splitPane]) {
+  if (scroller) {
+    scroller.addEventListener('scroll', () => {
+      if (!dom.askFloat.hidden) dom.askFloat.hidden = true;
+    }, { passive: true });
+  }
+}
 
 
 dom.askFloat.addEventListener('click', (e) => {

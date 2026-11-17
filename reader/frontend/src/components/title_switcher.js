@@ -1,4 +1,5 @@
 import { state } from '../state';
+import { closeAllPopovers, registerPopoverCloser } from './popover';
 import { clearTreeSelection, switchTitle } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
 import { enterView, escapeHtml, icon } from '../dom';
@@ -11,17 +12,26 @@ import { dom } from '../state_init';
 // Esc closes and returns focus to the button, Tab closes.
 // With nothing installed the search box, chat and contents list have nothing to work on;
 // they wake back up when the first title lands.
+export function searchPlaceholderFor(on) {
+  if (!on) return 'Download a title to search';
+  if (window.matchMedia('(max-width: 600px)').matches) return 'Search…';
+  return `Search Title ${state.currentTitle} or jump to a section…`;
+}
+
+
 export function setReaderEnabled(on) {
   dom.search.disabled = !on;
-  dom.search.placeholder = on
-    ? `Search Title ${state.currentTitle} or jump to a section…`
-    : 'Download a title to search';
+  dom.search.placeholder = searchPlaceholderFor(on);
   dom.chatToggle.disabled = !on;
   if (!on) {
     dom.edition.textContent = '';
     dom.tree.innerHTML = '<div class="side-empty">No titles installed yet. <a href="#/">Pick a profile</a> or open the <a href="#/library">library</a>.</div>';
   }
 }
+
+window.matchMedia('(max-width: 600px)').addEventListener?.('change', () => {
+  if (dom.search) dom.search.placeholder = searchPlaceholderFor(!state.noTitles);
+});
 
 
 export function fillTitleSelect() {
@@ -52,6 +62,7 @@ export const titleMenuItems = () => [...dom.titlePop.querySelectorAll('.tm-item'
 
 export function openTitleMenu(focusWhich = 'current') {
   if (!dom.titlePop.hidden) return;
+  closeAllPopovers(closeTitleMenu, false);
   dom.titlePop.hidden = false;
   dom.titleSelect.setAttribute('aria-expanded', 'true');
   const items = titleMenuItems();
@@ -64,13 +75,15 @@ export function openTitleMenu(focusWhich = 'current') {
 }
 
 
-export function closeTitleMenu(returnFocus) {
+export function closeTitleMenu(returnFocus = false) {
   if (dom.titlePop.hidden) return;
   dom.titlePop.hidden = true;
   dom.titleSelect.setAttribute('aria-expanded', 'false');
   document.removeEventListener('pointerdown', onTitleMenuOutside, true);
   if (returnFocus) dom.titleSelect.focus();
 }
+
+registerPopoverCloser(closeTitleMenu);
 
 
 export function onTitleMenuOutside(e) {

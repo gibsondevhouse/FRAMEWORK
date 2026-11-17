@@ -1,13 +1,15 @@
 import { state } from '../state';
+import { renderResolverPage } from '../components/cfr_resolver';
 import { updateChatContext } from '../components/chat';
 import { fillNewsActivity, newsActivityButtonHtml } from '../components/news_activity';
 import { sectionHref } from '../components/rail';
-import { ensureTreeLoaded, selectTreeNode } from '../components/sidebar';
+import { clearTreeSelection, ensureTreeLoaded, selectTreeNode } from '../components/sidebar';
 import { renderNotFound } from '../components/title_switcher';
 import { docStepBtn, docStepHtml, firstSectionOf, partNeighbors, setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon, skeletonHtml } from '../dom';
+import { cleanInlineLabel, enterView, escapeHtml, icon, skeletonHtml } from '../dom';
 import { dom } from '../state_init';
 import { recordPartVisit } from '../usage';
+import { enhanceDomAnchors } from './doc_utils';
 
 // --- Load Part Table of Contents ---
 export async function loadPart(partId) {
@@ -18,9 +20,10 @@ export async function loadPart(partId) {
 
   try {
     const seq = state.routeSeq;
+    const signal = state.routeAbort?.signal;
     // Fetch TOC tree nodes for this part and front matter
     const [frontRes] = await Promise.all([
-      fetch('/api/' + state.currentTitle + '/part/' + encodeURIComponent(partId)),
+      fetch('/api/' + state.currentTitle + '/part/' + encodeURIComponent(partId), { signal }),
       ensureTreeLoaded()
     ]);
 
@@ -30,6 +33,12 @@ export async function loadPart(partId) {
     // Find part node in tree
     const partNode = findPartInTree(state.treeData, partId);
     if (!partNode) {
+      if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
+        clearTreeSelection();
+        setViewHead('');
+        await renderResolverPage(dom.view, { title: state.currentTitle, part: partId });
+        return;
+      }
       renderNotFound();
       return;
     }
@@ -88,6 +97,7 @@ export async function loadPart(partId) {
     recordPartVisit(partId, partNode.d);
     fillNewsActivity('part', partId, seq);
   } catch (err) {
+    if (err && err.name === 'AbortError') return;
     console.error(err);
     setViewHead('');
     dom.view.innerHTML = `<div class="msg-error">Failed to load part: ${escapeHtml(err.message)}</div>`;
@@ -107,12 +117,22 @@ export async function loadPartFull(partId, params) {
 
   try {
     const seq = state.routeSeq;
+    const signal = state.routeAbort?.signal;
     await ensureTreeLoaded();
     if (seq !== state.routeSeq) return;
     const partNode = findPartInTree(state.treeData, partId);
-    if (!partNode) { renderNotFound(); return; }
+    if (!partNode) {
+      if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
+        clearTreeSelection();
+        setViewHead('');
+        await renderResolverPage(dom.view, { title: state.currentTitle, part: partId });
+        return;
+      }
+      renderNotFound();
+      return;
+    }
 
-    const res = await fetch('/api/' + state.currentTitle + '/part/' + encodeURIComponent(partId) + '/full');
+    const res = await fetch('/api/' + state.currentTitle + '/part/' + encodeURIComponent(partId) + '/full', { signal });
     if (seq !== state.routeSeq) return;
     if (!res.ok) { renderNotFound(); return; }
     const data = await res.json();
@@ -153,6 +173,7 @@ export async function loadPartFull(partId, params) {
       <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
       ${sectionsHtml || '<p class="muted">No sections in this part.</p>'}
     `;
+    enhanceDomAnchors(dom.view);
     recordPartVisit(partId, partNode.d);
 
     // No enterView() here: a fade-rise on hundreds of nodes is a jank parade, and the
@@ -186,6 +207,7 @@ export async function loadPartFull(partId, params) {
     }
     selectTreeNode('s-' + (from || (data.sections[0] && data.sections[0].id)));
   } catch (err) {
+    if (err && err.name === 'AbortError') return;
     console.error(err);
     setViewHead('');
     dom.view.innerHTML = `<div class="msg-error">Failed to load part: ${escapeHtml(err.message)}</div>`;
@@ -195,8 +217,8 @@ export async function loadPartFull(partId, params) {
 
 // Some entries repeat their own label in the heading: "§ 261.5 [Reserved]".
 export function tocTitle(node) {
-  const l = (node.l || '').trim();
-  const d = (node.d || '').trim();
+  const l = cleanInlineLabel(node.l || '');
+  const d = cleanInlineLabel(node.d || '');
   return l && d.startsWith(l) && d.length > l.length ? d.slice(l.length).trim() : d;
 }
 

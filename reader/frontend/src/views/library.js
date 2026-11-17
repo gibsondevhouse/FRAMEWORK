@@ -699,6 +699,7 @@ export function setJobs(snapshot) {
   for (const j of [state.jobs.current, ...state.jobs.queued]) if (j) state.jobsSeenActive.add(j.id);
   updateDock();
   updateNavTransfers();
+  document.dispatchEvent(new CustomEvent('framework:jobs-updated', { detail: { snap: snapshot } }));
 }
 
 
@@ -725,6 +726,7 @@ export async function pollJobs() {
     await refreshTitles(finished.filter(j => j.state === 'done').map(j => j.title));
   }
   if (finished.length) {
+    document.dispatchEvent(new CustomEvent('framework:jobs-finished', { detail: { finished, snap } }));
     // The drawer's library and storage figures change with every install.
     navLib.at = 0;
     state.navStorage = null;

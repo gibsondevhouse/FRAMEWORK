@@ -6,7 +6,9 @@
   .topbar { border-bottom: 1px solid var(--line); }
   /* The rail becomes a bottom bar; the drawer slides over the page above it. */
   .layout, .layout.chat-open { --rail-w: 0px; --drawer-col: 0px; --chat-col: 0px; padding-bottom: var(--bar-h); }
+  .main-stage.is-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(240px, 46%); gap: 6px; }
   .main, .layout.chat-open .main, html.drawer-fly .main { margin: 0; border: 0; border-radius: 0; }
+  .split-pane { margin: 0; border-width: 1px 0 0 0; border-radius: 0; }
   .activity-rail {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 28; height: var(--bar-h); flex-direction: row; justify-content: center;
     padding: 0 8px env(safe-area-inset-bottom); border-right: 0; border-top: 1px solid var(--line);
@@ -17,7 +19,7 @@
   .ar-bottom { margin-left: 2px; }
   .ar-sep { width: 1px; height: 18px; margin: 0 6px; }
   .ar-btn { width: 44px; height: 40px; }
-  .ar-btn::before { left: 50%; top: auto; bottom: -5px; width: 16px; height: 3px; border-radius: 2px 2px 0 0; transform: translateX(-50%) scaleX(0); }
+  .ar-btn::before { left: 50%; top: auto; bottom: -1px; width: 16px; height: 2.5px; border-radius: 2px 2px 0 0; transform: translateX(-50%) scaleX(0); }
   .ar-btn.is-active::before { transform: translateX(-50%) scaleX(1); }
   .ar-btn::after { display: none; }
   html.drawer-fly .sidebar { left: 0; bottom: var(--bar-h); width: min(88vw, 340px); }
@@ -61,7 +63,7 @@
 }
 
 @media print {
-  .topbar, .sidebar, .activity-rail, .chat, .nav-backdrop, .ask-float, .toast, .doc-actions, .view-head, .transfer-dock, .pin-pop, .news-pop, .modal-backdrop { display: none !important; }
+  .topbar, .sidebar, .activity-rail, .chat, .nav-backdrop, .ask-float, .toast, .doc-actions, .view-head, .transfer-dock, .pin-pop, .news-pop, .cite-pop, .split-pane, .modal-backdrop { display: none !important; }
   html, body, .layout { height: auto; }
   .layout { display: block; padding: 0; }
   .main { margin: 0; border: 0; overflow: visible; background: #fff; }

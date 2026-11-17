@@ -154,8 +154,8 @@ def _chapter_units(kids: list[ET.Element], title_idx: int, key_prefix: str, meta
 class SectionDoc:
     """A parsed section, ready to render whole or one unit at a time."""
 
-    def __init__(self, xml: str, linkify: Callable[[str], str]):
-        self.root = ET.fromstring(xml)
+    def __init__(self, xml: str | ET.Element, linkify: Callable[[str], str]):
+        self.root = xml if isinstance(xml, ET.Element) else ET.fromstring(xml)
         self.linkify = linkify
         self.levels = compute_levels(self.root)
         self.units = split_units(self.root, self.levels)
@@ -204,6 +204,16 @@ def section_doc(
     title: int = 29,
     known_by_title: Callable[[int, str], bool] | None = None,
     installed_titles: Callable[[], list[int]] | None = None,
+    known_parts: Callable[[str], bool] | None = None,
 ) -> SectionDoc:
-    linkify = make_linkifier(known, title=title, known_by_title=known_by_title, installed_titles=installed_titles)
-    return SectionDoc(xml, linkify)
+    root = ET.fromstring(xml)
+    sec_id = root.get("N")
+    linkify = make_linkifier(
+        known,
+        title=title,
+        known_by_title=known_by_title,
+        installed_titles=installed_titles,
+        known_parts=known_parts,
+        section_id=sec_id,
+    )
+    return SectionDoc(root, linkify)
