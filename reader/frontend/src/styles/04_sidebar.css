@@ -4,30 +4,30 @@
   width: 100%; height: 28px; padding: 0 9px; border-radius: var(--r-6); font: 13px/1 var(--sans);
   border: 1px solid var(--line); background: var(--field); color: var(--fg); outline: none;
   box-shadow: var(--shadow-inset-field);
-  transition: border-color var(--t-base) var(--ease), background-color var(--t-base) var(--ease);
+  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease), box-shadow var(--t-quick) var(--ease);
 }
 #tree-filter:hover { border-color: var(--line-strong); }
-#tree-filter:focus { border-color: var(--focus); background: var(--panel); }
+#tree-filter:focus { border-color: var(--line-strong); background: var(--panel); box-shadow: var(--shadow-inset-field), var(--field-focus); }
 
 .side-nav-tabs { display: flex; gap: 2px; margin-top: 8px; padding: 2px; border-radius: var(--r-6); background: var(--hover); }
 .side-nav-tab {
   flex: 1; height: 24px; padding: 0 8px; border: 0; border-radius: var(--r-4); background: transparent;
   color: var(--fg-3); font: 600 11px/1 var(--sans); text-transform: uppercase; letter-spacing: .06em; cursor: pointer; text-align: center;
-  transition: background-color 100ms var(--ease), color 150ms cubic-bezier(.165, .84, .44, 1);
+  transition: background-color var(--t-snap) var(--ease), color var(--t-quick) var(--ease-out);
 }
 .side-nav-tab:hover { color: var(--fg-strong); }
 .side-nav-tab.active { background: var(--active); color: var(--fg-strong); }
 
 .tree { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 40px; font-size: 13px; }
-.side-list { display: flex; flex-direction: column; gap: 1px; animation: rise-in .16s var(--ease); }
+.side-list { display: flex; flex-direction: column; gap: 1px; animation: rise-in var(--t-quick) var(--ease); }
 .side-agencies-list { padding-top: 4px; }
 
-/* Agency rows: short code flush left, 12px, muted gray #888888 */
+/* Agency rows: short code flush left, 12px */
 .side-agency {
   display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left;
   padding: 6px 8px; border: 0; border-radius: var(--r-6); background: none; cursor: pointer;
   font: inherit; color: var(--fg-2); line-height: 1.4;
-  transition: background-color 100ms var(--ease), color 150ms cubic-bezier(.165, .84, .44, 1), transform 100ms var(--ease);
+  transition: background-color var(--t-snap) var(--ease), color var(--t-quick) var(--ease-out), transform var(--t-snap) var(--ease);
 }
 .side-agency:hover { background: var(--hover); color: var(--fg-strong); }
 .side-agency:active { transform: scale(.98); }
@@ -40,7 +40,7 @@
 .side-item {
   display: flex; gap: 10px; align-items: baseline; padding: 5px 8px; border-radius: var(--r-6);
   color: var(--fg-2); line-height: 1.4;
-  transition: background-color 100ms var(--ease), color 150ms cubic-bezier(.165, .84, .44, 1), transform 100ms var(--ease);
+  transition: background-color var(--t-snap) var(--ease), color var(--t-quick) var(--ease-out), transform var(--t-snap) var(--ease);
 }
 .side-item:hover { background: var(--hover); color: var(--fg-strong); text-decoration: none; }
 .side-item:active { transform: scale(.98); }
@@ -67,7 +67,7 @@
 .side-head { position: sticky; top: 0; z-index: 1; background: var(--panel); padding: 4px 0 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line-soft); }
 .side-breadcrumbs { display: flex; align-items: center; gap: 5px; padding: 0 8px 4px; font-size: 12px; color: var(--fg-3); overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
 .side-breadcrumbs::-webkit-scrollbar { display: none; }
-.side-crumb { border: 0; background: none; padding: 1px 2px; margin: 0 -2px; font: inherit; color: var(--fg-3); cursor: pointer; border-radius: var(--r-4); transition: color 150ms cubic-bezier(.165, .84, .44, 1); }
+.side-crumb { border: 0; background: none; padding: 1px 2px; margin: 0 -2px; font: inherit; color: var(--fg-3); cursor: pointer; border-radius: var(--r-4); transition: color var(--t-quick) var(--ease-out); }
 .side-crumb:hover { color: var(--fg-strong); }
 .side-sep { color: var(--fg-4); }
 .side-crumb-current { color: var(--fg-2); }

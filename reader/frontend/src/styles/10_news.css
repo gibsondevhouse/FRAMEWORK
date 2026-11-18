@@ -15,13 +15,13 @@
   position: relative; overflow: hidden;
   display: flex; align-items: center; gap: 10px;
   height: 36px; padding: 0 12px 0 14px; margin-bottom: 20px;
-  background: color-mix(in srgb, var(--editorial-crimson) 10%, var(--field));
-  border: 1px solid color-mix(in srgb, var(--editorial-crimson) 32%, transparent);
+  background: color-mix(in oklab, var(--editorial-crimson) 10%, var(--field));
+  border: 1px solid color-mix(in oklab, var(--editorial-crimson) 32%, transparent);
   border-radius: var(--r-6);
   font-size: 13px; color: var(--fg); text-decoration: none;
 }
 .news-breaking::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; pointer-events: none; background: var(--editorial-crimson); }
-.news-breaking:hover { text-decoration: none; border-color: color-mix(in srgb, var(--editorial-crimson) 50%, transparent); }
+.news-breaking:hover { text-decoration: none; border-color: color-mix(in oklab, var(--editorial-crimson) 50%, transparent); }
 .news-breaking-tag {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   font-size: 11px; font-weight: var(--w-semibold); letter-spacing: .06em; text-transform: uppercase;
@@ -36,12 +36,12 @@
 .news-q {
   flex: 1 1 240px; max-width: 320px; height: 30px; padding: 0 10px;
   border: 1px solid var(--line); border-radius: var(--r-6);
-  background: var(--field); color: var(--fg); outline: none;
+  background: var(--field); color: var(--fg); outline: none; box-shadow: var(--shadow-inset-field);
   font: var(--w-regular) 13px/1 var(--sans);
-  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease);
+  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease), box-shadow var(--t-quick) var(--ease);
 }
 .news-q:hover { border-color: var(--line-strong); }
-.news-q:focus { border-color: var(--focus); background: var(--panel); }
+.news-q:focus { border-color: var(--line-strong); background: var(--panel); box-shadow: var(--shadow-inset-field), var(--field-focus); }
 .news-q::placeholder { color: var(--fg-4); }
 
 .news-filter-chips, .news-facets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -59,10 +59,10 @@
   border: 1px solid var(--line); border-radius: var(--r-6);
   background: var(--field) var(--chevron) no-repeat right 6px center; color: var(--fg);
   font: var(--w-medium) 12px/1 var(--sans); cursor: pointer;
-  transition: border-color var(--t-quick) var(--ease);
+  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease);
 }
-.news-facets select:hover { border-color: var(--line-strong); }
-.news-facets select:focus-visible { outline: none; border-color: var(--focus); }
+.news-facets select:hover { border-color: var(--line-strong); background-image: var(--chevron-hover); }
+.news-facets select:focus-visible { outline: none; border-color: var(--line-strong); box-shadow: var(--field-focus); background-image: var(--chevron-hover); }
 
 .news-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 @container news (max-width: 900px) {
@@ -78,7 +78,7 @@
   position: relative; overflow: hidden;
   display: flex; flex-direction: column; gap: 10px; padding: 24px;
   background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--r-12); box-shadow: var(--card-top);
-  transition: transform var(--t-ui) var(--ease-out), background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out);
+  transition: background var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out);
 }
 .news-card::before {
   content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; pointer-events: none;
@@ -89,7 +89,7 @@
 .news-card[data-cat="rules"] { --news-stripe: var(--editorial-gold); }
 .news-card[data-cat="rulemaking"] { --news-stripe: var(--ref-cross); }
 .news-card[data-cat="notices"] { --news-stripe: var(--ref-local); }
-.news-card:hover { transform: translateY(-1px); background: var(--card-hover); border-color: var(--line-strong); box-shadow: var(--shadow-card-hover); }
+.news-card:hover { background: var(--card-hover-bg); border-color: var(--line-strong); box-shadow: var(--shadow-card-hover); }
 .news-hero { padding: 24px; margin-bottom: 28px; }
 .news-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .news-kicker {
@@ -97,7 +97,7 @@
   color: var(--news-stripe, var(--fg-3)); font-variant-numeric: tabular-nums;
 }
 .news-figure { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: var(--w-semibold); color: var(--fg-strong); }
-.news-card-title { font-size: 15.5px; font-weight: var(--w-semibold); letter-spacing: -.015em; line-height: 1.35; margin: 0; }
+.news-card-title { font-size: 15.5px; font-weight: var(--w-semibold); letter-spacing: -.015em; line-height: 1.35; margin: 0; text-wrap: balance; }
 .news-card-title a { color: var(--fg); text-decoration: none; transition: color var(--t-ui) var(--ease-out); }
 .news-card-title a:hover { color: var(--fg-strong); text-decoration: none; }
 .news-hero .news-card-title { font-size: 20px; letter-spacing: -.022em; }
@@ -186,7 +186,17 @@ a:hover > .tl-title { color: var(--fg-strong); text-decoration: underline; }
 .ins-muted { margin: 0; font-size: 13px; color: var(--fg-3); }
 .ins-cfr-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 
-.ins-table-wrap { overflow-x: auto; margin: 0 -8px; }
+.ins-table-wrap {
+  overflow-x: auto; margin: 0 -8px;
+  background:
+    linear-gradient(to right, var(--card) 30%, transparent),
+    linear-gradient(to left, var(--card) 30%, transparent) 100% 0,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, .45), transparent),
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, .45), transparent) 100% 0;
+  background-repeat: no-repeat;
+  background-size: 28px 100%, 28px 100%, 10px 100%, 10px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
 .ins-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ins-table th {
   padding: 6px 8px 10px; text-align: left; border-bottom: 1px solid var(--line);
@@ -215,12 +225,12 @@ a:hover > .tl-title { color: var(--fg-strong); text-decoration: underline; }
   font: var(--w-medium) 11px/1.2 var(--sans); white-space: nowrap;
 }
 .ins-viol-pill.is-w, .ins-viol-pill.is-r {
-  color: var(--danger); border-color: color-mix(in srgb, var(--danger) 32%, transparent);
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--danger); border-color: color-mix(in oklab, var(--danger) 32%, transparent);
+  background: color-mix(in oklab, var(--danger) 8%, transparent);
 }
 .ins-viol-pill.is-s {
-  color: var(--warn); border-color: color-mix(in srgb, var(--warn) 32%, transparent);
-  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  color: var(--warn); border-color: color-mix(in oklab, var(--warn) 32%, transparent);
+  background: color-mix(in oklab, var(--warn) 8%, transparent);
 }
 .ins-mono-col, .ins-status-col { white-space: nowrap; font-size: 12.5px; }
 .ins-pen-cur { font-weight: var(--w-semibold); color: var(--fg); }

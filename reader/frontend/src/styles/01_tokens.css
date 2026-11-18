@@ -21,24 +21,17 @@
   font-style: normal;
   font-display: swap;
 }
-@font-face {
-  font-family: "Inter";
-  src: url("/static/fonts/InterVariable.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
 
 :root {
   color-scheme: dark;
 
   /* Type */
-  --sans: "Geist", "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont,
+  --sans: "Geist", "Inter Variable", -apple-system, BlinkMacSystemFont,
           "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: "Berkeley Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --w-regular: 400;
-  --w-medium: 500;
-  --w-semibold: 600;
+  --w-medium: 510;
+  --w-semibold: 590;
   --reader-size: 16px;
 
   /* Shape */
@@ -70,55 +63,58 @@
   --chat-w: 420px;
   --gutter: 8px;
 
-  /* Motion — Full uses cinematic, unhurried momentum; Less uses calm opacity dissolves */
-  --ease: cubic-bezier(.32, .72, 0, 1);
-  --ease-out: cubic-bezier(.25, .65, .15, 1);
-  --ease-calm: cubic-bezier(.32, .72, 0, 1);
+  /* Motion — Crisp 3-tier perceptual timing scale; Less switches to calm fades */
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-calm: cubic-bezier(.25, .8, .3, 1);
   --ease-tactile: cubic-bezier(.28, .85, .32, 1.06);
-  --t-quick: .30s;
-  --t-base: .46s;
-  --t-slow: .68s;
-  --t-ui: .34s;
-  --t-pane: .56s;
-  --t-split: .80s;
-  --motion-y: 16px;
-  --motion-x: 34px;
-  --motion-scale: .965;
+  --t-snap: .09s;
+  --t-quick: .14s;
+  --t-ui: .16s;
+  --t-base: .19s;
+  --t-pane: .24s;
+  --t-split: .26s;
+  --t-slow: .26s;
+  --motion-y: 6px;
+  --motion-x: 16px;
+  --motion-scale: .975;
 
   /* Yakuza Editorial Obsidian Surface & Ink Hierarchy */
   --bg: #070708;            /* Deep canvas void */
   --panel: #0B0B0D;         /* Primary reading pane & drawer base */
   --card: #111114;          /* Elevated card surface */
-  --card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0) 100%), #111114;
-  --card-hover: #16161A;    /* Hovered card surface */
-  --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.032) 0%, rgba(255, 255, 255, 0) 100%), #111114;
+  --card-hover: #151519;    /* Hovered card surface fallback */
+  --card-hover-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.048) 0%, rgba(255, 255, 255, 0.01) 100%), #151519;
+  --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.055);
   --raise: #111114;         /* Wells & inset callouts */
   --pop: #151519;           /* Menus, popovers, dropdowns */
-  --hover: rgba(255, 255, 255, 0.045);
-  --active: rgba(255, 255, 255, 0.085);
-  --field: rgba(255, 255, 255, 0.028);
-  --line: rgba(255, 255, 255, 0.065);
-  --line-soft: rgba(255, 255, 255, 0.045);
-  --line-strong: rgba(255, 255, 255, 0.16);
-  --fg: rgba(244, 244, 246, 0.92);      /* Primary headings & labels */
-  --fg-2: rgba(235, 235, 240, 0.68);    /* Long-form prose body ink */
-  --fg-3: rgba(235, 235, 240, 0.45);    /* Metadata, timestamps & quiet links */
-  --fg-4: rgba(235, 235, 240, 0.26);    /* Separators & faint markers */
+  --hover: rgba(255, 255, 255, 0.048);
+  --active: rgba(255, 255, 255, 0.088);
+  --field: rgba(255, 255, 255, 0.03);
+  --line: rgba(255, 255, 255, 0.075);
+  --line-soft: rgba(255, 255, 255, 0.048);
+  --line-strong: rgba(255, 255, 255, 0.165);
+  --fg: rgba(244, 244, 246, 0.93);      /* Primary headings & labels */
+  --fg-2: rgba(235, 235, 240, 0.72);    /* Long-form prose body ink */
+  --fg-3: rgba(235, 235, 240, 0.54);    /* Metadata, timestamps & quiet links */
+  --fg-4: rgba(235, 235, 240, 0.30);    /* Separators & faint markers */
   --fg-strong: #FAFAFC;
   --brand: #EDEDED;         /* High-contrast primary action */
   --brand-hover: #FFFFFF;
   --on-brand: #070708;
   --accent: #E5B84B;        /* Signature editorial brass for brand mark, active rail & pins */
   --focus: rgba(250, 250, 252, 0.78);
+  --field-focus: 0 0 0 1px rgba(255, 255, 255, 0.28), 0 0 0 3px rgba(255, 255, 255, 0.08);
   --danger: #ff8583;
   --mark: rgba(234, 179, 8, .24);
-  --scroll: rgba(255, 255, 255, .09);
-  --scroll-hover: rgba(255, 255, 255, .20);
+  --scroll: rgba(255, 255, 255, .10);
+  --scroll-hover: rgba(255, 255, 255, .22);
   --fig-mat: #D4D4D8;       /* Soft dark-room slate matte for line-art figures */
-  --shadow-card: 0 4px 14px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  --shadow-card-hover: 0 10px 32px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 14px 36px rgba(0, 0, 0, 0.72), 0 2px 8px rgba(0, 0, 0, 0.45);
-  --shadow-inset-field: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 4px 14px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  --shadow-card-hover: 0 10px 28px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.085);
+  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.10), 0 14px 36px rgba(0, 0, 0, 0.72), 0 2px 8px rgba(0, 0, 0, 0.45);
+  --shadow-inset-field: inset 0 1px 2px rgba(0, 0, 0, 0.32);
   --overlay-scrim: rgba(0, 0, 0, 0.42);
 
   /* Editorial stamp accents & sync status */
@@ -130,29 +126,31 @@
   --warn: #f0b33c;
   --partial: #a1a1aa;
   --glow: 1;
-  --shadow-lift: 0 10px 32px rgba(0, 0, 0, 0.36);
-  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2388888f' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
+  --shadow-lift: 0 10px 28px rgba(0, 0, 0, 0.36);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%239b9ba4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
+  --chevron-hover: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23fafafc' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
 
-  /* 9-Tier Semantic Legal Authority & Reference Chromatics */
-  --ref-local: #94A3B8;         /* 1. Local spatial / same-section anchor / footnote */
-  --ref-cfr: #7DD3FC;           /* 2. Same-title Federal CFR */
-  --ref-cross: #38BDF8;         /* 3. Cross-title installed Federal CFR */
-  --ref-uninstalled: #FB923C;   /* 4. Uninstalled downloadable corpus */
-  --ref-usc: #FACC15;           /* 5. Federal Statute (U.S.C.) */
-  --ref-fr: #FB7185;            /* 6. Federal Register rulemaking */
-  --ref-ibr: #C084FC;           /* 7. IBR Consensus Standard (ANSI, NFPA, ASTM...) */
-  --ref-state: #34D399;         /* 8. State statute / admin code */
-  --ref-county: #2DD4BF;        /* 9. County / municipal ordinance */
+  /* 9-Tier Semantic Legal Authority & Reference Chromatics (luminance-balanced OKLCH) */
+  --ref-local: oklch(0.74 0.032 254);         /* 1. Local spatial / same-section anchor / footnote */
+  --ref-cfr: oklch(0.81 0.105 225);           /* 2. Same-title Federal CFR */
+  --ref-cross: oklch(0.77 0.130 234);         /* 3. Cross-title installed Federal CFR */
+  --ref-uninstalled: oklch(0.79 0.125 56);    /* 4. Uninstalled downloadable corpus */
+  --ref-usc: oklch(0.81 0.120 92);            /* 5. Federal Statute (U.S.C.) */
+  --ref-fr: oklch(0.76 0.138 14);             /* 6. Federal Register rulemaking */
+  --ref-ibr: oklch(0.78 0.132 304);           /* 7. IBR Consensus Standard (ANSI, NFPA, ASTM...) */
+  --ref-state: oklch(0.79 0.120 158);         /* 8. State statute / admin code */
+  --ref-county: oklch(0.80 0.102 184);        /* 9. County / municipal ordinance */
 }
 
 /* Reduced / calm opacity-only motion preset */
 html[data-motion="less"] {
-  --t-quick: .12s;
-  --t-base: .18s;
-  --t-slow: .22s;
-  --t-ui: .16s;
-  --t-pane: .18s;
-  --t-split: .22s;
+  --t-snap: .09s;
+  --t-quick: .11s;
+  --t-ui: .13s;
+  --t-base: .15s;
+  --t-pane: .16s;
+  --t-split: .16s;
+  --t-slow: .16s;
   --ease-tactile: ease-out;
   --motion-y: 0px;
   --motion-x: 0px;

@@ -6,7 +6,7 @@
 .btn-sm { height: 26px; padding: 0 10px; gap: 6px; font-size: 12px; border-radius: var(--r-6); }
 .btn-small { height: 26px; padding: 0 9px; gap: 5px; font-size: 12px; border-radius: var(--r-6); }
 .btn-sm .icon, .btn-small .icon { width: 14px; height: 14px; }
-.btn.is-danger:hover, .btn.is-armed { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); background: color-mix(in srgb, var(--danger) 9%, transparent); }
+.btn.is-danger:hover, .btn.is-armed { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 35%, transparent); background: color-mix(in oklab, var(--danger) 9%, transparent); }
 
 .inline-link, .hm-inline-link, .metric-link, .wire-link {
   display: inline-flex; align-items: center; gap: 3px; padding: 0; border: 0; background: none;
@@ -24,11 +24,11 @@
 .ui-input {
   height: 30px; padding: 0 10px; border-radius: var(--r-6);
   border: 1px solid var(--line); background: var(--field); color: var(--fg);
-  font: var(--w-regular) 13px/1 var(--sans); outline: none;
-  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease);
+  font: var(--w-regular) 13px/1 var(--sans); outline: none; box-shadow: var(--shadow-inset-field);
+  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease), box-shadow var(--t-quick) var(--ease);
 }
 .ui-input:hover { border-color: var(--line-strong); }
-.ui-input:focus { border-color: var(--focus); background: var(--panel); }
+.ui-input:focus { border-color: var(--line-strong); background: var(--panel); box-shadow: var(--shadow-inset-field), var(--field-focus); }
 .ui-input::placeholder { color: var(--fg-4); opacity: 1; }
 
 .ui-select {
@@ -38,8 +38,8 @@
   font: var(--w-medium) 12px/1 var(--sans); cursor: pointer;
   transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease);
 }
-.ui-select:hover { border-color: var(--line-strong); }
-.ui-select:focus-visible { outline: none; border-color: var(--focus); }
+.ui-select:hover { border-color: var(--line-strong); background-image: var(--chevron-hover); }
+.ui-select:focus-visible { outline: none; border-color: var(--line-strong); box-shadow: var(--field-focus); background-image: var(--chevron-hover); }
 
 /* Segmented control (canonical: .seg; existing aliases: .lib-seg, .search-scope, .search-view-toggle) */
 .seg, .lib-seg, .search-scope, .search-view-toggle {
@@ -80,7 +80,7 @@
   transition: transform var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out), background-color var(--t-ui) var(--ease-out);
 }
 .surface-card.is-interactive:hover {
-  transform: translateY(-1px); background: var(--card-hover);
+  transform: translateY(-1px); background: var(--card-hover-bg);
   border-color: var(--line-strong); box-shadow: var(--shadow-card-hover);
 }
 
@@ -91,13 +91,13 @@
 .stat-dot {
   position: relative; display: inline-block; flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%;
   background: var(--fg-4); --dot: var(--fg-4);
-  box-shadow: 0 0 calc(6px * var(--glow)) color-mix(in srgb, var(--dot) 45%, transparent);
+  box-shadow: 0 0 calc(6px * var(--glow)) color-mix(in oklab, var(--dot) 45%, transparent);
   transition: background-color var(--t-quick) var(--ease), box-shadow var(--t-quick) var(--ease);
 }
 .stat-dot.is-synced { --dot: var(--ok); background: var(--dot); }
 .stat-dot.is-stale { --dot: var(--warn); background: var(--dot); }
 .stat-dot.is-partial { --dot: var(--partial); background: var(--dot); }
-.stat-dot.is-busy { --dot: var(--fg); background: var(--dot); box-shadow: 0 0 calc(8px * var(--glow)) color-mix(in srgb, var(--dot) 55%, transparent); }
+.stat-dot.is-busy { --dot: var(--fg); background: var(--dot); box-shadow: 0 0 calc(8px * var(--glow)) color-mix(in oklab, var(--dot) 55%, transparent); }
 .stat-dot.is-busy::after {
   content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 1px solid var(--fg-2);
   animation: stat-ring 1.6s cubic-bezier(.24, 0, .38, 1) infinite;
@@ -111,8 +111,8 @@
   font: var(--w-medium) 11px/1 var(--sans); letter-spacing: .01em; color: var(--fg-2);
   white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.stat-pill.is-synced { border-color: color-mix(in srgb, var(--ok) 26%, transparent); }
-.stat-pill.is-stale { border-color: color-mix(in srgb, var(--warn) 32%, transparent); color: var(--warn); }
+.stat-pill.is-synced { border-color: color-mix(in oklab, var(--ok) 26%, transparent); }
+.stat-pill.is-stale { border-color: color-mix(in oklab, var(--warn) 32%, transparent); color: var(--warn); }
 .stat-pill.is-busy { border-color: var(--line-strong); color: var(--fg); }
 .stat-pill.is-partial { border-color: var(--line); color: var(--fg-3); }
 .stat-pill.is-uninstalled { color: var(--fg-3); }
@@ -125,7 +125,7 @@
   transition: border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out);
 }
 .metric-card:hover { border-color: var(--line-strong); }
-.metric-card.is-alert { border-color: color-mix(in srgb, var(--warn) 30%, transparent); background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
+.metric-card.is-alert { border-color: color-mix(in oklab, var(--warn) 30%, transparent); background: color-mix(in oklab, var(--warn) 5%, var(--card)); }
 .metric-label { display: flex; align-items: center; gap: 6px; font: var(--w-semibold) 10.5px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3); }
 .metric-val { font: var(--w-semibold) 21px/1.25 var(--sans); letter-spacing: -.022em; color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .metric-of { margin-left: 6px; font-size: 13px; font-weight: var(--w-regular); letter-spacing: 0; color: var(--fg-3); }
@@ -142,8 +142,8 @@
   transition: all var(--t-ui) var(--ease-out);
 }
 .citation-chip:hover, .citation-chip:focus-visible {
-  background: color-mix(in srgb, var(--chip-hue) 12%, var(--field));
-  border-color: color-mix(in srgb, var(--chip-hue) 42%, var(--line));
+  background: color-mix(in oklab, var(--chip-hue) 12%, var(--field));
+  border-color: color-mix(in oklab, var(--chip-hue) 42%, var(--line));
   color: var(--fg-strong); text-decoration: none;
 }
 .citation-chip:active { transform: scale(.98); }
@@ -163,22 +163,22 @@
 
 .citation-chip[data-ref-tier] {
   --chip-hue: var(--tier-hue);
-  border-color: color-mix(in srgb, var(--tier-hue) 26%, var(--line));
-  background: color-mix(in srgb, var(--tier-hue) 6%, var(--field));
+  border-color: color-mix(in oklab, var(--tier-hue) 26%, var(--line));
+  background: color-mix(in oklab, var(--tier-hue) 6%, var(--field));
 }
 
 .tier-pip {
   display: inline-block; flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%;
   background: var(--tier-hue, var(--fg-3));
-  box-shadow: 0 0 6px color-mix(in srgb, var(--tier-hue, var(--fg-3)) 45%, transparent);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--tier-hue, var(--fg-3)) 45%, transparent);
 }
 .tier-pip.is-hollow { background: transparent; box-shadow: inset 0 0 0 1.25px var(--tier-hue, var(--fg-3)); }
 
 .ref-badge {
   display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto;
   height: 18px; padding: 0 6px; border-radius: var(--r-4);
-  border: 1px solid color-mix(in srgb, var(--tier-hue, var(--fg-3)) 30%, var(--line));
-  background: color-mix(in srgb, var(--tier-hue, var(--fg-3)) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--tier-hue, var(--fg-3)) 30%, var(--line));
+  background: color-mix(in oklab, var(--tier-hue, var(--fg-3)) 10%, transparent);
   color: var(--tier-hue, var(--fg-2));
   font: var(--w-semibold) 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
   white-space: nowrap; font-variant-numeric: tabular-nums;
@@ -207,7 +207,7 @@
 /* Transfer progress card vocabulary (shared by Transfer dock, Library panel, Welcome, CFR Resolver) */
 .dock-card, .dock-mini {
   border-radius: var(--r-12); border: 1px solid var(--line-strong);
-  background: color-mix(in srgb, var(--pop) 86%, transparent);
+  background: color-mix(in oklab, var(--pop) 86%, transparent);
   -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%);
   box-shadow: var(--shadow-pop);
 }
@@ -220,13 +220,13 @@
 .dock-steps { flex: 0 0 auto; display: inline-flex; gap: 3px; }
 .dock-steps span { width: 10px; height: 3px; border-radius: var(--r-2); background: var(--line-strong); transition: background-color var(--t-slow) var(--ease); }
 .dock-steps .is-done { background: var(--fg-3); }
-.dock-steps .is-now { background: var(--fg); box-shadow: 0 0 calc(6px * var(--glow)) color-mix(in srgb, var(--fg) 45%, transparent); }
+.dock-steps .is-now { background: var(--fg); box-shadow: 0 0 calc(6px * var(--glow)) color-mix(in oklab, var(--fg) 45%, transparent); }
 .dock-track { position: relative; height: 3px; margin: 10px 0 6px; border-radius: var(--r-2); background: var(--line); overflow: hidden; }
 .dock-fill {
   position: absolute; inset: 0 auto 0 0; border-radius: inherit;
   background: var(--fg);
-  box-shadow: 0 0 calc(8px * var(--glow)) color-mix(in srgb, var(--fg) 35%, transparent);
-  transition: width .35s cubic-bezier(.4, 0, .2, 1);
+  box-shadow: 0 0 calc(8px * var(--glow)) color-mix(in oklab, var(--fg) 35%, transparent);
+  transition: width var(--t-pane) cubic-bezier(.4, 0, .2, 1);
 }
 .dock-fill.is-indeterminate { width: 35% !important; animation: dock-slide 1.4s var(--ease) infinite; }
 @keyframes dock-slide { from { left: -35%; } to { left: 100%; } }

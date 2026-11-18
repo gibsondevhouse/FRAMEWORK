@@ -3,7 +3,7 @@
 **Document Set:** `MAPPED_PLAN_OVERVIEW.md` + `MAPPED_PLAN_OVERVIEW.docx`  
 **Recorded:** 2026-11-17 · **Codebase:** `reader/` (FastAPI + SQLite FTS5 + Vite ES/TS) · **Plan Series:** `docs/plans/` (`10_`–`50_`)
 
-> **Executive Snapshot:** Across **5 subject series** (`10_`–`50_`), FRAMEWORK currently holds **11 numbered plans** plus **1 cleanup dev log** (`docs/notes/2026-11-16_pre-feature-orders.md`): **1** historical foundation record (`11`), **8** completed implementation plans (`12`, `13`, `21`, `22`, `23`, `24`, `31`, `41`), **2** queued/in-progress plans (**`25_white_glove_ui_ux_refinement`** and **`42_dol_api_expansion`**), and **1** long-horizon strategic blueprint (`51`).
+> **Executive Snapshot:** Across **5 subject series** (`10_`–`50_`), FRAMEWORK currently holds **12 numbered plans** plus **1 cleanup dev log** (`docs/notes/2026-11-16_pre-feature-orders.md`): **1** historical foundation record (`11`), **9** completed implementation plans (`12`, `13`, `14`, `21`, `22`, `23`, `24`, `31`, `41`), **2** queued/in-progress plans (**`25_white_glove_ui_ux_refinement`** and **`42_dol_api_expansion`**), and **1** long-horizon strategic blueprint (`51`).
 
 ---
 
@@ -12,8 +12,8 @@
 | Count | Bucket | Plans Included | Current State |
 | :--- | :--- | :--- | :--- |
 | **1** | Historical Foundation | `11_multi_title_foundation` | Superseded/archived record of expanding Title 29 to 50 CFR titles |
-| **8** | Shipped in `reader/` | `12`, `13`, `21`, `22`, `23`, `24`, `31`, `41` | Running in codebase; Plan `24`/`31` note `win32` CI baseline refresh if merging on Windows |
-| **2** | **Planned / In Progress** | **`25_white_glove_ui_ux_refinement`**, **`42_dol_api_expansion`** | `25` covers white-glove UI/UX polish (Phase 1 in progress); `42` covers DOL Open Data API v4 expansion |
+| **9** | Shipped in `reader/` | `12`, `13`, `14`, `21`, `22`, `23`, `24`, `31`, `41` | Running in codebase; Plan `14`/`24`/`31` note `win32` CI baseline refresh if merging on Windows |
+| **2** | **Planned / In Progress** | **`25_white_glove_ui_ux_refinement`**, **`42_dol_api_expansion`** | `25` covers white-glove UX ergonomics & Audit Briefs; `42` covers DOL Open Data API v4 expansion |
 | **1** | Strategic Horizon | `51_hse_platform_roadmap` | Future multi-phase blueprint (MCP server, Policy Linter, Hybrid RAG, Bots) |
 
 ---
@@ -25,6 +25,7 @@
 | **10** | Platform & Architecture | `11` | [Multi-Title Foundation](10_platform_and_architecture/11_multi_title_foundation/) | Historical | `app/build.py`, `app/store.py`, federated `title-N.sqlite3` |
 | **10** | Platform & Architecture | `12` | [Repo Structure Stabilization](10_platform_and_architecture/12_repo_structure_stabilization/MASTER_PLAN.md) | Completed | `app/routers/`, `render/`, `library/`, `ingest/`, Vite + TS + CSS split, `.github/workflows/ci.yml` |
 | **10** | Platform & Architecture | `13` | [Frontend Architecture & Hardening](10_platform_and_architecture/13_frontend_architecture_and_hardening/MASTER_PLAN.md) | Completed | `src/api/`, `src/core/`, `doc_utils.ts`, strict `.ts` (`checkJs: true`), perf/a11y, Node JS tests |
+| **10** | Platform & Architecture | `14` | [UI Visual Craft & Typography](10_platform_and_architecture/14_ui_visual_craft_and_typography/MASTER_PLAN.md) | Completed *(macOS)* | `01_tokens.css`–`11_settings_help.css`, `oklch` color physics, `66ch` measure, control/motion parity |
 | **20** | App Shell, Home & Library | `21` | [Sliding Rail Sidebar](20_app_shell_and_workspace/21_sliding_rail_sidebar/MASTER_PLAN.md) | Completed | `#activity-rail`, `#sidebar`, 4-track CSS grid, `views/projects.js` |
 | **20** | App Shell, Home & Library | `22` | [Editorial Download Refactor](20_app_shell_and_workspace/22_editorial_download_refactor/MASTER_PLAN.md) | Completed | `#/library`, `app/library/suites.py`, `#transfer-dock` |
 | **20** | App Shell, Home & Library | `23` | [Home Screen Refactor](20_app_shell_and_workspace/23_home_screen_refactor/MASTER_PLAN.md) | Completed | `#/`, `GET /api/titles/snapshot`, SQLite read-only `mode=ro` & lock hardening |
@@ -86,6 +87,7 @@
   - Stage 2–3: Split `main.py` into domain routers (`routers/`) enforcing module-only imports and `news_router` before `title_router`; split `render/`, `library/`, and `ingest/` packages.
   - Stage 4–6: Preserved cascade across `frontend/src/styles/01_tokens.css`–`11_settings_help.css`, migrated frontend into Vite ES modules + TS entry emitting unminified committed `reader/static/dist/`, and synchronized docs.
 - **`13_frontend_architecture_and_hardening/` (Completed, Phases 1–5; closes Order 3):** Decoupled the 32-file frontend import web into unidirectional layers with **0 circular imports**, centralized `src/api/` (`client.ts`, `jobs.ts`) and shared reader/split controllers in `doc_utils.ts`, decomposed oversized view modules (`news.ts`/`news_case.ts`, `core.ts`/`ref_almanac.ts`, `library.ts`), migrated submodules under `src/` to strict `.ts` (`"checkJs": true`, `"strict": true` in `tsconfig.json`), hardened chat/search aborting, Part TOC scroll-scoped lazy hydration, URL/DOMPurify safety, and modal focus traps, and added Node JS unit tests (`npm test`) + CI checks alongside expanded Playwright coverage.
+- **`14_ui_visual_craft_and_typography/` (Completed, Phases 1–4):** Elevates studio-grade visual craft across `frontend/src/styles/` via luminance-calibrated `oklch()` `--ref-*` & `oklab` tints, preserved card top-sheen on hover, corrected Geist vs. Inter typography features, `66ch` prose measure, continuous `.lvl-*` thread lines, standardized input/focus/mask-chevron controls, `scrollbar-gutter: stable`, grounded multi-action cards, and crisp `90ms/160ms/240ms` motion curves.
 
 ### 20 Series — App Shell, Home & Library (`20_app_shell_and_workspace/`)
 
