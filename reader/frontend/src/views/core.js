@@ -330,17 +330,17 @@ function mainBroadsheetHtml(titleNum, beat) {
   return `
     <div class="ts-main-col">
       ${flagHtml}
-      <article class="ts-lead">
+      <article class="ts-lead has-tier-bar" data-ref-tier="cfr">
         <div class="ts-lead-top">
-          <span class="ts-lead-kicker">Lead Story · ${escapeHtml(lead.kicker)} · Part ${escapeHtml(lead.part)}</span>
+          <span class="ts-lead-kicker"><span class="ref-badge">LEAD BEAT</span> · ${escapeHtml(lead.kicker)} · Part ${escapeHtml(lead.part)}</span>
           ${leadSecCount ? `<span class="ts-lead-stat">${fmt(leadSecCount)} ${leadSecCount === 1 ? 'section' : 'sections'}${subCount ? ` · ${plural(subCount, 'subpart')}` : ''}</span>` : ''}
         </div>
         <h2 class="ts-lead-title"><a href="${leadHref}">${escapeHtml(lead.title)}</a></h2>
         <p class="ts-lead-dek">${escapeHtml(lead.desc)}</p>
         ${leadInsideLinksHtml(titleNum, lead.part, leadNode)}
         <div class="ts-lead-foot">
-          <a class="btn btn-sm" href="${leadHref}">Open Part ${escapeHtml(lead.part)} ${icon('chevronRight')}</a>
-          <a class="hm-inline-link" href="${leadFullHref}">Read full part</a>
+          <a class="btn btn-sm btn-accent" href="${leadHref}">Open Part ${escapeHtml(lead.part)} ${icon('chevronRight')}</a>
+          <a class="hm-inline-link" href="${leadFullHref}">See full part</a>
         </div>
       </article>
       ${briefsHtml}
@@ -416,7 +416,7 @@ function titleDeskRailHtml(titleNum) {
               <div class="ts-rail-ws">
                 <a class="hm-ws-name" href="#/projects/${encodeURIComponent(p.id)}">${projDot(p)}<span>${escapeHtml(p.name)}</span></a>
                 <div class="ts-rail-ws-chips">
-                  ${pins.map(s => `<a class="citation-chip" href="${titleHref(titleNum, 'section/' + encodeURIComponent(s.id))}">${escapeHtml(s.label || '§ ' + s.id)}</a>`).join('')}
+                  ${pins.map(s => `<a class="citation-chip" data-ref-tier="cfr" href="${titleHref(titleNum, 'section/' + encodeURIComponent(s.id))}">${escapeHtml(s.label || '§ ' + s.id)}</a>`).join('')}
                 </div>
               </div>`;
           }).join('')}
@@ -438,7 +438,7 @@ function titleDeskRailHtml(titleNum) {
     </div>`;
 
   return `
-    <aside class="ts-rail" aria-label="Title desk and regulatory index">
+    <aside class="ts-rail" data-ref-tier="cfr" aria-label="Title desk and regulatory index">
       ${resumeHtml}
       ${wsHtml}
       ${wireSlotHtml}
@@ -798,8 +798,8 @@ export async function renderHome() {
     <div class="ts-front">
       <header class="home-hero ts-masthead">
         <div class="ts-folio">
-          <div class="doc-kicker">
-            <a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><span>${titleNum} CFR${snapRow?.desk ? ` · ${escapeHtml(snapRow.desk)}` : ''}</span>
+          <div class="doc-kicker" data-ref-tier="cfr">
+            <span class="ref-badge">FEDERAL CFR</span><span class="sep" aria-hidden="true">·</span><a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><span>${titleNum} CFR${snapRow?.desk ? ` · ${escapeHtml(snapRow.desk)}` : ''}</span>
           </div>
           <div class="ts-folio-right">
             ${folioMeta ? `<span class="ts-folio-meta">${folioMeta}</span>` : ''}

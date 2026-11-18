@@ -253,47 +253,50 @@ function classifyDomRef(el) {
   return 'cfr';
 }
 
-function collectSectionReferences() {
-  const body = dom.view.querySelector('.reg-body');
-  if (!body) return [];
+export function collectSectionReferences(root = dom.view) {
+  const bodies = [...(root?.querySelectorAll?.('.reg-body, .front-matter') || [])];
+  const scopes = bodies.length ? bodies : (root ? [root] : []);
+  if (!scopes.length) return [];
   const seen = new Map();
-  const nodes = body.querySelectorAll('a.xref, button.xref-anchor, button.xref-ibr, .ftref[data-anchor]');
-  for (const el of nodes) {
-    const tier = classifyDomRef(el);
-    const label = cleanInlineLabel(el.textContent);
-    if (!label) continue;
-    const href = el.getAttribute('href') || '';
-    const anchor = el.dataset.anchor || '';
-    const ibrCode = el.dataset.ibrCode || '';
-    const localPara = el.dataset.localPara || '';
-    const dedupKey = `${tier}|${href || anchor || ibrCode || localPara || label.toLowerCase()}`;
-    if (seen.has(dedupKey)) continue;
+  for (const scope of scopes) {
+    const nodes = scope.querySelectorAll('a.xref, button.xref-anchor, button.xref-ibr, .ftref[data-anchor]');
+    for (const el of nodes) {
+      const tier = classifyDomRef(el);
+      const label = cleanInlineLabel(el.textContent);
+      if (!label) continue;
+      const href = el.getAttribute('href') || '';
+      const anchor = el.dataset.anchor || '';
+      const ibrCode = el.dataset.ibrCode || '';
+      const localPara = el.dataset.localPara || '';
+      const dedupKey = `${tier}|${href || anchor || ibrCode || localPara || label.toLowerCase()}`;
+      if (seen.has(dedupKey)) continue;
 
-    let sub = '';
-    if (tier === 'usc') sub = el.getAttribute('title')?.replace(/^View\s+|\s+at Cornell LII$/g, '') || 'United States Code';
-    else if (tier === 'fr') sub = 'Federal Register';
-    else if (tier === 'ibr') sub = el.getAttribute('title') || 'Incorporated consensus standard';
-    else if (tier === 'uninstalled') sub = `Title ${el.dataset.cfrTitle || ''} CFR (click to download)`;
-    else if (tier === 'local') sub = el.classList.contains('ftref') ? 'Footnote in section' : (localPara ? 'Clause in section' : 'Table / Figure / Appendix');
-    else if (tier === 'web') sub = href.replace(/^https?:\/\//i, '').split('/')[0];
-    else {
-      const parsed = parseCfrHref(href, state.currentTitle);
-      sub = parsed?.kind === 'section' ? `${parsed.title} CFR § ${parsed.section}${parsed.para || ''}`
-        : parsed?.kind === 'part' ? `${parsed.title} CFR Part ${parsed.part}` : 'CFR Reference';
+      let sub = '';
+      if (tier === 'usc') sub = el.getAttribute('title')?.replace(/^View\s+|\s+at Cornell LII$/g, '') || 'United States Code';
+      else if (tier === 'fr') sub = 'Federal Register';
+      else if (tier === 'ibr') sub = el.getAttribute('title') || 'Incorporated consensus standard';
+      else if (tier === 'uninstalled') sub = `Title ${el.dataset.cfrTitle || ''} CFR (click to download)`;
+      else if (tier === 'local') sub = el.classList.contains('ftref') ? 'Footnote in section' : (localPara ? 'Clause in section' : 'Table / Figure / Appendix');
+      else if (tier === 'web') sub = href.replace(/^https?:\/\//i, '').split('/')[0];
+      else {
+        const parsed = parseCfrHref(href, state.currentTitle);
+        sub = parsed?.kind === 'section' ? `${parsed.title} CFR § ${parsed.section}${parsed.para || ''}`
+          : parsed?.kind === 'part' ? `${parsed.title} CFR Part ${parsed.part}` : 'CFR Reference';
+      }
+
+      const parsed = href.startsWith('#') ? parseCfrHref(href, state.currentTitle) : null;
+      const canSplit = Boolean(parsed?.kind === 'section');
+      seen.set(dedupKey, {
+        idx: seen.size,
+        tier,
+        code: label,
+        sub,
+        href,
+        external: el.getAttribute('target') === '_blank',
+        splitHref: canSplit ? href : '',
+        el,
+      });
     }
-
-    const parsed = href.startsWith('#') ? parseCfrHref(href, state.currentTitle) : null;
-    const canSplit = Boolean(parsed?.kind === 'section');
-    seen.set(dedupKey, {
-      idx: seen.size,
-      tier,
-      code: label,
-      sub,
-      href,
-      external: el.getAttribute('target') === '_blank',
-      splitHref: canSplit ? href : '',
-      el,
-    });
   }
   return [...seen.values()];
 }
@@ -324,8 +327,8 @@ function renderRefsLedgerHtml(items, filter = '') {
   }).join('')}</div>`;
 }
 
-function openRefsLedgerPopover(btn) {
-  activeLedgerItems = collectSectionReferences();
+export function openRefsLedgerPopover(btn) {
+  activeLedgerItems = collectSectionReferences(dom.view);
   const total = activeLedgerItems.length;
   const topTier = activeLedgerItems[0]?.tier || 'cfr';
   const filterHtml = total >= 8
