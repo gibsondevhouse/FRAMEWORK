@@ -1,6 +1,74 @@
 // Shared mutable app state + strict TypeScript DTO boundaries.
 // Zero `any` fields: every API response and UI state container carries a typed shape.
 
+export type AuthorityTier =
+  | 'federal-statute'
+  | 'federal-reg'
+  | 'state'
+  | 'county'
+  | 'standard';
+
+export type RefTier =
+  | 'local'
+  | 'cfr'
+  | 'cross'
+  | 'uninstalled'
+  | 'usc'
+  | 'fr'
+  | 'ibr'
+  | 'state'
+  | 'county';
+
+export type DeskId =
+  | 'all'
+  | 'ehs'
+  | 'env'
+  | 'transport'
+  | 'fire-building'
+  | 'labor-employment'
+  | 'commerce-govcon';
+
+export interface CorpusSummary {
+  corpus_id: string;
+  tier: AuthorityTier;
+  jurisdiction: string;
+  jurisdiction_label: string;
+  code: string;
+  title_num?: number;
+  name: string;
+  desk: DeskId;
+  agencies: string[];
+  edition?: string | null;
+  section_count?: number;
+  partial?: boolean;
+  summary?: string;
+  installed?: boolean;
+}
+
+export interface JurisdictionStackNode {
+  tier: AuthorityTier;
+  ref_tier: RefTier;
+  code: string;
+  label: string;
+  href?: string;
+  installed?: boolean;
+  meta?: string;
+}
+
+export interface JurisdictionStack {
+  corpus_id: string;
+  nodes: JurisdictionStackNode[];
+}
+
+export interface ActionProjectItem {
+  id: string;
+  title: string;
+  status: 'open' | 'in_progress' | 'done';
+  due?: string;
+  linked_sections?: string[];
+  created_at?: string;
+}
+
 export interface InstalledTitleMeta {
   title: number;
   name: string;
@@ -246,6 +314,10 @@ export interface SectionGraphData {
 
 export interface AppState {
   currentTitle: number;
+  activeCorpusId: string;
+  activeDesk: DeskId;
+  corpora: CorpusSummary[];
+  extraCorpora: CorpusSummary[];
   installedTitles: InstalledTitleMeta[];
   homeSnapshot: HomeSnapshot | undefined;
   noTitles: boolean;
@@ -301,6 +373,10 @@ export interface AppState {
 
 export const state: AppState = {
   currentTitle: 29,
+  activeCorpusId: 'us:cfr:29',
+  activeDesk: 'all',
+  corpora: [],
+  extraCorpora: [],
   installedTitles: [],
   homeSnapshot: undefined,
   noTitles: false,

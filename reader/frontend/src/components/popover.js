@@ -135,6 +135,8 @@ export function createPopover({
       if (typeof content === 'string') el.innerHTML = content;
       else if (typeof content === 'function') content(el);
 
+      if (opts.refTier) el.dataset.refTier = opts.refTier;
+      else delete el.dataset.refTier;
       el.hidden = false;
       el.classList.toggle('is-peek', !interactive);
       positionPopover(el, currentAnchor, {
@@ -162,6 +164,7 @@ export function createPopover({
     close(returnFocus = true) {
       if (!el || el.hidden) return;
       el.hidden = true;
+      delete el.dataset.refTier;
       el.classList.remove('is-peek');
       cleanupListeners();
       const prevAnchor = currentAnchor;

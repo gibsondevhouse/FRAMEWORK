@@ -1,4 +1,5 @@
 import { escapeHtml, icon, reduceMotion } from '../dom';
+import { emptyStateHtml } from '../components/ui';
 import { dom } from '../state_init';
 
 // --- Shared document helpers: figure lightbox, anchor resolution, paragraph highlighting, in-DOM auto-linking ---
@@ -363,13 +364,11 @@ export function wrapIbrMentions(root, ibrList) {
 
 export function renderViewError(container, title, message, { retryLabel = 'Try again', onRetry = null } = {}) {
   if (!container) return;
-  container.innerHTML = `
-    <div class="empty-state">
-      <h2>${escapeHtml(title)}</h2>
-      <p>${escapeHtml(message)}</p>
-      ${onRetry ? `<button type="button" class="btn" id="view-err-retry">${escapeHtml(retryLabel)}</button>` : ''}
-    </div>
-  `;
+  container.innerHTML = emptyStateHtml({
+    title,
+    body: escapeHtml(message),
+    actionsHtml: onRetry ? `<button type="button" class="btn" id="view-err-retry">${escapeHtml(retryLabel)}</button>` : '',
+  });
   if (onRetry) {
     document.getElementById('view-err-retry')?.addEventListener('click', onRetry);
   }
@@ -381,6 +380,16 @@ export function parseCfrHref(href, fallbackTitle = 29) {
   if (href.startsWith('#')) {
     const [pathPart, qs] = href.slice(1).split('?');
     const params = new URLSearchParams(qs || '');
+    const mCorpusSec = /^\/corpus\/(?:federal-reg|cfr)\/[^/]+\/(\d+)\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
+    if (mCorpusSec) {
+      return {
+        kind: 'section',
+        title: parseInt(mCorpusSec[1], 10),
+        section: decodeURIComponent(mCorpusSec[2]),
+        unit: mCorpusSec[3] ? decodeURIComponent(mCorpusSec[3]) : null,
+        para: params.get('p') || null,
+      };
+    }
     const mTitleSec = /^\/title\/(\d+)\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
     if (mTitleSec) {
       return {
@@ -399,6 +408,14 @@ export function parseCfrHref(href, fallbackTitle = 29) {
         section: decodeURIComponent(mSec[1]),
         unit: mSec[2] ? decodeURIComponent(mSec[2]) : null,
         para: params.get('p') || null,
+      };
+    }
+    const mCorpusPart = /^\/corpus\/(?:federal-reg|cfr)\/[^/]+\/(\d+)\/part\/([^/]+)$/.exec(pathPart);
+    if (mCorpusPart) {
+      return {
+        kind: 'part',
+        title: parseInt(mCorpusPart[1], 10),
+        part: decodeURIComponent(mCorpusPart[2]),
       };
     }
     const mTitlePart = /^\/title\/(\d+)\/part\/([^/]+)$/.exec(pathPart);

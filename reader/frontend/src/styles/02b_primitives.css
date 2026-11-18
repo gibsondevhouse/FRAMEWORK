@@ -1,0 +1,231 @@
+/* ---------- Shared UI Primitives ----------
+   Canonical tokens-driven building blocks shared across Home, Title Start, Reader,
+   Search, Workspaces, Library, News, Settings, Help, and Modals. */
+
+/* Small button & inline text action links */
+.btn-sm { height: 26px; padding: 0 10px; gap: 6px; font-size: 12px; border-radius: var(--r-6); }
+.btn-small { height: 26px; padding: 0 9px; gap: 5px; font-size: 12px; border-radius: var(--r-6); }
+.btn-sm .icon, .btn-small .icon { width: 14px; height: 14px; }
+.btn.is-danger:hover, .btn.is-armed { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); background: color-mix(in srgb, var(--danger) 9%, transparent); }
+
+.inline-link, .hm-inline-link, .metric-link, .wire-link {
+  display: inline-flex; align-items: center; gap: 3px; padding: 0; border: 0; background: none;
+  font: var(--w-medium) 12px/1.3 var(--sans); color: var(--fg-3); cursor: pointer; text-decoration: none;
+  border-radius: var(--r-4);
+  transition: color var(--t-ui) var(--ease-out), transform var(--t-quick) var(--ease);
+}
+.inline-link:hover, .hm-inline-link:hover, .metric-link:hover, .wire-link:hover { color: var(--fg-strong); text-decoration: none; }
+.inline-link:active, .hm-inline-link:active, .metric-link:active, .wire-link:active { transform: scale(.98); }
+.inline-link .icon, .hm-inline-link .icon, .metric-link .icon, .wire-link .icon { width: 14px; height: 14px; transition: transform var(--t-ui) var(--ease-out); }
+.inline-link:hover .icon, .hm-inline-link:hover .icon { transform: translateX(1px); }
+.metric-link.is-strong { font-weight: var(--w-semibold); color: var(--fg-2); }
+
+/* Standardized inputs & selects */
+.ui-input {
+  height: 30px; padding: 0 10px; border-radius: var(--r-6);
+  border: 1px solid var(--line); background: var(--field); color: var(--fg);
+  font: var(--w-regular) 13px/1 var(--sans); outline: none;
+  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease);
+}
+.ui-input:hover { border-color: var(--line-strong); }
+.ui-input:focus { border-color: var(--focus); background: var(--panel); }
+.ui-input::placeholder { color: var(--fg-4); opacity: 1; }
+
+.ui-select {
+  -webkit-appearance: none; appearance: none; height: 28px; padding: 0 26px 0 9px;
+  border-radius: var(--r-6); border: 1px solid var(--line);
+  background: var(--field) var(--chevron) no-repeat right 6px center; color: var(--fg);
+  font: var(--w-medium) 12px/1 var(--sans); cursor: pointer;
+  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease);
+}
+.ui-select:hover { border-color: var(--line-strong); }
+.ui-select:focus-visible { outline: none; border-color: var(--focus); }
+
+/* Segmented control (canonical: .seg; existing aliases: .lib-seg, .search-scope, .search-view-toggle) */
+.seg, .lib-seg, .search-scope, .search-view-toggle {
+  display: inline-flex; align-items: center; padding: 2px; gap: 2px;
+  border-radius: var(--r-8); border: 1px solid var(--line); background: var(--field);
+}
+.seg button, .seg a,
+.lib-seg button, .lib-seg a,
+.search-scope a, .search-view-toggle button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  height: 24px; padding: 0 10px; border: 0; border-radius: var(--r-6);
+  background: transparent; color: var(--fg-3);
+  font: var(--w-medium) 12px/1 var(--sans); cursor: pointer; white-space: nowrap; text-decoration: none;
+  transition: background-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
+}
+.seg button:hover, .seg a:hover,
+.lib-seg button:hover, .lib-seg a:hover,
+.search-scope a:hover, .search-view-toggle button:hover {
+  color: var(--fg-strong); text-decoration: none;
+}
+.seg button[aria-pressed="true"], .seg button.is-on, .seg a.is-on,
+.lib-seg button[aria-pressed="true"],
+.search-scope a.scope-on, .search-view-toggle button.is-on {
+  background: var(--active); color: var(--fg-strong); box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+}
+.seg button:focus-visible, .seg a:focus-visible,
+.lib-seg button:focus-visible, .search-scope a:focus-visible, .search-view-toggle button:focus-visible {
+  outline: 2px solid var(--focus); outline-offset: 1px;
+}
+.seg button:disabled, .lib-seg button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Raised surface card */
+.surface-card {
+  border-radius: var(--r-12); border: 1px solid var(--line);
+  background: var(--card-bg); box-shadow: var(--card-top);
+  transition: transform var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out), background-color var(--t-ui) var(--ease-out);
+}
+.surface-card.is-interactive:hover {
+  transform: translateY(-1px); background: var(--card-hover);
+  border-color: var(--line-strong); box-shadow: var(--shadow-card-hover);
+}
+
+/* ---------- Status: a 6px dot and a word (Linear's issue-status vocabulary) ----------
+   synced = installed and current · stale = eCFR has a newer edition · busy = queued or
+   downloading · partial = some parts or sections · uninstalled = a hollow ring. Dots glow
+   only in dark mode (--glow). `.stat-pill.is-bare` drops the outline for dense rows. */
+.stat-dot {
+  position: relative; display: inline-block; flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--fg-4); --dot: var(--fg-4);
+  box-shadow: 0 0 calc(6px * var(--glow)) color-mix(in srgb, var(--dot) 45%, transparent);
+  transition: background-color var(--t-quick) var(--ease), box-shadow var(--t-quick) var(--ease);
+}
+.stat-dot.is-synced { --dot: var(--ok); background: var(--dot); }
+.stat-dot.is-stale { --dot: var(--warn); background: var(--dot); }
+.stat-dot.is-partial { --dot: var(--partial); background: var(--dot); }
+.stat-dot.is-busy { --dot: var(--fg); background: var(--dot); box-shadow: 0 0 calc(8px * var(--glow)) color-mix(in srgb, var(--dot) 55%, transparent); }
+.stat-dot.is-busy::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 1px solid var(--fg-2);
+  animation: stat-ring 1.6s cubic-bezier(.24, 0, .38, 1) infinite;
+}
+.stat-dot.is-uninstalled { background: transparent; box-shadow: inset 0 0 0 1px var(--fg-4); }
+@keyframes stat-ring { from { transform: scale(.55); opacity: .9; } to { transform: scale(1.5); opacity: 0; } }
+
+.stat-pill {
+  position: relative; z-index: 1; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+  height: 20px; padding: 0 8px 0 7px; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--field);
+  font: var(--w-medium) 11px/1 var(--sans); letter-spacing: .01em; color: var(--fg-2);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.stat-pill.is-synced { border-color: color-mix(in srgb, var(--ok) 26%, transparent); }
+.stat-pill.is-stale { border-color: color-mix(in srgb, var(--warn) 32%, transparent); color: var(--warn); }
+.stat-pill.is-busy { border-color: var(--line-strong); color: var(--fg); }
+.stat-pill.is-partial { border-color: var(--line); color: var(--fg-3); }
+.stat-pill.is-uninstalled { color: var(--fg-3); }
+.stat-pill.is-bare { height: auto; padding: 0; border: 0; background: none; }
+
+/* Metric tiles (shared by Library, Enforcement briefing, and Inspection case file) */
+.metric-card {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 20px 22px;
+  border-radius: var(--r-12); border: 1px solid var(--line); background: var(--card-bg); box-shadow: var(--card-top);
+  transition: border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out);
+}
+.metric-card:hover { border-color: var(--line-strong); }
+.metric-card.is-alert { border-color: color-mix(in srgb, var(--warn) 30%, transparent); background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
+.metric-label { display: flex; align-items: center; gap: 6px; font: var(--w-semibold) 10.5px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3); }
+.metric-val { font: var(--w-semibold) 21px/1.25 var(--sans); letter-spacing: -.022em; color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.metric-of { margin-left: 6px; font-size: 13px; font-weight: var(--w-regular); letter-spacing: 0; color: var(--fg-3); }
+.metric-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 0; min-width: 0; min-height: 18px; font-size: 12px; line-height: 1.4; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.metric-sub .sep { margin: 0 6px; color: var(--fg-4); }
+
+/* Citation chip & muted badges (shared by Home, Title Start, News, Case File, Ledger) */
+.citation-chip {
+  --chip-hue: var(--fg-2);
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px;
+  border-radius: var(--r-6); border: 1px solid var(--line); background: var(--field);
+  color: var(--chip-hue); font: var(--w-medium) 12px/1 var(--sans); font-variant-numeric: tabular-nums;
+  text-decoration: none; cursor: pointer;
+  transition: all var(--t-ui) var(--ease-out);
+}
+.citation-chip:hover, .citation-chip:focus-visible {
+  background: color-mix(in srgb, var(--chip-hue) 12%, var(--field));
+  border-color: color-mix(in srgb, var(--chip-hue) 42%, var(--line));
+  color: var(--fg-strong); text-decoration: none;
+}
+.citation-chip:active { transform: scale(.98); }
+.citation-chip.is-dim { color: var(--fg-3); }
+.citation-chip.is-extra { display: none; }
+
+/* Authority tier semantic tokens shared across chips, popovers, cards & stamps */
+[data-ref-tier="local"] { --tier-hue: var(--ref-local); }
+[data-ref-tier="cfr"] { --tier-hue: var(--ref-cfr); }
+[data-ref-tier="cross"] { --tier-hue: var(--ref-cross); }
+[data-ref-tier="uninstalled"] { --tier-hue: var(--ref-uninstalled); }
+[data-ref-tier="usc"] { --tier-hue: var(--ref-usc); }
+[data-ref-tier="fr"] { --tier-hue: var(--ref-fr); }
+[data-ref-tier="ibr"] { --tier-hue: var(--ref-ibr); }
+[data-ref-tier="state"] { --tier-hue: var(--ref-state); }
+[data-ref-tier="county"] { --tier-hue: var(--ref-county); }
+
+.citation-chip[data-ref-tier] {
+  --chip-hue: var(--tier-hue);
+  border-color: color-mix(in srgb, var(--tier-hue) 26%, var(--line));
+  background: color-mix(in srgb, var(--tier-hue) 6%, var(--field));
+}
+
+.tier-pip {
+  display: inline-block; flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--tier-hue, var(--fg-3));
+  box-shadow: 0 0 6px color-mix(in srgb, var(--tier-hue, var(--fg-3)) 45%, transparent);
+}
+.tier-pip.is-hollow { background: transparent; box-shadow: inset 0 0 0 1.25px var(--tier-hue, var(--fg-3)); }
+
+.ref-badge {
+  display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto;
+  height: 18px; padding: 0 6px; border-radius: var(--r-4);
+  border: 1px solid color-mix(in srgb, var(--tier-hue, var(--fg-3)) 30%, var(--line));
+  background: color-mix(in srgb, var(--tier-hue, var(--fg-3)) 10%, transparent);
+  color: var(--tier-hue, var(--fg-2));
+  font: var(--w-semibold) 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+
+/* Yakuza 3px Left-Edge Chapter / Authority Bar */
+.has-tier-bar { position: relative; border-left: 3px solid var(--tier-hue, var(--line-strong)); }
+
+/* Desk filter ribbon shared by Home Launchpad & Regulatory Catalog */
+.desk-ribbon { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; }
+.desk-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+  border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--field);
+  color: var(--fg-3); font: var(--w-medium) 12px/1 var(--sans); cursor: pointer;
+  transition: all var(--t-quick) var(--ease);
+}
+.desk-pill:hover { color: var(--fg); border-color: var(--line-strong); background: var(--hover); }
+.desk-pill.is-active { background: var(--active); color: var(--fg-strong); border-color: var(--line-strong); }
+.desk-pill-count { font: var(--w-medium) 11px/1 var(--mono); color: var(--fg-4); font-variant-numeric: tabular-nums; }
+.desk-pill.is-active .desk-pill-count { color: var(--fg-2); }
+
+/* Transfer progress card vocabulary (shared by Transfer dock, Library panel, Welcome, CFR Resolver) */
+.dock-card, .dock-mini {
+  border-radius: var(--r-12); border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--pop) 86%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: var(--shadow-pop);
+}
+.dock-card { padding: 11px 12px 10px 14px; }
+.dock-head { display: flex; align-items: center; gap: 8px; }
+.dock-title { flex: 1 1 auto; min-width: 0; font: var(--w-medium) 13px/1.3 var(--sans); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dock-pct, .dock-mini-pct { flex: 0 0 auto; font: var(--w-medium) 12px/1 var(--sans); color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.dock-phase { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 3px; padding-left: 14px; font-size: 12px; color: var(--fg-2); }
+.dock-phase-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dock-steps { flex: 0 0 auto; display: inline-flex; gap: 3px; }
+.dock-steps span { width: 10px; height: 3px; border-radius: var(--r-2); background: var(--line-strong); transition: background-color var(--t-slow) var(--ease); }
+.dock-steps .is-done { background: var(--fg-3); }
+.dock-steps .is-now { background: var(--fg); box-shadow: 0 0 calc(6px * var(--glow)) color-mix(in srgb, var(--fg) 45%, transparent); }
+.dock-track { position: relative; height: 3px; margin: 10px 0 6px; border-radius: var(--r-2); background: var(--line); overflow: hidden; }
+.dock-fill {
+  position: absolute; inset: 0 auto 0 0; border-radius: inherit;
+  background: var(--fg);
+  box-shadow: 0 0 calc(8px * var(--glow)) color-mix(in srgb, var(--fg) 35%, transparent);
+  transition: width .35s cubic-bezier(.4, 0, .2, 1);
+}
+.dock-fill.is-indeterminate { width: 35% !important; animation: dock-slide 1.4s var(--ease) infinite; }
+@keyframes dock-slide { from { left: -35%; } to { left: 100%; } }
+.dock-tele { display: flex; justify-content: space-between; gap: 10px; min-height: 16px; font-size: 11.5px; line-height: 16px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.dock-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+.dock-queue { min-width: 0; font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dock-queue-count { margin-right: 6px; color: var(--fg-2); font-weight: var(--w-medium); font-variant-numeric: tabular-nums; }
+.dock-acts { flex: 0 0 auto; display: flex; gap: 4px; }

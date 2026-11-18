@@ -86,7 +86,7 @@ body.drawer-library .transfer-dock { opacity: 0; transform: translateY(10px) sca
 .dr-proj-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .dr-proj-meta { font-size: 12px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .dr-proj-meta .sep { margin: 0 5px; color: var(--fg-4); }
-.proj-dot { display: inline-block; flex: 0 0 8px; width: 8px; height: 8px; border-radius: 2.5px; background: var(--hue, var(--accent)); }
+.proj-dot { display: inline-block; flex: 0 0 8px; width: 8px; height: 8px; border-radius: var(--r-2); background: var(--hue, var(--accent)); }
 
 /* Recent panel: editorial items */
 .dr-day { margin: 10px 8px 2px; font-size: 11px; font-weight: var(--w-medium); color: var(--fg-4); }
@@ -163,13 +163,13 @@ body.drawer-library .transfer-dock { opacity: 0; transform: translateY(10px) sca
 .proj-item:hover .proj-item-acts, .proj-item:focus-within .proj-item-acts, .proj-item-acts:has(.is-armed) { opacity: 1; }
 .proj-item:hover .proj-item-date, .proj-item:focus-within .proj-item-date { visibility: hidden; }
 @media (hover: none) { .proj-item-acts { position: static; opacity: 1; margin-top: 6px; } .proj-item .proj-item-date { visibility: visible; } }
-@container lib (max-width: 560px) { .proj-props { grid-template-columns: minmax(0, 1fr); } }
-.proj-detail { container: lib / inline-size; }
+@container proj (max-width: 560px) { .proj-props { grid-template-columns: minmax(0, 1fr); } }
+.proj-detail { container: proj / inline-size; }
 
 /* The section page's Pin button and its popover */
 .btn.is-pinned .icon { color: var(--accent); }
 .pin-pop {
-  position: fixed; z-index: 45; width: 280px; padding: 4px; border-radius: 10px;
+  position: fixed; z-index: var(--z-pop); width: 280px; padding: 4px; border-radius: var(--r-10);
   background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow-pop);
   transform-origin: top left; animation: pop-in .14s var(--ease-out);
 }
@@ -206,3 +206,41 @@ body.drawer-library .transfer-dock { opacity: 0; transform: translateY(10px) sca
 .empty-state { text-align: center; padding: 96px 0; }
 .empty-state h2 { font: var(--w-semibold) 17px/1.4 var(--sans); letter-spacing: -.012em; margin: 0 0 4px; }
 .empty-state p { margin: 0 0 20px; color: var(--fg-3); font-size: 13px; }
+
+/* Authority grouping & nested Action Projects inside Subject Workspaces */
+.proj-tier-group + .proj-tier-group { margin-top: 16px; }
+.proj-tier-head {
+  display: flex; align-items: center; gap: 6px; padding: 4px 2px 6px; margin-bottom: 6px;
+  border-bottom: 1px solid var(--line-soft);
+  font: var(--w-semibold) 10.5px/1.2 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--tier-hue, var(--fg-3));
+}
+.proj-tier-count { margin-left: auto; color: var(--fg-4); }
+.proj-actions-sec { margin-bottom: 20px; }
+.proj-task-add { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.proj-task-input { flex: 1 1 auto; min-width: 0; }
+.proj-task-list { display: flex; flex-direction: column; gap: 6px; }
+.proj-task-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: var(--r-8); border: 1px solid var(--line); background: var(--card-bg);
+}
+.proj-task-status {
+  flex: none; height: 22px; padding: 0 8px; border-radius: var(--r-4);
+  border: 1px solid var(--line); background: var(--field); color: var(--fg-2);
+  font: var(--w-semibold) 10.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .05em; cursor: pointer;
+}
+.proj-task-row.is-in_progress .proj-task-status {
+  border-color: color-mix(in srgb, var(--editorial-gold) 45%, var(--line));
+  background: color-mix(in srgb, var(--editorial-gold) 12%, transparent);
+  color: var(--editorial-gold);
+}
+.proj-task-row.is-done .proj-task-status {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  color: var(--ok);
+}
+.proj-task-row.is-done .proj-task-title { text-decoration: line-through; color: var(--fg-3); }
+.proj-task-title { flex: 1 1 auto; min-width: 0; font-size: 13px; color: var(--fg); }
+.proj-task-del { width: 24px; height: 24px; opacity: .6; }
+.proj-task-del:hover { opacity: 1; }
+.proj-task-empty { margin: 2px 0 0; font-size: 12.5px; color: var(--fg-3); }

@@ -1,5 +1,6 @@
 import { state } from '../state';
 import { updateChatContext } from '../components/chat';
+import { jurisdictionStackForTitle, tierMetaFor } from '../components/corpora';
 import {
   agencyInfo, agencyKeyForNode, agencyMeta, clearTreeSelection, ensureTreeLoaded,
   plural, showAgencyView, treeIdx,
@@ -433,11 +434,7 @@ function titleDeskRailHtml(titleNum) {
   const citedSlotHtml = `
     <div class="ts-rail-block" id="ts-cited-slot">
       <div class="ts-rail-head"><span class="hm-kicker">Most-cited in Title ${titleNum}</span></div>
-      <div class="skel-stack" style="gap:8px;margin-top:8px" aria-hidden="true">
-        <span class="skel skel-line is-sm" style="width:86%"></span>
-        <span class="skel skel-line is-sm" style="width:74%"></span>
-        <span class="skel skel-line is-sm" style="width:68%"></span>
-      </div>
+      ${skeletonHtml('lines')}
     </div>`;
 
   return `
@@ -598,9 +595,28 @@ function filterIbrEntries(data, q) {
   });
 }
 
+function authorityStackHtml(titleNum) {
+  const stack = jurisdictionStackForTitle(titleNum);
+  return `<div class="ts-auth-stack" aria-label="Legal authority hierarchy">
+    ${stack.nodes.map((node, idx) => {
+      const meta = tierMetaFor(node.tier);
+      const inner = `
+        <span class="tier-pip" aria-hidden="true"></span>
+        <span class="ts-auth-code">${escapeHtml(node.code)}</span>
+        <span class="ts-auth-meta">${escapeHtml(node.current ? 'Current' : (node.meta || meta.short))}</span>`;
+      const item = node.external && node.href
+        ? `<a class="ts-auth-node${node.current ? ' is-current' : ''}" data-ref-tier="${escapeHtml(node.ref_tier)}" href="${escapeHtml(node.href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(node.label)}">${inner}</a>`
+        : node.href
+          ? `<a class="ts-auth-node${node.current ? ' is-current' : ''}" data-ref-tier="${escapeHtml(node.ref_tier)}" href="${escapeHtml(node.href)}" title="${escapeHtml(node.label)}">${inner}</a>`
+          : `<span class="ts-auth-node${node.current ? ' is-current' : ''}" data-ref-tier="${escapeHtml(node.ref_tier)}" title="${escapeHtml(node.label)}">${inner}</span>`;
+      return `${idx > 0 ? '<span class="ts-auth-arrow" aria-hidden="true">›</span>' : ''}${item}`;
+    }).join('')}
+  </div>`;
+}
+
 function renderWebItemHtml(item, titleNum) {
   const citesHtml = (item.cited_in || []).slice(0, 4).map(c =>
-    `<a class="citation-chip" href="#/title/${titleNum}/section/${encodeURIComponent(c.id)}" title="${escapeHtml(c.title)}">${escapeHtml(c.label)}</a>`
+    `<a class="citation-chip" data-ref-tier="cfr" href="#/title/${titleNum}/section/${encodeURIComponent(c.id)}" title="${escapeHtml(c.title)}">${escapeHtml(c.label)}</a>`
   ).join('');
   const moreCites = item.cite_count > 4 ? `<span class="ref-cite-more">+${item.cite_count - 4}</span>` : '';
   const href = safeHttpUrl(item.url);
@@ -631,12 +647,12 @@ function renderWebItemHtml(item, titleNum) {
 
 function renderIbrItemHtml(std, titleNum) {
   const approved = (std.approved_in || []).slice(0, 4).map(a =>
-    `<a class="citation-chip" href="#/title/${titleNum}/section/${encodeURIComponent(a.id)}${a.para ? '?p=' + encodeURIComponent(a.para) : ''}">${escapeHtml(a.label)}${a.para ? escapeHtml(a.para) : ''}</a>`
+    `<a class="citation-chip" data-ref-tier="ibr" href="#/title/${titleNum}/section/${encodeURIComponent(a.id)}${a.para ? '?p=' + encodeURIComponent(a.para) : ''}">${escapeHtml(a.label)}${a.para ? escapeHtml(a.para) : ''}</a>`
   ).join('');
   const extra = (std.section_count || 0) - 4;
   const orgHref = safeHttpUrl(std.org_url);
   return `
-    <article class="ref-item is-ibr">
+    <article class="ref-item is-ibr has-tier-bar" data-ref-tier="ibr">
       <div class="ref-item-top">
         <span class="ref-host">${escapeHtml(std.code)}</span>
         ${orgHref
@@ -801,6 +817,7 @@ export async function renderHome() {
           </div>
         </div>
         <div class="ts-double-rule" aria-hidden="true"></div>
+        ${authorityStackHtml(titleNum)}
         <div id="ts-beats-slot">${beatsRibbonHtml()}</div>
       </header>
 

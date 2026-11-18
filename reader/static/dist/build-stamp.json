@@ -1,10 +1,11 @@
 {
-  "sha256": "5428a667706ea781919d2a5a15b930341fbdb1ddf41e18714e9ba4ba4f9defe0",
+  "sha256": "1f59781e53d7834a36b485f0d155d451a33379503171a3c2a863d22339fb5644",
   "files": [
     "index.html",
     "src/citations.ts",
     "src/components/cfr_resolver.js",
     "src/components/chat.js",
+    "src/components/corpora.js",
     "src/components/env_modal.js",
     "src/components/news_activity.js",
     "src/components/palette.js",
@@ -18,6 +19,7 @@
     "src/components/split_pane.js",
     "src/components/title_switcher.js",
     "src/components/transfer_dock.js",
+    "src/components/ui.js",
     "src/components/view_head.js",
     "src/dom.js",
     "src/main.js",
@@ -33,6 +35,7 @@
     "src/state_init.js",
     "src/styles/01_tokens.css",
     "src/styles/02_base.css",
+    "src/styles/02b_primitives.css",
     "src/styles/03_layout.css",
     "src/styles/04_sidebar.css",
     "src/styles/05_home_overview_lib.css",

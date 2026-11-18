@@ -131,11 +131,13 @@ export async function openSplitPane({ title, sectionId, para = null, unit = null
       : '';
 
     const partLabel = data.part ? ` · Part ${escapeHtml(data.part)}` : '';
+    const isCrossTitle = tNum !== state.currentTitle;
+    const splitTier = isCrossTitle ? 'cross' : 'cfr';
     dom.splitPane.innerHTML = `
-      <header class="split-head">
+      <header class="split-head" data-ref-tier="${splitTier}">
         ${hasBack ? `<button type="button" class="icon-btn" data-split-act="back" title="Back in split pane" aria-label="Back">${icon('chevronLeft')}</button>` : ''}
         <div class="split-head-meta">
-          <div class="doc-kicker">${tNum} CFR${partLabel}</div>
+          <div class="doc-kicker"><span class="tier-pip" aria-hidden="true"></span> ${tNum} CFR${partLabel}</div>
           <h2 class="split-head-title">${escapeHtml(label)} ${escapeHtml(heading)}</h2>
         </div>
         <div class="split-head-acts">

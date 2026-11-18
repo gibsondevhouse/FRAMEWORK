@@ -9,7 +9,8 @@ import { timeUntil } from '../panels/settings_panel';
 import { handleRoute } from '../router';
 import { dom } from '../state_init';
 import { fmt, timeAgo, titleHref } from '../usage';
-import { SEP, fmtDate, getJSON, joinSep, statPill } from '../views/library';
+import { SEP, emptyStateHtml, fmtDate, joinSep, metricCardHtml, statPill } from '../components/ui';
+import { getJSON } from '../views/library';
 
 // --- News (#/news): OSHA rulemaking and enforcement from sanctioned APIs ---
 //
@@ -404,11 +405,11 @@ export function newsChipsHtml(a) {
   for (const r of a.cfr_parts || []) {
     const href = newsPartHref(r.title, r.part);
     const dim = !titleInstalled(r.title);
-    chips.push(`<a class="citation-chip${dim ? ' is-dim' : ''}" href="${href}"${dim ? ` title="Title ${r.title} isn’t installed. Open the library"` : ''}>${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
+    chips.push(`<a class="citation-chip${dim ? ' is-dim' : ''}" data-ref-tier="${dim ? 'uninstalled' : 'cfr'}" href="${href}"${dim ? ` title="Title ${r.title} isn’t installed. Open the library"` : ''}>${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
   }
   for (const s of a.sections || []) {
     const dim = !titleInstalled(29);
-    chips.push(`<a class="citation-chip${dim ? ' is-dim' : ''}" href="${newsSectionHref(29, s)}"${dim ? ' title="Title 29 isn’t installed. Open the library"' : ''}>§ ${escapeHtml(s)}</a>`);
+    chips.push(`<a class="citation-chip${dim ? ' is-dim' : ''}" data-ref-tier="${dim ? 'uninstalled' : 'cfr'}" href="${newsSectionHref(29, s)}"${dim ? ' title="Title 29 isn’t installed. Open the library"' : ''}>§ ${escapeHtml(s)}</a>`);
   }
   if (!chips.length) return '';
   const extra = chips.length - 6;
@@ -476,7 +477,7 @@ export function newsTabsHtml(view, status) {
 
 export function newsFilterChipsHtml(view) {
   const chips = [];
-  const chip = (key, label) => chips.push(`<button type="button" class="news-filter-chip" data-news-act="clear-filter" data-filter-key="${key}" aria-label="Remove filter: ${escapeHtml(label)}">${escapeHtml(label)}<span aria-hidden="true"> ×</span></button>`);
+  const chip = (key, label) => chips.push(`<button type="button" class="news-filter-chip" data-news-act="clear-filter" data-filter-key="${key}" aria-label="Remove filter: ${escapeHtml(label)}">${escapeHtml(label)}${icon('close')}</button>`);
   if (view.section) chip('section', `Citing § ${view.section}`);
   if (view.part) chip('part', `Citing Part ${view.part}`);
   if (view.state) chip('state', stateName(view.state));
@@ -556,31 +557,36 @@ export function enforcementSummaryHtml(view) {
   const highGrav = (g.W || 0) + (g.R || 0);
   const topSec = (s.top_sections || [])[0];
   const topState = (s.top_states || [])[0];
-  const tile = (label, val, sub) => `
-    <div class="metric-card">
-      <div class="metric-label">${label}</div>
-      <div class="metric-val">${val}</div>
-      <div class="metric-sub">${sub}</div>
-    </div>`;
   return `
     <section class="ins-summary-strip" aria-label="Enforcement telemetry">
-      ${tile('Tracked penalties', escapeHtml(fmtMoney(s.total_penalty_usd || 0)),
-        escapeHtml(`${plural(s.total_cases, 'case')} · avg ${fmtMoney(s.avg_penalty_usd || 0)}`))}
-      ${tile('High gravity', `${fmt(highGrav)}<span class="metric-of">cases</span>`,
-        joinSep([
+      ${metricCardHtml({
+        label: 'Tracked penalties',
+        value: escapeHtml(fmtMoney(s.total_penalty_usd || 0)),
+        sub: escapeHtml(`${plural(s.total_cases, 'case')} · avg ${fmtMoney(s.avg_penalty_usd || 0)}`),
+      })}
+      ${metricCardHtml({
+        label: 'High gravity',
+        value: fmt(highGrav),
+        of: 'cases',
+        sub: joinSep([
           g.W ? `<button type="button" class="metric-link" data-news-quick-gravity="W">${g.W} Willful</button>` : '0 Willful',
           g.R ? `<button type="button" class="metric-link" data-news-quick-gravity="R">${g.R} Repeat</button>` : '0 Repeat',
-        ]))}
+        ]),
+      })}
       ${topSec
-        ? tile('Top cited standard',
-          `<a class="ins-tile-link" href="${newsSectionHref(29, topSec.section_id)}">§ ${escapeHtml(topSec.section_id)}</a>`,
-          `<button type="button" class="metric-link" data-news-quick-sec="${escapeHtml(topSec.section_id)}">Filter ${plural(topSec.count, 'case')} ${icon('chevronRight')}</button>`)
-        : tile('Top cited standard', '—', 'No CFR mappings yet')}
+        ? metricCardHtml({
+          label: 'Top cited standard',
+          value: `<a class="ins-tile-link" href="${newsSectionHref(29, topSec.section_id)}">§ ${escapeHtml(topSec.section_id)}</a>`,
+          sub: `<button type="button" class="metric-link" data-news-quick-sec="${escapeHtml(topSec.section_id)}">Filter ${plural(topSec.count, 'case')} ${icon('chevronRight')}</button>`,
+        })
+        : metricCardHtml({ label: 'Top cited standard', value: '—', sub: 'No CFR mappings yet' })}
       ${topState
-        ? tile('Top state',
-          escapeHtml(stateName(topState.code)),
-          `<button type="button" class="metric-link" data-news-quick-state="${escapeHtml(topState.code)}">${escapeHtml(fmtMoney(topState.total_penalty_usd))} · ${plural(topState.count, 'case')} ${icon('chevronRight')}</button>`)
-        : tile('Top state', '—', 'No state data')}
+        ? metricCardHtml({
+          label: 'Top state',
+          value: escapeHtml(stateName(topState.code)),
+          sub: `<button type="button" class="metric-link" data-news-quick-state="${escapeHtml(topState.code)}">${escapeHtml(fmtMoney(topState.total_penalty_usd))} · ${plural(topState.count, 'case')} ${icon('chevronRight')}</button>`,
+        })
+        : metricCardHtml({ label: 'Top state', value: '—', sub: 'No state data' })}
     </section>`;
 }
 
@@ -815,13 +821,6 @@ export function renderInspectionCase(data, { enter = true, enriching = false, en
         ? statPill('synced', `DOL synced ${timeAgo(Date.parse(data.enriched_at))}`)
         : '';
 
-  const tile = (label, val, sub) => `
-    <div class="metric-card">
-      <div class="metric-label">${label}</div>
-      <div class="metric-val">${val}</div>
-      <div class="metric-sub">${sub}</div>
-    </div>`;
-
   document.title = `${company} · Inspection #${actNr} · FRAMEWORK`;
   dom.view.innerHTML = `
     <div class="news-front ins-front">
@@ -843,14 +842,26 @@ export function renderInspectionCase(data, { enter = true, enriching = false, en
       </header>
 
       <section class="ins-metrics" aria-label="Inspection summary">
-        ${tile('Current penalty', curPen ? escapeHtml(fmtMoney(curPen)) : '$0',
-          deltaPct ? escapeHtml(`Initial ${fmtMoney(initPen)} (${deltaPct > 0 ? '+' : ''}${deltaPct}%)`) : escapeHtml(initPen ? `Initial ${fmtMoney(initPen)}` : 'No penalty assessed'))}
-        ${tile('Citations', violCount ? escapeHtml(plural(violCount, 'citation')) : 'Summary only',
-          escapeHtml(violSummary))}
-        ${tile('Case dates', art.published_at ? escapeHtml(fmtDate(art.published_at)) : '—',
-          escapeHtml([openDt && `Opened ${fmtDate(openDt)}`, closeDt ? `Closed ${fmtDate(closeDt)}` : modDt ? `Modified ${fmtDate(modDt)}` : 'Open'].filter(Boolean).join(' · ')))}
-        ${tile('Exposure', d.max_exposed ? escapeHtml(`${fmt(d.max_exposed)} exposed`) : (d.nr_in_estab ? escapeHtml(`${fmt(d.nr_in_estab)} at site`) : '—'),
-          escapeHtml([d.total_instances ? plural(d.total_instances, 'instance') : '', d.nr_in_estab && d.max_exposed ? `${fmt(d.nr_in_estab)} at site` : ''].filter(Boolean).join(' · ') || 'Site exposure data'))}
+        ${metricCardHtml({
+          label: 'Current penalty',
+          value: curPen ? escapeHtml(fmtMoney(curPen)) : '$0',
+          sub: deltaPct ? escapeHtml(`Initial ${fmtMoney(initPen)} (${deltaPct > 0 ? '+' : ''}${deltaPct}%)`) : escapeHtml(initPen ? `Initial ${fmtMoney(initPen)}` : 'No penalty assessed'),
+        })}
+        ${metricCardHtml({
+          label: 'Citations',
+          value: violCount ? escapeHtml(plural(violCount, 'citation')) : 'Summary only',
+          sub: escapeHtml(violSummary),
+        })}
+        ${metricCardHtml({
+          label: 'Case dates',
+          value: art.published_at ? escapeHtml(fmtDate(art.published_at)) : '—',
+          sub: escapeHtml([openDt && `Opened ${fmtDate(openDt)}`, closeDt ? `Closed ${fmtDate(closeDt)}` : modDt ? `Modified ${fmtDate(modDt)}` : 'Open'].filter(Boolean).join(' · ')),
+        })}
+        ${metricCardHtml({
+          label: 'Exposure',
+          value: d.max_exposed ? escapeHtml(`${fmt(d.max_exposed)} exposed`) : (d.nr_in_estab ? escapeHtml(`${fmt(d.nr_in_estab)} at site`) : '—'),
+          sub: escapeHtml([d.total_instances ? plural(d.total_instances, 'instance') : '', d.nr_in_estab && d.max_exposed ? `${fmt(d.nr_in_estab)} at site` : ''].filter(Boolean).join(' · ') || 'Site exposure data'),
+        })}
       </section>
 
       ${takeaways.length && !(data.violations || []).length ? `

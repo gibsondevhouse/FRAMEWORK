@@ -5,6 +5,7 @@ import { DOCK_STEPS, dockModel } from '../components/transfer_dock';
 import { setViewHead } from '../components/view_head';
 import { enterView, escapeHtml, showToast, skeletonHtml } from '../dom';
 import { dom } from '../state_init';
+import { emptyStateHtml, transferTrackHtml } from '../components/ui';
 import { getJSON, pollJobs } from './library';
 
 // --- First run: pick a profile (shown while nothing is installed) ---
@@ -58,7 +59,7 @@ export function welcomeProgressHtml() {
           <span class="dock-phase-text">${escapeHtml(j && j.cancelling ? 'Cancelling…' : m.label)}</span>
           ${m.step >= 0 ? `<span class="dock-steps" aria-hidden="true">${steps}</span>` : ''}
         </div>
-        <div class="dock-track"><span class="dock-fill${m.pct == null ? ' is-indeterminate' : ''}" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+        ${transferTrackHtml(m.pct)}
         <div class="dock-tele"><span>${escapeHtml(m.left)}</span><span>${escapeHtml(m.right)}</span></div>
         <div class="dock-foot"><span class="dock-queue">${escapeHtml(queueText)}</span></div>
       </section>
@@ -81,12 +82,11 @@ export async function renderWelcome() {
       state.profilesData = await getJSON('/api/profiles');
     } catch (err) {
       if (seq !== state.routeSeq) return;
-      dom.view.innerHTML = `
-        <div class="empty-state">
-          <h2>Couldn’t load the profiles</h2>
-          <p>${escapeHtml(err.message)}</p>
-          <button type="button" class="btn" id="welcome-retry">Try again</button>
-        </div>`;
+      dom.view.innerHTML = emptyStateHtml({
+        title: 'Couldn’t load the profiles',
+        body: escapeHtml(err.message),
+        actionsHtml: '<button type="button" class="btn" id="welcome-retry">Try again</button>',
+      });
       document.getElementById('welcome-retry').addEventListener('click', () => renderWelcome());
       return;
     }

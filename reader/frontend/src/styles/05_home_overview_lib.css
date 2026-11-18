@@ -21,6 +21,40 @@
 .home-hero-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 0 0 auto; margin-bottom: 2px; }
 .ts-double-rule { height: 3px; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-soft); }
 
+/* Preemption / Authority Hierarchy Strip */
+.ts-auth-stack {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 10px 0 2px; font-size: 11.5px;
+}
+.ts-auth-node {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px;
+  border-radius: var(--r-6); border: 1px solid color-mix(in srgb, var(--tier-hue, var(--line)) 26%, var(--line));
+  background: color-mix(in srgb, var(--tier-hue, var(--field)) 6%, var(--field));
+  color: var(--fg-2); text-decoration: none; transition: all var(--t-quick) var(--ease);
+}
+a.ts-auth-node:hover { border-color: color-mix(in srgb, var(--tier-hue) 50%, var(--line)); color: var(--fg-strong); text-decoration: none; }
+.ts-auth-node.is-current { border-color: color-mix(in srgb, var(--tier-hue) 52%, var(--line)); background: color-mix(in srgb, var(--tier-hue) 12%, var(--field)); color: var(--fg-strong); }
+.ts-auth-code { font: var(--w-semibold) 11px/1 var(--mono); color: var(--tier-hue, var(--fg)); font-variant-numeric: tabular-nums; }
+.ts-auth-meta { color: var(--fg-3); font-size: 11px; }
+.ts-auth-arrow { color: var(--fg-4); font-size: 12px; }
+
+/* Multi-Jurisdiction Catalog Tier Tabs */
+.lib-tier-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 18px; }
+.lib-tier-tab {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px;
+  border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--field);
+  color: var(--fg-3); font: var(--w-medium) 12px/1 var(--sans); cursor: pointer;
+  transition: all var(--t-quick) var(--ease);
+}
+.lib-tier-tab:hover { color: var(--fg); border-color: var(--line-strong); background: var(--hover); }
+.lib-tier-tab.is-active {
+  background: color-mix(in srgb, var(--tier-hue, var(--fg)) 10%, var(--active));
+  border-color: color-mix(in srgb, var(--tier-hue, var(--line-strong)) 38%, var(--line-strong));
+  color: var(--fg-strong);
+}
+.lib-tier-count { font: var(--w-medium) 11px/1 var(--mono); color: var(--fg-4); font-variant-numeric: tabular-nums; }
+.lib-tier-tab.is-active .lib-tier-count { color: var(--fg-2); }
+
 .ts-beats-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
   padding-top: 12px;
@@ -298,15 +332,7 @@ a.hm-resume-title:hover { color: var(--fg-strong); text-decoration: none; }
 .hm-panel-title .icon { width: 16px; height: 16px; color: var(--fg-3); }
 .hm-count { font-size: 11.5px; font-weight: var(--w-medium); color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .hm-panel-acts { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.hm-inline-link {
-  display: inline-flex; align-items: center; gap: 3px; padding: 0; border: 0; background: none;
-  font: var(--w-medium) 12px/1.3 var(--sans); color: var(--fg-3); cursor: pointer; text-decoration: none;
-  transition: color var(--t-ui) var(--ease-out), transform var(--t-quick) var(--ease);
-}
-.hm-inline-link:hover { color: var(--fg-strong); text-decoration: none; }
-.hm-inline-link:active { transform: scale(.98); }
-.hm-inline-link .icon { width: 14px; height: 14px; transition: transform var(--t-ui) var(--ease-out); }
-.hm-inline-link:hover .icon { transform: translateX(1px); }
+/* Workspaces inline links inherit base styles from .inline-link in 02b_primitives.css */
 
 .hm-ws-list { display: flex; flex-direction: column; gap: 10px; }
 .hm-ws-item { display: flex; flex-direction: column; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--line-soft); }
@@ -424,7 +450,7 @@ a.hm-resume-title:hover { color: var(--fg-strong); text-decoration: none; }
   .hm-transfer { flex-wrap: wrap; }
 }
 
-.btn-sm { height: 26px; padding: 0 10px; gap: 6px; font-size: 12px; border-radius: var(--r-6); }
+/* Small button rules moved to 02b_primitives.css */
 
 /* First run: the profile picker (shown while nothing is installed) */
 .welcome { max-width: 640px; }
@@ -528,39 +554,7 @@ a.lib-main:hover .lib-name { color: var(--fg); }
 .lib-label:first-child { padding-top: 4px; }
 .lib-none { padding: 20px 0; color: var(--fg-3); font-size: 13px; }
 
-/* ---------- Status: a 6px dot and a word (Linear's issue-status vocabulary) ----------
-   synced = installed and current · stale = eCFR has a newer edition · busy = queued or
-   downloading · partial = some parts or sections · uninstalled = a hollow ring. Dots glow
-   only in dark mode (--glow). `.stat-pill.is-bare` drops the outline for dense rows. */
-.stat-dot {
-  position: relative; display: inline-block; flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%;
-  background: var(--fg-4); --dot: var(--fg-4);
-  box-shadow: 0 0 calc(6px * var(--glow)) color-mix(in srgb, var(--dot) 45%, transparent);
-  transition: background-color var(--t-quick) var(--ease), box-shadow var(--t-quick) var(--ease);
-}
-.stat-dot.is-synced { --dot: var(--ok); background: var(--dot); }
-.stat-dot.is-stale { --dot: var(--warn); background: var(--dot); }
-.stat-dot.is-partial { --dot: var(--partial); background: var(--dot); }
-.stat-dot.is-busy { --dot: var(--fg); background: var(--dot); box-shadow: 0 0 calc(8px * var(--glow)) color-mix(in srgb, var(--dot) 55%, transparent); }
-.stat-dot.is-busy::after {
-  content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 1px solid var(--fg-2);
-  animation: stat-ring 1.6s cubic-bezier(.24, 0, .38, 1) infinite;
-}
-.stat-dot.is-uninstalled { background: transparent; box-shadow: inset 0 0 0 1px var(--fg-4); }
-@keyframes stat-ring { from { transform: scale(.55); opacity: .9; } to { transform: scale(1.5); opacity: 0; } }
-
-.stat-pill {
-  position: relative; z-index: 1; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
-  height: 20px; padding: 0 8px 0 7px; border-radius: 999px; border: 1px solid var(--line); background: var(--field);
-  font: var(--w-medium) 11px/1 var(--sans); letter-spacing: .01em; color: var(--fg-2);
-  white-space: nowrap; font-variant-numeric: tabular-nums;
-}
-.stat-pill.is-synced { border-color: color-mix(in srgb, var(--ok) 26%, transparent); }
-.stat-pill.is-stale { border-color: color-mix(in srgb, var(--warn) 32%, transparent); color: var(--warn); }
-.stat-pill.is-busy { border-color: var(--line-strong); color: var(--fg); }
-.stat-pill.is-partial { border-color: var(--line); color: var(--fg-3); }
-.stat-pill.is-uninstalled { color: var(--fg-3); }
-.stat-pill.is-bare { height: auto; padding: 0; border: 0; background: none; }
+/* Status dot & pill base rules live in 02b_primitives.css */
 .lib-status .stat-pill { font-size: 12px; }
 
 /* ---------- Library front page (#/library): the newsroom ----------
@@ -574,25 +568,6 @@ a.lib-main:hover .lib-name { color: var(--fg); }
 .lib-masthead .lib-sub { max-width: none; font-variant-numeric: tabular-nums; }
 
 .lib-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 24px 0 16px; }
-.metric-card {
-  display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 20px 22px;
-  border-radius: var(--r-12); border: 1px solid var(--line); background: var(--card-bg); box-shadow: var(--card-top);
-  transition: border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out);
-}
-.metric-card:hover { border-color: var(--line-strong); }
-.metric-card.is-alert { border-color: color-mix(in srgb, var(--warn) 30%, transparent); background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
-.metric-label { display: flex; align-items: center; gap: 6px; font: var(--w-semibold) 10.5px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3); }
-.metric-val { font: var(--w-semibold) 21px/1.25 var(--sans); letter-spacing: -.022em; color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.metric-of { margin-left: 6px; font-size: 13px; font-weight: var(--w-regular); letter-spacing: 0; color: var(--fg-3); }
-.metric-sub { display: flex; align-items: center; min-width: 0; min-height: 18px; font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-.metric-link, .wire-link {
-  display: inline-flex; align-items: center; gap: 2px; padding: 0; border: 0; background: none; cursor: pointer;
-  font: var(--w-medium) 12px/1.4 var(--sans); color: var(--fg-3); border-radius: var(--r-4);
-  transition: color var(--t-ui) var(--ease-out);
-}
-.metric-link:hover, .wire-link:hover { color: var(--fg-strong); text-decoration: none; }
-.metric-link .icon, .wire-link .icon { width: 14px; height: 14px; }
-.metric-link.is-strong { font-weight: var(--w-semibold); color: var(--fg-2); }
 
 /* Broadsheet lead */
 .lib-broadsheet { display: grid; grid-template-columns: minmax(0, 65fr) minmax(0, 35fr); gap: 16px; align-items: stretch; }
@@ -676,18 +651,9 @@ a.lib-main:hover .lib-name { color: var(--fg); }
 .suite-card-titles { margin-top: 10px; }
 .suite-card .story-foot { gap: 10px; }
 
-/* Tools: filter + order */
+/* Tools: filter + order (segmented control styles live in 02b_primitives.css) */
 .lib-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 34px 0 0; }
 .lib-tools .lib-filter { flex: 1 1 220px; max-width: 320px; margin: 0; }
-.lib-seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--r-8); border: 1px solid var(--line); background: var(--field); }
-.lib-seg button {
-  height: 24px; padding: 0 10px; border: 0; border-radius: var(--r-6); background: transparent; color: var(--fg-3);
-  font: var(--w-medium) 12px/1 var(--sans); cursor: pointer; white-space: nowrap;
-  transition: background-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
-}
-.lib-seg button:hover { color: var(--fg); }
-.lib-seg button[aria-pressed="true"] { background: var(--active); color: var(--fg); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
-.lib-seg button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 
 /* Topic desks */
 .lib-front .lib-list { margin: 0; }
@@ -755,7 +721,7 @@ a.lib-main:hover .lib-name { color: var(--fg); }
 
 /* ---------- Transfer dock: downloads in progress, on every page ---------- */
 .transfer-dock {
-  position: fixed; right: calc(var(--gutter) + 18px); bottom: calc(var(--gutter) + 18px); z-index: 40;
+  position: fixed; right: calc(var(--gutter) + 18px); bottom: calc(var(--gutter) + 18px); z-index: var(--z-dock);
   width: 360px; max-width: calc(100vw - 32px);
   opacity: 0; transform: translateY(10px) scale(.98); transform-origin: bottom right; pointer-events: none;
   transition: opacity var(--t-slow) var(--ease-out), transform var(--t-slow) var(--ease-out), right var(--t-slow) var(--ease-out);
@@ -763,16 +729,6 @@ a.lib-main:hover .lib-name { color: var(--fg); }
 .transfer-dock.is-visible { opacity: 1; transform: none; pointer-events: auto; }
 .transfer-dock.is-min { width: auto; }
 .layout.chat-open ~ .transfer-dock { right: calc(var(--chat-w) + var(--gutter) * 2 + 18px); }
-.dock-card, .dock-mini {
-  border-radius: var(--r-12); border: 1px solid var(--line-strong);
-  background: color-mix(in srgb, var(--pop) 86%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%);
-  box-shadow: var(--shadow-pop);
-}
-.dock-card { padding: 11px 12px 10px 14px; }
-.dock-head { display: flex; align-items: center; gap: 8px; }
-.dock-title { flex: 1 1 auto; min-width: 0; font: var(--w-medium) 13px/1.3 var(--sans); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dock-pct, .dock-mini-pct { flex: 0 0 auto; font: var(--w-medium) 12px/1 var(--sans); color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .dock-icon {
   display: inline-grid; place-items: center; width: 24px; height: 24px; margin-right: -4px; padding: 0; border: 0;
   border-radius: var(--r-6); background: transparent; color: var(--fg-3); cursor: pointer;
@@ -780,26 +736,6 @@ a.lib-main:hover .lib-name { color: var(--fg); }
 }
 .dock-icon:hover { background: var(--hover); color: var(--fg-strong); }
 .dock-icon:active { transform: scale(.98); }
-.dock-phase { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 3px; padding-left: 14px; font-size: 12px; color: var(--fg-2); }
-.dock-phase-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dock-steps { flex: 0 0 auto; display: inline-flex; gap: 3px; }
-.dock-steps span { width: 10px; height: 3px; border-radius: 2px; background: var(--line-strong); transition: background-color var(--t-slow) var(--ease); }
-.dock-steps .is-done { background: var(--fg-3); }
-.dock-steps .is-now { background: var(--fg); box-shadow: 0 0 calc(6px * var(--glow)) color-mix(in srgb, var(--fg) 45%, transparent); }
-.dock-track { position: relative; height: 3px; margin: 10px 0 6px; border-radius: 2px; background: var(--line); overflow: hidden; }
-.dock-fill {
-  position: absolute; inset: 0 auto 0 0; border-radius: inherit;
-  background: var(--fg);
-  box-shadow: 0 0 calc(8px * var(--glow)) color-mix(in srgb, var(--fg) 35%, transparent);
-  transition: width .35s cubic-bezier(.4, 0, .2, 1);
-}
-.dock-fill.is-indeterminate { width: 35% !important; animation: dock-slide 1.4s var(--ease) infinite; }
-@keyframes dock-slide { from { left: -35%; } to { left: 100%; } }
-.dock-tele { display: flex; justify-content: space-between; gap: 10px; min-height: 16px; font-size: 11.5px; line-height: 16px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
-.dock-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
-.dock-queue { min-width: 0; font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dock-queue-count { margin-right: 6px; color: var(--fg-2); font-weight: var(--w-medium); font-variant-numeric: tabular-nums; }
-.dock-acts { flex: 0 0 auto; display: flex; gap: 4px; }
 .dock-mini {
   display: flex; align-items: center; gap: 8px; height: 34px; max-width: 300px; padding: 0 8px 0 12px; cursor: pointer;
   font: var(--w-medium) 12px/1 var(--sans); color: var(--fg); transition: border-color var(--t-quick) var(--ease);

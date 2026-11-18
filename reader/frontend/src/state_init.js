@@ -2,6 +2,9 @@ import { state } from './state';
 
 // --- State ---
 state.currentTitle = 29;
+state.activeCorpusId = 'us:cfr:29';
+state.corpora = [];
+state.extraCorpora = [];
 
 state.installedTitles = [];
 
@@ -45,7 +48,6 @@ export const dom = {
   search: document.getElementById('search'),
   searchDropdown: document.getElementById('search-dropdown'),
   edition: document.getElementById('edition'),
-  themeToggle: document.getElementById('theme-toggle'),
   chatToggle: document.getElementById('chat-toggle'),
   layout: document.getElementById('layout'),
   sidebar: document.getElementById('sidebar'),

@@ -27,7 +27,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 * { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--scroll); border: 3px solid transparent; border-radius: 99px; background-clip: content-box; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border: 3px solid transparent; border-radius: var(--r-pill); background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-hover); }
 
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -38,7 +38,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
   animation: fade-in var(--t-slow) var(--ease-out) .1s both; /* fast loads never flash it */
 }
 .loading:not(.is-skel)::before {
-  content: ""; width: 32px; height: 10px; border-radius: 99px;
+  content: ""; width: 32px; height: 10px; border-radius: var(--r-pill);
   background: linear-gradient(90deg, var(--line-soft) 0%, var(--line-strong) 50%, var(--line-soft) 100%) 0 0 / 200% 100%;
   animation: skel-shimmer 1.6s var(--ease-out) infinite;
 }
@@ -93,7 +93,6 @@ kbd {
 .btn-accent { background: var(--brand); border-color: var(--brand); color: var(--on-brand); box-shadow: 0 1px 2px rgba(0, 0, 0, .2); }
 .btn-accent:hover { background: var(--brand-hover); border-color: var(--brand-hover); color: var(--on-brand); }
 .btn-accent .icon, .btn-accent:hover .icon { color: var(--on-brand); }
-.btn-small { height: 26px; padding: 0 8px; font-size: 12px; }
 
 .icon-btn {
   display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; flex: 0 0 auto;
@@ -128,32 +127,55 @@ select option { background: var(--pop); color: var(--fg); }
 .title-select:hover, .title-select[aria-expanded="true"] { background: var(--hover); color: var(--fg-strong); }
 .title-select:active { transform: scale(.98); }
 .title-select:focus-visible { outline: none; border-color: var(--focus); }
-.title-select-num { flex: 0 0 auto; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.title-select-num { flex: 0 0 auto; color: var(--tier-hue, var(--fg-3)); font: var(--w-semibold) 11.5px/1 var(--mono); letter-spacing: .04em; font-variant-numeric: tabular-nums; }
 .title-select-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .title-select-caret { flex: 0 0 auto; color: var(--fg-3); transition: transform var(--t-base) var(--ease); }
 .title-select[aria-expanded="true"] .title-select-caret { transform: rotate(180deg); }
 
 .title-pop {
-  position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; width: 300px; max-height: min(420px, calc(100vh - 80px));
-  overflow-y: auto; padding: 4px; border-radius: 10px;
-  background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow-pop);
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: var(--z-dock); width: 348px; max-height: min(480px, calc(100vh - 80px));
+  overflow-y: auto; padding: 6px; border-radius: var(--r-10);
+  background: var(--pop); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop);
   animation: pop-in .12s var(--ease-out); transform-origin: top left;
 }
 .title-pop[hidden] { display: none; }
+.tm-head { position: sticky; top: -6px; z-index: 2; padding: 2px 0 6px; background: var(--pop); display: flex; flex-direction: column; gap: 6px; }
+.tm-search {
+  width: 100%; height: 28px; padding: 0 9px; border-radius: var(--r-6);
+  border: 1px solid var(--line); background: var(--field); color: var(--fg);
+  font: var(--w-regular) 12.5px/1 var(--sans); outline: none;
+}
+.tm-search:focus { border-color: var(--focus); background: var(--panel); }
+.tm-search::placeholder { color: var(--fg-4); }
+.tm-desks { display: flex; flex-wrap: wrap; gap: 4px; }
+.tm-desk-pill {
+  height: 20px; padding: 0 7px; border-radius: var(--r-pill); border: 1px solid var(--line-soft);
+  background: transparent; color: var(--fg-3); font: var(--w-medium) 11px/1 var(--sans); cursor: pointer;
+}
+.tm-desk-pill:hover { color: var(--fg); border-color: var(--line); }
+.tm-desk-pill.is-on { background: var(--active); color: var(--fg-strong); border-color: var(--line-strong); }
+.tm-group + .tm-group { margin-top: 6px; }
+.tm-group-head {
+  display: flex; align-items: center; gap: 6px; padding: 4px 8px 3px;
+  font: var(--w-semibold) 10px/1.2 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--tier-hue, var(--fg-3));
+}
+.tm-group-count { margin-left: auto; color: var(--fg-4); }
+.tm-empty { padding: 14px 8px; text-align: center; font-size: 12.5px; color: var(--fg-3); }
 .tm-item {
-  display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 8px;
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px;
   border: 0; border-radius: var(--r-6); background: none; text-align: left; cursor: pointer;
   font: var(--w-regular) 13px/1 var(--sans); color: var(--fg-2);
 }
 .tm-item:hover, .tm-item:focus-visible { background: var(--active); color: var(--fg); outline: none; text-decoration: none; }
 .tm-item:focus:not(:focus-visible) { outline: none; }
-.tm-num { flex: 0 0 22px; color: var(--fg-3); font-variant-numeric: tabular-nums; text-align: right; }
+.tm-num { flex: 0 0 auto; min-width: 48px; color: var(--tier-hue, var(--fg-3)); font: var(--w-medium) 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; }
 .tm-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tm-item.is-current { color: var(--fg); }
+.tm-item.is-current { color: var(--fg-strong); background: color-mix(in srgb, var(--tier-hue, var(--fg)) 7%, transparent); }
 .tm-item.is-current .tm-name { font-weight: var(--w-medium); }
-.tm-meta { flex: 0 0 auto; font-size: 12px; color: var(--fg-3); }
+.tm-meta { flex: 0 0 auto; font-size: 11px; color: var(--fg-3); }
 .tm-check { flex: 0 0 16px; width: 16px; height: 16px; color: var(--accent); }
 .tm-download { color: var(--fg); }
-.tm-download .icon { flex: 0 0 22px; color: var(--fg-3); }
+.tm-download .icon { flex: 0 0 18px; color: var(--fg-3); }
 .tm-download:hover .icon, .tm-download:focus-visible .icon { color: var(--fg); }
-.tm-sep { height: 1px; margin: 4px -4px; background: var(--line-soft); }
+.tm-sep { height: 1px; margin: 5px -4px; background: var(--line-soft); }

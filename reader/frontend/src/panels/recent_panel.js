@@ -3,7 +3,7 @@ import { onDockAction } from '../components/transfer_dock';
 import { escapeHtml, showToast } from '../dom';
 import { setNavMode } from '../nav';
 import { showNewProjectForm } from '../panels/projects_panel';
-import { runSettingsAction, setTheme } from '../panels/settings_panel';
+import { runSettingsAction } from '../panels/settings_panel';
 import { drEmpty, drLabel, setPanel } from '../panels/shared';
 import { dom } from '../state_init';
 import { loadUsage, timeAgo } from '../usage';
@@ -42,8 +42,7 @@ export function renderHistoryPanel() {
 dom.sidebar.addEventListener('click', async (e) => {
   const set = e.target.closest('[data-set]');
   if (set) {
-    if (set.dataset.set === 'theme') setTheme(set.dataset.value);
-    else if (set.dataset.set === 'mode') setNavMode(set.dataset.value);
+    if (set.dataset.set === 'mode') setNavMode(set.dataset.value);
     return;
   }
   const navAct = e.target.closest('[data-nav-act]');

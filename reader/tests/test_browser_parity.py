@@ -185,7 +185,6 @@ SEED_USAGE = {
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and HAVE_PIL, "playwright and Pillow are required")
 class BrowserCase(unittest.TestCase):
-    theme = "dark"
     viewport = DESKTOP
 
     def setUp(self):
@@ -206,7 +205,6 @@ class BrowserCase(unittest.TestCase):
 
         self.context.route("**/*", router)
         seed = {
-            "theme": self.theme,
             "fontSize": "16",
             "railState": _json.dumps({"panel": None, "collapsed": False, "mode": "pinned", "width": 280}),
             "usage": _json.dumps(SEED_USAGE),
@@ -237,7 +235,7 @@ class BehaviorTests(BrowserCase):
         self.assertIn("Workspaces", page.inner_text(".hm-ws"))
         self.assertIn("Regulatory Pulse", page.inner_text(".hm-news"))
         titles_text = page.inner_text(".hm-titles")
-        self.assertIn("Downloaded Titles", titles_text)
+        self.assertIn("Downloaded Frameworks", titles_text)
         self.assertIn("OSHA", titles_text)
         self.assertEqual(page.locator("#hm-jump-input").count(), 0)
         view_text = page.inner_text("#view").lower()
@@ -431,6 +429,83 @@ class BehaviorTests(BrowserCase):
         self.assertIn("Title 21", page.inner_text("#welcome-job-slot"))
         self.assert_no_external_requests()
 
+    def test_ui_standardization_regressions(self):
+        # 1. Search segmented controls use reset styles (no native button border/fill).
+        page = self.open_page("/search?q=hazard&scope=all", ".search-view-toggle button")
+        btn_style = page.evaluate("""() => {
+          const btns = [...document.querySelectorAll('.search-view-toggle button')];
+          return btns.map(b => {
+            const cs = getComputedStyle(b);
+            return { text: b.textContent.trim(), border: cs.borderTopWidth, bg: cs.backgroundColor };
+          });
+        }""")
+        self.assertEqual(len(btn_style), 2)
+        for b in btn_style:
+            self.assertEqual(b["border"], "0px", f"unexpected native border on {b}")
+        self.assertNotEqual(btn_style[0]["bg"], btn_style[1]["bg"])
+
+        # 2. News category tabs do not clip horizontally on desktop.
+        page.goto(f"{ENV.base_url}/#/news")
+        page.wait_for_selector(".news-tabs button", timeout=15000)
+        news_overflow = page.evaluate("""() => {
+          const seg = document.querySelector('.news-tabs');
+          return { sw: seg.scrollWidth, cw: seg.clientWidth, count: seg.querySelectorAll('button').length };
+        }""")
+        self.assertEqual(news_overflow["count"], 6)
+        self.assertLessEqual(news_overflow["sw"], news_overflow["cw"] + 1)
+
+        # 3. Workspaces label consistency in rail, drawer, and page heading.
+        page.goto(f"{ENV.base_url}/#/projects")
+        page.wait_for_selector(".proj-page h1", timeout=15000)
+        self.assertEqual(page.inner_text(".proj-page h1"), "Workspaces")
+        self.assertEqual(page.inner_text("#drawer-title"), "Workspaces")
+        self.assertEqual(page.locator('#activity-rail [data-target="projects"]').get_attribute("data-tip"), "Workspaces")
+
+        # 4. Library panel uninstalled suites show hollow dot, not synced green dot.
+        page.goto(f"{ENV.base_url}/#/library/29")
+        page.wait_for_selector(".dr-suite", timeout=15000)
+        self.assertEqual(page.locator(".dr-suite .stat-dot.is-uninstalled").count(), 2)
+        self.assert_no_external_requests()
+
+    def test_dark_newsroom_and_multijurisdiction_ui(self):
+        # 1. Dark-mode-only obsidian lock: no theme toggle and #070708 canvas void.
+        page = self.open_page("/", ".hm-titles[data-snapshot-loaded='1']")
+        self.assertEqual(page.locator("#theme-toggle").count(), 0)
+        bg = page.evaluate("getComputedStyle(document.body).backgroundColor")
+        self.assertEqual(bg, "rgb(7, 7, 8)")
+
+        # 2. Desk ribbon filters home frameworks and tier bar appears.
+        self.assertGreaterEqual(page.locator(".hm-title-card.has-tier-bar[data-ref-tier='cfr']").count(), 1)
+
+        # 3. Searchable Multi-Jurisdiction Corpus Switcher + #/corpus/ routing.
+        page.locator("#title-select").click()
+        page.wait_for_selector("#title-pop:not([hidden])", timeout=5000)
+        self.assertGreaterEqual(page.locator(".tm-group[data-ref-tier='cfr']").count(), 1)
+        page.goto(f"{ENV.base_url}/#/corpus/state/US-CA/8%20CCR/")
+        page.wait_for_selector(".resolver-card[data-ref-tier='state']", timeout=5000)
+        self.assertIn("US-CA", page.inner_text(".resolver-card"))
+
+        # 4. Reference Ledger popover (#btn-refs-ledger) and 9-tier colors on a section with xrefs.
+        page.goto(f"{ENV.base_url}/#/title/29/section/1910.120")
+        page.wait_for_selector("#btn-refs-ledger:not([hidden])", timeout=10000)
+        page.locator("#btn-refs-ledger").click()
+        page.wait_for_selector("#cite-pop[data-ref-tier]:not([hidden])", timeout=5000)
+        self.assertGreaterEqual(page.locator("#cite-pop .refs-ledger-group").count(), 1)
+
+        # 5. Subject Workspaces housing nested Action Projects.
+        page.goto(f"{ENV.base_url}/#/projects")
+        page.wait_for_selector(".proj-page [data-proj-act='new']", timeout=5000)
+        page.locator(".proj-page [data-proj-act='new']").first.click()
+        page.wait_for_selector("#proj-task-input", timeout=5000)
+        page.fill("#proj-task-input", "Verify GHS SDS binders")
+        page.locator("[data-proj-act='task-add']").click()
+        page.wait_for_selector(".proj-task-row", timeout=5000)
+        self.assertIn("Verify GHS SDS binders", page.inner_text(".proj-task-list"))
+        self.assertEqual(page.inner_text(".proj-task-status"), "OPEN")
+        page.locator(".proj-task-status").click()
+        self.assertEqual(page.inner_text(".proj-task-status"), "IN PROGRESS")
+        self.assert_no_external_requests()
+
 
 class ScreenshotCase(BrowserCase):
     def assert_baseline(self, page, name: str):
@@ -480,16 +555,6 @@ class DarkDesktopScreens(ScreenshotCase):
         page = self.open_page("/library", "#view")
         page.wait_for_selector(".lib-front, .lib-story, .lib-metrics", timeout=15000)
         self.assert_baseline(page, "library-dark-desktop")
-        self.assert_no_external_requests()
-
-
-class LightDesktopScreens(ScreenshotCase):
-    theme = "light"
-
-    def test_overview_light(self):
-        page = self.open_page("/", ".hm-titles[data-snapshot-loaded='1']")
-        page.wait_for_selector(".hm-news[data-news-loaded='1']", timeout=15000)
-        self.assert_baseline(page, "overview-light-desktop")
         self.assert_no_external_requests()
 
 

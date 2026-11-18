@@ -4,7 +4,6 @@ import { openEnvModal } from '../components/env_modal';
 import { escapeHtml, isMac } from '../dom';
 import { openPanel, toggleDrawer } from '../nav';
 import { showNewProjectForm } from '../panels/projects_panel';
-import { setTheme } from '../panels/settings_panel';
 import { refreshNewsCommand } from '../views/news';
 import { loadProjects } from '../views/projects';
 
@@ -13,13 +12,12 @@ export function commandList() {
   const mod = isMac ? '⌘' : 'Ctrl ';
   return [
     ['Go to Home', '#/', 'G H'], [`Go to Title ${state.currentTitle} start`, `#/title/${state.currentTitle}/`, 'G T'],
-    ['Open contents', 'cmd:reader', 'G C'], ['Open projects', 'cmd:projects', 'G P'], ['All workspaces', '#/projects', ''],
+    ['Open contents', 'cmd:reader', 'G C'], ['Open workspaces', 'cmd:projects', 'G P'], ['All workspaces', '#/projects', ''],
     ['Go to News', '#/news', 'G N'], ['Refresh news', 'cmd:news-refresh', ''],
     ['New workspace', 'cmd:new-project', ''], ['Open the library', '#/library', ''], ['Library drawer', 'cmd:library', 'G L'],
     ['Settings', 'cmd:settings', 'G S'], ['All settings', '#/settings', ''],
     ['Connections & API keys', '#/help', ''], ['Edit API keys', 'cmd:env-modal', ''],
     ['Show or hide the drawer', 'cmd:drawer', `${mod}B`], ['Ask Claude', 'cmd:chat', `${mod}J`],
-    [`Switch to ${document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'} theme`, 'cmd:theme', ''],
     ...loadProjects().map(p => [`Workspace: ${p.name}`, `#/projects/${encodeURIComponent(p.id)}`, '']),
     ...state.installedTitles.filter(t => t.title !== state.currentTitle).map(t => [`Switch to Title ${t.title} ${t.name}`, `#/title/${t.title}/`, '']),
   ];
@@ -37,8 +35,7 @@ export function commandItemsHtml(q) {
 }
 
 export function runCommand(cmd) {
-  if (cmd === 'theme') setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
-  else if (cmd === 'drawer') toggleDrawer();
+  if (cmd === 'drawer') toggleDrawer();
   else if (cmd === 'chat') toggleChat();
   else if (cmd === 'new-project') showNewProjectForm();
   else if (cmd === 'news-refresh') refreshNewsCommand();

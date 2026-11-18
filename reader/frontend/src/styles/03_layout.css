@@ -1,6 +1,6 @@
 /* ---------- Top bar ---------- */
 .topbar {
-  position: fixed; inset: 0 0 auto 0; height: var(--topbar-h); z-index: 30;
+  position: fixed; inset: 0 0 auto 0; height: var(--topbar-h); z-index: var(--z-topbar);
   display: flex; align-items: center; gap: 8px; padding: 0 12px 0 10px;
   background: color-mix(in srgb, var(--bg) 80%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
@@ -22,12 +22,12 @@
   width: 100%; height: 32px; padding: 0 44px 0 32px; border-radius: var(--r-8);
   font: 13px/1 var(--sans); color: var(--fg); outline: none;
   border: 1px solid var(--line); background: var(--field);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-inset-field);
   transition: all var(--t-ui) var(--ease-out);
 }
 #search::placeholder, #tree-filter::placeholder, .chat-input textarea::placeholder { color: var(--fg-4); opacity: 1; }
 #search:hover { border-color: var(--line-strong); background: var(--hover); }
-#search:focus { border-color: var(--line-strong); background: var(--panel); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--line-strong); }
+#search:focus { border-color: var(--line-strong); background: var(--panel); box-shadow: var(--shadow-inset-field), 0 0 0 1px var(--line-strong); }
 .search-kbd {
   position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none;
   font: 500 11px/1 var(--sans); color: var(--fg-3); background: var(--hover);
@@ -36,13 +36,15 @@
 #search:focus ~ .search-kbd, #search:not(:placeholder-shown) ~ .search-kbd { display: none; }
 .search-dropdown {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0; max-height: 70vh; overflow: auto; padding: 4px;
-  background: var(--pop); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-pop);
+  background: var(--pop); border: 1px solid var(--line); border-radius: var(--r-10); box-shadow: var(--shadow-pop);
   transform-origin: top center; animation: pop-in .14s var(--ease-out);
 }
 .sd-item { display: block; padding: 7px 10px; border-radius: var(--r-6); color: var(--fg-2); font-size: 13px; cursor: pointer; transition: background-color 100ms var(--ease), color 150ms cubic-bezier(.165, .84, .44, 1); }
 .sd-item:hover, .sd-item.active { background: var(--active); color: var(--fg-strong); text-decoration: none; }
 .sd-item:active { transform: scale(.98); }
-.sd-item .sd-label { font-weight: var(--w-medium); color: var(--fg); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.sd-item-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sd-item-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-item .sd-label { font-weight: var(--w-medium); color: var(--fg); font-variant-numeric: tabular-nums; flex: none; }
 .sd-item .sd-snippet { display: block; color: var(--fg-3); font-size: 12px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sd-footer { display: flex; align-items: center; gap: 6px; margin-top: 4px; padding: 8px 10px 6px; border-top: 1px solid var(--line-soft); font-size: 12px; color: var(--fg-3); }
 .sd-footer:only-child { margin-top: 0; border-top: 0; padding-top: 6px; }
@@ -78,7 +80,7 @@ body.resizing .layout { transition: none; }
    Landmarks in a 48px column of 32px icon buttons. The lit item gets the pressed fill and
    a 3px accent bar on the rail's left edge; a label with its shortcut shows on hover. */
 .activity-rail {
-  position: relative; z-index: 27; display: flex; flex-direction: column; justify-content: space-between; align-items: center;
+  position: relative; z-index: var(--z-rail); display: flex; flex-direction: column; justify-content: space-between; align-items: center;
   padding: 6px 0 calc(var(--gutter) + 6px);
   background: color-mix(in srgb, var(--bg) 80%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
@@ -104,7 +106,7 @@ body.resizing .layout { transition: none; }
 /* Label + shortcut, to the right of the rail, after a short hover. */
 .ar-btn::after {
   content: attr(data-tip) "   " attr(data-keys); white-space: pre;
-  position: absolute; left: calc(100% + 10px); top: 50%; z-index: 40; transform: translate(-3px, -50%);
+  position: absolute; left: calc(100% + 10px); top: 50%; z-index: var(--z-dock); transform: translate(-3px, -50%);
   padding: 5px 8px; border-radius: var(--r-6); background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow-pop);
   font: var(--w-medium) 12px/1 var(--sans); color: var(--fg); pointer-events: none;
   opacity: 0; transition: opacity var(--t-quick) var(--ease), transform var(--t-quick) var(--ease); transition-delay: 0s;
@@ -120,7 +122,7 @@ body.resizing .layout { transition: none; }
 
 /* ---------- Drawer ---------- */
 .sidebar {
-  position: relative; z-index: 26; overflow: hidden; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  position: relative; z-index: var(--z-drawer); overflow: hidden; display: flex; flex-direction: column; min-width: 0; min-height: 0;
   background: var(--panel); border-right: 1px solid var(--line);
   transition: border-color var(--t-slow) var(--ease-out);
 }
@@ -150,7 +152,7 @@ html.drawer-collapsed .main, html.drawer-retracted .main, html.drawer-fly .main 
    with a dimmed backdrop; the page keeps its width. */
 html.drawer-fly .sidebar {
   position: fixed; top: var(--topbar-h); bottom: 0; left: var(--rail-w); width: var(--sidebar-w); max-width: calc(100vw - var(--rail-w));
-  z-index: 26; border-right: 1px solid var(--line-strong); box-shadow: var(--shadow-pop);
+  z-index: var(--z-drawer); border-right: 1px solid var(--line-strong); box-shadow: var(--shadow-pop);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   -webkit-backdrop-filter: blur(18px) saturate(140%); backdrop-filter: blur(18px) saturate(140%);
   transform: translateX(-100%); visibility: hidden;
@@ -159,8 +161,8 @@ html.drawer-fly .sidebar {
 html.drawer-fly body.nav-open .sidebar { transform: none; visibility: visible; transition-delay: 0s; }
 html.drawer-fly .drawer-inner { width: 100%; }
 .nav-backdrop {
-  display: block; position: fixed; inset: var(--topbar-h) 0 0 var(--rail-w); z-index: 25;
-  background: rgba(0, 0, 0, .32); opacity: 0; pointer-events: none; transition: opacity var(--t-slow) var(--ease);
+  display: block; position: fixed; inset: var(--topbar-h) 0 0 var(--rail-w); z-index: var(--z-drawer-backdrop);
+  background: var(--overlay-scrim); opacity: 0; pointer-events: none; transition: opacity var(--t-slow) var(--ease);
 }
 html.drawer-fly body.nav-open .nav-backdrop { opacity: 1; pointer-events: auto; }
 /* Content sits in inset panels, one step lighter than the chrome around them. */

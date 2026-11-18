@@ -2,13 +2,18 @@ import { state } from '../state';
 import { updateChatContext } from '../components/chat';
 import { clearTreeSelection, plural, switchTitle } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon } from '../dom';
+import { enterView, escapeHtml, icon, skeletonHtml } from '../dom';
 import { openPanel, routeTarget } from '../nav';
 import { navLib } from '../panels/library_panel';
 import { dom } from '../state_init';
 import { fmt, loadUsage, timeAgo, titleHref, visitedCountFor } from '../usage';
+import {
+  deskFilterRibbonHtml, deskLabel, mapRawDeskToId, refTierForCorpus,
+  setActiveDesk, syncCorporaState, TIER_META,
+} from '../components/corpora';
 import { HOME_CONTENT } from '../views/core';
-import { SEP, getJSON, isStale, jobFor, joinSep, shortDate, statPill } from '../views/library';
+import { SEP, joinSep, shortDate, statPill } from '../components/ui';
+import { getJSON, isStale, jobFor } from '../views/library';
 import {
   fmtMoney, lsGetJSON, lsSetJSON, newsKicker, newsPartHref, newsSectionHref,
   newsStatusPillHtml, titleInstalled,
@@ -153,7 +158,7 @@ function workspacesCardHtml(projects) {
           const ok = titleInstalled(s.title);
           const href = ok ? `#/title/${s.title}/section/${encodeURIComponent(s.id)}` : `#/library/${s.title}`;
           const tip = ok ? '' : ` title="Title ${s.title} isn’t installed. Open Library"`;
-          return `<a class="citation-chip${ok ? '' : ' is-dim'}" href="${href}"${tip}>${escapeHtml(s.label || '§ ' + s.id)}</a>`;
+          return `<a class="citation-chip${ok ? '' : ' is-dim'}" data-ref-tier="${ok ? 'cfr' : 'uninstalled'}" href="${href}"${tip}>${escapeHtml(s.label || '§ ' + s.id)}</a>`;
         }).join('');
         const extra = (p.sections || []).length - 3;
         return `
@@ -246,23 +251,34 @@ function titlePartsHtml(t) {
 
 function titlesBandHtml(titles, recent, projects, totalSections, totalRead) {
   const staleSet = new Set(((navLib.data && navLib.data.titles) || []).filter(isStale).map(t => t.title));
-  const cards = titles.map(t => {
+  const corpora = syncCorporaState();
+  const deskId = state.activeDesk || 'all';
+  const visibleTitles = deskId === 'all'
+    ? titles
+    : titles.filter(t => mapRawDeskToId(t.desk, t.title) === deskId);
+  const shown = visibleTitles.length ? visibleTitles : titles;
+  const ribbonHtml = deskFilterRibbonHtml(deskId, corpora);
+
+  const cards = shown.map(t => {
     const read = visitedCountFor(t.title);
     const count = Number(t.section_count || 0);
     const pct = count ? Math.min(100, read / count * 100) : 0;
     const agencies = (t.agencies || []).slice(0, 3);
+    const corpus = corpora.find(c => c.tier === 'federal-reg' && c.title_num === t.title) || { tier: 'federal-reg', desk: mapRawDeskToId(t.desk, t.title) };
+    const rTier = refTierForCorpus(corpus);
+    const tierTag = TIER_META[corpus.tier]?.tag || 'FEDERAL REG';
 
     return `
-      <article class="hm-title-card">
+      <article class="hm-title-card has-tier-bar" data-ref-tier="${rTier}">
         <div class="hm-title-top">
-          <span class="hm-title-kicker">${t.title} CFR${agencies.length ? `${SEP}<span class="hm-title-ag">${agencies.map(escapeHtml).join(' · ')}</span>` : ''}</span>
+          <span class="hm-title-kicker"><span class="tier-pip" aria-hidden="true"></span> ${escapeHtml(tierTag)} · ${t.title} CFR${agencies.length ? `${SEP}<span class="hm-title-ag">${agencies.map(escapeHtml).join(' · ')}</span>` : ''}</span>
           ${titleStatusHtml(t, staleSet)}
         </div>
         <h3 class="hm-title-name"><a href="${titleHref(t.title)}">${escapeHtml(t.name)}</a></h3>
         ${t.summary
           ? `<p class="hm-title-desc">${escapeHtml(t.summary)}</p>`
           : !(state.homeSnapshot && Array.isArray(state.homeSnapshot.titles))
-            ? `<div class="skel-stack" style="margin-top:8px;gap:6px" aria-hidden="true"><span class="skel skel-line is-sm" style="width:92%"></span><span class="skel skel-line is-sm" style="width:68%"></span></div>`
+            ? skeletonHtml('summary')
             : ''}
         ${titlePartsHtml(t)}
         <div class="hm-title-foot">
@@ -281,11 +297,12 @@ function titlesBandHtml(titles, recent, projects, totalSections, totalRead) {
     <section class="hm-titles" id="hm-titles" aria-label="Downloaded titles">
       <div class="hm-sec-head">
         <div class="hm-sec-head-left">
-          <h2 class="hm-sec-title">Downloaded Titles</h2>
-          <span class="hm-sec-meta">${joinSep([plural(titles.length, 'title'), `${fmt(totalSections)} sections offline`, totalRead ? `${fmt(totalRead)} read` : ''])}</span>
+          <h2 class="hm-sec-title">Downloaded Frameworks</h2>
+          <span class="hm-sec-meta">${joinSep([plural(shown.length, 'framework'), `${fmt(totalSections)} sections offline`, totalRead ? `${fmt(totalRead)} read` : ''])}</span>
         </div>
-        <a class="hm-inline-link" href="#/library">Add or update titles ${icon('chevronRight')}</a>
+        <a class="hm-inline-link" href="#/library">Add or update frameworks ${icon('chevronRight')}</a>
       </div>
+      ${ribbonHtml}
       <div class="hm-title-grid">${cards}</div>
     </section>`;
 }
@@ -295,11 +312,11 @@ function pulseChipsHtml(a) {
   const chips = [];
   for (const r of (a.cfr_parts || []).slice(0, 2)) {
     const ok = titleInstalled(r.title);
-    chips.push(`<a class="citation-chip${ok ? '' : ' is-dim'}" href="${newsPartHref(r.title, r.part)}">${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
+    chips.push(`<a class="citation-chip${ok ? '' : ' is-dim'}" data-ref-tier="${ok ? 'cfr' : 'uninstalled'}" href="${newsPartHref(r.title, r.part)}">${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
   }
   for (const s of (a.sections || []).slice(0, Math.max(0, 3 - chips.length))) {
     const ok = titleInstalled(29);
-    chips.push(`<a class="citation-chip${ok ? '' : ' is-dim'}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`);
+    chips.push(`<a class="citation-chip${ok ? '' : ' is-dim'}" data-ref-tier="${ok ? 'cfr' : 'uninstalled'}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`);
   }
   return chips.length ? `<div class="hm-news-chips">${chips.join('')}</div>` : '';
 }
@@ -314,12 +331,7 @@ function newsSkeletonHtml() {
       </div>
     </div>
     <div class="hm-news-skel" aria-busy="true" aria-label="Loading OSHA news…">
-      ${[1, 2, 3].map(() => `
-        <div class="hm-news-skel-item">
-          <span class="skel skel-line is-sm" style="width:46%"></span>
-          <span class="skel skel-line" style="width:92%"></span>
-          <span class="skel skel-line" style="width:74%"></span>
-        </div>`).join('')}
+      ${[1, 2, 3].map(() => `<div class="hm-news-skel-item">${skeletonHtml('pulse')}</div>`).join('')}
     </div>`;
 }
 
@@ -477,6 +489,12 @@ export function refreshHomeIfActive() {
 // --- Delegated Home interactions ---
 dom.view.addEventListener('click', async (e) => {
   if (!dom.view.querySelector('.hm')) return;
+  const deskBtn = e.target.closest('[data-desk]');
+  if (deskBtn) {
+    setActiveDesk(deskBtn.dataset.desk || 'all');
+    renderHomeScreen({ enter: false });
+    return;
+  }
   const actEl = e.target.closest('[data-hm-act]');
   if (!actEl) return;
   const act = actEl.dataset.hmAct;

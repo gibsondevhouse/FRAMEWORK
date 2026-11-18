@@ -9,6 +9,8 @@
 }
 .help-head .doc-title { margin: 2px 0 8px; }
 .help-lead { margin: 0; max-width: 60ch; color: var(--fg-2); font-size: 14px; line-height: 1.6; }
+.help-lead a { color: var(--fg); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: .2em; }
+.help-lead a:hover { color: var(--fg-strong); text-decoration-color: var(--fg-strong); }
 .help-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* One glance: what's running, what's optional and off. Chips are buttons (the app
@@ -16,7 +18,7 @@
 .help-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 28px; }
 .help-status-chip {
   display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px;
-  border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+  border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--card);
   color: var(--fg-2); font: var(--w-medium) 12px/1 var(--sans); cursor: pointer;
   transition: background-color var(--t-quick) var(--ease), border-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
 }
@@ -60,7 +62,8 @@
   font: 12px var(--mono); padding: 1px 5px; border-radius: var(--r-4);
   background: var(--active); color: var(--fg);
 }
-.help-card-copy a { color: var(--accent); }
+.help-card-copy a { color: var(--fg); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: .2em; }
+.help-card-copy a:hover { color: var(--fg-strong); text-decoration-color: var(--fg-strong); }
 .help-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 
 .help-rss-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
@@ -150,7 +153,7 @@
 
 /* .env Modal */
 .modal-backdrop {
-  position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px;
+  position: fixed; inset: 0; z-index: var(--z-modal); display: grid; place-items: center; padding: 16px;
   background: color-mix(in srgb, var(--bg) 72%, transparent);
   backdrop-filter: blur(6px);
 }
@@ -177,21 +180,35 @@
 .env-field-help { margin: 0; font-size: 12px; line-height: 1.45; color: var(--fg-3); }
 .env-field-help a { color: var(--accent); }
 .env-secret-row { display: flex; align-items: center; gap: 8px; }
+.env-secret-row .btn { height: 32px; padding: 0 10px; }
 .env-secret-row input, .env-field input[type="text"], .env-days-field input {
   flex: 1 1 auto; min-width: 0; height: 32px; padding: 0 10px;
   border: 1px solid var(--line); border-radius: var(--r-6);
-  background: var(--field); color: var(--fg); font: var(--w-regular) 13px/1 var(--sans);
+  background: var(--field); color: var(--fg); font: var(--w-regular) 13px/1 var(--sans); outline: none;
+  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease);
 }
 .env-secret-row input { font-family: var(--mono); font-size: 12.5px; }
+.env-secret-row input:hover, .env-field input[type="text"]:hover, .env-days-field input:hover { border-color: var(--line-strong); }
 .env-secret-row input:focus, .env-field input[type="text"]:focus, .env-days-field input:focus {
-  outline: 2px solid var(--focus); outline-offset: -1px;
+  border-color: var(--focus); background: var(--panel);
 }
 .env-clear-check, .env-toggle-row {
   display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-2); cursor: pointer;
 }
 .env-clear-check input, .env-toggle-row input { accent-color: var(--brand); }
 .env-advanced { border: 1px solid var(--line-soft); border-radius: var(--r-8); padding: 10px 12px; background: var(--panel); }
-.env-advanced summary { cursor: pointer; font: var(--w-medium) 12.5px/1.4 var(--sans); color: var(--fg-2); }
+.env-advanced summary {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+  font: var(--w-medium) 12.5px/1.4 var(--sans); color: var(--fg-2);
+  transition: color var(--t-quick) var(--ease);
+}
+.env-advanced summary::-webkit-details-marker { display: none; }
+.env-advanced summary::before {
+  content: ""; width: 16px; height: 16px; background: var(--chevron) center no-repeat; transform: rotate(-90deg);
+  transition: transform var(--t-base) var(--ease);
+}
+.env-advanced[open] summary::before { transform: none; }
+.env-advanced summary:hover { color: var(--fg); }
 .env-advanced-body { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .env-field-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .env-days-field { display: flex; align-items: center; gap: 8px; }

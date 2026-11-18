@@ -1,5 +1,7 @@
 import './state_init';
 import './dom';
+import './components/corpora';
+import './components/ui';
 import './router';
 import './views/core';
 import './usage';
@@ -38,19 +40,13 @@ import './components/peek';
 import { state } from './state';
 import { refreshModelsConfig } from './components/env_modal';
 import { ensureTreeLoaded, switchTitle } from './components/sidebar';
+import { syncCorporaState } from './components/corpora';
 import { fillTitleSelect, setReaderEnabled } from './components/title_switcher';
 import { isMac } from './dom';
 import { updateRailHome } from './nav';
-import { setTheme } from './panels/settings_panel';
 import { handleRoute } from './router';
 import { dom } from './state_init';
 import { getJSON, pollJobsIfActive, setJobs } from './views/library';
-
-// --- Theme & Nav Toggles ---
-dom.themeToggle.addEventListener('click', () => {
-  setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
-});
-
 
 export const chatKbd = document.getElementById('chat-kbd');
 
@@ -65,6 +61,7 @@ export async function init() {
     if (titlesRes.ok) {
       state.installedTitles = await titlesRes.json();
       state.noTitles = state.installedTitles.length === 0;
+      syncCorporaState();
       // Title 29 is the default, but it may have been removed in the library.
       if (state.installedTitles.length && !state.installedTitles.some(t => t.title === state.currentTitle)) {
         await switchTitle(state.installedTitles[0].title);

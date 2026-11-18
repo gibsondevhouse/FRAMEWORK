@@ -11,14 +11,20 @@ import { dom } from '../state_init';
 import { fmt } from '../usage';
 import { HOME_CONTENT } from '../views/core';
 import { refreshHomeIfActive } from '../views/home';
+import {
+  SEP, fmtBytes, fmtDate, fmtMB, fmtSections, joinSep, metricCardHtml,
+  emptyStateHtml, shortDate, statPill,
+} from '../components/ui';
+export { SEP, fmtBytes, fmtDate, fmtMB, fmtSections, joinSep, shortDate, statPill };
 import { refreshWelcome } from './welcome';
+import { corpusHashFor, refTierForCorpus, TIER_META, TIER_ORDER } from '../components/corpora';
 
 // --- Library: download titles, parts or sections from eCFR (#/library…) ---
 // Three levels, like the sidebar: every title → one title's parts → one part's sections.
 // Row actions (Download, Open, Update, Remove) appear on hover or focus. Downloads queue on
 // the server and run one at a time; `jobs` polls while any are active, wherever you are,
 // and refreshes the title list (and this page) as each finishes.
-export const lib = { view: null, data: null, filter: '', sort: 'desk', wire: null };
+export const lib = { view: null, data: null, filter: '', sort: 'desk', tier: 'all', wire: null };
 
 try {
   const saved = localStorage.getItem('libSort');
@@ -34,13 +40,12 @@ state.jobsSeenActive = new Set();
 state.lastJobsKey = '';
 
 
-export const fmtDate = (iso) => {
-  if (!iso) return '';
-  const d = new Date(iso + 'T00:00:00');
-  return isNaN(d) ? iso : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-};
+// --- Status: a 6px dot and a word, Linear's issue-status vocabulary (`.stat-pill`) ---
+// Re-exported from components/ui.js for compatibility across existing callers.
 
-export const libHref = (title, part) => '#/library' + (title ? `/${title}` : '') + (part ? `/part/${encodeURIComponent(part)}` : '');
+export const isStale = (t) => Boolean(t.installed && t.latest && t.installed.edition && t.latest > t.installed.edition);
+
+export const jobStatus = (j) => j ? statPill('busy', j.state === 'running' ? 'Downloading' : 'Queued', { bare: true }) : '';
 
 
 export async function getJSON(url, opts) {
@@ -78,12 +83,11 @@ export async function loadLibrary(title, part) {
     }
   } catch (err) {
     if (seq !== state.routeSeq) return;
-    dom.view.innerHTML = `
-      <div class="empty-state">
-        <h2>Couldn’t load the library</h2>
-        <p>${escapeHtml(err.message)}</p>
-        <button type="button" class="btn" id="lib-retry">Try again</button>
-      </div>`;
+    dom.view.innerHTML = emptyStateHtml({
+      title: 'Couldn’t load the library',
+      body: escapeHtml(err.message),
+      actionsHtml: '<button type="button" class="btn" id="lib-retry">Try again</button>',
+    });
     document.getElementById('lib-retry').addEventListener('click', () => loadLibrary(title, part));
   }
 }
@@ -125,19 +129,7 @@ export function libRow({ href, num, name, status, actions, dim, key }) {
 }
 
 
-// --- Status: a 6px dot and a word, Linear's issue-status vocabulary (`.stat-pill`) ---
-// synced (installed, current) · stale (eCFR has a newer edition) · busy (queued or
-// downloading) · partial (some parts or sections) · uninstalled. The dot is aria-hidden;
-// the word carries the meaning. `bare` drops the pill's outline for dense rows.
-export function statPill(state, text, { bare = false, title = '' } = {}) {
-  return `<span class="stat-pill is-${state}${bare ? ' is-bare' : ''}"${title ? ` title="${escapeHtml(title)}"` : ''}>`
-    + `<span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(text)}</span>`;
-}
-
-export const isStale = (t) => Boolean(t.installed && t.latest && t.installed.edition && t.latest > t.installed.edition);
-
-export const jobStatus = (j) => j ? statPill('busy', j.state === 'running' ? 'Downloading' : 'Queued', { bare: true }) : '';
-
+export const libHref = (title, part) => '#/library' + (title ? `/${title}` : '') + (part ? `/part/${encodeURIComponent(part)}` : '');
 
 export function titleStatus(t) {
   if (t.reserved) return { state: 'uninstalled', text: 'Reserved' };
@@ -157,24 +149,6 @@ export function renderStatusPill(t, opts = {}) {
   const s = titleStatus(t);
   return statPill(s.state, s.text, { title: s.title, ...opts });
 }
-
-
-// --- Telemetry formatting: tabular numbers with plain units ---
-export const fmtBytes = (bytes) => {
-  if (!bytes || bytes <= 0) return '';
-  if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  const mb = bytes / 1048576;
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-  return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`;
-};
-
-export const fmtMB = (mb) => (mb ? fmtBytes(mb * 1048576) : '');
-
-export const fmtSections = (n) => (n ? `${fmt(n)} ${n === 1 ? 'section' : 'sections'}` : '');
-
-export const SEP = '<span class="sep" aria-hidden="true">·</span>';
-
-export const joinSep = (xs) => xs.filter(Boolean).join(SEP);
 
 export function relTime(ms) {
   const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -203,14 +177,6 @@ export function amendedWeek(d) {
 // summary, dateline (amended · sections · size); actions slide in on hover or focus.
 export const LIB_SORTS = [['desk', 'By desk'], ['number', 'By number'], ['updated', 'Recently amended']];
 
-export const shortDate = (iso) => {
-  if (!iso) return '';
-  const d = new Date(iso + 'T00:00:00');
-  if (isNaN(d)) return iso;
-  const opts = d.getFullYear() === new Date().getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' };
-  return d.toLocaleDateString(undefined, opts);
-};
-
 
 export function titleActions(t) {
   if (t.reserved || jobFor(t.title, 'title')) return '';
@@ -237,7 +203,7 @@ export function libStory(t) {
   ]);
   const acts = titleActions(t);
   const hay = `${t.title} title ${t.name} ${t.summary || ''} ${t.desk || ''} ${(t.agencies || []).join(' ')}`.toLowerCase();
-  return `<article class="lib-story${t.reserved ? ' is-dim' : ''}" data-hay="${escapeHtml(hay)}">
+  return `<article class="lib-story has-tier-bar${t.reserved ? ' is-dim' : ''}" data-ref-tier="cfr" data-hay="${escapeHtml(hay)}">
     <div class="story-top"><span class="story-kicker">${kicker}</span>${renderStatusPill(t, { bare: !inst })}</div>
     <h3 class="story-name">${headline}</h3>
     ${t.summary ? `<p class="story-dek">${escapeHtml(t.summary)}</p>` : ''}
@@ -254,19 +220,36 @@ export function libMetrics(d) {
   const stale = live.filter(isStale);
   const { cut, recent } = amendedWeek(d);
   const updating = [state.jobs.current, ...state.jobs.queued].some(j => j && j.kind === 'update');
-  const tile = (label, value, sub, cls = '') => `<div class="metric-card${cls}">
-      <div class="metric-label">${label}</div><div class="metric-val">${value}</div><div class="metric-sub">${sub}</div></div>`;
   return `<section class="lib-metrics" aria-label="Library at a glance">
-    ${tile('<span class="stat-dot is-synced" aria-hidden="true"></span>eCFR', 'Online',
-      d.checked_at ? `Title list checked ${escapeHtml(relTime(d.checked_at * 1000))}` : `${live.length} titles tracked`)}
-    ${tile('Installed', `${inst.length}<span class="metric-of">of ${live.length}</span>`,
-      joinSep([fmtSections(sections) || 'No sections yet', bytes ? `${fmtBytes(bytes)} on disk` : '']))}
-    ${tile('Amended this week', String(recent), cut ? `Since ${escapeHtml(shortDate(cut))}${SEP}<button type="button" class="metric-link" data-sort="updated">Show</button>` : 'No edition date')}
+    ${metricCardHtml({
+      label: '<span class="stat-dot is-synced" aria-hidden="true"></span>eCFR',
+      value: 'Online',
+      sub: d.checked_at ? `Title list checked ${escapeHtml(relTime(d.checked_at * 1000))}` : `${live.length} titles tracked`,
+    })}
+    ${metricCardHtml({
+      label: 'Installed',
+      value: String(inst.length),
+      of: `of ${live.length}`,
+      sub: joinSep([fmtSections(sections) || 'No sections yet', bytes ? `${fmtBytes(bytes)} on disk` : '']),
+    })}
+    ${metricCardHtml({
+      label: 'Amended this week',
+      value: String(recent),
+      sub: cut ? `Since ${escapeHtml(shortDate(cut))}${SEP}<button type="button" class="metric-link" data-sort="updated">Show</button>` : 'No edition date',
+    })}
     ${stale.length
-      ? tile('<span class="stat-dot is-stale" aria-hidden="true"></span>Editions', `${stale.length} outdated`,
-        updating ? statPill('busy', 'Updating', { bare: true })
-          : `<button type="button" class="metric-link is-strong" data-act="update-all">Update all ${icon('chevronRight')}</button>`, ' is-alert')
-      : tile('Editions', inst.length ? 'Current' : '—', inst.length ? 'Every installed title is up to date' : 'Nothing installed yet')}
+      ? metricCardHtml({
+        label: '<span class="stat-dot is-stale" aria-hidden="true"></span>Editions',
+        value: `${stale.length} outdated`,
+        sub: updating ? statPill('busy', 'Updating', { bare: true })
+          : `<button type="button" class="metric-link is-strong" data-act="update-all">Update all ${icon('chevronRight')}</button>`,
+        alert: true,
+      })
+      : metricCardHtml({
+        label: 'Editions',
+        value: inst.length ? 'Current' : '—',
+        sub: inst.length ? 'Every installed title is up to date' : 'Nothing installed yet',
+      })}
   </section>`;
 }
 
@@ -281,7 +264,8 @@ export function suiteState(s, d) {
   const stale = ts.filter(isStale);
   const needs = ts.filter(t => !jobFor(t.title, 'title') && (!t.installed || !t.installed.whole || isStale(t)));
   let pill;
-  if (busy.length) pill = statPill('busy', `${busy.length} of ${ts.length} in progress`);
+  if (!ts.length) pill = statPill('uninstalled', 'Not installed', { bare: true });
+  else if (busy.length) pill = statPill('busy', `${busy.length} of ${ts.length} in progress`);
   else if (whole.length === ts.length && !stale.length) pill = statPill('synced', 'Installed');
   else if (whole.length === ts.length) pill = statPill('stale', 'Update available');
   else if (any.length) pill = statPill('partial', `${any.length} of ${ts.length} installed`);
@@ -320,8 +304,8 @@ export function suiteHero(s, d) {
   const action = st.label
     ? `<button type="button" class="btn btn-accent" data-act="download-suite" data-suite="${escapeHtml(s.id)}">${icon('download')}${escapeHtml(st.label)}</button>`
     : st.busy.length ? '' : `<a class="btn" href="#/title/${st.ts[0] ? st.ts[0].title : ''}/">Open in reader</a>`;
-  return `<article class="suite-hero" aria-labelledby="suite-${escapeHtml(s.id)}">
-    <div class="story-top"><span class="story-kicker">Featured suite${SEP}${escapeHtml(s.badge || '')}</span>${st.pill}</div>
+  return `<article class="suite-hero has-tier-bar" data-ref-tier="cfr" aria-labelledby="suite-${escapeHtml(s.id)}">
+    <div class="story-top"><span class="story-kicker"><span class="ref-badge">FEDERAL CFR PACK</span>${s.badge ? `${SEP}${escapeHtml(s.badge)}` : ''}</span>${st.pill}</div>
     <h2 class="suite-title" id="suite-${escapeHtml(s.id)}">${escapeHtml(s.name)}</h2>
     <p class="suite-dek">${escapeHtml(s.summary)}</p>
     <ul class="suite-rows">${rows}</ul>
@@ -338,8 +322,8 @@ export function suiteCard(s, d) {
   const titles = st.ts.map(t => `<a href="${libHref(t.title)}"><span class="suite-part-num">${t.title}</span>${escapeHtml(t.name)}</a>`).join('');
   const action = st.label
     ? actBtn('download-suite', `${icon('download')}${escapeHtml(st.label)}`, `data-suite="${escapeHtml(s.id)}"`, 'is-primary') : '';
-  return `<article class="suite-card">
-    <div class="story-top"><span class="story-kicker">${escapeHtml(s.badge || 'Suite')}</span>${st.pill}</div>
+  return `<article class="suite-card has-tier-bar" data-ref-tier="cfr">
+    <div class="story-top"><span class="story-kicker"><span class="ref-badge">CFR PACK</span>${s.badge ? `${SEP}${escapeHtml(s.badge)}` : ''}</span>${st.pill}</div>
     <h3 class="story-name">${escapeHtml(s.name)}</h3>
     <p class="story-dek">${escapeHtml(s.summary)}</p>
     <div class="suite-parts suite-card-titles">${titles}</div>
@@ -422,28 +406,81 @@ export function libTitleList(d, sort) {
 }
 
 
+const LIB_TIER_TABS = [
+  { id: 'all', label: 'All Authorities', refTier: 'cfr' },
+  { id: 'federal-statute', label: 'U.S. Code', refTier: 'usc' },
+  { id: 'federal-reg', label: 'Federal CFR', refTier: 'cfr' },
+  { id: 'state', label: 'States', refTier: 'state' },
+  { id: 'county', label: 'Counties', refTier: 'county' },
+  { id: 'standard', label: 'Standards', refTier: 'ibr' },
+];
+
+export function libTierTabsHtml(d) {
+  const cfrCount = (d.titles || []).filter(t => !t.reserved).length;
+  const extras = state.extraCorpora || [];
+  const countFor = (id) => {
+    if (id === 'all') return cfrCount + extras.length;
+    if (id === 'federal-reg') return cfrCount + extras.filter(c => c.tier === 'federal-reg').length;
+    return extras.filter(c => c.tier === id).length;
+  };
+  return `<div class="lib-tier-bar" role="tablist" aria-label="Filter catalog by authority tier">${LIB_TIER_TABS.map(t => {
+    const on = lib.tier === t.id;
+    const count = countFor(t.id);
+    return `<button type="button" role="tab" aria-selected="${on}" class="lib-tier-tab${on ? ' is-active' : ''}" data-ref-tier="${t.refTier}" data-lib-tier="${t.id}">
+      <span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(t.label)}</span>${count ? `<span class="lib-tier-count">${count}</span>` : ''}
+    </button>`;
+  }).join('')}</div>`;
+}
+
+function libExtraTierBodyHtml(tierId) {
+  const meta = TIER_META[tierId] || TIER_META['state'];
+  const matches = (state.extraCorpora || []).filter(c => c.tier === tierId);
+  if (matches.length) {
+    return `<section class="lib-desk" aria-label="${escapeHtml(meta.label)}">
+      <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(meta.label)}</h3><span class="lib-desk-count">${plural(matches.length, 'corpus')}</span></header>
+      <div class="lib-stories">${matches.map(c => `
+        <article class="lib-story has-tier-bar" data-ref-tier="${refTierForCorpus(c)}">
+          <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}${escapeHtml(c.jurisdiction_label || c.jurisdiction)}</span>${statPill('synced', 'Ready')}</div>
+          <h3 class="story-name"><a href="${escapeHtml(corpusHashFor(c))}">${escapeHtml(c.code)} — ${escapeHtml(c.name)}</a></h3>
+          ${c.summary ? `<p class="story-dek">${escapeHtml(c.summary)}</p>` : ''}
+          <div class="story-foot"><span class="story-date">${escapeHtml((c.agencies || []).join(' · ') || meta.label)}</span><div class="story-actions"><a class="lib-act" href="${escapeHtml(corpusHashFor(c))}">Open</a></div></div>
+        </article>`).join('')}</div></section>`;
+  }
+  const tierDescriptions = {
+    'federal-statute': 'United States Code (U.S.C.) XML statutory packs (Title 29 OSH Act/FLSA, Title 42 EPA statutes, Title 49 Transportation) plug directly into this catalog slot alongside CFR cross-links.',
+    'state': 'State administrative codes and OSHA-approved State Plans (e.g., California 8 CCR, Texas TAC, Washington WAC) share the same CorpusSummary contract and search facets.',
+    'county': 'County and municipal fire, air-quality, and environmental health ordinances attach under State feeds using jurisdiction codes like US-CA-LA.',
+    'standard': 'Incorporated consensus standards (ANSI, NFPA, ASTM, ASME) currently resolve inside section peeker popovers and each Title Start Almanac.',
+  };
+  return `<section class="resolver-card has-tier-bar" data-ref-tier="${meta.refTier}" style="margin-top:8px">
+    <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}Catalog Slot Pre-Wired</div>
+    <h2 class="doc-title" style="font-size:20px">${escapeHtml(meta.label)}</h2>
+    <p class="resolver-msg">${escapeHtml(tierDescriptions[tierId] || 'Backend ingestion pack pending.')}</p>
+    <div class="resolver-acts">
+      <button type="button" class="btn btn-accent" data-lib-tier="federal-reg">View Federal CFR Catalog</button>
+      <a class="btn" href="#/title/${state.currentTitle}/">Open ${state.currentTitle} CFR Almanac</a>
+    </div>
+  </section>`;
+}
+
 export function libFrontHtml(d) {
   const live = d.titles.filter(t => !t.reserved);
   const { newest, recent } = amendedWeek(d);
   const sub = joinSep([
-    'Code of Federal Regulations from eCFR',
+    'Multi-Jurisdiction Regulatory Catalog',
     newest ? `Edition ${escapeHtml(fmtDate(newest))}` : '',
-    `${live.length} active titles`,
+    `${live.length} CFR titles`,
     recent ? `${recent} amended this week` : 'No amendments this week',
   ]);
   const suites = Object.values(d.suites || {});
   const lead = suites.find(s => s.featured) || suites[0];
   const others = suites.filter(s => s !== lead);
-  return `<div class="lib lib-front">
-    <div class="doc-kicker"><a href="#/">Home</a></div>
-    <header class="lib-masthead">
-      <h1 class="doc-title">Library</h1>
-      <p class="lib-sub">${sub}</p>
-    </header>
-    ${libMetrics(d)}
+  const showCfr = lib.tier === 'all' || lib.tier === 'federal-reg';
+  const extraTiers = TIER_ORDER.filter(t => t !== 'federal-reg' && (lib.extraCorporaCount || (state.extraCorpora || []).some(c => c.tier === t)));
+  const cfrBody = `
     <div class="lib-broadsheet${lead ? '' : ' is-wire-only'}">${lead ? suiteHero(lead, d) : ''}${libWire(d)}</div>
     ${others.length ? `<section class="lib-suites" aria-label="More compliance suites">
-      <header class="lib-desk-header"><h2 class="lib-desk-name">More suites</h2><span class="lib-desk-count">${plural(others.length, 'suite')}</span></header>
+      <header class="lib-desk-header"><h2 class="lib-desk-name">Jurisdiction Packs</h2><span class="lib-desk-count">${plural(others.length, 'pack')}</span></header>
       <div class="lib-suite-grid">${others.map(s => suiteCard(s, d)).join('')}</div></section>` : ''}
     <div class="lib-tools">
       <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter titles or agencies…" aria-label="Filter titles or agencies" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
@@ -451,7 +488,18 @@ export function libFrontHtml(d) {
         `<button type="button" data-sort="${k}" aria-pressed="${lib.sort === k}">${label}</button>`).join('')}</div>
     </div>
     <div class="lib-list" id="lib-list">${libTitleList(d, lib.sort)}</div>
-    <div class="lib-none" id="lib-none" hidden>No title matches. Try an agency (“OSHA”) or a topic.</div>
+    <div class="lib-none" id="lib-none" hidden>No title matches. Try an agency (“OSHA”) or a topic.</div>`;
+
+  return `<div class="lib lib-front">
+    <div class="doc-kicker"><a href="#/">Home</a></div>
+    <header class="lib-masthead">
+      <h1 class="doc-title">Library</h1>
+      <p class="lib-sub">${sub}</p>
+    </header>
+    ${libMetrics(d)}
+    ${libTierTabsHtml(d)}
+    ${showCfr ? cfrBody : libExtraTierBodyHtml(lib.tier)}
+    ${lib.tier === 'all' && extraTiers.length ? extraTiers.map(libExtraTierBodyHtml).join('') : ''}
   </div>`;
 }
 
@@ -633,6 +681,13 @@ dom.view.addEventListener('input', (e) => {
 // Ordering: the segmented control, and the "Show" / "All titles by last amendment" links in
 // the metrics and the wire, which jump to the list ordered by amendment.
 dom.view.addEventListener('click', (e) => {
+  const tierBtn = e.target.closest('button[data-lib-tier]');
+  if (tierBtn && dom.view.querySelector('.lib-front')?.contains(tierBtn)) {
+    lib.tier = tierBtn.dataset.libTier || 'all';
+    dom.view.innerHTML = libFrontHtml(lib.data);
+    applyLibraryFilter();
+    return;
+  }
   const sortBtn = e.target.closest('button[data-sort]');
   if (!sortBtn || !dom.view.querySelector('.lib')?.contains(sortBtn)) return;
   const fromSeg = Boolean(sortBtn.closest('.lib-seg'));

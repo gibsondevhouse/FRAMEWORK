@@ -1,7 +1,8 @@
 import { state } from './state';
 import { renderResolverPage } from './components/cfr_resolver';
+import { parseCorpusPath, syncCorporaState } from './components/corpora';
 import { clearTreeSelection, switchTitle } from './components/sidebar';
-import { renderNotFound } from './components/title_switcher';
+import { renderCorpusStaging, renderNotFound } from './components/title_switcher';
 import { setViewHead } from './components/view_head';
 import { syncNavToRoute } from './nav';
 import { renderSettingsPage } from './panels/settings_panel';
@@ -44,7 +45,36 @@ export async function handleRoute() {
   }
 
   let checkPath = path;
-  const titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
+  let titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
+  const corpusMatch = !titleMatch ? parseCorpusPath(path) : null;
+  if (corpusMatch) {
+    syncCorporaState();
+    const isCfr = corpusMatch.tier === 'federal-reg' || corpusMatch.tier === 'cfr';
+    const cfrTitleNum = isCfr ? parseInt(corpusMatch.code, 10) : NaN;
+    if (isCfr && Number.isFinite(cfrTitleNum)) {
+      titleMatch = [path, String(cfrTitleNum), corpusMatch.subPath];
+    } else {
+      const matchedCorpus = state.corpora.find(c =>
+        c.tier === corpusMatch.tier
+        && c.jurisdiction.toLowerCase() === corpusMatch.jurisdiction.toLowerCase()
+        && String(c.code).toLowerCase() === String(corpusMatch.code).toLowerCase(),
+      );
+      clearTreeSelection();
+      setViewHead('');
+      renderCorpusStaging(matchedCorpus || {
+        corpus_id: `${corpusMatch.jurisdiction}:${corpusMatch.tier}:${corpusMatch.code}`,
+        tier: corpusMatch.tier,
+        jurisdiction: corpusMatch.jurisdiction,
+        jurisdiction_label: corpusMatch.jurisdiction,
+        code: corpusMatch.code,
+        name: `${corpusMatch.jurisdiction} ${corpusMatch.code}`,
+        desk: 'ehs',
+        agencies: [],
+        installed: false,
+      });
+      return;
+    }
+  }
   if (titleMatch) {
     const targetTitle = parseInt(titleMatch[1], 10);
     const subPath = titleMatch[2] || '/';

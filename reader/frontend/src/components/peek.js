@@ -80,6 +80,7 @@ function renderLocalParaPeek(trigger, root) {
   return `
     <div class="pop-head-row">
       <div class="pop-kicker">${secId ? `${t} CFR § ${escapeHtml(secId)} ` : ''}${escapeHtml(para)}</div>
+      <span class="peek-badge">CLAUSE</span>
     </div>
     <p class="peek-text">${escapeHtml(snippet)}</p>
     <div class="peek-foot">
@@ -101,6 +102,7 @@ function renderFootnotePeek(trigger, root) {
   return `
     <div class="pop-head-row">
       <div class="pop-kicker">Footnote ${escapeHtml(trigger.textContent.trim())}</div>
+      <span class="peek-badge">FOOTNOTE</span>
     </div>
     <p class="peek-text">${escapeHtml(txt)}</p>
     <div class="peek-foot">
@@ -131,6 +133,7 @@ function renderAnchorPeek(trigger, root) {
     return `
       <div class="pop-head-row">
         <div class="pop-kicker">${escapeHtml(clipText(caption, 90))}</div>
+        <span class="peek-badge">TABLE</span>
       </div>
       <div class="peek-table-box">
         <table class="peek-table">
@@ -152,6 +155,7 @@ function renderAnchorPeek(trigger, root) {
     return `
       <div class="pop-head-row">
         <div class="pop-kicker">${escapeHtml(caption)}</div>
+        <span class="peek-badge">FIGURE</span>
       </div>
       ${img?.src ? `<div class="peek-fig-mat"><img class="peek-fig-img" src="${escapeHtml(img.src)}" alt="${escapeHtml(caption)}"></div>` : ''}
       <div class="peek-foot">
@@ -166,6 +170,7 @@ function renderAnchorPeek(trigger, root) {
     return `
       <div class="pop-head-row">
         <div class="pop-kicker">${escapeHtml(clipText(head, 80))}</div>
+        <span class="peek-badge">APPENDIX</span>
       </div>
       <p class="peek-text">${escapeHtml(para)}</p>
       <div class="peek-foot">
@@ -196,13 +201,46 @@ function renderExternalHintPeek(trigger) {
   return `
     <div class="pop-head-row">
       <div class="pop-kicker">${escapeHtml(label)}</div>
-      <span class="peek-badge">External</span>
+      <span class="peek-badge">UNINSTALLED</span>
     </div>
     <p class="peek-text">${escapeHtml(sub)} Click to download into the reader or open on eCFR.</p>
   `;
 }
 
-async function openSectionHrefPeek(trigger, root, parsed) {
+function renderUscPeek(trigger) {
+  const href = trigger.getAttribute('href') || '';
+  const m = /\/uscode\/text\/(\d+)\/([^/?#]+)/i.exec(href);
+  const uscTitle = m ? m[1] : '';
+  const uscSec = m ? m[2] : '';
+  const titleAttr = trigger.getAttribute('title') || '';
+  const kicker = uscTitle && uscSec ? `${uscTitle} U.S.C. § ${uscSec}` : cleanInlineLabel(trigger.textContent);
+  return `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${escapeHtml(kicker)}</div>
+      <span class="peek-badge">U.S. CODE</span>
+    </div>
+    <div class="peek-title">${escapeHtml(titleAttr || `Title ${uscTitle || ''} United States Code`)}</div>
+    <p class="peek-text">Statutory authority codified in the United States Code. Click to inspect the enacted text on Cornell LII.</p>
+  `;
+}
+
+function renderFrPeek(trigger) {
+  const href = trigger.getAttribute('href') || '';
+  const m = /\/citation\/(\d+)-FR-(\d+)/i.exec(href);
+  const vol = m ? m[1] : '';
+  const page = m ? m[2] : '';
+  const kicker = vol && page ? `${vol} FR ${page}` : cleanInlineLabel(trigger.textContent);
+  return `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${escapeHtml(kicker)}</div>
+      <span class="peek-badge">FED. REGISTER</span>
+    </div>
+    <div class="peek-title">Federal Register Publication</div>
+    <p class="peek-text">Rulemaking history, preamble, and final rule publication at Volume ${escapeHtml(vol || '—')}, page ${escapeHtml(page || '—')}.</p>
+  `;
+}
+
+async function openSectionHrefPeek(trigger, root, parsed, rootTitle) {
   const pClause = parsed.para && /^\(([a-z])\)/i.exec(parsed.para.trim());
   const unitKey = parsed.unit === 'full' ? null : (parsed.unit || (pClause ? pClause[1].toLowerCase() : ''));
   const cacheKey = `${parsed.title}|${parsed.section}|${unitKey || 'full'}`;
@@ -247,9 +285,12 @@ async function openSectionHrefPeek(trigger, root, parsed) {
     split: { title: parsed.title, sectionId: parsed.section, para: parsed.para, unit: parsed.unit },
   };
 
+  const isCross = Number(parsed.title) !== Number(rootTitle) || trigger.classList.contains('xref-cross');
+  const tier = isCross ? 'cross' : 'cfr';
   citePop.open(trigger, `
     <div class="pop-head-row">
       <div class="pop-kicker">${parsed.title} CFR ${escapeHtml(label)}${parsed.para ? ' ' + escapeHtml(parsed.para) : ''}</div>
+      <span class="peek-badge">${isCross ? `CROSS-TITLE · ${parsed.title} CFR` : `${parsed.title} CFR`}</span>
     </div>
     ${titleText ? `<div class="peek-title">${escapeHtml(titleText)}</div>` : ''}
     ${snippet ? `<p class="peek-text">${escapeHtml(snippet)}</p>` : ''}
@@ -257,7 +298,7 @@ async function openSectionHrefPeek(trigger, root, parsed) {
       <a class="btn btn-small" href="${escapeHtml(href)}">Open</a>
       <button type="button" class="btn btn-small" data-peek-split="1">Open side-by-side</button>
     </div>
-  `, { interactive: false });
+  `, { interactive: false, refTier: tier });
 }
 
 function renderIbrPeek(trigger, root) {
@@ -280,7 +321,7 @@ function renderIbrPeek(trigger, root) {
   return `
     <div class="pop-head-row">
       <div class="pop-kicker">${escapeHtml(item.code)}</div>
-      <span class="peek-badge">${escapeHtml(item.org)}</span>
+      <span class="peek-badge">IBR · ${escapeHtml(item.org)}</span>
     </div>
     ${item.org_name ? `<div class="peek-title">${escapeHtml(item.org_name)}</div>` : ''}
     ${app
@@ -296,7 +337,7 @@ function renderIbrPeek(trigger, root) {
 
 
 function getPeekTrigger(el) {
-  return el.closest?.('a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], button.xref-ibr[data-ibr-code], a.xref-external[data-cfr-title], a.xref[href], a.xref-cross[href], a.citation-chip[href*="/section/"]') || null;
+  return el.closest?.('a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], button.xref-ibr[data-ibr-code], a.xref-external[data-cfr-title], a.xref-usc, a.xref-fr, a.xref[href], a.xref-cross[href], a.citation-chip[href*="/section/"]') || null;
 }
 
 function handleHoverOver(e, root) {
@@ -320,33 +361,43 @@ function handleHoverOver(e, root) {
 
     if (trigger.matches('a.xref-local[data-local-para]')) {
       const html = renderLocalParaPeek(trigger, root);
-      if (html) citePop.open(trigger, html, { interactive: false });
+      if (html) citePop.open(trigger, html, { interactive: false, refTier: 'local' });
       return;
     }
     if (trigger.matches('.ftref[data-anchor]')) {
       const html = renderFootnotePeek(trigger, root);
-      if (html) citePop.open(trigger, html, { interactive: false });
+      if (html) citePop.open(trigger, html, { interactive: false, refTier: 'local' });
       return;
     }
     if (trigger.matches('button.xref-anchor[data-anchor]')) {
       const html = renderAnchorPeek(trigger, root);
-      if (html) citePop.open(trigger, html, { interactive: false });
+      if (html) citePop.open(trigger, html, { interactive: false, refTier: 'local' });
       return;
     }
     if (trigger.matches('button.xref-ibr[data-ibr-code]')) {
       const html = renderIbrPeek(trigger, root);
-      if (html) citePop.open(trigger, html, { interactive: false });
+      if (html) citePop.open(trigger, html, { interactive: false, refTier: 'ibr' });
       return;
     }
     if (trigger.matches('a.xref-external[data-cfr-title]')) {
       lastHoverContext = null;
-      citePop.open(trigger, renderExternalHintPeek(trigger), { interactive: false });
+      citePop.open(trigger, renderExternalHintPeek(trigger), { interactive: false, refTier: 'uninstalled' });
+      return;
+    }
+    if (trigger.matches('a.xref-usc')) {
+      lastHoverContext = null;
+      citePop.open(trigger, renderUscPeek(trigger), { interactive: false, refTier: 'usc' });
+      return;
+    }
+    if (trigger.matches('a.xref-fr')) {
+      lastHoverContext = null;
+      citePop.open(trigger, renderFrPeek(trigger), { interactive: false, refTier: 'fr' });
       return;
     }
     if (trigger.matches('a[href^="#"]')) {
       const parsed = parseCfrHref(trigger.getAttribute('href'), rootTitle);
       if (parsed && parsed.kind === 'section') {
-        openSectionHrefPeek(trigger, root, parsed);
+        openSectionHrefPeek(trigger, root, parsed, rootTitle);
       }
     }
   }, 250);
@@ -371,20 +422,20 @@ for (const root of [dom.view, dom.splitPane].filter(Boolean)) {
     if (html) {
       e.preventDefault();
       cancelHoverTimers();
-      citePop.open(ibrBtn, html, { interactive: true, returnFocus: ibrBtn });
+      citePop.open(ibrBtn, html, { interactive: true, returnFocus: ibrBtn, refTier: 'ibr' });
     }
   });
 }
 
-if (citePopEl) {
-  citePopEl.addEventListener('mouseenter', () => {
+if (dom.citePop) {
+  dom.citePop.addEventListener('mouseenter', () => {
     clearTimeout(closeTimer);
     closeTimer = null;
   });
-  citePopEl.addEventListener('mouseleave', () => {
+  dom.citePop.addEventListener('mouseleave', () => {
     if (!citePop.isInteractive()) scheduleCloseHover();
   });
-  citePopEl.addEventListener('click', (e) => {
+  dom.citePop.addEventListener('click', (e) => {
     const jumpBtn = e.target.closest('[data-peek-jump]');
     if (jumpBtn && lastHoverContext) {
       const ctx = lastHoverContext;

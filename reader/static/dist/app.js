@@ -1,6 +1,10 @@
 // src/state.ts
 var state = {
 	currentTitle: 29,
+	activeCorpusId: "us:cfr:29",
+	activeDesk: "all",
+	corpora: [],
+	extraCorpora: [],
 	installedTitles: [],
 	homeSnapshot: void 0,
 	noTitles: false,
@@ -63,6 +67,9 @@ var state = {
 };
 // src/state_init.js
 state.currentTitle = 29;
+state.activeCorpusId = "us:cfr:29";
+state.corpora = [];
+state.extraCorpora = [];
 state.installedTitles = [];
 state.noTitles = false;
 state.profilesData = null;
@@ -93,7 +100,6 @@ var dom = {
 	search: document.getElementById("search"),
 	searchDropdown: document.getElementById("search-dropdown"),
 	edition: document.getElementById("edition"),
-	themeToggle: document.getElementById("theme-toggle"),
 	chatToggle: document.getElementById("chat-toggle"),
 	layout: document.getElementById("layout"),
 	sidebar: document.getElementById("sidebar"),
@@ -4590,7 +4596,16 @@ function skeletonHtml(kind = "doc", label = "Loading…") {
 		3,
 		4
 	].map(() => `<div class="skel-card">${line("34%", "is-sm")}${line("74%", "is-lg")}${line("92%")}${line("64%")}</div>`).join("")}</div></div>`;
-	else body = `<div class="skel-stack" style="gap:16px">${line("24%", "is-sm")}${line("62%", "is-xl")}<div class="skel-stack" style="gap:10px;margin-top:8px">${line("94%")}${line("88%")}${line("91%")}${line("76%")}${line("84%")}</div></div>`;
+	else if (kind === "lines") {
+		body = `<div class="skel-stack" style="gap:8px;margin-top:8px" aria-hidden="true">${line("86%", "is-sm")}${line("74%", "is-sm")}${line("68%", "is-sm")}</div>`;
+		return body;
+	} else if (kind === "summary") {
+		body = `<div class="skel-stack" style="margin-top:8px;gap:6px" aria-hidden="true">${line("92%", "is-sm")}${line("68%", "is-sm")}</div>`;
+		return body;
+	} else if (kind === "pulse") {
+		body = `<div class="skel-stack" style="gap:8px" aria-hidden="true">${line("46%", "is-sm")}${line("92%")}${line("74%")}</div>`;
+		return body;
+	} else body = `<div class="skel-stack" style="gap:16px">${line("24%", "is-sm")}${line("62%", "is-xl")}<div class="skel-stack" style="gap:10px;margin-top:8px">${line("94%")}${line("88%")}${line("91%")}${line("76%")}${line("84%")}</div></div>`;
 	return `<div class="loading is-skel" role="status" aria-busy="true" aria-label="${escapeHtml(label)}">${body}</div>`;
 }
 var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -4609,6 +4624,284 @@ function enterView() {
 	});
 }
 var isMac = /Mac|iPhone|iPad/.test(navigator.platform || "");
+// src/components/corpora.js
+var ACTIVE_DESK_KEY = "framework_desk_v1";
+var TIER_ORDER = [
+	"federal-statute",
+	"federal-reg",
+	"state",
+	"county",
+	"standard"
+];
+var TIER_META = {
+	"federal-statute": {
+		label: "Federal Statutes (U.S.C.)",
+		short: "U.S.C.",
+		refTier: "usc",
+		tag: "STATUTE"
+	},
+	"federal-reg": {
+		label: "Federal Regulations (CFR)",
+		short: "CFR",
+		refTier: "cfr",
+		tag: "FEDERAL REG"
+	},
+	"state": {
+		label: "State Codes",
+		short: "State",
+		refTier: "state",
+		tag: "STATE"
+	},
+	"county": {
+		label: "County & Municipal",
+		short: "County",
+		refTier: "county",
+		tag: "LOCAL CODE"
+	},
+	"standard": {
+		label: "Consensus Standards",
+		short: "Std",
+		refTier: "ibr",
+		tag: "STANDARD"
+	}
+};
+var DESK_DEFS = [
+	{
+		id: "all",
+		label: "All Desks"
+	},
+	{
+		id: "ehs",
+		label: "Safety & Labor"
+	},
+	{
+		id: "env",
+		label: "Environmental"
+	},
+	{
+		id: "transport",
+		label: "Transport & HazMat"
+	},
+	{
+		id: "labor-employment",
+		label: "Wage & Benefits"
+	},
+	{
+		id: "fire-building",
+		label: "Fire & Building"
+	},
+	{
+		id: "commerce-govcon",
+		label: "Commerce & GovCon"
+	}
+];
+var DESK_BY_CFR_TITLE = {
+	10: "env",
+	14: "transport",
+	16: "commerce-govcon",
+	21: "commerce-govcon",
+	23: "transport",
+	24: "fire-building",
+	26: "commerce-govcon",
+	29: "ehs",
+	30: "ehs",
+	33: "env",
+	40: "env",
+	42: "ehs",
+	45: "labor-employment",
+	46: "transport",
+	48: "commerce-govcon",
+	49: "transport"
+};
+var KNOWN_TITLE_AUTHORITIES = {
+	29: {
+		statuteCode: "29 U.S.C. §§ 651–678",
+		statuteLabel: "OSH Act / FLSA Statutory Base",
+		statuteHref: "https://www.law.cornell.edu/uscode/text/29/651",
+		stateHint: "Approved State Plans (e.g. Cal/OSHA Title 8, DOSH, MIOSHA)",
+		countyHint: "Municipal fire / health enforcement overlays"
+	},
+	40: {
+		statuteCode: "42 U.S.C. §§ 6901, 7401",
+		statuteLabel: "RCRA / Clean Air / Clean Water Acts",
+		statuteHref: "https://www.law.cornell.edu/uscode/text/42/6901",
+		stateHint: "Delegated state environmental agencies & SIPs",
+		countyHint: "Air quality management districts & POTW ordinances"
+	},
+	49: {
+		statuteCode: "49 U.S.C. §§ 5101–5128",
+		statuteLabel: "Hazardous Materials Transportation Act",
+		statuteHref: "https://www.law.cornell.edu/uscode/text/49/5101",
+		stateHint: "State DOT commercial motor vehicle adoptions",
+		countyHint: "Local hazmat routing & tunnel restrictions"
+	}
+};
+var VALID_DESKS = new Set(DESK_DEFS.map((d) => d.id));
+function loadActiveDesk() {
+	const saved = lsGet(ACTIVE_DESK_KEY);
+	const next = saved && VALID_DESKS.has(saved) ? saved : "all";
+	state.activeDesk = next;
+	return next;
+}
+function setActiveDesk(desk) {
+	const next = VALID_DESKS.has(desk) ? desk : "all";
+	state.activeDesk = next;
+	lsSet(ACTIVE_DESK_KEY, next);
+	return next;
+}
+loadActiveDesk();
+function mapRawDeskToId(rawDesk, titleNum = null) {
+	const txt = String(rawDesk || "").trim().toLowerCase();
+	if (VALID_DESKS.has(txt)) return txt;
+	if (titleNum && DESK_BY_CFR_TITLE[titleNum]) return DESK_BY_CFR_TITLE[titleNum];
+	if (txt.includes("safety") || txt.includes("osha") || txt.includes("health") || txt.includes("workplace")) return "ehs";
+	if (txt.includes("environ") || txt.includes("epa")) return "env";
+	if (txt.includes("transport") || txt.includes("dot") || txt.includes("hazmat")) return "transport";
+	if (txt.includes("fire") || txt.includes("build")) return "fire-building";
+	if (txt.includes("labor") || txt.includes("wage") || txt.includes("employ")) return "labor-employment";
+	if (txt.includes("commer") || txt.includes("trade") || txt.includes("gov") || txt.includes("tax")) return "commerce-govcon";
+	return "ehs";
+}
+function deskLabel(deskId) {
+	return DESK_DEFS.find((d) => d.id === deskId)?.label || "Regulatory";
+}
+function tierMetaFor(tier) {
+	return TIER_META[tier] || TIER_META["federal-reg"];
+}
+function refTierForCorpus(corpusOrTier) {
+	return tierMetaFor(typeof corpusOrTier === "string" ? corpusOrTier : corpusOrTier?.tier).refTier;
+}
+function corpusIdForTitle(titleNum) {
+	return `us:cfr:${Number(titleNum) || 29}`;
+}
+function corpusHashFor(corpus, subPath = "/") {
+	const cleanSub = subPath.startsWith("/") ? subPath : `/${subPath}`;
+	if (corpus.tier === "federal-reg" && corpus.title_num) return `#/title/${corpus.title_num}${cleanSub}`;
+	return `#/corpus/${encodeURIComponent(corpus.tier)}/${encodeURIComponent(corpus.jurisdiction || "US")}/${encodeURIComponent(corpus.code || corpus.corpus_id)}${cleanSub === "/" ? "/" : cleanSub}`;
+}
+function parseCorpusPath(path) {
+	const m = /^\/corpus\/([^/]+)\/([^/]+)\/([^/]+)(\/.*)?$/.exec(path || "");
+	if (!m) return null;
+	const decode = (s) => {
+		try {
+			return decodeURIComponent(s);
+		} catch (e) {
+			return s;
+		}
+	};
+	return {
+		tier: decode(m[1]),
+		jurisdiction: decode(m[2]),
+		code: decode(m[3]),
+		subPath: m[4] || "/"
+	};
+}
+function normalizeCorporaList(titles = state.installedTitles, snapshotRows = state.homeSnapshot?.titles, extras = state.extraCorpora) {
+	const snapByTitle = new Map((snapshotRows || []).map((r) => [r.title, r]));
+	const cfr = (titles || []).map((t) => {
+		const snap = snapByTitle.get(t.title);
+		const desk = mapRawDeskToId(snap?.desk, t.title);
+		return {
+			corpus_id: corpusIdForTitle(t.title),
+			tier: "federal-reg",
+			jurisdiction: "US",
+			jurisdiction_label: "Federal",
+			code: String(t.title),
+			title_num: t.title,
+			name: t.name || `Title ${t.title}`,
+			desk,
+			agencies: snap?.agencies || [],
+			edition: t.edition || snap?.edition || null,
+			section_count: t.section_count || snap?.section_count || 0,
+			partial: Boolean(t.partial),
+			summary: snap?.summary || "",
+			installed: true
+		};
+	});
+	const byId = new Map(cfr.map((c) => [c.corpus_id, c]));
+	const injected = Array.isArray(extras) && extras.length ? extras : window.__FRAMEWORK_MOCK_CORPORA__ || [];
+	for (const raw of injected) {
+		if (!raw || !raw.corpus_id) continue;
+		byId.set(raw.corpus_id, {
+			tier: "state",
+			jurisdiction: "US",
+			jurisdiction_label: "Jurisdiction",
+			code: raw.code || raw.corpus_id,
+			name: raw.name || raw.corpus_id,
+			desk: mapRawDeskToId(raw.desk),
+			agencies: Array.isArray(raw.agencies) ? raw.agencies : [],
+			installed: raw.installed !== false,
+			...raw
+		});
+	}
+	return [...byId.values()];
+}
+function syncCorporaState() {
+	state.corpora = normalizeCorporaList();
+	state.activeCorpusId = corpusIdForTitle(state.currentTitle);
+	return state.corpora;
+}
+function jurisdictionStackForTitle(titleNum) {
+	const t = Number(titleNum) || state.currentTitle;
+	const known = KNOWN_TITLE_AUTHORITIES[t] || null;
+	const stateMirrors = state.corpora.filter((c) => c.tier === "state" && c.installed !== false);
+	const countyMirrors = state.corpora.filter((c) => c.tier === "county" && c.installed !== false);
+	const nodes = [];
+	if (known) nodes.push({
+		tier: "federal-statute",
+		ref_tier: "usc",
+		code: known.statuteCode,
+		label: known.statuteLabel,
+		href: known.statuteHref,
+		external: true,
+		meta: "Enabling statute"
+	});
+	const cur = state.corpora.find((c) => c.tier === "federal-reg" && c.title_num === t);
+	nodes.push({
+		tier: "federal-reg",
+		ref_tier: "cfr",
+		code: `${t} CFR`,
+		label: cur?.name || `Title ${t}`,
+		current: true,
+		meta: "Active federal code"
+	});
+	nodes.push({
+		tier: "state",
+		ref_tier: "state",
+		code: stateMirrors.length ? `${stateMirrors.length} State` : "State Layer",
+		label: stateMirrors.length ? stateMirrors.map((c) => `${c.jurisdiction_label} ${c.code}`).join(" · ") : known?.stateHint || "State codes & delegated programs",
+		href: stateMirrors[0] ? corpusHashFor(stateMirrors[0]) : "#/library",
+		meta: stateMirrors.length ? "Installed" : "Ready for state feeds"
+	});
+	nodes.push({
+		tier: "county",
+		ref_tier: "county",
+		code: countyMirrors.length ? `${countyMirrors.length} County` : "Local Layer",
+		label: countyMirrors.length ? countyMirrors.map((c) => `${c.jurisdiction_label} ${c.code}`).join(" · ") : known?.countyHint || "County & municipal ordinances",
+		href: countyMirrors[0] ? corpusHashFor(countyMirrors[0]) : "#/library",
+		meta: countyMirrors.length ? "Installed" : "Pre-wired slot"
+	});
+	return {
+		corpus_id: corpusIdForTitle(t),
+		nodes
+	};
+}
+function deskFilterRibbonHtml(activeDesk = state.activeDesk, corpora = state.corpora) {
+	const counts = /* @__PURE__ */ new Map([["all", corpora.length]]);
+	for (const c of corpora) {
+		const d = c.desk || "ehs";
+		counts.set(d, (counts.get(d) || 0) + 1);
+	}
+	const visibleDesks = DESK_DEFS.filter((d) => d.id === "all" || (counts.get(d.id) || 0) > 0);
+	if (visibleDesks.length <= 2 && corpora.length < 2) return "";
+	return `<div class="desk-ribbon" role="group" aria-label="Filter by regulatory desk">${visibleDesks.map((d) => {
+		const on = activeDesk === d.id;
+		const count = counts.get(d.id) || 0;
+		return `<button type="button" class="desk-pill${on ? " is-active" : ""}" data-desk="${escapeHtml(d.id)}" aria-pressed="${on}">
+      <span>${escapeHtml(d.label)}</span>${count ? `<span class="desk-pill-count">${count}</span>` : ""}
+    </button>`;
+	}).join("")}</div>`;
+}
 // src/components/popover.js
 var activePopovers = /* @__PURE__ */ new Set();
 var customClosers = /* @__PURE__ */ new Set();
@@ -4709,6 +5002,8 @@ function createPopover({ el, triggerSelector = null, placement = "auto", offset 
 			returnFocusEl = opts.returnFocus !== void 0 ? opts.returnFocus : anchor instanceof Element ? anchor : document.activeElement;
 			if (typeof content === "string") el.innerHTML = content;
 			else if (typeof content === "function") content(el);
+			if (opts.refTier) el.dataset.refTier = opts.refTier;
+			else delete el.dataset.refTier;
 			el.hidden = false;
 			el.classList.toggle("is-peek", !interactive);
 			positionPopover(el, currentAnchor, {
@@ -4731,6 +5026,7 @@ function createPopover({ el, triggerSelector = null, placement = "auto", offset 
 		close(returnFocus = true) {
 			if (!el || el.hidden) return;
 			el.hidden = true;
+			delete el.dataset.refTier;
 			el.classList.remove("is-peek");
 			cleanupListeners();
 			const prevAnchor = currentAnchor;
@@ -4745,4549 +5041,6 @@ function createPopover({ el, triggerSelector = null, placement = "auto", offset 
 	activePopovers.add(ctrl);
 	if (closeOnRoute) window.addEventListener("hashchange", () => ctrl.close(false));
 	return ctrl;
-}
-// src/panels/shared.js
-var drLabel = (text, extra = "") => `<h3 class="dr-label"><span>${text}</span>${extra}</h3>`;
-var drEmpty = (title, body) => `<div class="dr-empty"><div class="dr-empty-title">${title}</div><p>${body}</p></div>`;
-function setPanel(panel, html) {
-	const el = document.getElementById(`panel-${panel}`);
-	if (!el) return;
-	const scroller = el.querySelector(".dr-scroll");
-	const top = scroller ? scroller.scrollTop : 0;
-	el.innerHTML = `<div class="dr-scroll">${html}</div>`;
-	const next = el.querySelector(".dr-scroll");
-	if (next) next.scrollTop = top;
-	if (navState.panel === panel) drawerEl.meta.textContent = panelMeta(panel);
-}
-// src/panels/library_panel.js
-var navLib = {
-	data: null,
-	at: 0,
-	loading: null
-};
-async function ensureNavLibrary(force = false) {
-	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
-	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
-		navLib.data = d;
-		navLib.at = Date.now();
-		return d;
-	}).finally(() => {
-		navLib.loading = null;
-	});
-	return navLib.loading;
-}
-function transferHtml() {
-	const j = state.jobs.current;
-	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
-	const m = dockModel(j);
-	return (!j ? "" : `<div class="dr-job">
-      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
-      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
-      <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
-      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
-      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
-    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
-}
-state.navTransferKey = "";
-function updateNavTransfers() {
-	updateRailBadge();
-	if (navState.panel !== "library" || !drawerShown()) return;
-	const box = document.getElementById("dr-transfers");
-	if (!box) return;
-	const j = state.jobs.current;
-	const m = dockModel(j);
-	const key = [
-		j && j.id,
-		j && j.cancelling,
-		j && j.phase === "Installing",
-		m.pct == null,
-		state.jobs.queued.map((q) => q.id).join(".")
-	].join("|");
-	if (key !== state.navTransferKey) {
-		state.navTransferKey = key;
-		box.innerHTML = transferHtml();
-		const count = document.getElementById("dr-transfers-count");
-		const n = (j ? 1 : 0) + state.jobs.queued.length;
-		if (count) count.textContent = n ? String(n) : "";
-		const sec = document.getElementById("dr-transfers-sec");
-		if (sec) sec.hidden = !n;
-		return;
-	}
-	const set = (f, v) => {
-		const n = box.querySelector(`[data-f="${f}"]`);
-		if (n && n.textContent !== v) n.textContent = v;
-	};
-	set("pct", m.pct == null ? "" : `${m.pct}%`);
-	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
-	set("left", m.left);
-	set("right", m.right);
-	const fill = box.querySelector("[data-f=\"fill\"]");
-	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
-}
-function renderLibraryPanel() {
-	const d = navLib.data;
-	state.navTransferKey = "";
-	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
-	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
-	if (!d) {
-		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
-		ensureNavLibrary().then(() => {
-			if (navState.panel === "library") renderLibraryPanel();
-			updateRailBadge();
-		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
-		return;
-	}
-	const live = d.titles.filter((t) => !t.reserved);
-	const installed = live.filter((t) => t.installed);
-	const stale = installed.filter(isStale);
-	const rows = installed.map((t) => {
-		const st = titleStatus(t);
-		return `<a class="dr-row" href="#/title/${t.title}/">
-      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
-      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
-	}).join("");
-	const suites = Object.values(d.suites || {}).map((s) => {
-		const st = suiteState(s, d);
-		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
-		return `<div class="dr-suite">
-      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
-        <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
-      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>"}
-    </div>`;
-	}).join("");
-	setPanel("library", `
-    <a class="dr-cta" href="#/library">
-      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
-    </a>
-    ${transfers}
-    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
-      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
-    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
-	updateRailBadge();
-}
-// src/components/rail.js
-function sectionHref(id, view) {
-	return `#/section/${encodeURIComponent(id)}${view ? "/" + encodeURIComponent(view) : ""}`;
-}
-function unitShort(u) {
-	if (u.label) return u.label;
-	const t = (u.title || "").trim();
-	return t.length > 18 ? t.slice(0, 17).trim() + "…" : t;
-}
-function unitName(u) {
-	return (u.group && u.kind === "chapter" ? `${u.group_label} · ` : "") + (u.title || u.label || "");
-}
-function unitKind(u) {
-	return {
-		clause: "clause",
-		chapter: "part",
-		appendix: "appendix"
-	}[u.kind] || "part";
-}
-function railHtml(data, mode) {
-	const units = data.outline || [];
-	if (units.length < 2 || mode !== "units" && units.length < 4) return "";
-	const maxChars = Math.max(1, ...units.map((u) => Number(u.chars) || 0));
-	let html = "";
-	let lastGroup;
-	let rows = units.length;
-	units.forEach((u, i) => {
-		if (i && u.group !== lastGroup) {
-			html += "<span class=\"rail-gap\" aria-hidden=\"true\"></span>";
-			rows++;
-		}
-		lastGroup = u.group;
-		const current = mode === "units" && u.key === data.unit;
-		const href = mode === "units" ? sectionHref(data.id, u.key) : `#u-${u.key}`;
-		const name = unitName(u);
-		const ratio = Math.sqrt((Number(u.chars) || 0) / maxChars);
-		const barPx = Math.round(7 + ratio * 7);
-		html += `<a class="rail-item${current ? " is-current" : ""}" href="${href}" data-unit="${escapeHtml(u.key)}"${mode === "units" ? "" : ` data-anchor="u-${escapeHtml(u.key)}"`}${current ? " aria-current=\"true\"" : ""} data-label="${escapeHtml(u.label || "")}" data-name="${escapeHtml(name)}" aria-label="${escapeHtml(`${u.label ? u.label + " " : ""}${name}`)}"><span class="rail-bar" style="--w:${barPx}px" aria-hidden="true"></span></a>`;
-	});
-	return `<nav class="rail" style="--rows:${rows}" aria-label="Contents of this section">${html}<a class="rail-pop" tabindex="-1" aria-hidden="true"><span class="rail-pop-label"></span><span class="rail-pop-name"></span></a></nav>`;
-}
-function bindRail() {
-	const rail = dom.viewHead && dom.viewHead.querySelector(".rail");
-	if (!rail) return;
-	const pop = rail.querySelector(".rail-pop");
-	const items = [...rail.querySelectorAll(".rail-item")];
-	let active = null;
-	let hideTimer = 0;
-	const centerY = (el) => {
-		const r = el.getBoundingClientRect();
-		return r.top + r.height / 2;
-	};
-	const show = (item) => {
-		clearTimeout(hideTimer);
-		const opening = !rail.classList.contains("is-open");
-		if (item === active && !opening) return;
-		if (active) active.classList.remove("is-hover");
-		active = item;
-		item.classList.add("is-hover");
-		pop.querySelector(".rail-pop-label").textContent = item.dataset.label || "";
-		pop.querySelector(".rail-pop-name").textContent = item.dataset.name || "";
-		pop.href = item.getAttribute("href");
-		if (item.dataset.anchor) pop.dataset.anchor = item.dataset.anchor;
-		else delete pop.dataset.anchor;
-		if (opening) pop.classList.add("is-placing");
-		pop.style.top = centerY(item) - rail.getBoundingClientRect().top + "px";
-		if (opening) {
-			pop.offsetHeight;
-			pop.classList.remove("is-placing");
-			rail.classList.add("is-open");
-		}
-	};
-	const hide = () => {
-		clearTimeout(hideTimer);
-		hideTimer = setTimeout(() => {
-			rail.classList.remove("is-open");
-			if (active) active.classList.remove("is-hover");
-			active = null;
-		}, 140);
-	};
-	rail.addEventListener("pointermove", (e) => {
-		if (pop.contains(e.target)) {
-			clearTimeout(hideTimer);
-			return;
-		}
-		let best = null;
-		let bestD = Infinity;
-		for (const it of items) {
-			const d = Math.abs(e.clientY - centerY(it));
-			if (d < bestD) {
-				bestD = d;
-				best = it;
-			}
-		}
-		if (!best) return;
-		if (active && best !== active) {
-			const row = active.getBoundingClientRect().height;
-			if (Math.abs(e.clientY - centerY(active)) - bestD < Math.max(2, row * .35)) {
-				clearTimeout(hideTimer);
-				return;
-			}
-		}
-		show(best);
-	});
-	rail.addEventListener("pointerleave", hide);
-	rail.addEventListener("focusin", (e) => {
-		const it = e.target.closest(".rail-item");
-		if (it) show(it);
-	});
-	rail.addEventListener("focusout", hide);
-}
-function unitStepHtml(data) {
-	const sectionBtn = (s, dir) => s ? docStepBtn("section", dir, sectionHref(s.id), s.label, s.title) : "";
-	const unitBtn = (u, dir) => u ? docStepBtn(unitKind(u), dir, sectionHref(data.id, u.key), unitShort(u), unitName(u)) : "";
-	const sep = "<span class=\"doc-step-sep\" aria-hidden=\"true\"></span>";
-	return `<nav class="doc-step" aria-label="Previous and next">${[sectionBtn(data.prev, -1), unitBtn(data.unit_prev, -1)].filter(Boolean).join(sep)}<span class="spacer"></span>${[unitBtn(data.unit_next, 1), sectionBtn(data.next, 1)].filter(Boolean).join(sep)}</nav>`;
-}
-state.railObserver = null;
-function watchRail() {
-	if (state.railObserver) {
-		state.railObserver.disconnect();
-		state.railObserver = null;
-	}
-	const rail = dom.viewHead && dom.viewHead.querySelector(".rail");
-	const sections = [...dom.view.querySelectorAll(".reg-unit")];
-	if (!rail || !sections.length) return;
-	let lit = null;
-	let frame = 0;
-	const update = () => {
-		frame = 0;
-		const line = dom.main.getBoundingClientRect().top + 96;
-		let key = sections[0].dataset.unit;
-		for (const s of sections) if (s.getBoundingClientRect().top <= line) key = s.dataset.unit;
-		else break;
-		if (key === lit) return;
-		lit = key;
-		rail.querySelectorAll(".rail-item").forEach((a) => {
-			const on = a.dataset.unit === key;
-			a.classList.toggle("is-current", on);
-			if (on) a.setAttribute("aria-current", "true");
-			else a.removeAttribute("aria-current");
-		});
-	};
-	const onScroll = () => {
-		if (!frame) frame = requestAnimationFrame(update);
-	};
-	dom.main.addEventListener("scroll", onScroll, { passive: true });
-	dom.view.addEventListener("load", onScroll, true);
-	state.railObserver = { disconnect: () => {
-		dom.main.removeEventListener("scroll", onScroll);
-		dom.view.removeEventListener("load", onScroll, true);
-		if (frame) cancelAnimationFrame(frame);
-	} };
-	update();
-}
-function scrollToAnchor(id, rootOrOpts = {}) {
-	const isNode = rootOrOpts && typeof rootOrOpts.querySelector === "function";
-	const root = isNode ? rootOrOpts : rootOrOpts.root || dom.view;
-	const flash = isNode ? true : rootOrOpts.flash !== false;
-	let target = null;
-	try {
-		target = root && root.querySelector(`#${CSS.escape(id)}`) || document.getElementById(id);
-	} catch (e) {
-		target = document.getElementById(id);
-	}
-	if (!target) return false;
-	target.scrollIntoView({
-		block: target.matches(".reg-footnote, .reg-p, .reg-figure") ? "center" : "start",
-		behavior: reduceMotion.matches ? "auto" : "smooth"
-	});
-	if (flash && target.matches(".reg-footnote, .reg-p, .table-wrap, .reg-appendix, .reg-figure")) {
-		target.classList.remove("flash");
-		target.offsetWidth;
-		target.classList.add("flash");
-	}
-	return true;
-}
-for (const rootEl of [dom.viewHead, dom.view].filter(Boolean)) rootEl.addEventListener("click", (e) => {
-	const a = e.target.closest("[data-anchor]");
-	if (!a) return;
-	e.preventDefault();
-	scrollToAnchor(a.dataset.anchor, dom.view);
-});
-dom.view.addEventListener("error", (e) => {
-	const img = e.target;
-	if (!(img instanceof HTMLImageElement) || !img.classList.contains("reg-img")) return;
-	const fig = img.closest(".reg-figure");
-	if (!fig || fig.classList.contains("is-broken")) return;
-	fig.classList.add("is-broken");
-	fig.href = state.currentSection && state.currentSection.ecfr_url || fig.href;
-	fig.title = "This figure is only available on eCFR";
-	fig.innerHTML = `${icon("external")}<span>Figure — view on eCFR</span>`;
-}, true);
-function applyFontSize(v) {
-	const size = Math.max(13, Math.min(24, Number(v) || 16));
-	lsSet("fontSize", String(size));
-	document.documentElement.style.setProperty("--reader-size", size + "px");
-	for (const out of document.querySelectorAll("[data-size-val]")) out.textContent = `${size} px`;
-	const range = document.getElementById("set-size");
-	if (range && Number(range.value) !== size) range.value = String(size);
-}
-function adjustFontSize(delta) {
-	applyFontSize((parseInt(lsGet("fontSize"), 10) || 16) + delta);
-}
-// src/usage.js
-var USAGE_KEY = "usage";
-function loadUsage() {
-	try {
-		const u = JSON.parse(lsGet("usage") || "null");
-		if (u && u.v === 1 && u.s && u.p) return u;
-	} catch (e) {}
-	return {
-		v: 1,
-		since: Date.now(),
-		s: {},
-		p: {}
-	};
-}
-function bumpPart(u, title, part, heading, now) {
-	if (!part) return;
-	const key = title + "|" + part;
-	const e = u.p[key] || (u.p[key] = { n: 0 });
-	e.n += 1;
-	e.t = now;
-	if (heading) e.h = String(heading).trim();
-}
-function recordSectionVisit(data, unitInfo = null) {
-	if (!data || !data.id) return;
-	const u = loadUsage();
-	const now = Date.now();
-	const key = state.currentTitle + "|" + data.id;
-	const e = u.s[key] || (u.s[key] = { n: 0 });
-	e.n += 1;
-	e.t = now;
-	e.l = data.label || data.id;
-	e.h = data.section_title || data.title_label || "";
-	e.p = data.part || "";
-	if (unitInfo && unitInfo.key) {
-		e.u = unitInfo.key;
-		e.ul = unitInfo.label || unitInfo.key;
-	} else {
-		delete e.u;
-		delete e.ul;
-	}
-	const partNode = data.part && state.treeData ? findPartInTree(state.treeData, data.part) : null;
-	bumpPart(u, state.currentTitle, data.part, partNode && partNode.d, now);
-	lsSet(USAGE_KEY, JSON.stringify(u));
-}
-function recordSectionUnit(sectionId, unitInfo = null) {
-	if (!sectionId) return;
-	const u = loadUsage();
-	const key = state.currentTitle + "|" + sectionId;
-	const e = u.s[key];
-	if (!e) return;
-	e.t = Date.now();
-	if (unitInfo && unitInfo.key) {
-		e.u = unitInfo.key;
-		e.ul = unitInfo.label || unitInfo.key;
-	} else {
-		delete e.u;
-		delete e.ul;
-	}
-	lsSet(USAGE_KEY, JSON.stringify(u));
-}
-function recordPartVisit(partId, heading) {
-	const u = loadUsage();
-	bumpPart(u, state.currentTitle, partId, heading, Date.now());
-	lsSet(USAGE_KEY, JSON.stringify(u));
-}
-function visitedCountFor(title) {
-	try {
-		const raw = lsGet(title === 29 ? "visited" : "visited-" + title);
-		return raw ? JSON.parse(raw).length : 0;
-	} catch (e) {
-		return 0;
-	}
-}
-function timeAgo(ms) {
-	const s = Math.max(0, (Date.now() - ms) / 1e3);
-	if (s < 60) return "just now";
-	if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-	if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-	const d = Math.floor(s / 86400);
-	if (d === 1) return "yesterday";
-	if (d < 30) return `${d}d ago`;
-	return new Date(ms).toLocaleDateString(void 0, {
-		month: "short",
-		day: "numeric",
-		year: "numeric"
-	});
-}
-var fmt = (n) => Number(n || 0).toLocaleString();
-var titleHref = (t, rest) => `#/title/${t}/${rest || ""}`;
-// src/citations.ts
-var NEWS_CITE_RE = /\b29\s*C\.?F\.?R\.?\s*(?:§§?\s*)?(\d{1,4}\.\d+)(?:\([a-z0-9]{1,4}\))*|§§?\s*(19\d{2}\.\d+)(?:\([a-z0-9]{1,4}\))*/gi;
-// src/views/news.js
-var NEWS_CATEGORIES = [
-	{
-		key: "all",
-		label: "All"
-	},
-	{
-		key: "rules",
-		label: "Final Rules"
-	},
-	{
-		key: "rulemaking",
-		label: "Proposed Rules"
-	},
-	{
-		key: "enforcement",
-		label: "Enforcement & Penalties"
-	},
-	{
-		key: "public_inspection",
-		label: "Public Inspection"
-	},
-	{
-		key: "notices",
-		label: "Notices"
-	}
-];
-var NEWS_SOURCE_LABELS = {
-	federal_register: "Federal Register",
-	federal_register_pi: "Federal Register Public Inspection",
-	dol_osha: "DOL enforcement data"
-};
-var US_STATE_NAMES = {
-	AL: "Alabama",
-	AK: "Alaska",
-	AZ: "Arizona",
-	AR: "Arkansas",
-	CA: "California",
-	CO: "Colorado",
-	CT: "Connecticut",
-	DE: "Delaware",
-	DC: "District of Columbia",
-	FL: "Florida",
-	GA: "Georgia",
-	GU: "Guam",
-	HI: "Hawaii",
-	ID: "Idaho",
-	IL: "Illinois",
-	IN: "Indiana",
-	IA: "Iowa",
-	KS: "Kansas",
-	KY: "Kentucky",
-	LA: "Louisiana",
-	ME: "Maine",
-	MD: "Maryland",
-	MA: "Massachusetts",
-	MI: "Michigan",
-	MN: "Minnesota",
-	MS: "Mississippi",
-	MO: "Missouri",
-	MT: "Montana",
-	NE: "Nebraska",
-	NV: "Nevada",
-	NH: "New Hampshire",
-	NJ: "New Jersey",
-	NM: "New Mexico",
-	NY: "New York",
-	NC: "North Carolina",
-	ND: "North Dakota",
-	OH: "Ohio",
-	OK: "Oklahoma",
-	OR: "Oregon",
-	PA: "Pennsylvania",
-	PR: "Puerto Rico",
-	RI: "Rhode Island",
-	SC: "South Carolina",
-	SD: "South Dakota",
-	TN: "Tennessee",
-	TX: "Texas",
-	UT: "Utah",
-	VT: "Vermont",
-	VA: "Virginia",
-	VI: "Virgin Islands",
-	WA: "Washington",
-	WV: "West Virginia",
-	WI: "Wisconsin",
-	WY: "Wyoming"
-};
-var stateName = (code) => US_STATE_NAMES[(code || "").toUpperCase()] || code;
-function lsGetJSON(key) {
-	try {
-		const v = lsGet(key);
-		return v ? JSON.parse(v) : null;
-	} catch (e) {
-		return null;
-	}
-}
-function lsSetJSON(key, value) {
-	lsSet(key, JSON.stringify(value));
-}
-var moneyFmt = new Intl.NumberFormat("en-US", {
-	style: "currency",
-	currency: "USD",
-	maximumFractionDigits: 0
-});
-function fmtMoney(n) {
-	return moneyFmt.format(n);
-}
-function safeHttpUrl(u) {
-	if (!u) return "";
-	try {
-		const p = new URL(u, window.location.href).protocol;
-		return p === "http:" || p === "https:" ? u : "";
-	} catch (e) {
-		return "";
-	}
-}
-function extLink(url, html) {
-	const safe = safeHttpUrl(url);
-	return safe ? `<a target="_blank" rel="noopener" href="${escapeHtml(safe)}">${html}</a>` : html;
-}
-function titleInstalled(t) {
-	return state.installedTitles.some((x) => x.title === t);
-}
-function newsSectionHref(t, id) {
-	return titleInstalled(t) ? `#/title/${t}/section/${encodeURIComponent(id)}` : `#/library/${t}`;
-}
-function newsPartHref(t, part) {
-	return titleInstalled(t) ? `#/title/${t}/part/${encodeURIComponent(part)}` : `#/library/${t}`;
-}
-function linkifyNewsText(text) {
-	return escapeHtml(text || "").replace(NEWS_CITE_RE, (m, a, b) => {
-		return `<a class="citation-link" href="${newsSectionHref(29, a || b)}">${m}</a>`;
-	});
-}
-function newsSnippetHtml(snippet) {
-	return escapeHtml(snippet || "").replace(/\x02/g, "<mark>").replace(/\x03/g, "</mark>");
-}
-function inspectionActivityNr(a) {
-	if (!a || a.category !== "enforcement" || !a.guid) return null;
-	const m = /^dol-insp:(\d+)$/.exec(String(a.guid));
-	return m ? m[1] : null;
-}
-var newsState = {
-	view: null,
-	data: null,
-	status: null,
-	facets: null,
-	summary: null,
-	watchToken: 0
-};
-var autoEnrichedCases = /* @__PURE__ */ new Set();
-function newsViewFromParams(params) {
-	const get = (k) => (params && params.get(k) || "").trim();
-	return {
-		cat: NEWS_CATEGORIES.some((c) => c.key === get("cat")) ? get("cat") : "all",
-		q: get("q"),
-		section: get("section"),
-		part: get("part"),
-		state: /^[A-Za-z]{2}$/.test(get("state")) ? get("state").toUpperCase() : "",
-		min_penalty: /^\d+$/.test(get("min_penalty")) ? get("min_penalty") : "",
-		gravity: /^[WRS]$/.test(get("gravity")) ? get("gravity") : ""
-	};
-}
-function isDefaultNewsView(view) {
-	return !view.q && !view.section && !view.part && !view.state && !view.min_penalty && !view.gravity;
-}
-function newsHash(view) {
-	const p = new URLSearchParams();
-	if (view.cat && view.cat !== "all") p.set("cat", view.cat);
-	for (const k of [
-		"q",
-		"section",
-		"part",
-		"state",
-		"min_penalty",
-		"gravity"
-	]) if (view[k]) p.set(k, view[k]);
-	const qs = p.toString();
-	return "#/news" + (qs ? "?" + qs : "");
-}
-function newsApiUrl(view, offset = 0) {
-	const p = new URLSearchParams();
-	if (view.cat && view.cat !== "all") p.set("category", view.cat);
-	for (const k of [
-		"q",
-		"section",
-		"part",
-		"state",
-		"min_penalty",
-		"gravity"
-	]) if (view[k]) p.set(k, view[k]);
-	if (offset) p.set("offset", String(offset));
-	const qs = p.toString();
-	return "/api/news" + (qs ? "?" + qs : "");
-}
-function setNewsView(next, { replace = false } = {}) {
-	const hash = newsHash(next);
-	if (replace) {
-		history.replaceState(null, "", hash);
-		loadNews(new URLSearchParams(hash.split("?")[1] || ""));
-	} else window.location.hash = hash;
-}
-function trimNewsForCache(data) {
-	return {
-		articles: (data.articles || []).slice(0, 30),
-		total: data.total,
-		offset: 0
-	};
-}
-function newsChanged(oldData, newData, oldStatus, newStatus) {
-	const guids = (d) => (d && d.articles || []).map((a) => a.guid).join("|");
-	const oks = (s) => s && s.sources ? Object.values(s.sources).map((x) => x.last_ok_at || "").join("|") : "";
-	return guids(oldData) !== guids(newData) || oks(oldStatus) !== oks(newStatus);
-}
-function preservingNewsScroll(fn) {
-	const mainRect = dom.main.getBoundingClientRect();
-	let anchor = null, offset = 0;
-	for (const el of dom.view.querySelectorAll("[data-guid]")) {
-		const r = el.getBoundingClientRect();
-		if (r.bottom > mainRect.top + 8) {
-			anchor = el.dataset.guid;
-			offset = r.top - mainRect.top;
-			break;
-		}
-	}
-	const top = dom.main.scrollTop;
-	fn();
-	if (anchor) {
-		const el = dom.view.querySelector(`[data-guid="${CSS.escape(anchor)}"]`);
-		if (el) {
-			const r = el.getBoundingClientRect();
-			dom.main.scrollTop += r.top - dom.main.getBoundingClientRect().top - offset;
-			return;
-		}
-	}
-	dom.main.scrollTop = top;
-}
-async function loadNews(params) {
-	const seq = state.routeSeq;
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	document.title = "News · FRAMEWORK";
-	const view = newsViewFromParams(params);
-	const firstPaint = !dom.view.querySelector(".news-front");
-	const cacheable = isDefaultNewsView(view);
-	const cached = cacheable ? lsGetJSON(`newsCache:v1:${view.cat}`) : null;
-	const cachedStatus = lsGetJSON("newsCache:v1:status");
-	if (cached && cached.data && cachedStatus && cachedStatus.data) renderNews(view, cached.data, cachedStatus.data, {
-		enter: firstPaint,
-		fromCache: true
-	});
-	else {
-		dom.view.innerHTML = skeletonHtml("cards", "Loading news…");
-		if (firstPaint) enterView();
-	}
-	let data, status;
-	try {
-		const wantEnf = view.cat === "enforcement";
-		const [feedRes, statusRes] = await Promise.all([getJSON(newsApiUrl(view)), getJSON("/api/news/status")]);
-		data = feedRes;
-		status = statusRes;
-		if (wantEnf) {
-			const extras = [];
-			if (status.dol_configured && !newsState.facets) extras.push(getJSON("/api/news/facets").then((f) => {
-				newsState.facets = f;
-			}).catch(() => {}));
-			extras.push(getJSON("/api/news/enforcement/summary").then((s) => {
-				newsState.summary = s;
-			}).catch(() => {}));
-			await Promise.all(extras);
-		}
-	} catch (e) {
-		if (seq !== state.routeSeq) return;
-		if (cached && cached.data) markNewsOffline(cached.t);
-		else {
-			dom.view.innerHTML = `
-        <div class="news-front"><div class="news-head"><div>
-          <div class="doc-kicker">FRAMEWORK Newsroom</div><h1 class="doc-title">OSHA Regulatory News</h1>
-        </div></div>
-        <div class="empty-state"><h2>Couldn’t reach the news service</h2>
-        <p>${escapeHtml(e.message)}</p>
-        <button type="button" class="btn" data-news-act="reload">Try again</button></div></div>`;
-			showToast("Could not reach the news service");
-		}
-		return;
-	}
-	if (seq !== state.routeSeq) return;
-	if (cacheable) {
-		lsSetJSON(`newsCache:v1:${view.cat}`, {
-			t: Date.now(),
-			data: trimNewsForCache(data)
-		});
-		lsSetJSON("newsCache:v1:status", {
-			t: Date.now(),
-			data: status
-		});
-	}
-	if (!cached || !cached.data || !cachedStatus || !cachedStatus.data || newsChanged(cached.data, data, cachedStatus.data, status) || view.cat === "enforcement") preservingNewsScroll(() => renderNews(view, data, status, { enter: firstPaint && !(cached && cached.data) }));
-	else {
-		newsState.view = view;
-		newsState.data = data;
-		newsState.status = status;
-	}
-	let watch = status.syncing;
-	if (status.sync_enabled && status.due && !status.syncing) {
-		try {
-			watch = ((await getJSON("/api/news/refresh", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ force: false })
-			})).queued || []).length > 0;
-		} catch (e) {
-			try {
-				watch = (await getJSON("/api/news/status")).syncing;
-			} catch (e2) {
-				watch = false;
-			}
-		}
-		if (seq !== state.routeSeq) return;
-	}
-	if (watch) watchNewsSync(seq, view);
-}
-function markNewsOffline(cachedAt) {
-	const slot = document.getElementById("news-head-status");
-	if (slot) slot.innerHTML = statPill("stale", `Offline · showing saved news from ${fmtDate(new Date(cachedAt).toISOString().slice(0, 10))}`);
-}
-function watchNewsSync(seq, view) {
-	const token = ++newsState.watchToken;
-	const started = Date.now();
-	const slot = document.getElementById("news-head-status");
-	if (slot) slot.innerHTML = statPill("busy", "Checking for news…");
-	const tick = async () => {
-		if (seq !== state.routeSeq || token !== newsState.watchToken || Date.now() - started > 12e4) return;
-		let status;
-		try {
-			status = await getJSON("/api/news/status");
-		} catch (e) {
-			return;
-		}
-		if (seq !== state.routeSeq || token !== newsState.watchToken) return;
-		if (status.syncing) {
-			setTimeout(tick, 3e3);
-			return;
-		}
-		let data;
-		try {
-			data = await getJSON(newsApiUrl(view));
-		} catch (e) {
-			return;
-		}
-		if (seq !== state.routeSeq || token !== newsState.watchToken) return;
-		if (isDefaultNewsView(view)) {
-			lsSetJSON(`newsCache:v1:${view.cat}`, {
-				t: Date.now(),
-				data: trimNewsForCache(data)
-			});
-			lsSetJSON("newsCache:v1:status", {
-				t: Date.now(),
-				data: status
-			});
-		}
-		if (newsChanged(newsState.data, data, newsState.status, status)) preservingNewsScroll(() => renderNews(view, data, status, {}));
-		else {
-			newsState.status = status;
-			const s = document.getElementById("news-head-status");
-			if (s) s.innerHTML = newsHeadStatusHtml(status);
-		}
-	};
-	setTimeout(tick, 3e3);
-}
-async function refreshNewsCommand() {
-	try {
-		await getJSON("/api/news/refresh", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ force: true })
-		});
-		showToast("Checking for news…");
-		if (routeTarget() === "news" && newsState.view) watchNewsSync(state.routeSeq, newsState.view);
-	} catch (err) {
-		const m = String(err.message || "");
-		showToast(/already running/i.test(m) ? "Already checking for news" : /sync is off/i.test(m) ? "News sync is off" : m);
-	}
-}
-function newsStatusPillHtml(status) {
-	if (!status) return "";
-	if (!status.sync_enabled) return statPill("stale", "News sync is off");
-	if (status.syncing) return statPill("busy", "Checking for news…");
-	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
-	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
-	const failed = enabled.find((s) => s.last_error);
-	if (failed && lastOk) return statPill("stale", `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`, { title: failed.last_error || "" });
-	return lastOk ? statPill("synced", `Updated ${timeAgo(Date.parse(lastOk))}`) : "";
-}
-function newsHeadStatusHtml(status) {
-	if (!status) return "";
-	const pill = newsStatusPillHtml(status);
-	if (!status.sync_enabled || status.syncing) return pill;
-	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
-	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
-	if (enabled.find((s) => s.last_error) && lastOk) return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
-	return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Refresh</button>`;
-}
-function newsBreakingHtml(articles) {
-	const today = Date.now();
-	const daysAgo = (iso) => (today - Date.parse(iso + "T00:00:00")) / 864e5;
-	const pi = articles.find((a) => a.category === "public_inspection" && daysAgo(a.published_at) <= 3);
-	const fine = articles.find((a) => a.category === "enforcement" && (a.penalty_usd || 0) >= 5e4 && daysAgo(a.published_at) <= 14);
-	const hit = pi || fine;
-	if (!hit) return "";
-	const tag = pi ? "Public inspection" : "Enforcement";
-	const actNr = !pi ? inspectionActivityNr(hit) : null;
-	const href = pi ? safeHttpUrl(hit.link) : actNr ? `#/news/inspection/${actNr}` : "#/news?cat=enforcement";
-	const ext = pi && href ? " target=\"_blank\" rel=\"noopener\"" : "";
-	if (!href) return "";
-	return `<a class="news-breaking" href="${escapeHtml(href)}"${ext}>
-    <span class="news-breaking-tag">${icon("activity")} ${escapeHtml(tag.toUpperCase())} · ${escapeHtml(fmtDate(hit.published_at))}</span>
-    <span class="news-breaking-text">${escapeHtml(hit.title)}</span>${icon("chevronRight")}</a>`;
-}
-function newsKicker(a) {
-	if (a.category === "enforcement") return ["ENFORCEMENT", a.state].filter(Boolean).join(" · ");
-	if (a.category === "public_inspection") return ["PUBLIC INSPECTION", (a.doc_type || "").toUpperCase()].filter(Boolean).join(" · ");
-	return [a.category === "rules" ? "FINAL RULE" : a.category === "rulemaking" ? "PROPOSED RULE" : "NOTICE", a.citation].filter(Boolean).join(" · ");
-}
-function newsBylineHtml(a) {
-	return `<div class="news-byline">${escapeHtml(fmtDate(a.published_at))}<span class="sep" aria-hidden="true">·</span>${escapeHtml(NEWS_SOURCE_LABELS[a.source] || a.source)}</div>`;
-}
-function newsChipsHtml(a) {
-	const chips = [];
-	for (const r of a.cfr_parts || []) {
-		const href = newsPartHref(r.title, r.part);
-		const dim = !titleInstalled(r.title);
-		chips.push(`<a class="citation-chip${dim ? " is-dim" : ""}" href="${href}"${dim ? ` title="Title ${r.title} isn’t installed. Open the library"` : ""}>${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
-	}
-	for (const s of a.sections || []) {
-		const dim = !titleInstalled(29);
-		chips.push(`<a class="citation-chip${dim ? " is-dim" : ""}" href="${newsSectionHref(29, s)}"${dim ? " title=\"Title 29 isn’t installed. Open the library\"" : ""}>§ ${escapeHtml(s)}</a>`);
-	}
-	if (!chips.length) return "";
-	const extra = chips.length - 6;
-	return `<div class="news-chips">${extra > 0 ? chips.slice(0, 6).join("") + chips.slice(6).map((c) => c.replace("citation-chip", "citation-chip is-extra")).join("") + `<button type="button" class="citation-chip news-chip-more" data-news-act="expand-chips">+${extra}</button>` : chips.join("")}</div>`;
-}
-function newsActionsHtml(a) {
-	const out = [];
-	const actNr = inspectionActivityNr(a);
-	if (actNr) out.push(`<a class="btn btn-sm btn-accent" href="#/news/inspection/${actNr}">${icon("file")} Case file</a>`);
-	const srcLabel = a.source === "dol_osha" ? "OSHA.gov" : "Federal Register";
-	const link = safeHttpUrl(a.link);
-	if (link) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(link)}">${icon("external")} ${srcLabel}</a>`);
-	const pdf = safeHttpUrl(a.pdf_url || "");
-	if (pdf) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(pdf)}">${icon("external")} PDF</a>`);
-	const sec = (a.sections || [])[0];
-	const partRef = (a.cfr_parts || [])[0];
-	const secCls = actNr ? "btn btn-sm" : "btn btn-sm btn-accent";
-	if (sec) out.push(`<a class="${secCls}" href="${newsSectionHref(29, sec)}">${icon("book")} Open § ${escapeHtml(sec)}</a>`);
-	else if (partRef) out.push(`<a class="${secCls}" href="${newsPartHref(partRef.title, partRef.part)}">${icon("book")} Open Part ${escapeHtml(String(partRef.part))}</a>`);
-	return out.join("");
-}
-function newsCardHtml(a, { hero = false } = {}) {
-	const tag = hero ? "section" : "article";
-	const figure = a.penalty_usd ? `<span class="news-figure">${escapeHtml(fmtMoney(a.penalty_usd))}</span>` : "";
-	const rows = (a.takeaways || []).map((t, i) => {
-		const text = i === 0 && a.snippet ? newsSnippetHtml(a.snippet) : linkifyNewsText(t.text);
-		return `<dt>${escapeHtml(t.label)}</dt><dd>${text}</dd>`;
-	}).join("");
-	const actNr = inspectionActivityNr(a);
-	const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}">${escapeHtml(a.title)}</a>` : extLink(a.link, escapeHtml(a.title));
-	return `
-    <${tag} class="news-card${hero ? " news-hero" : ""}" data-guid="${escapeHtml(a.guid)}" data-cat="${escapeHtml(a.category)}">
-      <div class="news-card-top"><span class="news-kicker">${escapeHtml(newsKicker(a))}</span>${figure}</div>
-      <h3 class="news-card-title">${titleHtml}</h3>
-      ${newsBylineHtml(a)}
-      ${rows ? `<dl class="news-takeaways">${rows}</dl>` : ""}
-      ${newsChipsHtml(a)}
-      <div class="news-card-foot">${newsActionsHtml(a)}</div>
-    </${tag}>`;
-}
-function newsTabsHtml(view, status) {
-	const counts = status && status.counts || {};
-	return `<div class="lib-seg news-tabs" role="tablist" aria-label="News categories">${NEWS_CATEGORIES.map((c) => {
-		const on = view.cat === c.key;
-		const n = counts[c.key];
-		return `<button type="button" role="tab" aria-selected="${on}" tabindex="${on ? 0 : -1}" aria-pressed="${on}" data-news-cat="${c.key}">${escapeHtml(c.label)}${n ? ` <span class="news-tab-count">${n}</span>` : ""}</button>`;
-	}).join("")}</div>`;
-}
-function newsFilterChipsHtml(view) {
-	const chips = [];
-	const chip = (key, label) => chips.push(`<button type="button" class="news-filter-chip" data-news-act="clear-filter" data-filter-key="${key}" aria-label="Remove filter: ${escapeHtml(label)}">${escapeHtml(label)}<span aria-hidden="true"> ×</span></button>`);
-	if (view.section) chip("section", `Citing § ${view.section}`);
-	if (view.part) chip("part", `Citing Part ${view.part}`);
-	if (view.state) chip("state", stateName(view.state));
-	if (view.min_penalty) chip("min_penalty", `Over ${fmtMoney(Number(view.min_penalty))}`);
-	if (view.gravity) chip("gravity", {
-		W: "Willful",
-		R: "Repeat",
-		S: "Serious"
-	}[view.gravity]);
-	return chips.length ? `<div class="news-filter-chips">${chips.join("")}</div>` : "";
-}
-function newsFacetsHtml(view, status) {
-	if (view.cat !== "enforcement" || !status || !status.dol_configured) return "";
-	const states = newsState.facets && newsState.facets.states || [];
-	const sel = (v, cur) => v === cur ? " selected" : "";
-	return `<div class="news-facets">
-    <select data-news-facet="state" aria-label="State">
-      <option value="">All states</option>
-      ${states.map((s) => `<option value="${escapeHtml(s.code)}"${sel(s.code, view.state)}>${escapeHtml(stateName(s.code))} (${s.count})</option>`).join("")}
-    </select>
-    <select data-news-facet="min_penalty" aria-label="Minimum penalty">
-      <option value="">Any penalty</option>
-      ${[
-		25e3,
-		1e5,
-		25e4
-	].map((v) => `<option value="${v}"${sel(String(v), view.min_penalty)}>Over ${fmtMoney(v)}</option>`).join("")}
-    </select>
-    <select data-news-facet="gravity" aria-label="Violation gravity">
-      <option value="">Any gravity</option>
-      ${[
-		["W", "Willful"],
-		["R", "Repeat"],
-		["S", "Serious"]
-	].map(([v, l]) => `<option value="${v}"${sel(v, view.gravity)}>${l}</option>`).join("")}
-    </select>
-  </div>`;
-}
-function newsEmptyHtml(view, status) {
-	const s = status || {};
-	if (!s.sync_enabled && !(s.counts && s.counts.all)) return `<div class="empty-state"><h2>News sync is off</h2>
-      <p>Set <code>NEWS_SYNC=1</code> in <code>reader/.env</code> and restart FRAMEWORK.</p></div>`;
-	if (view.cat === "enforcement" && !view.q && s && !s.dol_configured) return `<div class="news-setup">
-      <h3>Enforcement data needs a free DOL API key</h3>
-      <p>Register at <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a>,
-      then save <code>DOL_API_KEY</code> in <code>reader/.env</code> using the setup guide or in-app editor.
-      Federal Register news works without it.</p>
-      <div class="news-setup-actions">
-        <button type="button" class="btn btn-sm btn-accent" data-open-env="dol_api_key">${icon("key")} Add DOL key</button>
-        <a class="btn btn-sm" href="#/help">${icon("help")} Connections &amp; API keys</a>
-      </div></div>`;
-	if (view.q) {
-		const tab = NEWS_CATEGORIES.find((c) => c.key === view.cat) || NEWS_CATEGORIES[0];
-		const widen = view.cat !== "all" ? `<button type="button" class="btn" data-news-act="search-all">Search all news</button>` : "";
-		return `<div class="empty-state"><h2>No news matches “${escapeHtml(view.q)}” in ${escapeHtml(tab.label)}</h2>${widen}</div>`;
-	}
-	const enabled = Object.values(s.sources || {}).filter((x) => x.enabled);
-	const neverSynced = enabled.every((x) => !x.last_ok_at);
-	const failed = enabled.find((x) => x.last_error);
-	if (neverSynced && failed) {
-		const retry = failed.retry_after ? `<p>Retrying ${escapeHtml(timeUntil(failed.retry_after))}.</p>` : "";
-		return `<div class="empty-state"><h2>Couldn’t fetch the news</h2>
-      <p>${escapeHtml(failed.last_error)}</p>${retry}
-      <button type="button" class="btn" data-news-act="refresh">Retry</button></div>`;
-	}
-	if (neverSynced) return `<div class="empty-state">${statPill("busy", "Fetching from the Federal Register…")}
-      <p class="dr-note">The first sync takes a few seconds.</p></div>`;
-	return "<div class=\"empty-state\"><h2>Nothing here yet</h2><p>No items in this view.</p></div>";
-}
-function enforcementSummaryHtml(view) {
-	const s = newsState.summary;
-	if (view.cat !== "enforcement" || !isDefaultNewsView(view) || !s || !s.total_cases) return "";
-	const g = s.gravity_counts || {};
-	const highGrav = (g.W || 0) + (g.R || 0);
-	const topSec = (s.top_sections || [])[0];
-	const topState = (s.top_states || [])[0];
-	const tile = (label, val, sub) => `
-    <div class="metric-card">
-      <div class="metric-label">${label}</div>
-      <div class="metric-val">${val}</div>
-      <div class="metric-sub">${sub}</div>
-    </div>`;
-	return `
-    <section class="ins-summary-strip" aria-label="Enforcement telemetry">
-      ${tile("Tracked penalties", escapeHtml(fmtMoney(s.total_penalty_usd || 0)), escapeHtml(`${plural(s.total_cases, "case")} · avg ${fmtMoney(s.avg_penalty_usd || 0)}`))}
-      ${tile("High gravity", `${fmt(highGrav)}<span class="metric-of">cases</span>`, joinSep([g.W ? `<button type="button" class="metric-link" data-news-quick-gravity="W">${g.W} Willful</button>` : "0 Willful", g.R ? `<button type="button" class="metric-link" data-news-quick-gravity="R">${g.R} Repeat</button>` : "0 Repeat"]))}
-      ${topSec ? tile("Top cited standard", `<a class="ins-tile-link" href="${newsSectionHref(29, topSec.section_id)}">§ ${escapeHtml(topSec.section_id)}</a>`, `<button type="button" class="metric-link" data-news-quick-sec="${escapeHtml(topSec.section_id)}">Filter ${plural(topSec.count, "case")} ${icon("chevronRight")}</button>`) : tile("Top cited standard", "—", "No CFR mappings yet")}
-      ${topState ? tile("Top state", escapeHtml(stateName(topState.code)), `<button type="button" class="metric-link" data-news-quick-state="${escapeHtml(topState.code)}">${escapeHtml(fmtMoney(topState.total_penalty_usd))} · ${plural(topState.count, "case")} ${icon("chevronRight")}</button>`) : tile("Top state", "—", "No state data")}
-    </section>`;
-}
-function renderNews(view, data, status, opts = {}) {
-	newsState.view = view;
-	newsState.data = data;
-	newsState.status = status;
-	const articles = data.articles || [];
-	let hero = null;
-	if (articles.length) {
-		const fresh = (a) => (Date.now() - Date.parse(a.published_at + "T00:00:00")) / 864e5 <= 30;
-		hero = (view.cat === "all" ? articles.find((a) => a.category === "rules" && fresh(a)) : null) || articles[0];
-	}
-	const feed = articles.filter((a) => !hero || a.guid !== hero.guid);
-	const more = data.total > articles.length ? `<div class="news-more"><button type="button" class="btn" data-news-act="more">Load more</button></div>` : "";
-	const qEl = document.getElementById("news-q");
-	const qFocus = qEl && document.activeElement === qEl ? {
-		value: qEl.value,
-		start: qEl.selectionStart,
-		end: qEl.selectionEnd
-	} : null;
-	dom.view.innerHTML = `
-    <div class="news-front">
-      <div class="news-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK Newsroom · OSHA</div>
-          <h1 class="doc-title">Regulatory News</h1>
-        </div>
-        <div class="news-head-status" id="news-head-status">${newsHeadStatusHtml(status)}</div>
-      </div>
-      ${newsBreakingHtml(articles)}
-      <div class="news-bar">
-        ${newsTabsHtml(view, status)}
-        <input type="search" class="news-q" id="news-q" value="${escapeHtml(view.q)}"
-          placeholder="Search news: keyword, company, § 1910.1030, 91 FR 55744" aria-label="Search news" autocomplete="off" spellcheck="false">
-      </div>
-      ${newsFilterChipsHtml(view)}
-      ${newsFacetsHtml(view, status)}
-      ${enforcementSummaryHtml(view)}
-      ${articles.length ? `
-        ${hero ? newsCardHtml(hero, { hero: true }) : ""}
-        <div class="news-grid" id="news-grid">${feed.map((a) => newsCardHtml(a)).join("")}</div>
-        ${more}` : newsEmptyHtml(view, status)}
-    </div>`;
-	if (opts.enter) enterView();
-	if (qFocus) {
-		const q = document.getElementById("news-q");
-		if (q) {
-			q.value = qFocus.value;
-			q.focus();
-			try {
-				q.setSelectionRange(qFocus.start, qFocus.end);
-			} catch (e) {}
-		}
-	}
-}
-async function loadMoreNews() {
-	const seq = state.routeSeq;
-	const { view, data } = newsState;
-	if (!view || !data) return;
-	let page;
-	try {
-		page = await getJSON(newsApiUrl(view, data.articles.length));
-	} catch (e) {
-		return;
-	}
-	if (seq !== state.routeSeq || newsState.data !== data) return;
-	data.articles = data.articles.concat(page.articles || []);
-	data.total = page.total;
-	const grid = document.getElementById("news-grid");
-	if (grid) {
-		const shown = new Set([...dom.view.querySelectorAll("[data-guid]")].map((el) => el.dataset.guid));
-		grid.insertAdjacentHTML("beforeend", (page.articles || []).filter((a) => !shown.has(a.guid)).map((a) => newsCardHtml(a)).join(""));
-	}
-	const moreBtn = dom.view.querySelector("[data-news-act=\"more\"]");
-	if (moreBtn && data.articles.length >= data.total) moreBtn.closest(".news-more").remove();
-}
-function citationStatusText(v) {
-	const bits = [];
-	if (v.contest_date) bits.push(`Contested ${fmtDate(v.contest_date)}`);
-	if (v.final_order_date) bits.push(`Final ${fmtDate(v.final_order_date)}`);
-	if (v.abate_complete === "X" || v.abate_complete === "3") bits.push("Abated");
-	else if (v.abate_date) bits.push(`Abate due ${fmtDate(v.abate_date)}`);
-	return bits.join(" · ") || "Issued";
-}
-function violationStandardHtml(v) {
-	if (v.section_id) {
-		const dim = !titleInstalled(29);
-		const href = dim ? "#/library/29" : titleHref(29, "section/" + encodeURIComponent(v.section_id) + (v.para ? "?p=" + encodeURIComponent(v.para) : ""));
-		return `<a class="citation-link ins-std-link${dim ? " is-dim" : ""}" href="${href}">${escapeHtml(v.standard_display)}</a>`;
-	}
-	if (v.is_general_duty) return `<span class="ins-std-gdc">${escapeHtml(v.standard_display)}</span>`;
-	return `<span class="ins-std-state">${escapeHtml(v.standard_display || v.raw_standard || "Unlisted")}</span>` + (v.is_state_plan ? "<span class=\"ins-tag\">State plan</span>" : "");
-}
-function inspectionViolationsHtml(data) {
-	const viols = data.violations || [];
-	if (!viols.length) {
-		if (data.dol_configured) return `
-        <div class="ins-panel-empty">
-          <p class="ins-muted">Individual citation rows have not been cached locally for this inspection yet.</p>
-          <button type="button" class="btn btn-sm btn-accent" data-ins-act="enrich" data-act-nr="${data.activity_nr}">${icon("activity")} Load citations from DOL</button>
-        </div>`;
-		return "<div class=\"ins-panel-empty\"><p class=\"ins-muted\">Add a free DOL API key in Settings to load per-citation details on demand.</p></div>";
-	}
-	return `
-    <div class="ins-table-wrap">
-      <table class="ins-table">
-        <thead>
-          <tr>
-            <th>Cit.</th>
-            <th>Standard</th>
-            <th>Type</th>
-            <th>Exposed</th>
-            <th>Status</th>
-            <th class="is-num">Penalty</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${viols.map((v) => {
-		const tags = [];
-		if (v.gravity) tags.push(`Grav ${v.gravity}`);
-		if (v.emphasis) tags.push(`NEP ${v.emphasis}`);
-		if (v.hazcat) tags.push(v.hazcat);
-		if (v.fta_penalty) tags.push(`FTA ${fmtMoney(v.fta_penalty)}`);
-		if ((v.hazsubs || []).length) tags.push(`HazSub ${v.hazsubs.join(", ")}`);
-		const penChanged = v.initial_penalty && v.initial_penalty !== v.current_penalty;
-		const expBits = [v.nr_instances ? plural(v.nr_instances, "inst") : "", v.nr_exposed ? `${v.nr_exposed} exp` : ""].filter(Boolean).join(" · ");
-		return `
-              <tr>
-                <td class="ins-cit-id">${escapeHtml(v.citation_id || "—")}</td>
-                <td>
-                  <div class="ins-std-cell">
-                    ${violationStandardHtml(v)}
-                    ${tags.length ? `<div class="ins-tags">${tags.map((t) => `<span class="ins-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
-                  </div>
-                </td>
-                <td><span class="ins-viol-pill is-${escapeHtml((v.viol_type || "O").toLowerCase())}">${escapeHtml(v.viol_label || v.viol_type)}</span></td>
-                <td class="ins-mono-col">${escapeHtml(expBits || "—")}</td>
-                <td class="ins-status-col">${escapeHtml(citationStatusText(v))}</td>
-                <td class="is-num">
-                  <div class="ins-pen-cur">${v.current_penalty ? escapeHtml(fmtMoney(v.current_penalty)) : "$0"}</div>
-                  ${penChanged ? `<div class="ins-pen-init">Initial ${escapeHtml(fmtMoney(v.initial_penalty))}</div>` : ""}
-                </td>
-              </tr>`;
-	}).join("")}
-        </tbody>
-      </table>
-    </div>`;
-}
-function inspectionSectionsHtml(data) {
-	const secs = (data.article || {}).sections || [];
-	if (!secs.length) return "";
-	return `
-    <div class="ins-cfr-chips">
-      ${secs.map((s) => {
-		return `<a class="citation-chip${!titleInstalled(29) ? " is-dim" : ""}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`;
-	}).join("")}
-    </div>`;
-}
-function renderInspectionCase(data, { enter = true, enriching = false, enrichError = "" } = {}) {
-	const actNr = data.activity_nr;
-	const art = data.article || {};
-	const d = data.detail || {};
-	const company = d.estab_name || art.company || `Inspection #${actNr}`;
-	const docType = d.insp_type_label || art.doc_type || "OSHA inspection";
-	const addrParts = [
-		d.site_address,
-		[d.site_city || art.city, d.site_state || art.state].filter(Boolean).join(", "),
-		d.site_zip
-	].filter(Boolean);
-	const subLine = joinSep([
-		escapeHtml(docType),
-		addrParts.length ? escapeHtml(addrParts.join(" · ")) : "",
-		d.naics_code || art.naics ? `NAICS ${escapeHtml(d.naics_code || art.naics)}` : ""
-	]);
-	const curPen = d.current_penalty_usd ?? art.penalty_usd ?? 0;
-	const initPen = d.initial_penalty_usd ?? curPen;
-	const deltaPct = initPen > 0 && curPen !== initPen ? Math.round((curPen - initPen) / initPen * 100) : 0;
-	const violCount = (data.violations || []).length || d.citation_count || 0;
-	const vCounts = (data.violations || []).reduce((m, v) => {
-		const k = v.viol_label || v.viol_type;
-		if (k) m[k] = (m[k] || 0) + 1;
-		return m;
-	}, {});
-	const violSummary = Object.entries(vCounts).map(([k, n]) => `${n} ${k}`).join(", ") || (art.violation_types || []).join(", ") || "Recorded in summary";
-	const oshaUrl = safeHttpUrl(art.link || `https://www.osha.gov/ords/imis/establishment.inspection_detail?id=${actNr}`);
-	const openDt = d.open_date || art.opened_on;
-	const modDt = d.case_mod_date;
-	const closeDt = d.close_case_date;
-	const metaFacts = [
-		["Activity #", String(actNr)],
-		["Safety / Health", d.safety_hlth_label],
-		["Inspection scope", d.insp_scope_label],
-		["Ownership", d.owner_type_label],
-		["Union status", d.union_status_label],
-		["Advance notice", d.adv_notice === "Y" ? "Yes" : d.adv_notice === "N" ? "No" : null],
-		["Employees at site", d.nr_in_estab != null ? fmt(d.nr_in_estab) : null],
-		["SIC / NAICS", [d.sic_code && `SIC ${d.sic_code}`, (d.naics_code || art.naics) && `NAICS ${d.naics_code || art.naics}`].filter(Boolean).join(" · ") || null],
-		["Reporting ID", d.reporting_id]
-	].filter(([, val]) => val);
-	const gdcList = data.gdc || [];
-	const accidents = data.accidents || [];
-	const events = data.events || [];
-	const takeaways = art.takeaways || [];
-	const statusPill = enriching ? statPill("busy", "Loading DOL case details…") : enrichError ? statPill("stale", enrichError) : data.enriched_at ? statPill("synced", `DOL synced ${timeAgo(Date.parse(data.enriched_at))}`) : "";
-	const tile = (label, val, sub) => `
-    <div class="metric-card">
-      <div class="metric-label">${label}</div>
-      <div class="metric-val">${val}</div>
-      <div class="metric-sub">${sub}</div>
-    </div>`;
-	document.title = `${company} · Inspection #${actNr} · FRAMEWORK`;
-	dom.view.innerHTML = `
-    <div class="news-front ins-front">
-      <div class="ins-top-nav">
-        <a class="hm-inline-link" href="#/news?cat=enforcement">${icon("chevronLeft")} Back to Enforcement</a>
-        <div class="ins-top-status" id="ins-status-slot">${statusPill}</div>
-      </div>
-
-      <header class="ins-head">
-        <div class="ins-head-copy">
-          <div class="doc-kicker">OSHA Enforcement Case File${SEP}Inspection #${actNr}</div>
-          <h1 class="doc-title">${escapeHtml(company)}</h1>
-          ${subLine ? `<p class="ins-sub">${subLine}</p>` : ""}
-        </div>
-        <div class="ins-head-acts">
-          ${data.dol_configured ? `<button type="button" class="btn btn-sm" data-ins-act="enrich" data-act-nr="${actNr}"${enriching ? " disabled" : ""}>${icon("activity")} Refresh from DOL</button>` : ""}
-          ${oshaUrl ? `<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(oshaUrl)}" title="Opens OSHA.gov (may prompt human verification)">${icon("external")} OSHA.gov</a>` : ""}
-        </div>
-      </header>
-
-      <section class="ins-metrics" aria-label="Inspection summary">
-        ${tile("Current penalty", curPen ? escapeHtml(fmtMoney(curPen)) : "$0", deltaPct ? escapeHtml(`Initial ${fmtMoney(initPen)} (${deltaPct > 0 ? "+" : ""}${deltaPct}%)`) : escapeHtml(initPen ? `Initial ${fmtMoney(initPen)}` : "No penalty assessed"))}
-        ${tile("Citations", violCount ? escapeHtml(plural(violCount, "citation")) : "Summary only", escapeHtml(violSummary))}
-        ${tile("Case dates", art.published_at ? escapeHtml(fmtDate(art.published_at)) : "—", escapeHtml([openDt && `Opened ${fmtDate(openDt)}`, closeDt ? `Closed ${fmtDate(closeDt)}` : modDt ? `Modified ${fmtDate(modDt)}` : "Open"].filter(Boolean).join(" · ")))}
-        ${tile("Exposure", d.max_exposed ? escapeHtml(`${fmt(d.max_exposed)} exposed`) : d.nr_in_estab ? escapeHtml(`${fmt(d.nr_in_estab)} at site`) : "—", escapeHtml([d.total_instances ? plural(d.total_instances, "instance") : "", d.nr_in_estab && d.max_exposed ? `${fmt(d.nr_in_estab)} at site` : ""].filter(Boolean).join(" · ") || "Site exposure data"))}
-      </section>
-
-      ${takeaways.length && !(data.violations || []).length ? `
-        <section class="ins-panel" aria-label="Cached summary">
-          <h2 class="ins-panel-title">Cached Summary</h2>
-          <dl class="news-takeaways">${takeaways.map((t) => `<dt>${escapeHtml(t.label)}</dt><dd>${linkifyNewsText(t.text)}</dd>`).join("")}</dl>
-          ${inspectionSectionsHtml(data)}
-        </section>` : ""}
-
-      <section class="ins-panel" aria-label="Citations and violated standards">
-        <div class="ins-panel-head">
-          <h2 class="ins-panel-title">Citations &amp; Violated Standards</h2>
-          <span class="ins-panel-meta">${violCount ? escapeHtml(plural(violCount, "item")) : "On-demand DOL lookup"}</span>
-        </div>
-        ${inspectionViolationsHtml(data)}
-      </section>
-
-      ${gdcList.length ? `
-        <section class="ins-panel" aria-label="General Duty Clause narrative">
-          <div class="ins-panel-head">
-            <h2 class="ins-panel-title">General Duty Clause — Section 5(a)(1)</h2>
-            <span class="ins-panel-meta">${escapeHtml(plural(gdcList.length, "narrative"))}</span>
-          </div>
-          ${gdcList.map((g) => `
-            <div class="ins-narrative">
-              <div class="ins-narrative-kicker">Citation ${escapeHtml(g.citation_id)}</div>
-              <p>${escapeHtml(g.text)}</p>
-            </div>`).join("")}
-        </section>` : ""}
-
-      ${accidents.length ? `
-        <section class="ins-panel" aria-label="Accident investigation abstract">
-          <div class="ins-panel-head">
-            <h2 class="ins-panel-title">Accident / Fatality Investigation</h2>
-            <span class="ins-panel-meta">${escapeHtml(plural(accidents.length, "summary"))}</span>
-          </div>
-          ${accidents.map((ac) => `
-            <div class="ins-narrative">
-              <div class="ins-narrative-kicker">${escapeHtml([
-		ac.event_date && fmtDate(ac.event_date),
-		ac.fatality ? "Fatality" : "",
-		ac.event_desc
-	].filter(Boolean).join(" · "))}</div>
-              ${ac.abstract ? `<p>${escapeHtml(ac.abstract)}</p>` : ""}
-              ${ac.keywords ? `<div class="ins-keywords">${escapeHtml(ac.keywords)}</div>` : ""}
-            </div>`).join("")}
-        </section>` : ""}
-
-      ${metaFacts.length || events.length ? `
-        <div class="ins-split">
-          ${metaFacts.length ? `
-            <section class="ins-panel" aria-label="Establishment details">
-              <h2 class="ins-panel-title">Establishment &amp; Case File</h2>
-              <dl class="ins-meta-list">
-                ${metaFacts.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
-              </dl>
-            </section>` : ""}
-          ${events.length ? `
-            <section class="ins-panel" aria-label="Penalty and contest history">
-              <h2 class="ins-panel-title">Citation Revision Timeline</h2>
-              <ol class="ins-events">
-                ${events.map((ev) => `
-                  <li>
-                    <span class="ins-ev-date">${escapeHtml(ev.date ? fmtDate(ev.date) : "—")}</span>
-                    <span class="ins-ev-body">
-                      <strong>${escapeHtml(ev.event_label)}</strong> · Cit. ${escapeHtml(ev.citation_id)}
-                      ${ev.penalty != null ? ` · ${escapeHtml(fmtMoney(ev.penalty))}` : ""}
-                    </span>
-                  </li>`).join("")}
-              </ol>
-            </section>` : ""}
-        </div>` : ""}
-    </div>`;
-	if (enter) enterView();
-}
-async function enrichInspection(activityNr, seq) {
-	try {
-		const res = await getJSON(`/api/news/inspection/${activityNr}/enrich`, { method: "POST" });
-		if (seq !== state.routeSeq) return;
-		renderInspectionCase(res, { enter: false });
-	} catch (err) {
-		if (seq !== state.routeSeq) return;
-		const slot = document.getElementById("ins-status-slot");
-		if (slot) slot.innerHTML = statPill("stale", err.message || "Could not enrich from DOL");
-		const btn = dom.view.querySelector("[data-ins-act=\"enrich\"]");
-		if (btn) btn.disabled = false;
-	}
-}
-async function loadInspection(activityNr) {
-	const seq = state.routeSeq;
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	document.title = `Inspection #${activityNr} · FRAMEWORK`;
-	dom.view.innerHTML = skeletonHtml("cards", `Loading inspection #${activityNr}…`);
-	enterView();
-	let data;
-	try {
-		data = await getJSON(`/api/news/inspection/${activityNr}`);
-	} catch (err) {
-		if (seq !== state.routeSeq) return;
-		dom.view.innerHTML = `
-      <div class="news-front ins-front">
-        <div class="ins-top-nav"><a class="hm-inline-link" href="#/news?cat=enforcement">${icon("chevronLeft")} Back to Enforcement</a></div>
-        <div class="empty-state">
-          <h2>Inspection #${activityNr} not found</h2>
-          <p>${escapeHtml(err.message)}</p>
-        </div>
-      </div>`;
-		return;
-	}
-	if (seq !== state.routeSeq) return;
-	const auto = Boolean(data.needs_enrichment && data.dol_configured && !autoEnrichedCases.has(activityNr));
-	renderInspectionCase(data, {
-		enter: false,
-		enriching: auto
-	});
-	if (auto) {
-		autoEnrichedCases.add(activityNr);
-		await enrichInspection(activityNr, seq);
-	}
-}
-dom.view.addEventListener("click", (e) => {
-	const tab = e.target.closest("[data-news-cat]");
-	if (tab && newsState.view) {
-		setNewsView({
-			...newsState.view,
-			cat: tab.dataset.newsCat
-		});
-		return;
-	}
-	const qGrav = e.target.closest("[data-news-quick-gravity]");
-	if (qGrav && newsState.view) {
-		setNewsView({
-			...newsState.view,
-			cat: "enforcement",
-			gravity: qGrav.dataset.newsQuickGravity
-		}, { replace: true });
-		return;
-	}
-	const qSec = e.target.closest("[data-news-quick-sec]");
-	if (qSec && newsState.view) {
-		setNewsView({
-			...newsState.view,
-			cat: "enforcement",
-			section: qSec.dataset.newsQuickSec
-		}, { replace: true });
-		return;
-	}
-	const qState = e.target.closest("[data-news-quick-state]");
-	if (qState && newsState.view) {
-		setNewsView({
-			...newsState.view,
-			cat: "enforcement",
-			state: qState.dataset.newsQuickState
-		}, { replace: true });
-		return;
-	}
-	const insAct = e.target.closest("[data-ins-act=\"enrich\"]");
-	if (insAct) {
-		const actNr = parseInt(insAct.dataset.actNr, 10);
-		if (!Number.isNaN(actNr)) {
-			insAct.disabled = true;
-			const slot = document.getElementById("ins-status-slot");
-			if (slot) slot.innerHTML = statPill("busy", "Refreshing from DOL…");
-			enrichInspection(actNr, state.routeSeq);
-		}
-		return;
-	}
-	const act = e.target.closest("[data-news-act]");
-	if (!act) return;
-	const kind = act.dataset.newsAct;
-	if (kind === "refresh") refreshNewsCommand();
-	else if (kind === "reload") handleRoute();
-	else if (kind === "more") loadMoreNews();
-	else if (kind === "search-all") setNewsView({
-		...newsState.view,
-		cat: "all"
-	});
-	else if (kind === "clear-filter") setNewsView({
-		...newsState.view,
-		[act.dataset.filterKey]: ""
-	}, { replace: true });
-	else if (kind === "expand-chips") {
-		const row = act.closest(".news-chips");
-		if (row) {
-			row.classList.add("is-expanded");
-			act.remove();
-		}
-	}
-});
-state.newsQTimer = null;
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id !== "news-q" || !newsState.view) return;
-	clearTimeout(state.newsQTimer);
-	const q = e.target.value.trim();
-	state.newsQTimer = setTimeout(() => {
-		if (newsState.view && q !== newsState.view.q) setNewsView({
-			...newsState.view,
-			q
-		}, { replace: true });
-	}, 250);
-});
-dom.view.addEventListener("keydown", (e) => {
-	if (e.target.id === "news-q" && e.key === "Escape" && e.target.value) {
-		e.target.value = "";
-		if (newsState.view && newsState.view.q) setNewsView({
-			...newsState.view,
-			q: ""
-		}, { replace: true });
-		return;
-	}
-	const tab = e.target.closest && e.target.closest(".news-tabs [role=\"tab\"]");
-	if (!tab) return;
-	if (![
-		"ArrowLeft",
-		"ArrowRight",
-		"Home",
-		"End"
-	].includes(e.key)) return;
-	e.preventDefault();
-	const tabs = [...dom.view.querySelectorAll(".news-tabs [role=\"tab\"]")];
-	const i = tabs.indexOf(tab);
-	tabs[e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : (i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length].focus();
-});
-dom.view.addEventListener("change", (e) => {
-	const facet = e.target.closest && e.target.closest("[data-news-facet]");
-	if (!facet || !newsState.view) return;
-	setNewsView({
-		...newsState.view,
-		[facet.dataset.newsFacet]: facet.value
-	}, { replace: true });
-});
-// src/panels/settings_panel.js
-state.navStorage = null;
-state.navNewsStatus = null;
-state.navEnvStatus = null;
-async function loadEnvStatus() {
-	try {
-		state.navEnvStatus = await getJSON("/api/settings/env");
-	} catch (e) {
-		state.navEnvStatus = null;
-	}
-	if (state.navEnvStatus) refreshSettingsViews();
-}
-function timeUntil(iso) {
-	const s = (Date.parse(iso) - Date.now()) / 1e3;
-	if (isNaN(s)) return "";
-	if (s <= 60) return "any moment";
-	if (s < 3600) return `in ${Math.round(s / 60)}m`;
-	if (s < 86400) return `in ${Math.round(s / 3600)}h`;
-	return `in ${Math.round(s / 86400)}d`;
-}
-function newsSettingsHtml() {
-	const ns = state.navNewsStatus;
-	if (!ns) return "<div class=\"loading\">Checking…</div>";
-	if (!ns.sync_enabled) return "<p class=\"dr-note\">News sync is off (<code>NEWS_SYNC=0</code> in <code>reader/.env</code>).</p>";
-	const enabled = Object.entries(ns.sources).filter(([, s]) => s.enabled);
-	const lastOk = enabled.map(([, s]) => s.last_ok_at).filter(Boolean).sort().pop();
-	const nextDue = enabled.map(([, s]) => s.next_due_at).filter(Boolean).sort()[0];
-	const backing = enabled.filter(([, s]) => s.retry_after);
-	const when = backing.length ? backing.map(([, s]) => `${escapeHtml(s.last_error || "Update failed")} · retrying ${escapeHtml(timeUntil(s.retry_after))}`).join(" · ") : `Last update ${lastOk ? escapeHtml(timeAgo(Date.parse(lastOk))) : "never"} · next check ${nextDue ? escapeHtml(timeUntil(nextDue)) || "due now" : "—"}`;
-	return `
-    <div class="dr-row is-static"><span class="dr-name">Federal Register</span><span class="dr-time">on</span></div>
-    <div class="dr-row is-static"><span class="dr-name">DOL enforcement</span><span class="dr-time">${ns.dol_configured ? "on" : "off"}</span></div>
-    ${ns.dol_configured ? "" : "<p class=\"dr-note\">Enforcement requires a free <code>DOL_API_KEY</code>. <a class=\"dr-inline-link\" href=\"#/help\">Open setup guide</a> or <button type=\"button\" class=\"dr-inline-btn\" data-open-env=\"dol_api_key\">enter key</button>.</p>"}
-    <p class="dr-note">${when}</p>`;
-}
-async function loadNewsSettings() {
-	try {
-		state.navNewsStatus = await getJSON("/api/news/status");
-	} catch (e) {
-		state.navNewsStatus = {
-			sync_enabled: false,
-			sources: {},
-			dol_configured: false
-		};
-	}
-	refreshSettingsViews();
-}
-function setTheme(next) {
-	document.documentElement.dataset.theme = next;
-	lsSet("theme", next);
-	refreshSettingsViews();
-}
-var settingSeg = (name, value, opts) => `<div class="lib-seg" role="group" aria-label="${name}">${opts.map(([v, label]) => `<button type="button" data-set="${name}" data-value="${v}" aria-pressed="${value === v}">${label}</button>`).join("")}</div>`;
-function settingsClaudeHtml() {
-	return state.chatConfig.configured && state.chatConfig.models.length ? `<select class="set-select" data-set-model aria-label="Claude model">${state.chatConfig.models.map((m) => `<option value="${escapeHtml(m.id)}"${(dom.modelSelect.value || state.chatConfig.default) === m.id ? " selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}</select>` : "<p class=\"dr-note\">Claude requires an <code>ANTHROPIC_API_KEY</code>. <a class=\"dr-inline-link\" href=\"#/help\">Open setup guide</a> or <button type=\"button\" class=\"dr-inline-btn\" data-open-env=\"anthropic_api_key\">enter key</button>.</p>";
-}
-function settingsStorageHtml() {
-	const st = state.navStorage;
-	if (!st) return "<div class=\"loading\">Measuring…</div>";
-	return `
-    <div class="set-total"><span class="set-total-val">${fmtBytes(st.total_bytes) || "0 KB"}</span><span class="set-total-sub">on disk in ${plural(st.titles.length, "title")}</span></div>
-    ${st.titles.map((t) => {
-		const meta = state.installedTitles.find((x) => x.title === t.title);
-		return `<div class="dr-row is-static"><span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(meta ? meta.name : `Title ${t.title}`)}</span><span class="dr-time">${fmtBytes(t.bytes)}</span></div>`;
-	}).join("")}
-    ${st.legacy_bytes ? `<div class="dr-row is-static"><span class="dr-num"></span><span class="dr-name">Title 29 legacy copy</span><span class="dr-time">${fmtBytes(st.legacy_bytes)}</span></div>` : ""}
-    <div class="set-row">
-      <span class="set-name">Temporary files<span class="set-sub">${st.temp_files ? `${plural(st.temp_files, "file")} from unfinished downloads` : "None left over"}</span></span>
-      <button type="button" class="lib-act" data-set-act="prune"${st.temp_files ? "" : " disabled"}>${st.temp_files ? `Clean up ${fmtBytes(st.temp_bytes)}` : "Clean"}</button>
-    </div>`;
-}
-function settingsKeysHtml() {
-	const mod = isMac ? "⌘" : "Ctrl";
-	return `<dl class="set-keys">${[
-		[`${mod} K`, "Search or jump to a section"],
-		["/", "Search"],
-		[">", "Commands, in search"],
-		[`${mod} B`, "Show or hide the drawer"],
-		[`${mod} J`, "Ask Claude"],
-		[`${mod} D`, "Pin section to a workspace"],
-		["G H", "Home"],
-		["G T", "Title start"],
-		["G C", "Contents"],
-		["G P", "Projects"],
-		["G N", "News"],
-		["G L", "Library"],
-		["G S", "Settings"],
-		[isMac ? "⌥ 1–7" : "Alt 1–7", "Rail items in order"],
-		["Esc", "Close the floating drawer"]
-	].map(([k, v]) => `<div><dt>${k.split(" ").map((x) => `<kbd>${escapeHtml(x)}</kbd>`).join("")}</dt><dd>${escapeHtml(v)}</dd></div>`).join("")}</dl>`;
-}
-function renderSettingsPanel() {
-	const theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
-	const size = parseInt(lsGet("fontSize"), 10) || 16;
-	const envKeys = state.navEnvStatus && state.navEnvStatus.keys;
-	const configuredKeysCount = envKeys ? (envKeys.DOL_API_KEY.configured ? 1 : 0) + (envKeys.ANTHROPIC_API_KEY.configured ? 1 : 0) : null;
-	const settingsMeta = configuredKeysCount == null ? "Claude · News · Storage · Keyboard" : `${configuredKeysCount} of 2 optional keys set`;
-	setPanel("settings", `
-    <section class="dr-sec">${drLabel("Quick settings")}
-      <div class="set-row"><span class="set-name">Theme</span>${settingSeg("theme", theme, [["dark", "Dark"], ["light", "Light"]])}</div>
-      <div class="set-row"><span class="set-name">Reading text</span>
-        <span class="set-quick-size" role="group" aria-label="Reading text size">
-          <button type="button" data-set-act="font-dec" aria-label="Smaller text">A−</button>
-          <span class="set-val" data-size-val>${size} px</span>
-          <button type="button" data-set-act="font-inc" aria-label="Larger text">A+</button>
-        </span></div>
-      <div class="set-row"><span class="set-name">Drawer</span>${settingSeg("mode", navState.mode, [["pinned", "Pinned"], ["flyout", "Overlay"]])}</div>
-    </section>
-    <section class="dr-sec">${drLabel("Quick actions")}
-      <div class="set-quick-acts">
-        <button type="button" class="dr-act" data-open-env="">${icon("key")} Edit API keys</button>
-        <button type="button" class="dr-act" data-set-act="news-refresh">${icon("news")} Check for news</button>
-        <a class="dr-act" href="#/help">${icon("external")} Connections &amp; API keys</a>
-      </div>
-    </section>
-    <a class="dr-cta" href="#/settings">
-      <span class="dr-cta-text"><span class="dr-cta-title">Open settings</span><span class="dr-cta-meta">${escapeHtml(settingsMeta)}</span></span>${icon("chevronRight")}
-    </a>`);
-	if (!state.navEnvStatus) loadEnvStatus();
-}
-function renderSettingsPage(opts = {}) {
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	document.title = "Settings · FRAMEWORK";
-	const theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
-	const size = parseInt(lsGet("fontSize"), 10) || 16;
-	const top = dom.main.scrollTop;
-	dom.view.innerHTML = `
-    <div class="settings-front">
-      <header class="help-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK</div>
-          <h1 class="doc-title">Settings</h1>
-          <p class="help-lead">Appearance, Claude, news sync, storage and keyboard shortcuts. API keys and data sources live in <a href="#/help">Connections &amp; API Keys</a>.</p>
-        </div>
-        <div class="help-head-actions">
-          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
-        </div>
-      </header>
-      <div class="settings-grid">
-        <section class="set-card">
-          <h2 class="set-card-label">Appearance</h2>
-          <div class="set-row"><span class="set-name">Theme</span>${settingSeg("theme", theme, [["dark", "Dark"], ["light", "Light"]])}</div>
-          <div class="set-row set-col">
-            <div class="set-row-head"><label class="set-name" for="set-size">Reading text</label><span class="set-val" id="set-size-val" data-size-val>${size} px</span></div>
-            <input type="range" class="set-range" id="set-size" min="13" max="24" step="1" value="${size}">
-          </div>
-          <div class="set-row"><span class="set-name">Drawer</span>${settingSeg("mode", navState.mode, [["pinned", "Pinned"], ["flyout", "Overlay"]])}</div>
-          <p class="dr-note">Pinned sits beside the page. Overlay slides over it and closes once you pick something.</p>
-        </section>
-        <section class="set-card">
-          <h2 class="set-card-label">Claude</h2>
-          ${settingsClaudeHtml()}
-        </section>
-        <section class="set-card">
-          <h2 class="set-card-label">News</h2>
-          ${newsSettingsHtml()}
-        </section>
-        <section class="set-card">
-          <h2 class="set-card-label">Storage</h2>
-          ${settingsStorageHtml()}
-        </section>
-        <section class="set-card set-card-wide">
-          <h2 class="set-card-label">Keyboard</h2>
-          ${settingsKeysHtml()}
-        </section>
-      </div>
-    </div>`;
-	if (opts.enter) enterView();
-	else dom.main.scrollTop = top;
-	if (!state.navStorage) loadStorage();
-	if (!state.navNewsStatus) loadNewsSettings();
-	if (!state.navEnvStatus) loadEnvStatus();
-}
-var onSettingsPage = () => state.activeRoute === "/settings" || state.activeRoute === "/settings/";
-function refreshSettingsViews() {
-	if (navState.panel === "settings") renderSettingsPanel();
-	if (onSettingsPage()) renderSettingsPage();
-}
-async function runSettingsAction(btn) {
-	const act = btn.dataset.setAct;
-	if (act === "font-dec") adjustFontSize(-1);
-	else if (act === "font-inc") adjustFontSize(1);
-	else if (act === "news-refresh") refreshNewsCommand();
-	else if (act === "prune") {
-		btn.disabled = true;
-		try {
-			const res = await getJSON("/api/library/storage/prune", { method: "POST" });
-			showToast(res.removed ? `Removed ${plural(res.removed, "temporary file")} (${fmtBytes(res.freed_bytes)})` : "Nothing to clean up");
-		} catch (err) {
-			showToast(err.message, 5e3);
-		}
-		state.navStorage = null;
-		refreshSettingsViews();
-	}
-}
-dom.view.addEventListener("click", (e) => {
-	const set = e.target.closest("[data-set]");
-	if (set) {
-		if (set.dataset.set === "theme") setTheme(set.dataset.value);
-		else if (set.dataset.set === "mode") setNavMode(set.dataset.value);
-		return;
-	}
-	const setAct = e.target.closest("[data-set-act]");
-	if (setAct) runSettingsAction(setAct);
-});
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id === "set-size") applyFontSize(e.target.value);
-});
-dom.view.addEventListener("change", (e) => {
-	if (e.target.matches("[data-set-model]")) {
-		dom.modelSelect.value = e.target.value;
-		dom.modelSelect.dispatchEvent(new Event("change"));
-	}
-});
-// src/views/core.js
-var HOME_CONTENT = {
-	29: {
-		tagline: "Federal labor regulations — workplace safety, wages and hours, leave, and employee benefits — with local search and Claude.",
-		cards: [
-			{
-				part: "1910",
-				kicker: "OSHA Safety",
-				title: "Part 1910 — General Industry",
-				desc: "PPE, hazard communication, walking-working surfaces, fire protection, and machinery."
-			},
-			{
-				part: "1926",
-				kicker: "OSHA Safety",
-				title: "Part 1926 — Construction",
-				desc: "Scaffolds, fall protection, cranes, excavations, and electrical safety on sites."
-			},
-			{
-				part: "541",
-				kicker: "Wage & Hour",
-				title: "Part 541 — Overtime Exemptions",
-				desc: "Executive, administrative, professional, computer, and outside sales exemptions (FLSA)."
-			},
-			{
-				part: "825",
-				kicker: "Leave & Family",
-				title: "Part 825 — Family & Medical Leave",
-				desc: "FMLA employee eligibility, employer notice obligations, leave duration, and certification."
-			},
-			{
-				part: "1904",
-				kicker: "Recordkeeping",
-				title: "Part 1904 — Injury Recording",
-				desc: "Recording and reporting occupational injuries, illnesses, and severe incidents."
-			},
-			{
-				part: "2560",
-				kicker: "Employee Benefits",
-				title: "Part 2560 — ERISA Administration",
-				desc: "Claims procedures, participant remedies, and retirement plan fiduciaries."
-			}
-		]
-	},
-	40: {
-		tagline: "EPA regulations — air and water quality, hazardous waste, permits, and chemical releases — with local search and Claude.",
-		cards: [
-			{
-				part: "50",
-				kicker: "Air",
-				title: "Part 50 — Air Quality Standards",
-				desc: "National ambient air quality standards (NAAQS) for ozone, particulates, lead, and more."
-			},
-			{
-				part: "70",
-				kicker: "Air Permits",
-				title: "Part 70 — Operating Permits",
-				desc: "State operating permit programs for major stationary sources (Title V)."
-			},
-			{
-				part: "122",
-				kicker: "Water",
-				title: "Part 122 — NPDES Permits",
-				desc: "The discharge permit program for point sources under the Clean Water Act."
-			},
-			{
-				part: "136",
-				kicker: "Water",
-				title: "Part 136 — Test Procedures",
-				desc: "Approved analytical methods for pollutant monitoring and compliance."
-			},
-			{
-				part: "261",
-				kicker: "Hazardous Waste",
-				title: "Part 261 — Waste Identification",
-				desc: "What counts as a solid and hazardous waste under RCRA: listings and characteristics."
-			},
-			{
-				part: "302",
-				kicker: "Emergencies",
-				title: "Part 302 — Reportable Quantities",
-				desc: "CERCLA hazardous substance designations and release notification thresholds."
-			}
-		]
-	},
-	49: {
-		tagline: "DOT regulations — hazardous materials, motor carriers, drivers, and vehicle safety — with local search and Claude.",
-		cards: [
-			{
-				part: "172",
-				kicker: "Hazmat",
-				title: "Part 172 — Hazmat Table & Communication",
-				desc: "The hazardous materials table, shipping papers, marking, labeling, and placarding."
-			},
-			{
-				part: "173",
-				kicker: "Hazmat",
-				title: "Part 173 — Packaging Requirements",
-				desc: "General shipment and packaging requirements by hazard class."
-			},
-			{
-				part: "390",
-				kicker: "Motor Carriers",
-				title: "Part 390 — FMCSA General",
-				desc: "Who the federal motor carrier safety regulations apply to, and general duties."
-			},
-			{
-				part: "391",
-				kicker: "Drivers",
-				title: "Part 391 — Driver Qualifications",
-				desc: "Qualification files, medical certification, and disqualifying offenses."
-			},
-			{
-				part: "383",
-				kicker: "Drivers",
-				title: "Part 383 — Commercial Driver’s License",
-				desc: "CDL standards: who needs one, testing, endorsements, and disqualifications."
-			},
-			{
-				part: "571",
-				kicker: "Vehicles",
-				title: "Part 571 — Vehicle Safety Standards",
-				desc: "Federal motor vehicle safety standards (FMVSS) for cars, trucks, and buses."
-			}
-		]
-	}
-};
-var REF_CATS = [
-	["all", "All Web"],
-	["ibr", "IBR Standards"],
-	["standards", "Standards Bodies"],
-	["portals", "Federal Portals"],
-	["agencies", "Agencies & Guidance"],
-	["technical", "Technical & Other"],
-	["legacy", "Retired URLs"]
-];
-var CAT_LABELS = {
-	standards: "Standards",
-	portals: "Portal",
-	agencies: "Agency",
-	technical: "Technical"
-};
-var refUi = {
-	title: null,
-	beat: "front",
-	cat: "all",
-	q: "",
-	expanded: false
-};
-var titleNewsCache = /* @__PURE__ */ new Map();
-function countLeafSections(node) {
-	if (!node) return 0;
-	if (node.t === "section" || node.t === "appendix") return node.r ? 0 : 1;
-	let total = 0;
-	for (const ch of node.c || []) total += countLeafSections(ch);
-	return total;
-}
-function findChapterLabel(partNode) {
-	let k = treeIdx.parts.get(partNode.id);
-	while (k !== void 0 && k !== null) {
-		const n = treeIdx.nodes[k];
-		if (n && (n.t === "chapter" || n.t === "subtitle")) {
-			const meta = agencyMeta(n);
-			if (meta) return meta.code;
-			return cleanInlineLabel(n.l || n.d || "");
-		}
-		k = treeIdx.parent[k];
-	}
-	return `Title ${state.currentTitle}`;
-}
-function firstLeafSection(node) {
-	if (!node) return null;
-	if ((node.t === "section" || node.t === "appendix") && !node.r) return node;
-	for (const ch of node.c || []) {
-		const hit = firstLeafSection(ch);
-		if (hit) return hit;
-	}
-	return null;
-}
-function listSubparts(partNode) {
-	return (partNode?.c || []).filter((ch) => (ch.t === "subpart" || ch.t === "subject_group") && !ch.r && countLeafSections(ch) > 0);
-}
-function listDirectLeaves(partNode) {
-	const out = [];
-	const walk = (n) => {
-		if (!n) return;
-		if ((n.t === "section" || n.t === "appendix") && !n.r) {
-			out.push(n);
-			return;
-		}
-		for (const ch of n.c || []) {
-			walk(ch);
-			if (out.length >= 6) return;
-		}
-	};
-	walk(partNode);
-	return out;
-}
-/** Synthesize a concise editorial dek from a part's subparts or top sections. */
-function describePartNode(partNode, secCount) {
-	if (!partNode) return secCount ? `${plural(secCount, "section")} in this part` : "";
-	const cleanPhrase = (s) => cleanInlineLabel(s).replace(/\.+$/, "");
-	const subparts = listSubparts(partNode);
-	if (subparts.length) {
-		const names = subparts.slice(0, 3).map((s) => cleanPhrase(s.d || s.l || "")).filter(Boolean);
-		if (names.length) {
-			const rest = subparts.length - names.length;
-			const tail = rest > 0 ? `, and ${plural(rest, "more subpart")}` : "";
-			return `Covers ${names.join(", ")}${tail}.`;
-		}
-	}
-	const leaves = listDirectLeaves(partNode);
-	if (leaves.length) {
-		const names = leaves.slice(0, 3).map((s) => cleanPhrase(s.d || s.l || "")).filter(Boolean);
-		if (names.length) return `Includes ${names.join("; ")}.`;
-	}
-	return `${plural(secCount, "section")} in this part.`;
-}
-function buildDynamicCard(partNode, kickerOverride = "") {
-	const secCount = countLeafSections(partNode);
-	const titleText = cleanInlineLabel(partNode.d || "");
-	return {
-		part: partNode.id,
-		kicker: kickerOverride || findChapterLabel(partNode),
-		title: `Part ${partNode.id}${titleText ? " — " + titleText : ""}`,
-		desc: describePartNode(partNode, secCount),
-		secCount
-	};
-}
-function collectDynamicCards(limit = 6) {
-	if (!treeIdx.partList || !treeIdx.partList.length) return [];
-	const scored = [];
-	for (const k of treeIdx.partList) {
-		const p = treeIdx.nodes[k];
-		if (!p || p.r) continue;
-		if (!countLeafSections(p)) continue;
-		scored.push(buildDynamicCard(p));
-	}
-	if (!scored.length) return [];
-	const bySize = [...scored].sort((a, b) => b.secCount - a.secCount);
-	const lead = bySize[0];
-	const topIds = new Set(bySize.slice(0, limit).map((c) => c.part));
-	return [lead, ...scored.filter((c) => topIds.has(c.part) && c.part !== lead.part)].slice(0, limit);
-}
-function collectAgencyParts(agencyNode) {
-	const out = [];
-	const walk = (n) => {
-		if (!n || n.r) return;
-		if (n.t === "part") {
-			out.push(n);
-			return;
-		}
-		for (const ch of n.c || []) walk(ch);
-	};
-	walk(agencyNode);
-	return out;
-}
-function agencyBeatsList() {
-	return (treeIdx.agencyList || []).map((k) => ({
-		k,
-		node: treeIdx.nodes[k],
-		key: agencyKeyForNode(treeIdx.nodes[k]),
-		info: agencyInfo(treeIdx.nodes[k])
-	})).filter((x) => x.node && x.node.n > 0);
-}
-function cardsForBeat(titleNum, beat) {
-	if (beat && beat !== "front") {
-		const k = treeIdx.agencies.get(beat);
-		const agNode = k != null ? treeIdx.nodes[k] : null;
-		if (agNode) {
-			const info = agencyInfo(agNode);
-			const curatedByPart = new Map(((HOME_CONTENT[titleNum] || {}).cards || []).map((c) => [c.part, c]));
-			return collectAgencyParts(agNode).map((p) => ({
-				node: p,
-				secCount: countLeafSections(p)
-			})).filter((x) => x.secCount > 0).sort((a, b) => b.secCount - a.secCount).slice(0, 7).map(({ node }) => {
-				const curated = curatedByPart.get(node.id);
-				return curated ? {
-					...curated,
-					secCount: countLeafSections(node)
-				} : buildDynamicCard(node, info.code);
-			});
-		}
-	}
-	const curated = HOME_CONTENT[titleNum];
-	if (curated && curated.cards) {
-		if (treeIdx.parts && treeIdx.parts.size > 0) {
-			const present = curated.cards.filter((c) => treeIdx.parts.has(c.part));
-			if (present.length >= 2) return present;
-		} else return curated.cards;
-	}
-	return collectDynamicCards(6);
-}
-function leadInsideLinksHtml(titleNum, partId, partNode) {
-	if (!partNode) return "";
-	const subparts = listSubparts(partNode);
-	const items = [];
-	if (subparts.length) for (const sp of subparts.slice(0, 4)) {
-		const target = firstLeafSection(sp);
-		if (!target) continue;
-		const spLabel = cleanInlineLabel(sp.l || `Subpart ${sp.id}`);
-		const spName = cleanInlineLabel(sp.d || "");
-		items.push({
-			href: titleHref(titleNum, `section/${encodeURIComponent(target.id)}`),
-			code: spLabel,
-			text: spName && spName !== spLabel ? spName : cleanInlineLabel(target.d || target.l || "")
-		});
-	}
-	else for (const sec of listDirectLeaves(partNode).slice(0, 4)) items.push({
-		href: titleHref(titleNum, `section/${encodeURIComponent(sec.id)}`),
-		code: cleanInlineLabel(sec.l || `§ ${sec.id}`),
-		text: cleanInlineLabel(sec.d || "")
-	});
-	if (!items.length) return "";
-	return `
-    <div class="ts-lead-inside">
-      <div class="ts-inside-label">Inside Part ${escapeHtml(partId)}</div>
-      <div class="ts-inside-grid">
-        ${items.map((it) => `
-          <a class="ts-inside-item" href="${it.href}">
-            <span class="ts-inside-code">${escapeHtml(it.code)}</span>
-            ${it.text ? `<span class="ts-inside-text">${escapeHtml(it.text)}</span>` : ""}
-          </a>`).join("")}
-      </div>
-    </div>`;
-}
-function mainBroadsheetHtml(titleNum, beat) {
-	const cards = cardsForBeat(titleNum, beat);
-	const beatInfo = beat !== "front" && treeIdx.agencies.has(beat) ? agencyInfo(treeIdx.nodes[treeIdx.agencies.get(beat)]) : null;
-	const beatK = beat !== "front" ? treeIdx.agencies.get(beat) : null;
-	const flagHtml = beatInfo ? `
-      <div class="ts-sec-flag">
-        <span class="ts-flag-label">${escapeHtml(beatInfo.code)} Beat${beatInfo.name ? ` · ${escapeHtml(beatInfo.name)}` : ""}</span>
-        <span class="ts-flag-acts">
-          <button type="button" class="hm-inline-link" data-ts-open-agency="${beatK}">Open in Contents ${icon("chevronRight")}</button>
-          <button type="button" class="hm-inline-link" data-ts-beat="front">All beats</button>
-        </span>
-      </div>` : `
-      <div class="ts-sec-flag">
-        <span class="ts-flag-label">The Lead Beat</span>
-        <span class="ts-flag-meta">${cards.length ? plural(cards.length, "key part") : "Title overview"}</span>
-      </div>`;
-	if (!cards.length) return `
-      <div class="ts-main-col">
-        ${flagHtml}
-        <div class="ts-lead"><p class="ts-lead-dek">Open the Contents drawer to browse sections in Title ${titleNum}.</p></div>
-      </div>`;
-	const lead = cards[0];
-	const leadNode = state.treeData ? findPartInTree(state.treeData, lead.part) : null;
-	const leadSecCount = leadNode ? countLeafSections(leadNode) : lead.secCount || 0;
-	const subCount = leadNode ? listSubparts(leadNode).length : 0;
-	const leadHref = titleHref(titleNum, `part/${encodeURIComponent(lead.part)}`);
-	const leadFullHref = titleHref(titleNum, `part/${encodeURIComponent(lead.part)}/full`);
-	const briefs = cards.slice(1);
-	const briefsHtml = briefs.length ? `
-    <div class="ts-briefs">
-      ${briefs.map((c) => {
-		const pNode = state.treeData ? findPartInTree(state.treeData, c.part) : null;
-		const cCount = pNode ? countLeafSections(pNode) : c.secCount || 0;
-		const cSubs = pNode ? listSubparts(pNode).length : 0;
-		const pHref = titleHref(titleNum, `part/${encodeURIComponent(c.part)}`);
-		return `
-          <article class="ts-brief">
-            <div class="ts-brief-top">
-              <span class="ts-brief-kicker">${escapeHtml(c.kicker)} · Part ${escapeHtml(c.part)}</span>
-              ${cCount ? `<span class="ts-brief-count">${fmt(cCount)} §</span>` : ""}
-            </div>
-            <h3 class="ts-brief-title"><a href="${pHref}">${escapeHtml(c.title)}</a></h3>
-            <p class="ts-brief-dek">${escapeHtml(c.desc)}</p>
-            <div class="ts-brief-foot">
-              <span>${cSubs ? plural(cSubs, "subpart") : cCount ? plural(cCount, "section") : "Open part"}</span>
-              <span class="ts-brief-go" aria-hidden="true">Read ${icon("chevronRight")}</span>
-            </div>
-          </article>`;
-	}).join("")}
-    </div>` : "";
-	return `
-    <div class="ts-main-col">
-      ${flagHtml}
-      <article class="ts-lead">
-        <div class="ts-lead-top">
-          <span class="ts-lead-kicker">Lead Story · ${escapeHtml(lead.kicker)} · Part ${escapeHtml(lead.part)}</span>
-          ${leadSecCount ? `<span class="ts-lead-stat">${fmt(leadSecCount)} ${leadSecCount === 1 ? "section" : "sections"}${subCount ? ` · ${plural(subCount, "subpart")}` : ""}</span>` : ""}
-        </div>
-        <h2 class="ts-lead-title"><a href="${leadHref}">${escapeHtml(lead.title)}</a></h2>
-        <p class="ts-lead-dek">${escapeHtml(lead.desc)}</p>
-        ${leadInsideLinksHtml(titleNum, lead.part, leadNode)}
-        <div class="ts-lead-foot">
-          <a class="btn btn-sm" href="${leadHref}">Open Part ${escapeHtml(lead.part)} ${icon("chevronRight")}</a>
-          <a class="hm-inline-link" href="${leadFullHref}">Read full part</a>
-        </div>
-      </article>
-      ${briefsHtml}
-    </div>`;
-}
-function titleDeskRailHtml(titleNum) {
-	const usage = loadUsage();
-	const entries = Object.entries(usage.s || {}).map(([key, e]) => {
-		const pipe = key.indexOf("|");
-		if (pipe < 0 || !e) return null;
-		return {
-			title: Number(key.slice(0, pipe)),
-			id: key.slice(pipe + 1),
-			...e
-		};
-	}).filter((e) => e && e.title === titleNum && e.id).sort((a, b) => (b.t || 0) - (a.t || 0));
-	let resumeHtml;
-	if (entries.length) {
-		const last = entries[0];
-		const href = titleHref(titleNum, "section/" + encodeURIComponent(last.id) + (last.u ? "/" + encodeURIComponent(last.u) : ""));
-		const trail = entries.slice(1, 3);
-		resumeHtml = `
-      <div class="ts-rail-block title-resume">
-        <div class="ts-rail-head">
-          <span class="hm-kicker">Continue in Title ${titleNum}</span>
-          <span class="hm-time">${escapeHtml(timeAgo(last.t))}</span>
-        </div>
-        <a class="ts-resume-link" href="${href}">${escapeHtml(last.l || "§ " + last.id)}${last.h ? " " + escapeHtml(last.h) : ""}</a>
-        <div class="ts-resume-meta">
-          ${last.p ? `<a href="${titleHref(titleNum, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
-          ${last.ul ? `<span class="hm-unit-badge">${escapeHtml(last.ul)}</span>` : ""}
-        </div>
-        <div class="ts-resume-acts">
-          <a class="btn btn-sm btn-accent" href="${href}">Resume reading ${icon("chevronRight")}</a>
-        </div>
-        ${trail.length ? `
-          <div class="ts-rail-trail">
-            ${trail.map((e) => `
-              <a class="hm-trail-row" href="${titleHref(titleNum, "section/" + encodeURIComponent(e.id) + (e.u ? "/" + encodeURIComponent(e.u) : ""))}">
-                <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
-                <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
-                <span class="hm-row-val">${escapeHtml(timeAgo(e.t))}</span>
-              </a>`).join("")}
-          </div>` : ""}
-      </div>`;
-	} else {
-		const firstPart = cardsForBeat(titleNum, "front")[0]?.part;
-		resumeHtml = `
-      <div class="ts-rail-block">
-        <div class="ts-rail-head"><span class="hm-kicker">At your desk</span></div>
-        <p class="ts-rail-empty">No recent reading history in Title ${titleNum} yet.</p>
-        ${firstPart ? `<a class="hm-inline-link" href="${titleHref(titleNum, "part/" + encodeURIComponent(firstPart))}">Start at Part ${escapeHtml(firstPart)} ${icon("chevronRight")}</a>` : ""}
-      </div>`;
-	}
-	const matchingProjects = loadProjects().filter((p) => (p.sections || []).some((s) => s.title === titleNum)).sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || "")).slice(0, 3);
-	const wsHtml = `
-    <div class="ts-rail-block">
-      <div class="ts-rail-head">
-        <span class="hm-kicker">Workspaces in Title ${titleNum}</span>
-        <a class="hm-inline-link" href="#/projects">All</a>
-      </div>
-      ${matchingProjects.length ? `
-        <div class="ts-rail-ws-list">
-          ${matchingProjects.map((p) => {
-		const pins = (p.sections || []).filter((s) => s.title === titleNum).slice(0, 3);
-		return `
-              <div class="ts-rail-ws">
-                <a class="hm-ws-name" href="#/projects/${encodeURIComponent(p.id)}">${projDot(p)}<span>${escapeHtml(p.name)}</span></a>
-                <div class="ts-rail-ws-chips">
-                  ${pins.map((s) => `<a class="citation-chip" href="${titleHref(titleNum, "section/" + encodeURIComponent(s.id))}">${escapeHtml(s.label || "§ " + s.id)}</a>`).join("")}
-                </div>
-              </div>`;
-	}).join("")}
-        </div>` : `<p class="ts-rail-empty">Pin any Title ${titleNum} section with <kbd>⌘D</kbd> to build an audit or compliance workspace.</p>`}
-    </div>`;
-	const wireSlotHtml = titleNum === 29 ? (() => {
-		const cached = titleNewsCache.get(29);
-		const fresh = cached && Date.now() - cached.at < 3e5 ? cached.articles : null;
-		return `<div class="ts-rail-block" id="ts-wire-slot"${fresh && fresh.length ? "" : " hidden"}>${fresh && fresh.length ? renderTitleWireHtml(fresh) : ""}</div>`;
-	})() : "";
-	const citedSlotHtml = `
-    <div class="ts-rail-block" id="ts-cited-slot">
-      <div class="ts-rail-head"><span class="hm-kicker">Most-cited in Title ${titleNum}</span></div>
-      <div class="skel-stack" style="gap:8px;margin-top:8px" aria-hidden="true">
-        <span class="skel skel-line is-sm" style="width:86%"></span>
-        <span class="skel skel-line is-sm" style="width:74%"></span>
-        <span class="skel skel-line is-sm" style="width:68%"></span>
-      </div>
-    </div>`;
-	return `
-    <aside class="ts-rail" aria-label="Title desk and regulatory index">
-      ${resumeHtml}
-      ${wsHtml}
-      ${wireSlotHtml}
-      ${citedSlotHtml}
-    </aside>`;
-}
-function renderTitleWireHtml(articles) {
-	if (!articles || !articles.length) return "";
-	return `
-    <div class="ts-rail-head">
-      <span class="hm-kicker">From the OSHA wire</span>
-      <a class="hm-inline-link" href="#/news">Newsroom ${icon("chevronRight")}</a>
-    </div>
-    <ol class="wire-items ts-wire-items">
-      ${articles.slice(0, 3).map((a) => {
-		const actNr = inspectionActivityNr(a);
-		const sec = (a.sections || [])[0];
-		const partRef = (a.cfr_parts || [])[0];
-		return `
-          <li class="wire-entry">
-            <a href="${actNr ? `#/news/inspection/${actNr}` : sec ? newsSectionHref(29, sec) : partRef ? newsPartHref(partRef.title, partRef.part) : `#/news?cat=${encodeURIComponent(a.category || "all")}`}">
-              <span class="wire-entry-head">
-                <span class="wire-entry-title">${escapeHtml(newsKicker(a))}</span>
-                <time class="wire-entry-date">${escapeHtml(shortDate(a.published_at))}</time>
-              </span>
-              <span class="wire-entry-name">${escapeHtml(a.title)}</span>
-              ${a.penalty_usd ? `<span class="wire-entry-summary">${escapeHtml(fmtMoney(a.penalty_usd))} penalty</span>` : ""}
-            </a>
-          </li>`;
-	}).join("")}
-    </ol>`;
-}
-function renderMostCitedHtml(data, titleNum) {
-	const list = data && data.most_cited || [];
-	if (!list.length) return "";
-	return `
-    <div class="ts-rail-head">
-      <span class="hm-kicker">Most-cited in Title ${titleNum}</span>
-      <span class="ts-rail-count">${fmt(data.most_cited_total || list.length)} hubs</span>
-    </div>
-    <ol class="ts-cited-list">
-      ${list.slice(0, 5).map((s, idx) => `
-        <li>
-          <a class="ts-cited-row" href="${titleHref(titleNum, "section/" + encodeURIComponent(s.id))}">
-            <span class="ts-cited-rank">${idx + 1}</span>
-            <span class="ts-cited-body">
-              <span class="ts-cited-num">${escapeHtml(s.label || "§ " + s.id)}</span>
-              <span class="ts-cited-name">${escapeHtml(s.title || "")}</span>
-            </span>
-            <span class="ts-cited-cites">${plural(s.cited_by_count, "cite")}</span>
-          </a>
-        </li>`).join("")}
-    </ol>`;
-}
-function beatsRibbonHtml() {
-	const beats = agencyBeatsList();
-	if (beats.length < 2) return "";
-	const top = [...beats].sort((a, b) => b.node.n - a.node.n).slice(0, 6);
-	const pill = (key, label) => {
-		return `<button type="button" aria-pressed="${refUi.beat === key}" data-ts-beat="${escapeHtml(key)}">${escapeHtml(label)}</button>`;
-	};
-	return `
-    <div class="ts-beats-bar">
-      <div class="lib-seg ts-beats" role="group" aria-label="Filter edition by department">
-        ${pill("front", "Front Page")}
-        ${top.map((b) => pill(b.key, b.info.code)).join("")}
-      </div>
-      <div class="ts-beats-jumps">
-        <button type="button" class="hm-inline-link" data-ts-scroll="ts-depts">${plural(beats.length, "department")}</button>
-        <button type="button" class="hm-inline-link" data-ts-scroll="ts-almanac">Almanac</button>
-      </div>
-    </div>`;
-}
-function departmentsDirectoryHtml() {
-	const beats = agencyBeatsList();
-	if (beats.length < 2) return "";
-	return `
-    <section class="ts-depts" id="ts-depts" aria-label="Departments and agencies">
-      <div class="ts-sec-flag">
-        <span class="ts-flag-label">Departments &amp; Agencies</span>
-        <span class="ts-flag-meta">${plural(beats.length, "chapter")} · Select a beat to focus the front page</span>
-      </div>
-      <div class="ts-dept-grid">
-        ${beats.map((b) => {
-		const on = refUi.beat === b.key;
-		return `
-            <div class="ts-dept-item${on ? " is-active" : ""}">
-              <button type="button" class="ts-dept-btn" data-ts-beat="${escapeHtml(b.key)}" aria-pressed="${on}">
-                <span class="ts-dept-top">
-                  <span class="ts-dept-code">${escapeHtml(b.info.code)}</span>
-                  ${b.info.range ? `<span class="ts-dept-range">Parts ${escapeHtml(b.info.range)}</span>` : ""}
-                </span>
-                <span class="ts-dept-name">${escapeHtml(b.info.name)}</span>
-                <span class="ts-dept-meta">${plural(b.node.partCount || 0, "part")} · ${fmt(b.node.n)} sections</span>
-              </button>
-              <button type="button" class="ts-dept-drawer" data-ts-open-agency="${b.k}" title="Browse ${escapeHtml(b.info.code)} in Contents" aria-label="Browse ${escapeHtml(b.info.code)} in Contents">Contents ${icon("chevronRight")}</button>
-            </div>`;
-	}).join("")}
-      </div>
-    </section>`;
-}
-function filterWebEntries(data, cat, q) {
-	const ql = q.trim().toLowerCase();
-	const hosts = data.hosts && data.hosts.length ? data.hosts : null;
-	const rawItems = data.items || [];
-	let filtered = (hosts || rawItems).filter((it) => {
-		if (cat === "legacy") {
-			if (!it.legacy) return false;
-		} else if (cat !== "all" && it.category !== cat) return false;
-		if (!ql) return true;
-		const subUrls = (it.urls || []).map((u) => `${u.url} ${u.display}`).join(" ");
-		const cites = (it.cited_in || []).map((c) => `${c.id} ${c.label} ${c.title} ${c.part}`).join(" ");
-		return `${it.host} ${it.url} ${it.display} ${subUrls} ${it.legacy?.replacement_url || ""} ${cites}`.toLowerCase().includes(ql);
-	});
-	if (hosts && ql && !filtered.length) filtered = rawItems.filter((it) => {
-		if (cat === "legacy" && !it.legacy) return false;
-		if (cat !== "all" && cat !== "legacy" && it.category !== cat) return false;
-		const cites = (it.cited_in || []).map((c) => `${c.id} ${c.label} ${c.title} ${c.part}`).join(" ");
-		return `${it.host} ${it.url} ${it.display} ${it.legacy?.replacement_url || ""} ${cites}`.toLowerCase().includes(ql);
-	});
-	return filtered;
-}
-function filterIbrEntries(data, q) {
-	const list = data.ibr_standards || [];
-	const ql = q.trim().toLowerCase();
-	if (!ql) return list;
-	return list.filter((s) => {
-		const secs = (s.approved_in || []).map((a) => `${a.id} ${a.label} ${a.part} ${a.para}`).join(" ");
-		return `${s.code} ${s.org} ${s.org_name} ${s.excerpt} ${secs}`.toLowerCase().includes(ql);
-	});
-}
-function renderWebItemHtml(item, titleNum) {
-	const citesHtml = (item.cited_in || []).slice(0, 4).map((c) => `<a class="citation-chip" href="#/title/${titleNum}/section/${encodeURIComponent(c.id)}" title="${escapeHtml(c.title)}">${escapeHtml(c.label)}</a>`).join("");
-	const moreCites = item.cite_count > 4 ? `<span class="ref-cite-more">+${item.cite_count - 4}</span>` : "";
-	const href = safeHttpUrl(item.url);
-	const replHref = item.legacy ? safeHttpUrl(item.legacy.replacement_url) : "";
-	const legacyHtml = item.legacy ? `
-    <div class="ref-legacy">
-      <span class="stat-pill is-stale is-bare"><span class="stat-dot is-stale" aria-hidden="true"></span>Retired URL</span>
-      <span class="ref-legacy-note">${escapeHtml(item.legacy.note)}</span>
-      ${replHref ? `<a class="citation-chip" href="${escapeHtml(replHref)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.legacy.replacement_label)} ↗</a>` : ""}
-    </div>` : "";
-	const pageCount = item.url_count > 1 ? `<span class="ref-subpages">${item.url_count} URLs</span>` : "";
-	return `
-    <article class="ref-item">
-      <div class="ref-item-top">
-        <span class="ref-host">${escapeHtml(item.host)}</span>
-        <span class="ref-cat-pill">${escapeHtml(CAT_LABELS[item.category] || item.category)}</span>
-        ${pageCount}
-        <span class="ref-count">${plural(item.cite_count, "section")}</span>
-      </div>
-      ${href ? `<a class="ref-url" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.display)}</a>` : `<span class="ref-url">${escapeHtml(item.display)}</span>`}
-      ${legacyHtml}
-      ${citesHtml ? `<div class="ref-cites"><span class="ref-cites-lbl">Cited in</span>${citesHtml}${moreCites}</div>` : ""}
-    </article>`;
-}
-function renderIbrItemHtml(std, titleNum) {
-	const approved = (std.approved_in || []).slice(0, 4).map((a) => `<a class="citation-chip" href="#/title/${titleNum}/section/${encodeURIComponent(a.id)}${a.para ? "?p=" + encodeURIComponent(a.para) : ""}">${escapeHtml(a.label)}${a.para ? escapeHtml(a.para) : ""}</a>`).join("");
-	const extra = (std.section_count || 0) - 4;
-	const orgHref = safeHttpUrl(std.org_url);
-	return `
-    <article class="ref-item is-ibr">
-      <div class="ref-item-top">
-        <span class="ref-host">${escapeHtml(std.code)}</span>
-        ${orgHref ? `<a class="ref-cat-pill is-link" href="${escapeHtml(orgHref)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(std.org_name || std.org)}">${escapeHtml(std.org)} ↗</a>` : `<span class="ref-cat-pill">${escapeHtml(std.org)}</span>`}
-        <span class="ref-count">${plural(std.section_count || 1, "section")}</span>
-      </div>
-      <div class="ref-ibr-excerpt">${escapeHtml(std.excerpt)}</div>
-      <div class="ref-cites">
-        <span class="ref-cites-lbl">Approved in</span>
-        ${approved}
-        ${extra > 0 ? `<span class="ref-cite-more">+${extra}</span>` : ""}
-      </div>
-    </article>`;
-}
-function renderRefListHtml(data, titleNum) {
-	const isIbr = refUi.cat === "ibr";
-	const filtered = isIbr ? filterIbrEntries(data, refUi.q) : filterWebEntries(data, refUi.cat, refUi.q);
-	if (!filtered.length) return "<div class=\"ref-empty\">No matching references for the current filter.</div>";
-	const showLimit = refUi.expanded || refUi.q.trim() ? filtered.length : 12;
-	const shown = filtered.slice(0, showLimit);
-	return `<div class="ref-grid">${shown.map((item) => isIbr ? renderIbrItemHtml(item, titleNum) : renderWebItemHtml(item, titleNum)).join("")}</div>${filtered.length > shown.length ? `<div class="ref-more"><button type="button" class="btn btn-sm" id="ref-show-all">Show all ${filtered.length} matching entries</button></div>` : ""}`;
-}
-function updateRefHubDom(data, titleNum) {
-	const hubEl = document.getElementById("ts-almanac");
-	const catsEl = document.getElementById("ref-cats-slot");
-	const listEl = document.getElementById("ref-list-slot");
-	const countEl = document.getElementById("ref-total-count");
-	if (!hubEl || !catsEl || !listEl) return;
-	const webTotal = data.host_total ?? data.total ?? 0;
-	const ibrTotal = data.ibr_total ?? (data.ibr_standards || []).length;
-	const catCounts = data.host_category_counts || data.category_counts || {};
-	const legacyCount = (data.hosts || data.items || []).filter((it) => it.legacy).length;
-	if (!webTotal && !ibrTotal) {
-		const count = Number(state.metaInfo.section_count || 0);
-		hubEl.innerHTML = `
-      <div class="ts-colophon">
-        Edition Colophon · Title ${titleNum}${count ? ` · ${fmt(count)} sections` : ""} · No external web portals or incorporated consensus standards cited.
-      </div>`;
-		return;
-	}
-	if (countEl) {
-		const parts = [];
-		if (webTotal) parts.push(plural(webTotal, data.host_total ? "host" : "resource"));
-		if (ibrTotal) parts.push(plural(ibrTotal, "IBR standard"));
-		countEl.textContent = parts.join(" · ");
-	}
-	if (refUi.cat === "ibr" && !ibrTotal) refUi.cat = "all";
-	if (refUi.cat === "legacy" && !legacyCount) refUi.cat = "all";
-	catsEl.innerHTML = REF_CATS.map(([k, label]) => {
-		const n = k === "all" ? webTotal : k === "ibr" ? ibrTotal : k === "legacy" ? legacyCount : catCounts[k] || 0;
-		if (k !== "all" && !n) return "";
-		return `<button type="button" class="sf-pill${refUi.cat === k ? " is-active" : ""}" data-ref-cat="${k}" aria-pressed="${refUi.cat === k}">${escapeHtml(label)} <span class="sf-pill-count">${n}</span></button>`;
-	}).join("");
-	listEl.innerHTML = renderRefListHtml(data, titleNum);
-}
-function renderMastheadStatusHtml(titleNum) {
-	const libRow = (navLib.data && navLib.data.titles || []).find((x) => x.title === titleNum);
-	if (libRow && isStale(libRow)) return statPill("stale", "Update available", { bare: true });
-	if (state.metaInfo.partial) return statPill("partial", "Partial install", { bare: true });
-	return statPill("synced", "Installed", { bare: true });
-}
-function hydrateTitleWire(titleNum, seq, signal) {
-	if (titleNum !== 29) return;
-	const applyWire = (articles) => {
-		const slot = document.getElementById("ts-wire-slot");
-		if (!slot || seq !== state.routeSeq) return;
-		if (!articles || !articles.length) {
-			slot.hidden = true;
-			return;
-		}
-		slot.hidden = false;
-		slot.innerHTML = renderTitleWireHtml(articles);
-	};
-	const cached = titleNewsCache.get(29);
-	if (cached && Date.now() - cached.at < 3e5) {
-		applyWire(cached.articles);
-		return;
-	}
-	fetch("/api/news?limit=3", { signal }).then((r) => r.ok ? r.json() : null).then((data) => {
-		if (!data || seq !== state.routeSeq) return;
-		const articles = data.articles || [];
-		titleNewsCache.set(29, {
-			at: Date.now(),
-			articles
-		});
-		applyWire(articles);
-	}).catch(() => {});
-}
-async function renderHome() {
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	const titleNum = state.currentTitle;
-	const seq = state.routeSeq;
-	if (refUi.title !== titleNum) {
-		refUi.title = titleNum;
-		refUi.beat = "front";
-		refUi.cat = "all";
-		refUi.q = "";
-		refUi.expanded = false;
-	}
-	document.title = `Title ${titleNum} · FRAMEWORK`;
-	setViewHead("");
-	const snapRow = state.homeSnapshot?.titles?.find((x) => x.title === titleNum);
-	const name = state.metaInfo.name || snapRow?.name || "";
-	const content = HOME_CONTENT[titleNum];
-	const tagline = content?.tagline || snapRow?.summary || `Read, search, and research Title ${titleNum} of the Code of Federal Regulations.`;
-	const count = Number(state.metaInfo.section_count || 0);
-	const readCount = visitedCountFor(titleNum);
-	const folioMeta = joinSep([
-		state.metaInfo.edition ? `Edition ${shortDate(state.metaInfo.edition) || state.metaInfo.edition}` : "",
-		count ? `${fmt(count)} sections` : "",
-		readCount ? `${fmt(readCount)} read` : ""
-	]);
-	dom.view.innerHTML = `
-    <div class="ts-front">
-      <header class="home-hero ts-masthead">
-        <div class="ts-folio">
-          <div class="doc-kicker">
-            <a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><span>${titleNum} CFR${snapRow?.desk ? ` · ${escapeHtml(snapRow.desk)}` : ""}</span>
-          </div>
-          <div class="ts-folio-right">
-            ${folioMeta ? `<span class="ts-folio-meta">${folioMeta}</span>` : ""}
-            ${renderMastheadStatusHtml(titleNum)}
-          </div>
-        </div>
-        <div class="ts-title-row">
-          <div class="ts-title-copy">
-            <h1>Title ${titleNum}${name ? " — " + escapeHtml(name) : ""}</h1>
-            <p>${escapeHtml(tagline)}</p>
-          </div>
-          <div class="home-hero-acts">
-            <button type="button" class="btn btn-sm" id="home-open-contents">${icon("book")} Browse contents</button>
-            <a class="btn btn-sm" href="#/library/${titleNum}">Manage in Library</a>
-          </div>
-        </div>
-        <div class="ts-double-rule" aria-hidden="true"></div>
-        <div id="ts-beats-slot">${beatsRibbonHtml()}</div>
-      </header>
-
-      <div class="ts-broadsheet">
-        <div id="ts-main-slot">${mainBroadsheetHtml(titleNum, refUi.beat)}</div>
-        ${titleDeskRailHtml(titleNum)}
-      </div>
-
-      <div id="ts-depts-slot">${departmentsDirectoryHtml()}</div>
-
-      <section class="ref-hub ts-almanac" id="ts-almanac" aria-label="References and authorities">
-        <div class="ts-sec-flag">
-          <span class="ts-flag-label">Almanac · References &amp; Authorities</span>
-          <span class="ref-total-pill" id="ref-total-count">Indexing…</span>
-        </div>
-        <p class="ref-hub-sub">Standards organizations, incorporated consensus standards, federal portals, and external authorities cited across Title ${titleNum}.</p>
-        <div class="ref-controls">
-          <div class="ref-cats" id="ref-cats-slot" role="group" aria-label="Filter by category"></div>
-          <input type="search" class="search-filter-input ref-search" id="ref-filter" value="${escapeHtml(refUi.q)}" placeholder="Filter domains, standards, or citing sections…" aria-label="Filter references" autocomplete="off" spellcheck="false">
-        </div>
-        <div id="ref-list-slot">${skeletonHtml("list", "Indexing references…")}</div>
-      </section>
-    </div>`;
-	enterView();
-	const signal = state.routeAbort?.signal;
-	hydrateTitleWire(titleNum, seq, signal);
-	if (!state.treeData) try {
-		await ensureTreeLoaded();
-		if (seq !== state.routeSeq) return;
-		const beatsSlot = document.getElementById("ts-beats-slot");
-		const mainSlot = document.getElementById("ts-main-slot");
-		const deptsSlot = document.getElementById("ts-depts-slot");
-		if (beatsSlot) beatsSlot.innerHTML = beatsRibbonHtml();
-		if (mainSlot) mainSlot.innerHTML = mainBroadsheetHtml(titleNum, refUi.beat);
-		if (deptsSlot) deptsSlot.innerHTML = departmentsDirectoryHtml();
-	} catch (e) {}
-	if (!snapRow) fetch("/api/titles/snapshot", { signal }).then((r) => r.ok ? r.json() : null).then((snap) => {
-		if (!snap || seq !== state.routeSeq) return;
-		state.homeSnapshot = snap;
-		const row = snap.titles?.find((x) => x.title === titleNum);
-		if (!row) return;
-		const pEl = dom.view.querySelector(".ts-title-copy > p");
-		if (!content && row.summary && pEl) pEl.textContent = row.summary;
-		const crumbSpan = dom.view.querySelector(".ts-folio .doc-kicker > span:last-child");
-		if (row.desk && crumbSpan) crumbSpan.textContent = `${titleNum} CFR · ${row.desk}`;
-	}).catch(() => {});
-	let refData = state.refsCache.get(titleNum);
-	if (!refData) try {
-		const res = await fetch(`/api/${titleNum}/references`, { signal });
-		if (seq !== state.routeSeq) return;
-		if (res.ok) {
-			refData = await res.json();
-			state.refsCache.set(titleNum, refData);
-		}
-	} catch (err) {
-		if (err && err.name === "AbortError") return;
-	}
-	if (seq !== state.routeSeq) return;
-	const citedSlot = document.getElementById("ts-cited-slot");
-	if (refData) {
-		if (citedSlot) {
-			const citedHtml = renderMostCitedHtml(refData, titleNum);
-			if (citedHtml) citedSlot.innerHTML = citedHtml;
-			else citedSlot.hidden = true;
-		}
-		updateRefHubDom(refData, titleNum);
-	} else {
-		if (citedSlot) citedSlot.hidden = true;
-		const listEl = document.getElementById("ref-list-slot");
-		if (listEl) listEl.innerHTML = "<div class=\"ref-empty\">Couldn’t load references for this title.</div>";
-	}
-}
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id !== "ref-filter" || !dom.view.querySelector(".ref-hub")) return;
-	refUi.q = e.target.value;
-	refUi.expanded = false;
-	const data = state.refsCache.get(state.currentTitle);
-	if (data) updateRefHubDom(data, state.currentTitle);
-});
-dom.view.addEventListener("click", (e) => {
-	if (!dom.view.querySelector(".ts-front")) return;
-	if (e.target.closest("#home-open-contents")) {
-		openPanel("reader", { focus: true });
-		return;
-	}
-	const beatEl = e.target.closest("[data-ts-beat]");
-	if (beatEl) {
-		refUi.beat = beatEl.dataset.tsBeat || "front";
-		const beatsSlot = document.getElementById("ts-beats-slot");
-		const mainSlot = document.getElementById("ts-main-slot");
-		const deptsSlot = document.getElementById("ts-depts-slot");
-		if (beatsSlot) beatsSlot.innerHTML = beatsRibbonHtml();
-		if (mainSlot) mainSlot.innerHTML = mainBroadsheetHtml(state.currentTitle, refUi.beat);
-		if (deptsSlot) deptsSlot.innerHTML = departmentsDirectoryHtml();
-		if (beatEl.closest(".ts-depts") && mainSlot) mainSlot.scrollIntoView({
-			behavior: "smooth",
-			block: "start"
-		});
-		return;
-	}
-	const agencyBtn = e.target.closest("[data-ts-open-agency]");
-	if (agencyBtn) {
-		const k = Number(agencyBtn.dataset.tsOpenAgency);
-		if (!Number.isNaN(k)) showAgencyView(k);
-		openPanel("reader", { focus: true });
-		return;
-	}
-	const jumpBtn = e.target.closest("[data-ts-scroll]");
-	if (jumpBtn) {
-		const target = document.getElementById(jumpBtn.dataset.tsScroll);
-		if (target) target.scrollIntoView({
-			behavior: "smooth",
-			block: "start"
-		});
-		return;
-	}
-	if (!dom.view.querySelector(".ref-hub")) return;
-	const catBtn = e.target.closest("[data-ref-cat]");
-	if (catBtn) {
-		refUi.cat = catBtn.dataset.refCat;
-		refUi.expanded = false;
-		const data = state.refsCache.get(state.currentTitle);
-		if (data) updateRefHubDom(data, state.currentTitle);
-		return;
-	}
-	if (e.target.closest("#ref-show-all")) {
-		refUi.expanded = true;
-		const data = state.refsCache.get(state.currentTitle);
-		if (data) updateRefHubDom(data, state.currentTitle);
-	}
-});
-// src/views/home.js
-var HOME_NEWS_CACHE = "newsCache:v1:all";
-var HOME_STATUS_CACHE = "newsCache:v1:status";
-function installedFallbackList() {
-	const base = state.installedTitles.length ? state.installedTitles : state.metaInfo.edition ? [{
-		title: state.currentTitle,
-		name: state.metaInfo.name || `Title ${state.currentTitle}`,
-		section_count: state.metaInfo.section_count,
-		edition: state.metaInfo.edition
-	}] : [];
-	const cachedByTitle = new Map((state.homeSnapshot && state.homeSnapshot.titles || []).map((x) => [x.title, x]));
-	return base.map((t) => {
-		const cached = cachedByTitle.get(t.title) || {};
-		return {
-			agencies: cached.agencies || [],
-			summary: cached.summary || "",
-			scope_parts: cached.scope_parts ?? null,
-			scope_sections_count: cached.scope_sections_count || 0,
-			unreadable: Boolean(cached.unreadable),
-			news: cached.news || {
-				count: 0,
-				latest_title: null,
-				latest_date: null
-			},
-			...t
-		};
-	});
-}
-function sectionLinkHref(e) {
-	return titleHref(e.ti, "section/" + encodeURIComponent(e.id) + (e.u ? "/" + encodeURIComponent(e.u) : ""));
-}
-function activeTransfersHtml() {
-	const j = state.jobs.current;
-	const queued = state.jobs.queued || [];
-	if (!j && !queued.length) return "";
-	const pill = statPill("busy", j ? j.state === "running" ? j.phase || "Downloading" : "Queued" : "Queued");
-	const text = j ? j.label : "Preparing download";
-	const more = queued.length ? ` · +${queued.length} queued` : "";
-	return `
-    <a class="hm-transfer" href="#/library">
-      ${pill}
-      <span class="hm-transfer-text">${escapeHtml(text)}${escapeHtml(more)}</span>
-      <span class="hm-transfer-cta">Watch in Library ${icon("chevronRight")}</span>
-    </a>`;
-}
-function resumeCardHtml(recent, titles) {
-	if (recent.length) {
-		const last = recent[0];
-		const href = sectionLinkHref(last);
-		const trail = recent.slice(1, 3);
-		return `
-      <section class="hm-card hm-resume" aria-label="Continue reading">
-        <div class="hm-card-top">
-          <span class="hm-kicker">Continue reading</span>
-          <span class="hm-time">${escapeHtml(timeAgo(last.t))}</span>
-        </div>
-        <div class="hm-resume-loc">
-          <span>${last.ti} CFR</span>
-          ${last.p ? `${SEP}<a href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
-          ${last.ul ? `${SEP}<span class="hm-unit-badge">${escapeHtml(last.ul)}</span>` : ""}
-        </div>
-        <a class="hm-resume-title" href="${href}">${escapeHtml(last.l)} ${escapeHtml(last.h || "")}</a>
-        <div class="hm-resume-acts">
-          <a class="btn btn-sm btn-accent" href="${href}">Resume reading ${icon("chevronRight")}</a>
-          ${last.p ? `<a class="btn btn-sm" href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
-        </div>
-        ${trail.length ? `
-          <div class="hm-trail">
-            <div class="hm-trail-head">
-              <span class="hm-kicker">Recently opened</span>
-              <button type="button" class="hm-inline-link" data-hm-act="open-history">Full history</button>
-            </div>
-            <div class="hm-trail-list">
-              ${trail.map((e) => `
-                <a class="hm-trail-row" href="${sectionLinkHref(e)}">
-                  <span class="hm-tag">${e.ti} CFR</span>
-                  <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
-                  <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
-                  <span class="hm-row-val">${escapeHtml(timeAgo(e.t))}</span>
-                </a>`).join("")}
-            </div>
-          </div>` : ""}
-      </section>`;
-	}
-	const starters = [];
-	for (const t of titles) {
-		if (t.partial && t.scope_parts && t.scope_parts.length) for (const p of t.scope_parts.slice(0, 2)) {
-			starters.push({
-				ti: t.title,
-				part: p,
-				kicker: `${t.title} CFR`,
-				title: `Part ${p}`
-			});
-			if (starters.length >= 4) break;
-		}
-		else {
-			const c = HOME_CONTENT[t.title];
-			if (c) for (const card of c.cards.slice(0, 2)) {
-				starters.push({
-					ti: t.title,
-					part: card.part,
-					kicker: `${t.title} CFR · ${card.kicker}`,
-					title: card.title
-				});
-				if (starters.length >= 4) break;
-			}
-		}
-		if (starters.length >= 4) break;
-	}
-	return `
-    <section class="hm-card hm-resume" aria-label="Start reading">
-      <div class="hm-card-top">
-        <span class="hm-kicker">Start here</span>
-      </div>
-      <div class="hm-resume-title is-static">Open a regulation to begin</div>
-      <p class="hm-muted">Pick a key part below or search across your downloaded titles from the bar above.</p>
-      ${starters.length ? `
-        <div class="hm-starter-grid">
-          ${starters.map((s) => `
-            <a class="hm-starter" href="${titleHref(s.ti, "part/" + encodeURIComponent(s.part))}">
-              <span class="hm-starter-kicker">${escapeHtml(s.kicker)}</span>
-              <span class="hm-starter-name">${escapeHtml(s.title)}</span>
-            </a>`).join("")}
-        </div>` : ""}
-    </section>`;
-}
-function workspacesCardHtml(projects) {
-	const sorted = [...projects].sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || "")).slice(0, 3);
-	const body = sorted.length ? `
-    <div class="hm-ws-list">
-      ${sorted.map((p) => {
-		const chips = (p.sections || []).slice(0, 3).map((s) => {
-			const ok = titleInstalled(s.title);
-			const href = ok ? `#/title/${s.title}/section/${encodeURIComponent(s.id)}` : `#/library/${s.title}`;
-			const tip = ok ? "" : ` title="Title ${s.title} isn’t installed. Open Library"`;
-			return `<a class="citation-chip${ok ? "" : " is-dim"}" href="${href}"${tip}>${escapeHtml(s.label || "§ " + s.id)}</a>`;
-		}).join("");
-		const extra = (p.sections || []).length - 3;
-		return `
-          <article class="hm-ws-item">
-            <div class="hm-ws-top">
-              <a class="hm-ws-name" href="#/projects/${encodeURIComponent(p.id)}">${projDot(p)}<span>${escapeHtml(p.name)}</span></a>
-              <span class="hm-ws-meta">${joinSep([plural(p.sections.length, "section"), escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))])}</span>
-            </div>
-            ${p.description ? `<p class="hm-ws-desc">${escapeHtml(p.description)}</p>` : ""}
-            ${chips ? `<div class="hm-ws-chips">${chips}${extra > 0 ? `<a class="hm-more-chip" href="#/projects/${encodeURIComponent(p.id)}">+${extra}</a>` : ""}</div>` : ""}
-          </article>`;
-	}).join("")}
-    </div>` : `
-    <div class="hm-empty-block">
-      <div class="hm-empty-title">Organize program compliance</div>
-      <p class="hm-muted">Group pinned sections and notes for a safety program, facility audit, or permit review.</p>
-      <div class="hm-empty-acts">
-        <button type="button" class="btn btn-sm btn-accent" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
-      </div>
-    </div>`;
-	return `
-    <section class="hm-card hm-ws" aria-label="Workspaces">
-      <div class="hm-panel-head">
-        <h2 class="hm-panel-title">${icon("folder")} Workspaces${projects.length ? ` <span class="hm-count">${projects.length}</span>` : ""}</h2>
-        <div class="hm-panel-acts">
-          <button type="button" class="hm-inline-link" data-hm-act="new-workspace">+ New</button>
-          <a class="hm-inline-link" href="#/projects">All workspaces</a>
-        </div>
-      </div>
-      ${body}
-    </section>`;
-}
-function titleLivingSignalHtml(t, recent, projects) {
-	const lastInTitle = recent.find((e) => e.ti === t.title);
-	if (lastInTitle) return `<a class="hm-signal-link" href="${sectionLinkHref(lastInTitle)}">Last read ${escapeHtml(lastInTitle.l)}${SEP}${escapeHtml(timeAgo(lastInTitle.t))}</a>`;
-	const ws = projects.find((p) => (p.sections || []).some((s) => s.title === t.title));
-	if (ws) return `<a class="hm-signal-link" href="#/projects/${encodeURIComponent(ws.id)}">${projDot(ws)}In ${escapeHtml(ws.name)}</a>`;
-	if (t.news && t.news.count > 0) return `<a class="hm-signal-link" href="#/news">${escapeHtml(plural(t.news.count, "recent OSHA update"))}</a>`;
-	return `<span class="hm-signal-muted">${t.section_count ? `${fmt(t.section_count)} sections ready` : "Ready offline"}</span>`;
-}
-function titleStatusHtml(t, staleSet) {
-	if (t.unreadable) return statPill("stale", "Needs rebuild", { bare: true });
-	const j = jobFor(t.title, "title");
-	if (j) return statPill("busy", j.state === "running" ? "Updating" : "Queued", { bare: true });
-	if (staleSet.has(t.title)) return statPill("stale", "Update available", { bare: true });
-	if (t.partial) {
-		const parts = (t.scope_parts || []).length;
-		return statPill("partial", parts ? `Partial · ${plural(parts, "part")}` : "Partial", { bare: true });
-	}
-	return `<span class="hm-title-ed">${escapeHtml(shortDate(t.edition) || "Ready")}</span>`;
-}
-function titlePartsHtml(t) {
-	if (t.partial && t.scope_parts && t.scope_parts.length) return `
-      <div class="hm-title-parts">
-        ${t.scope_parts.slice(0, 3).map((p) => `<a class="hm-part-chip" href="${titleHref(t.title, "part/" + encodeURIComponent(p))}"><span class="hm-part-num">Part ${escapeHtml(p)}</span></a>`).join("")}
-        ${t.scope_parts.length > 3 ? `<span class="hm-part-more">+${t.scope_parts.length - 3} more</span>` : ""}
-      </div>`;
-	const parts = ((HOME_CONTENT[t.title] || {}).cards || []).slice(0, 3);
-	if (parts.length) return `
-      <div class="hm-title-parts">
-        ${parts.map((c) => {
-		const label = c.title.replace(/^Part\s+\d+\s*[—–-]\s*/, "");
-		return `<a class="hm-part-chip" href="${titleHref(t.title, "part/" + encodeURIComponent(c.part))}"><span class="hm-part-num">${escapeHtml(c.part)}</span><span>${escapeHtml(label)}</span></a>`;
-	}).join("")}
-      </div>`;
-	return `
-    <div class="hm-title-parts">
-      <button type="button" class="hm-part-chip" data-hm-act="open-contents" data-title="${t.title}">Browse contents</button>
-    </div>`;
-}
-function titlesBandHtml(titles, recent, projects, totalSections, totalRead) {
-	const staleSet = new Set((navLib.data && navLib.data.titles || []).filter(isStale).map((t) => t.title));
-	const cards = titles.map((t) => {
-		const read = visitedCountFor(t.title);
-		const count = Number(t.section_count || 0);
-		const pct = count ? Math.min(100, read / count * 100) : 0;
-		const agencies = (t.agencies || []).slice(0, 3);
-		return `
-      <article class="hm-title-card">
-        <div class="hm-title-top">
-          <span class="hm-title-kicker">${t.title} CFR${agencies.length ? `${SEP}<span class="hm-title-ag">${agencies.map(escapeHtml).join(" · ")}</span>` : ""}</span>
-          ${titleStatusHtml(t, staleSet)}
-        </div>
-        <h3 class="hm-title-name"><a href="${titleHref(t.title)}">${escapeHtml(t.name)}</a></h3>
-        ${t.summary ? `<p class="hm-title-desc">${escapeHtml(t.summary)}</p>` : !(state.homeSnapshot && Array.isArray(state.homeSnapshot.titles)) ? `<div class="skel-stack" style="margin-top:8px;gap:6px" aria-hidden="true"><span class="skel skel-line is-sm" style="width:92%"></span><span class="skel skel-line is-sm" style="width:68%"></span></div>` : ""}
-        ${titlePartsHtml(t)}
-        <div class="hm-title-foot">
-          <div class="hm-title-signal-row">
-            ${titleLivingSignalHtml(t, recent, projects)}
-            ${t.partial ? `<a class="hm-inline-link" href="#/library/${t.title}">Add parts</a>` : `<button type="button" class="hm-inline-link" data-hm-act="open-contents" data-title="${t.title}">Contents</button>`}
-          </div>
-          <div class="hm-prog-track" title="${fmt(read)} of ${fmt(count)} sections read" aria-hidden="true"><span style="width:${read ? Math.max(3, Math.round(pct)) : 0}%"></span></div>
-        </div>
-      </article>`;
-	}).join("");
-	return `
-    <section class="hm-titles" id="hm-titles" aria-label="Downloaded titles">
-      <div class="hm-sec-head">
-        <div class="hm-sec-head-left">
-          <h2 class="hm-sec-title">Downloaded Titles</h2>
-          <span class="hm-sec-meta">${joinSep([
-		plural(titles.length, "title"),
-		`${fmt(totalSections)} sections offline`,
-		totalRead ? `${fmt(totalRead)} read` : ""
-	])}</span>
-        </div>
-        <a class="hm-inline-link" href="#/library">Add or update titles ${icon("chevronRight")}</a>
-      </div>
-      <div class="hm-title-grid">${cards}</div>
-    </section>`;
-}
-function pulseChipsHtml(a) {
-	const chips = [];
-	for (const r of (a.cfr_parts || []).slice(0, 2)) {
-		const ok = titleInstalled(r.title);
-		chips.push(`<a class="citation-chip${ok ? "" : " is-dim"}" href="${newsPartHref(r.title, r.part)}">${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
-	}
-	for (const s of (a.sections || []).slice(0, Math.max(0, 3 - chips.length))) {
-		const ok = titleInstalled(29);
-		chips.push(`<a class="citation-chip${ok ? "" : " is-dim"}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`);
-	}
-	return chips.length ? `<div class="hm-news-chips">${chips.join("")}</div>` : "";
-}
-function newsSkeletonHtml() {
-	return `
-    <div class="hm-panel-head">
-      <h2 class="hm-panel-title">${icon("news")} Regulatory Pulse</h2>
-      <div class="hm-panel-acts">
-        <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
-      </div>
-    </div>
-    <div class="hm-news-skel" aria-busy="true" aria-label="Loading OSHA news…">
-      ${[
-		1,
-		2,
-		3
-	].map(() => `
-        <div class="hm-news-skel-item">
-          <span class="skel skel-line is-sm" style="width:46%"></span>
-          <span class="skel skel-line" style="width:92%"></span>
-          <span class="skel skel-line" style="width:74%"></span>
-        </div>`).join("")}
-    </div>`;
-}
-function newsSectionHtml(data, status) {
-	const articles = data && data.articles || [];
-	const pill = newsStatusPillHtml(status);
-	if (!articles.length) return `
-      <div class="hm-news-quiet">
-        <span class="hm-news-quiet-label">${icon("news")} No OSHA regulatory news cached yet</span>
-        <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
-      </div>`;
-	const items = articles.slice(0, 3).map((a) => `
-    <article class="hm-news-item">
-      <div class="hm-news-top">
-        <span class="hm-news-kicker">${escapeHtml(newsKicker(a))}</span>
-        <span class="hm-news-right">
-          ${a.penalty_usd ? `<span class="hm-news-fig">${escapeHtml(fmtMoney(a.penalty_usd))}</span>` : ""}
-          <time class="hm-news-date">${escapeHtml(shortDate(a.published_at))}</time>
-        </span>
-      </div>
-      <a class="hm-news-title" href="#/news?cat=${encodeURIComponent(a.category)}">${escapeHtml(a.title)}</a>
-      ${pulseChipsHtml(a)}
-    </article>`).join("");
-	return `
-    <div class="hm-panel-head">
-      <h2 class="hm-panel-title">${icon("news")} Regulatory Pulse</h2>
-      <div class="hm-panel-acts">
-        <span id="hm-news-pill">${pill}</span>
-        <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
-      </div>
-    </div>
-    <div class="hm-news-grid">${items}</div>`;
-}
-async function hydrateHome(seq) {
-	const titlesPromise = getJSON("/api/titles/snapshot").then((snap) => {
-		if (seq !== state.routeSeq) return;
-		if (snap && Array.isArray(snap.titles)) {
-			state.homeSnapshot = snap;
-			const u = loadUsage();
-			const installed = new Set(snap.titles.map((t) => t.title));
-			const split = (key) => {
-				const i = key.indexOf("|");
-				return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
-			};
-			const recent = Object.entries(u.s).map(([k, e]) => {
-				const [ti, id] = split(k);
-				return {
-					...e,
-					ti,
-					id
-				};
-			}).filter((e) => installed.has(e.ti)).sort((a, b) => (b.t || 0) - (a.t || 0));
-			const totalSections = snap.titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
-			const totalRead = snap.titles.reduce((a, t) => a + visitedCountFor(t.title), 0);
-			const box = document.getElementById("hm-titles");
-			if (box) box.outerHTML = titlesBandHtml(snap.titles, recent, loadProjects(), totalSections, totalRead);
-		}
-	}).catch(() => {}).finally(() => {
-		const el = document.getElementById("hm-titles");
-		if (el && seq === state.routeSeq) el.dataset.snapshotLoaded = "1";
-	});
-	const newsPromise = Promise.all([getJSON("/api/news?limit=3"), getJSON("/api/news/status")]).then(([data, status]) => {
-		if (seq !== state.routeSeq) return;
-		const box = document.getElementById("hm-news");
-		if (box) box.innerHTML = newsSectionHtml(data, status);
-		if (data && data.articles && data.articles.length) lsSetJSON(HOME_NEWS_CACHE, {
-			t: Date.now(),
-			data: {
-				articles: data.articles.slice(0, 30),
-				total: data.total,
-				offset: 0
-			}
-		});
-		if (status) lsSetJSON(HOME_STATUS_CACHE, {
-			t: Date.now(),
-			data: status
-		});
-	}).catch(() => {
-		if (seq !== state.routeSeq) return;
-		const box = document.getElementById("hm-news");
-		if (box) box.innerHTML = newsSectionHtml({ articles: [] }, null);
-	}).finally(() => {
-		const el = document.getElementById("hm-news");
-		if (el && seq === state.routeSeq) el.dataset.newsLoaded = "1";
-	});
-	await Promise.allSettled([titlesPromise, newsPromise]);
-}
-function renderHomeScreen({ enter = true } = {}) {
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	document.title = "Home · FRAMEWORK";
-	setViewHead("");
-	const u = loadUsage();
-	const titles = installedFallbackList();
-	const installed = new Set(titles.map((t) => t.title));
-	const split = (key) => {
-		const i = key.indexOf("|");
-		return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
-	};
-	const recent = Object.entries(u.s).map(([k, e]) => {
-		const [ti, id] = split(k);
-		return {
-			...e,
-			ti,
-			id
-		};
-	}).filter((e) => installed.has(e.ti)).sort((a, b) => (b.t || 0) - (a.t || 0));
-	const projects = loadProjects();
-	const totalSections = titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
-	const totalRead = titles.reduce((a, t) => a + visitedCountFor(t.title), 0);
-	const cachedNews = lsGetJSON(HOME_NEWS_CACHE);
-	const cachedStatus = lsGetJSON(HOME_STATUS_CACHE);
-	const sub = joinSep([
-		escapeHtml(`${plural(titles.length, "title")} ready offline`),
-		state.metaInfo.edition ? `Edition ${escapeHtml(shortDate(state.metaInfo.edition))}` : "",
-		projects.length ? escapeHtml(plural(projects.length, "workspace")) : ""
-	]);
-	const scrollTop = dom.main.scrollTop;
-	dom.view.innerHTML = `
-    <div class="hm">
-      <header class="hm-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK</div>
-          <h1 class="doc-title">Home</h1>
-          <p class="hm-sub">${sub}</p>
-        </div>
-        <div class="hm-head-acts">
-          <button type="button" class="btn btn-sm" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
-          <a class="btn btn-sm" href="#/library">${icon("download")} Manage library</a>
-        </div>
-      </header>
-      ${activeTransfersHtml()}
-      <div class="hm-top">
-        ${resumeCardHtml(recent, titles)}
-        ${workspacesCardHtml(projects)}
-      </div>
-      ${titlesBandHtml(titles, recent, projects, totalSections, totalRead)}
-      <section class="hm-card hm-news" id="hm-news" aria-label="Regulatory Pulse">
-        ${cachedNews && cachedNews.data ? newsSectionHtml(cachedNews.data, cachedStatus && cachedStatus.data) : newsSkeletonHtml()}
-      </section>
-    </div>`;
-	if (enter) enterView();
-	else dom.main.scrollTop = scrollTop;
-	hydrateHome(state.routeSeq);
-}
-function refreshHomeIfActive() {
-	if (routeTarget() === "overview" && dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
-}
-dom.view.addEventListener("click", async (e) => {
-	if (!dom.view.querySelector(".hm")) return;
-	const actEl = e.target.closest("[data-hm-act]");
-	if (!actEl) return;
-	const act = actEl.dataset.hmAct;
-	if (act === "new-workspace") startNewWorkspace();
-	else if (act === "open-history") {
-		state.historyFor = "overview";
-		openPanel("history", { focus: e.detail === 0 });
-	} else if (act === "open-contents") {
-		const t = Number(actEl.dataset.title);
-		if (t && t !== state.currentTitle) await switchTitle(t);
-		openPanel("reader", { focus: true });
-	}
-});
-// src/views/welcome.js
-state.profilesData = null;
-function profileSummary(p, names) {
-	const groups = [];
-	for (const d of p.downloads) {
-		let g = groups.find((x) => x.title === d.title);
-		if (!g) {
-			g = {
-				title: d.title,
-				parts: []
-			};
-			groups.push(g);
-		}
-		if (d.part) g.parts.push(String(d.part));
-	}
-	const partsText = (parts) => {
-		if (!parts.length) return "";
-		if (parts.length === 1) return `Part ${parts[0]}`;
-		const nums = parts.map(Number);
-		return nums.every((n) => !isNaN(n)) && nums.every((n, i) => i === 0 || n === nums[i - 1] + 1) ? `Parts ${parts[0]}–${parts[parts.length - 1]}` : `Parts ${parts.join(", ")}`;
-	};
-	return groups.map((g) => {
-		const name = names[g.title] ? ` ${escapeHtml(names[g.title])}` : "";
-		const parts = partsText(g.parts);
-		return `<span class="welcome-item"><span class="welcome-item-num">${g.title}</span>${name}${parts ? `, ${parts}` : ""}</span>`;
-	}).join("<span class=\"sep\" aria-hidden=\"true\">·</span>");
-}
-function welcomeProgressHtml() {
-	const j = state.jobs.current;
-	const queued = state.jobs.queued || [];
-	if (!j && !queued.length) return "";
-	const m = dockModel(j);
-	const pctText = m.pct == null ? "" : `${m.pct}%`;
-	const title = j ? escapeHtml(j.label) : "Preparing download";
-	const steps = DOCK_STEPS.map((_, i) => `<span class="${i < m.step ? "is-done" : i === m.step ? "is-now" : ""}"></span>`).join("");
-	const queueText = queued.length ? `+${queued.length} queued (${queued.map((q) => q.label).join(", ")})` : "Nothing else queued";
-	return `
-    <div class="welcome-progress">
-      <section class="dock-card welcome-job" aria-label="Profile download progress">
-        <div class="dock-head">
-          <span class="stat-dot is-busy" aria-hidden="true"></span>
-          <span class="dock-title">${title}</span>
-          <span class="dock-pct">${pctText}</span>
-        </div>
-        <div class="dock-phase">
-          <span class="dock-phase-text">${escapeHtml(j && j.cancelling ? "Cancelling…" : m.label)}</span>
-          ${m.step >= 0 ? `<span class="dock-steps" aria-hidden="true">${steps}</span>` : ""}
-        </div>
-        <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
-        <div class="dock-tele"><span>${escapeHtml(m.left)}</span><span>${escapeHtml(m.right)}</span></div>
-        <div class="dock-foot"><span class="dock-queue">${escapeHtml(queueText)}</span></div>
-      </section>
-      <p class="welcome-note">The reader opens as soon as the first title is ready; the rest keep downloading in the background. <a href="#/library">Open the library</a> to watch or add more.</p>
-    </div>`;
-}
-async function renderWelcome() {
-	const seq = state.routeSeq;
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	document.title = "Welcome · FRAMEWORK";
-	setViewHead("");
-	if (!state.profilesData) {
-		dom.view.innerHTML = skeletonHtml("list", "Loading…");
-		try {
-			state.profilesData = await getJSON("/api/profiles");
-		} catch (err) {
-			if (seq !== state.routeSeq) return;
-			dom.view.innerHTML = `
-        <div class="empty-state">
-          <h2>Couldn’t load the profiles</h2>
-          <p>${escapeHtml(err.message)}</p>
-          <button type="button" class="btn" id="welcome-retry">Try again</button>
-        </div>`;
-			document.getElementById("welcome-retry").addEventListener("click", () => renderWelcome());
-			return;
-		}
-		if (seq !== state.routeSeq) return;
-	}
-	const names = state.profilesData.title_names || {};
-	const busy = Boolean(state.jobs.current || state.jobs.queued && state.jobs.queued.length);
-	dom.view.innerHTML = `
-    <div class="welcome">
-      <div class="doc-kicker">Welcome</div>
-      <div class="welcome-head">
-        <h1 class="doc-title">What do you work in?</h1>
-        <p>Nothing is installed yet. Pick a profile and FRAMEWORK downloads those regulations from eCFR, one title at a time. You can add or remove titles later from the library.</p>
-      </div>
-      <div id="welcome-job-slot">${welcomeProgressHtml()}</div>
-      <div class="welcome-list" id="welcome-list"${busy ? " hidden" : ""}>
-        ${state.profilesData.profiles.map((p) => `
-          <button type="button" class="welcome-card" data-profile="${escapeHtml(p.id)}">
-            <span class="welcome-card-name">${escapeHtml(p.name)}</span>
-            <span class="welcome-card-desc">${escapeHtml(p.description)}</span>
-            <span class="welcome-card-meta">${profileSummary(p, names)}</span>
-          </button>`).join("")}
-        <a class="welcome-card welcome-own" href="#/library">
-          <span class="welcome-card-name">Choose my own</span>
-          <span class="welcome-card-desc">Browse all 50 titles and download whole titles, parts or single sections.</span>
-        </a>
-      </div>
-    </div>`;
-	enterView();
-}
-function refreshWelcome() {
-	const slot = document.getElementById("welcome-job-slot");
-	const list = document.getElementById("welcome-list");
-	if (!slot || !list) return;
-	slot.innerHTML = welcomeProgressHtml();
-	const busy = Boolean(state.jobs.current || state.jobs.queued && state.jobs.queued.length);
-	list.hidden = busy;
-	if (!busy) for (const b of list.querySelectorAll("button")) b.disabled = false;
-}
-async function installProfile(p) {
-	for (const d of p.downloads) {
-		const job = await getJSON("/api/library/download", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				title: d.title,
-				part: d.part ? String(d.part) : null,
-				section: null,
-				kind: "section"
-			})
-		});
-		state.jobsSeenActive.add(job.id);
-	}
-}
-dom.view.addEventListener("click", async (e) => {
-	const btn = e.target.closest("button[data-profile]");
-	if (!btn || !dom.view.querySelector(".welcome")?.contains(btn)) return;
-	const profile = (state.profilesData?.profiles || []).find((x) => x.id === btn.dataset.profile);
-	if (!profile) return;
-	const list = document.getElementById("welcome-list");
-	for (const b of list.querySelectorAll("button")) b.disabled = true;
-	try {
-		await installProfile(profile);
-	} catch (err) {
-		showToast(err.message, 6e3);
-	}
-	await pollJobs();
-	refreshWelcome();
-});
-// src/views/library.js
-var lib = {
-	view: null,
-	data: null,
-	filter: "",
-	sort: "desk",
-	wire: null
-};
-try {
-	const saved = localStorage.getItem("libSort");
-	if ([
-		"desk",
-		"number",
-		"updated"
-	].includes(saved)) lib.sort = saved;
-} catch (e) {}
-state.jobs = {
-	current: null,
-	queued: [],
-	recent: []
-};
-state.jobsTimer = null;
-state.jobsSeenActive = /* @__PURE__ */ new Set();
-state.lastJobsKey = "";
-var fmtDate = (iso) => {
-	if (!iso) return "";
-	const d = /* @__PURE__ */ new Date(iso + "T00:00:00");
-	return isNaN(d) ? iso : d.toLocaleDateString(void 0, {
-		month: "short",
-		day: "numeric",
-		year: "numeric"
-	});
-};
-var libHref = (title, part) => "#/library" + (title ? `/${title}` : "") + (part ? `/part/${encodeURIComponent(part)}` : "");
-async function getJSON(url, opts) {
-	const res = await fetch(url, opts);
-	let body = null;
-	try {
-		body = await res.json();
-	} catch (e) {}
-	if (!res.ok) throw new Error(body && body.detail || `Request failed (${res.status})`);
-	return body;
-}
-async function loadLibrary(title, part) {
-	const seq = state.routeSeq;
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	const sameView = lib.view && lib.view.title === title && lib.view.part === part;
-	if (!sameView) {
-		lib.filter = "";
-		dom.view.innerHTML = skeletonHtml(title ? "list" : "cards", "Loading from eCFR…");
-	}
-	lib.view = {
-		title,
-		part
-	};
-	try {
-		const data = await getJSON(part ? `/api/library/${title}/part/${encodeURIComponent(part)}` : title ? `/api/library/${title}` : "/api/library");
-		if (seq !== state.routeSeq) return;
-		if (!title) setJobs(data.jobs);
-		lib.data = data;
-		renderLibrary(!sameView);
-		if (!title) {
-			pollJobsIfActive();
-			loadWire();
-		}
-	} catch (err) {
-		if (seq !== state.routeSeq) return;
-		dom.view.innerHTML = `
-      <div class="empty-state">
-        <h2>Couldn’t load the library</h2>
-        <p>${escapeHtml(err.message)}</p>
-        <button type="button" class="btn" id="lib-retry">Try again</button>
-      </div>`;
-		document.getElementById("lib-retry").addEventListener("click", () => loadLibrary(title, part));
-	}
-}
-async function refreshLibrary() {
-	if (!lib.view || !dom.view.querySelector(".lib")) return;
-	const { title, part } = lib.view;
-	try {
-		lib.data = await getJSON(part ? `/api/library/${title}/part/${encodeURIComponent(part)}` : title ? `/api/library/${title}` : "/api/library");
-		renderLibrary(false);
-	} catch (e) {}
-}
-function jobFor(title, kind, id) {
-	return [state.jobs.current, ...state.jobs.queued].filter(Boolean).find((j) => j.title === title && (kind === "title" ? j.kind === "title" || j.kind === "update" : kind === "part" ? j.kind === "part" && j.target && j.target.part === id : j.kind === "section" && j.target && j.target.id === id));
-}
-function actBtn(act, label, attrs, cls = "") {
-	return `<button type="button" class="lib-act${cls ? " " + cls : ""}" data-act="${act}" ${attrs}>${label}</button>`;
-}
-function libRow({ href, num, name, status, actions, dim, key }) {
-	const main = href ? `<a class="lib-main" href="${href}"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></a>` : `<span class="lib-main"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></span>`;
-	return `<div class="lib-row${dim ? " is-dim" : ""}${actions ? " has-actions" : ""}" data-hay="${escapeHtml(`${num} ${name}`.toLowerCase())}"${key ? ` data-key="${escapeHtml(key)}"` : ""}>
-    ${main}<span class="lib-status">${status || ""}</span><span class="lib-actions">${actions || ""}</span></div>`;
-}
-function statPill(state, text, { bare = false, title = "" } = {}) {
-	return `<span class="stat-pill is-${state}${bare ? " is-bare" : ""}"${title ? ` title="${escapeHtml(title)}"` : ""}><span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(text)}</span>`;
-}
-var isStale = (t) => Boolean(t.installed && t.latest && t.installed.edition && t.latest > t.installed.edition);
-var jobStatus = (j) => j ? statPill("busy", j.state === "running" ? "Downloading" : "Queued", { bare: true }) : "";
-function titleStatus(t) {
-	if (t.reserved) return {
-		state: "uninstalled",
-		text: "Reserved"
-	};
-	const j = jobFor(t.title, "title");
-	if (j) return {
-		state: "busy",
-		text: j.state === "running" ? j.kind === "update" ? "Updating" : "Downloading" : "Queued"
-	};
-	const inst = t.installed;
-	if (!inst) return {
-		state: "uninstalled",
-		text: "Not installed"
-	};
-	if (isStale(t)) return {
-		state: "stale",
-		text: "Update available",
-		title: `eCFR has a newer edition (${fmtDate(t.latest)})`
-	};
-	if (!inst.whole) {
-		const what = [inst.parts ? plural(inst.parts, "part") : "", inst.sections ? plural(inst.sections, "section") : ""].filter(Boolean).join(", ");
-		return {
-			state: "partial",
-			text: "Partial",
-			title: what ? `Installed: ${what}` : ""
-		};
-	}
-	return {
-		state: "synced",
-		text: "Installed",
-		title: `Edition ${fmtDate(inst.edition)}`
-	};
-}
-function renderStatusPill(t, opts = {}) {
-	const s = titleStatus(t);
-	return statPill(s.state, s.text, {
-		title: s.title,
-		...opts
-	});
-}
-var fmtBytes = (bytes) => {
-	if (!bytes || bytes <= 0) return "";
-	if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-	const mb = bytes / 1048576;
-	if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-	return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`;
-};
-var fmtMB = (mb) => mb ? fmtBytes(mb * 1048576) : "";
-var fmtSections = (n) => n ? `${fmt(n)} ${n === 1 ? "section" : "sections"}` : "";
-var SEP = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
-var joinSep = (xs) => xs.filter(Boolean).join(SEP);
-function relTime(ms) {
-	const s = Math.max(0, (Date.now() - ms) / 1e3);
-	if (s < 60) return "just now";
-	if (s < 3600) return `${Math.round(s / 60)} min ago`;
-	if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-	return shortDate(new Date(ms).toISOString().slice(0, 10));
-}
-function amendedWeek(d) {
-	const newest = d.titles.reduce((m, t) => t.latest && t.latest > m ? t.latest : m, "");
-	if (!newest) return {
-		newest: "",
-		cut: "",
-		recent: 0
-	};
-	const [y, m, dd] = newest.split("-").map(Number);
-	const cut = new Date(Date.UTC(y, m - 1, dd - 7)).toISOString().slice(0, 10);
-	return {
-		newest,
-		cut,
-		recent: d.titles.filter((t) => t.amended && t.amended >= cut).length
-	};
-}
-var LIB_SORTS = [
-	["desk", "By desk"],
-	["number", "By number"],
-	["updated", "Recently amended"]
-];
-var shortDate = (iso) => {
-	if (!iso) return "";
-	const d = /* @__PURE__ */ new Date(iso + "T00:00:00");
-	if (isNaN(d)) return iso;
-	const opts = d.getFullYear() === (/* @__PURE__ */ new Date()).getFullYear() ? {
-		month: "short",
-		day: "numeric"
-	} : {
-		month: "short",
-		day: "numeric",
-		year: "numeric"
-	};
-	return d.toLocaleDateString(void 0, opts);
-};
-function titleActions(t) {
-	if (t.reserved || jobFor(t.title, "title")) return "";
-	const inst = t.installed;
-	if (!inst) return actBtn("download", `${icon("download")}Download`, `data-title="${t.title}"`, "is-primary");
-	return `<a class="lib-act" href="#/title/${t.title}/">Open</a>` + (inst.whole ? "" : actBtn("download", "Download all", `data-title="${t.title}"`)) + (isStale(t) ? actBtn("update", "Update", `data-title="${t.title}" title="eCFR has a newer edition (${escapeHtml(fmtDate(t.latest))})"`) : "") + actBtn("remove", "Remove", `data-title="${t.title}"`, "is-danger");
-}
-function libStory(t) {
-	const inst = t.installed;
-	const agencies = (t.agencies || []).slice(0, 3);
-	const kicker = `Title ${t.title}${agencies.length ? `${SEP}<span class="story-ag">${agencies.map(escapeHtml).join(" ")}</span>` : ""}`;
-	const name = escapeHtml(t.name);
-	const headline = t.reserved ? name : `<a href="${libHref(t.title)}">${name}</a>`;
-	const sections = inst ? inst.section_count : t.sections;
-	const dateline = joinSep([
-		t.amended ? `Amended ${escapeHtml(shortDate(t.amended))}` : "",
-		t.reserved ? "" : fmtSections(sections),
-		t.reserved || !t.size_mb ? "" : `<span title="Size of the title's text on eCFR">${fmtMB(t.size_mb)}</span>`
-	]);
-	const acts = titleActions(t);
-	const hay = `${t.title} title ${t.name} ${t.summary || ""} ${t.desk || ""} ${(t.agencies || []).join(" ")}`.toLowerCase();
-	return `<article class="lib-story${t.reserved ? " is-dim" : ""}" data-hay="${escapeHtml(hay)}">
-    <div class="story-top"><span class="story-kicker">${kicker}</span>${renderStatusPill(t, { bare: !inst })}</div>
-    <h3 class="story-name">${headline}</h3>
-    ${t.summary ? `<p class="story-dek">${escapeHtml(t.summary)}</p>` : ""}
-    <div class="story-foot"><span class="story-date">${dateline}</span>${acts ? `<div class="story-actions">${acts}</div>` : ""}</div>
-  </article>`;
-}
-function libMetrics(d) {
-	const live = d.titles.filter((t) => !t.reserved);
-	const inst = live.filter((t) => t.installed);
-	const sections = inst.reduce((a, t) => a + (t.installed.section_count || 0), 0);
-	const bytes = inst.reduce((a, t) => a + (t.installed.bytes || 0), 0);
-	const stale = live.filter(isStale);
-	const { cut, recent } = amendedWeek(d);
-	const updating = [state.jobs.current, ...state.jobs.queued].some((j) => j && j.kind === "update");
-	const tile = (label, value, sub, cls = "") => `<div class="metric-card${cls}">
-      <div class="metric-label">${label}</div><div class="metric-val">${value}</div><div class="metric-sub">${sub}</div></div>`;
-	return `<section class="lib-metrics" aria-label="Library at a glance">
-    ${tile("<span class=\"stat-dot is-synced\" aria-hidden=\"true\"></span>eCFR", "Online", d.checked_at ? `Title list checked ${escapeHtml(relTime(d.checked_at * 1e3))}` : `${live.length} titles tracked`)}
-    ${tile("Installed", `${inst.length}<span class="metric-of">of ${live.length}</span>`, joinSep([fmtSections(sections) || "No sections yet", bytes ? `${fmtBytes(bytes)} on disk` : ""]))}
-    ${tile("Amended this week", String(recent), cut ? `Since ${escapeHtml(shortDate(cut))}${SEP}<button type="button" class="metric-link" data-sort="updated">Show</button>` : "No edition date")}
-    ${stale.length ? tile("<span class=\"stat-dot is-stale\" aria-hidden=\"true\"></span>Editions", `${stale.length} outdated`, updating ? statPill("busy", "Updating", { bare: true }) : `<button type="button" class="metric-link is-strong" data-act="update-all">Update all ${icon("chevronRight")}</button>`, " is-alert") : tile("Editions", inst.length ? "Current" : "—", inst.length ? "Every installed title is up to date" : "Nothing installed yet")}
-  </section>`;
-}
-function suiteState(s, d) {
-	const ts = s.titles.map((n) => d.titles.find((t) => t.title === n)).filter((t) => t && !t.reserved);
-	const busy = ts.filter((t) => jobFor(t.title, "title"));
-	const whole = ts.filter((t) => t.installed && t.installed.whole);
-	const any = ts.filter((t) => t.installed);
-	const stale = ts.filter(isStale);
-	const needs = ts.filter((t) => !jobFor(t.title, "title") && (!t.installed || !t.installed.whole || isStale(t)));
-	let pill;
-	if (busy.length) pill = statPill("busy", `${busy.length} of ${ts.length} in progress`);
-	else if (whole.length === ts.length && !stale.length) pill = statPill("synced", "Installed");
-	else if (whole.length === ts.length) pill = statPill("stale", "Update available");
-	else if (any.length) pill = statPill("partial", `${any.length} of ${ts.length} installed`);
-	else pill = statPill("uninstalled", "Not installed", { bare: true });
-	const onlyUpdates = needs.length && needs.every((t) => t.installed && t.installed.whole);
-	const label = !needs.length ? "" : onlyUpdates ? `Update ${needs.length === ts.length ? "suite" : plural(needs.length, "title")}` : needs.length === ts.length ? "Download suite" : `Download ${plural(needs.length, "remaining title")}`;
-	return {
-		ts,
-		pill,
-		needs,
-		label,
-		busy
-	};
-}
-function suiteHero(s, d) {
-	const st = suiteState(s, d);
-	const rows = st.ts.map((t) => {
-		const parts = ((HOME_CONTENT[t.title] || {}).cards || []).slice(0, 3);
-		const partHref = (p) => t.installed && t.installed.whole ? `#/title/${t.title}/part/${encodeURIComponent(p)}` : libHref(t.title, p);
-		return `<li class="suite-row">
-      <span class="suite-num">${t.title}</span>
-      <div class="suite-row-body">
-        <a class="suite-name" href="${libHref(t.title)}">${escapeHtml(t.name)}</a>
-        <span class="suite-ag">${(t.agencies || []).slice(0, 3).map(escapeHtml).join(" ")}</span>
-        ${parts.length ? `<div class="suite-parts">${parts.map((c) => {
-			const [num, ...rest] = c.title.replace(/^Part\s+/, "").split(" — ");
-			return `<a href="${partHref(c.part)}"><span class="suite-part-num">${escapeHtml(num)}</span>${escapeHtml(rest.join(" — "))}</a>`;
-		}).join("")}</div>` : ""}
-        <div class="suite-meta">${joinSep([
-			t.amended ? `Amended ${escapeHtml(shortDate(t.amended))}` : "",
-			fmtSections(t.installed ? t.installed.section_count : t.sections),
-			t.size_mb ? fmtMB(t.size_mb) : "",
-			t.installed && t.installed.bytes ? `${fmtBytes(t.installed.bytes)} on disk` : ""
-		].map((x) => x && `<span>${x}</span>`))}</div>
-      </div>
-      ${renderStatusPill(t, { bare: true })}
-    </li>`;
-	}).join("");
-	const action = st.label ? `<button type="button" class="btn btn-accent" data-act="download-suite" data-suite="${escapeHtml(s.id)}">${icon("download")}${escapeHtml(st.label)}</button>` : st.busy.length ? "" : `<a class="btn" href="#/title/${st.ts[0] ? st.ts[0].title : ""}/">Open in reader</a>`;
-	return `<article class="suite-hero" aria-labelledby="suite-${escapeHtml(s.id)}">
-    <div class="story-top"><span class="story-kicker">Featured suite${SEP}${escapeHtml(s.badge || "")}</span>${st.pill}</div>
-    <h2 class="suite-title" id="suite-${escapeHtml(s.id)}">${escapeHtml(s.name)}</h2>
-    <p class="suite-dek">${escapeHtml(s.summary)}</p>
-    <ul class="suite-rows">${rows}</ul>
-    <div class="suite-foot">
-      <span class="suite-telemetry">${joinSep([
-		plural(st.ts.length, "title"),
-		fmtSections(s.sections),
-		s.size_mb ? `${fmtMB(s.size_mb)} of text` : ""
-	])}</span>
-      ${action}
-    </div>
-  </article>`;
-}
-function suiteCard(s, d) {
-	const st = suiteState(s, d);
-	const titles = st.ts.map((t) => `<a href="${libHref(t.title)}"><span class="suite-part-num">${t.title}</span>${escapeHtml(t.name)}</a>`).join("");
-	const action = st.label ? actBtn("download-suite", `${icon("download")}${escapeHtml(st.label)}`, `data-suite="${escapeHtml(s.id)}"`, "is-primary") : "";
-	return `<article class="suite-card">
-    <div class="story-top"><span class="story-kicker">${escapeHtml(s.badge || "Suite")}</span>${st.pill}</div>
-    <h3 class="story-name">${escapeHtml(s.name)}</h3>
-    <p class="story-dek">${escapeHtml(s.summary)}</p>
-    <div class="suite-parts suite-card-titles">${titles}</div>
-    <div class="story-foot"><span class="story-date">${joinSep([fmtSections(s.sections), fmtMB(s.size_mb)])}</span>${action}</div>
-  </article>`;
-}
-function wireSummary(c) {
-	if (!c) return "<span class=\"wire-pending\" aria-hidden=\"true\"></span>";
-	if (!c.count) return "";
-	if (c.removed === c.count) return escapeHtml(`${plural(c.count, "section")} removed`);
-	const verb = c.kind === "revised" ? "revised" : "amended";
-	const parts = c.parts.slice(0, 3);
-	const more = c.parts.length - parts.length;
-	const where = parts.length ? ` in ${parts.length + more === 1 ? "Part" : "Parts"} ${parts.join(", ")}${more > 0 ? ` +${more}` : ""}` : "";
-	return `${escapeHtml(`${plural(c.count, "section")} ${verb}${where}`)}${c.first && c.first.name ? `<span class="wire-first">${escapeHtml(c.first.name)}</span>` : ""}`;
-}
-function libWire(d) {
-	const top = d.titles.filter((t) => !t.reserved && t.amended).sort((a, b) => b.amended.localeCompare(a.amended) || a.title - b.title).slice(0, 5);
-	const byTitle = new Map((lib.wire && lib.wire.items || []).map((c) => [c.title, c]));
-	const failed = lib.wire && lib.wire.failed;
-	return `<aside class="reg-wire" id="lib-wire" aria-labelledby="wire-title">
-    <div class="wire-head">
-      <h2 class="wire-title" id="wire-title">${icon("activity")}The Regulatory Wire</h2>
-      <span class="wire-badge">Live eCFR</span>
-    </div>
-    <p class="wire-sub">Latest amendments, newest first</p>
-    <ol class="wire-items">${top.map((t) => {
-		const c = byTitle.get(t.title);
-		const summary = !lib.wire ? wireSummary(null) : failed || !c || c.amended !== t.amended ? "" : wireSummary(c);
-		return `<li class="wire-entry"><a href="${libHref(t.title)}">
-        <span class="wire-entry-head"><span class="wire-entry-title">Title ${t.title}${(t.agencies || [])[0] ? `${SEP}${escapeHtml(t.agencies[0])}` : ""}</span>
-          <time class="wire-entry-date" datetime="${escapeHtml(t.amended)}">${escapeHtml(shortDate(t.amended))}</time></span>
-        <span class="wire-entry-name">${escapeHtml(t.name)}</span>
-        ${summary ? `<span class="wire-entry-summary">${summary}</span>` : ""}
-      </a></li>`;
-	}).join("")}</ol>
-    <div class="wire-foot"><button type="button" class="wire-link" data-sort="updated">All titles by last amendment ${icon("chevronRight")}</button></div>
-  </aside>`;
-}
-async function loadWire() {
-	if (lib.wire && Date.now() - lib.wire.at < 18e5 && !lib.wire.failed) return;
-	try {
-		lib.wire = {
-			at: Date.now(),
-			items: await getJSON("/api/library/wire")
-		};
-	} catch (e) {
-		lib.wire = {
-			at: Date.now(),
-			items: [],
-			failed: true
-		};
-	}
-	const el = document.getElementById("lib-wire");
-	if (el && lib.data && lib.view && !lib.view.title) el.outerHTML = libWire(lib.data);
-}
-function libTitleList(d, sort) {
-	const live = d.titles.filter((t) => !t.reserved);
-	const reserved = d.titles.filter((t) => t.reserved);
-	const grid = (ts) => `<div class="lib-stories">${ts.map(libStory).join("")}</div>`;
-	const desk = (name, ts, extra = "") => `<section class="lib-desk${extra}" aria-label="${escapeHtml(name)}">
-      <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(name)}</h3><span class="lib-desk-count">${plural(ts.length, "title")}</span></header>
-      ${grid(ts)}</section>`;
-	if (sort === "number" || sort === "updated") {
-		const ordered = sort === "number" ? live : [...live].sort((a, b) => (b.amended || "").localeCompare(a.amended || "") || a.title - b.title);
-		return desk(sort === "number" ? "All titles by number" : "All titles by last amendment", ordered, " is-flat") + (reserved.length ? desk("Reserved", reserved) : "");
-	}
-	const names = [...d.desks || []];
-	for (const t of live) if (!names.includes(t.desk)) names.push(t.desk);
-	return names.map((name) => {
-		const ts = live.filter((t) => t.desk === name);
-		return ts.length ? desk(name, ts) : "";
-	}).join("") + (reserved.length ? desk("Reserved", reserved) : "");
-}
-function libFrontHtml(d) {
-	const live = d.titles.filter((t) => !t.reserved);
-	const { newest, recent } = amendedWeek(d);
-	const sub = joinSep([
-		"Code of Federal Regulations from eCFR",
-		newest ? `Edition ${escapeHtml(fmtDate(newest))}` : "",
-		`${live.length} active titles`,
-		recent ? `${recent} amended this week` : "No amendments this week"
-	]);
-	const suites = Object.values(d.suites || {});
-	const lead = suites.find((s) => s.featured) || suites[0];
-	const others = suites.filter((s) => s !== lead);
-	return `<div class="lib lib-front">
-    <div class="doc-kicker"><a href="#/">Home</a></div>
-    <header class="lib-masthead">
-      <h1 class="doc-title">Library</h1>
-      <p class="lib-sub">${sub}</p>
-    </header>
-    ${libMetrics(d)}
-    <div class="lib-broadsheet${lead ? "" : " is-wire-only"}">${lead ? suiteHero(lead, d) : ""}${libWire(d)}</div>
-    ${others.length ? `<section class="lib-suites" aria-label="More compliance suites">
-      <header class="lib-desk-header"><h2 class="lib-desk-name">More suites</h2><span class="lib-desk-count">${plural(others.length, "suite")}</span></header>
-      <div class="lib-suite-grid">${others.map((s) => suiteCard(s, d)).join("")}</div></section>` : ""}
-    <div class="lib-tools">
-      <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter titles or agencies…" aria-label="Filter titles or agencies" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
-      <div class="lib-seg" role="group" aria-label="Order titles">${LIB_SORTS.map(([k, label]) => `<button type="button" data-sort="${k}" aria-pressed="${lib.sort === k}">${label}</button>`).join("")}</div>
-    </div>
-    <div class="lib-list" id="lib-list">${libTitleList(d, lib.sort)}</div>
-    <div class="lib-none" id="lib-none" hidden>No title matches. Try an agency (“OSHA”) or a topic.</div>
-  </div>`;
-}
-function renderLibrary(fresh) {
-	const { title, part } = lib.view;
-	const d = lib.data;
-	let crumbs, heading, sub, head = "", body = "", placeholder;
-	const scrollTop = dom.main.scrollTop;
-	if (!title) {
-		document.title = "Library · FRAMEWORK";
-		const existingList = !fresh && document.getElementById("lib-list");
-		const frontShell = dom.view.querySelector(".lib-front");
-		if (existingList && frontShell) {
-			const tmp = document.createElement("div");
-			tmp.innerHTML = libFrontHtml(d);
-			const nextMetrics = tmp.querySelector(".lib-metrics");
-			const curMetrics = frontShell.querySelector(".lib-metrics");
-			if (nextMetrics && curMetrics) curMetrics.replaceWith(nextMetrics);
-			const nextBroad = tmp.querySelector(".lib-broadsheet");
-			const curBroad = frontShell.querySelector(".lib-broadsheet");
-			if (nextBroad && curBroad) curBroad.replaceWith(nextBroad);
-			const nextSuites = tmp.querySelector(".lib-suites");
-			const curSuites = frontShell.querySelector(".lib-suites");
-			if (nextSuites && curSuites) curSuites.replaceWith(nextSuites);
-			for (const btn of frontShell.querySelectorAll(".lib-seg [data-sort]")) btn.setAttribute("aria-pressed", String(btn.dataset.sort === lib.sort));
-			existingList.innerHTML = libTitleList(d, lib.sort);
-			applyLibraryFilter();
-			dom.main.scrollTop = scrollTop;
-			return;
-		}
-		dom.view.innerHTML = libFrontHtml(d);
-		applyLibraryFilter();
-		if (fresh) enterView();
-		else dom.main.scrollTop = scrollTop;
-		return;
-	}
-	if (!part) {
-		document.title = `Title ${title} · Library · FRAMEWORK`;
-		const inst = d.installed;
-		crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a>`;
-		heading = `Title ${title} — ${d.name}`;
-		sub = inst ? inst.whole ? `Installed · ${fmtDate(inst.edition)} · ${fmt(inst.section_count)} sections` : `Partly installed · ${fmt(inst.section_count)} ${inst.section_count === 1 ? "section" : "sections"}` : `Not installed · eCFR edition ${fmtDate(d.latest)}`;
-		placeholder = "Filter parts";
-		const j = jobFor(title, "title");
-		head = d.reserved ? "" : j ? `<span class="lib-head-status">${jobStatus(j)}</span>` : inst && inst.whole ? `<a class="btn" href="#/title/${title}/">Open in reader</a>` : `<button type="button" class="btn" data-act="download" data-title="${title}">${icon("download")} Download whole title</button>`;
-		body = d.groups.map((g) => `
-      ${g.label ? `<div class="lib-label">${escapeHtml(g.label)}</div>` : ""}
-      ${g.parts.map((p) => {
-			const pj = jobFor(title, "part", p.id);
-			if (p.r || !p.leaves) return libRow({
-				num: p.l.replace(/^Parts?\s+/, ""),
-				name: p.d || "Reserved",
-				status: "Reserved",
-				dim: true
-			});
-			const status = p.installed === "all" ? statPill("synced", "Installed", { bare: true }) : p.installed === "some" ? statPill("partial", `${p.installed_sections} of ${fmt(p.leaves)}`, {
-				bare: true,
-				title: "Sections installed"
-			}) : escapeHtml(fmtSections(p.leaves));
-			const acts = p.installed === "all" ? `<a class="lib-act" href="#/title/${title}/part/${encodeURIComponent(p.id)}">Open</a>` : actBtn("download", "Download part", `data-title="${title}" data-part="${escapeHtml(p.id)}"`);
-			return libRow({
-				href: libHref(title, p.id),
-				num: p.id,
-				name: p.d || p.l,
-				status: pj ? jobStatus(pj) : status,
-				actions: pj ? "" : acts,
-				key: `p${p.id}`
-			});
-		}).join("")}`).join("");
-	} else {
-		document.title = `Part ${part} · Library · FRAMEWORK`;
-		crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a><span class="sep" aria-hidden="true">›</span><a href="${libHref(title)}">Title ${title}</a>`;
-		heading = `${d.l} — ${d.d}`;
-		const countText = fmtSections(d.groups.reduce((a, g) => a + g.sections.filter((s) => !s.r).length, 0)) || "0 sections";
-		sub = d.installed === "all" ? `Installed · ${countText}` : d.installed === "some" ? `Partly installed · ${countText}` : countText;
-		placeholder = "Filter sections";
-		const j = jobFor(title, "part", part);
-		head = j ? `<span class="lib-head-status">${jobStatus(j)}</span>` : d.installed === "all" ? `<a class="btn" href="#/title/${title}/part/${encodeURIComponent(part)}">Open in reader</a>` : `<button type="button" class="btn" data-act="download" data-title="${title}" data-part="${escapeHtml(part)}">${icon("download")} Download part</button>`;
-		body = d.groups.map((g) => `
-      ${g.label ? `<div class="lib-label">${escapeHtml(g.label)}</div>` : ""}
-      ${g.sections.map((s) => {
-			const num = s.t === "appendix" ? s.l : s.l.replace(/^§\s*/, "");
-			const name = s.t === "appendix" ? s.d && s.d !== s.l ? s.d.replace(s.l, "").replace(/^\s*[—–-]\s*/, "") : "" : s.d;
-			if (s.r) return libRow({
-				num,
-				name: name || "Reserved",
-				status: "Reserved",
-				dim: true
-			});
-			const sj = jobFor(title, "section", s.id);
-			const acts = s.installed ? `<a class="lib-act" href="#/title/${title}/section/${encodeURIComponent(s.id)}">Open</a>` : actBtn("download", "Download", `data-title="${title}" data-part="${escapeHtml(part)}" data-section="${escapeHtml(s.id)}" data-kind="${s.t}"`);
-			return libRow({
-				num,
-				name,
-				status: sj ? jobStatus(sj) : s.installed ? statPill("synced", "Installed", { bare: true }) : "",
-				actions: sj ? "" : acts,
-				key: `s${s.id}`
-			});
-		}).join("")}`).join("");
-	}
-	const viewKey = `${title}|${part || ""}`;
-	if (!fresh && dom.view.querySelector(`.lib[data-lib-view="${CSS.escape(viewKey)}"]`)) {
-		const subEl = document.getElementById("lib-sub-slot");
-		const headEl = document.getElementById("lib-head-act-slot");
-		const listEl = document.getElementById("lib-list");
-		if (subEl) subEl.textContent = sub;
-		if (headEl) headEl.innerHTML = head;
-		if (listEl) listEl.innerHTML = body;
-		applyLibraryFilter();
-		dom.main.scrollTop = scrollTop;
-		return;
-	}
-	dom.view.innerHTML = `
-    <div class="lib" data-lib-view="${escapeHtml(viewKey)}">
-      <div class="doc-kicker">${crumbs}</div>
-      <div class="lib-head">
-        <div class="lib-head-text">
-          <h1 class="doc-title">${escapeHtml(heading)}</h1>
-          <p class="lib-sub" id="lib-sub-slot">${escapeHtml(sub)}</p>
-        </div>
-        <span id="lib-head-act-slot">${head}</span>
-      </div>
-      <input class="lib-filter" id="lib-filter" type="search" placeholder="${placeholder}…" aria-label="${placeholder}" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
-      <div class="lib-list" id="lib-list">${body}</div>
-      <div class="lib-none" id="lib-none" hidden>Nothing matches.</div>
-    </div>`;
-	applyLibraryFilter();
-	if (fresh) enterView();
-	else dom.main.scrollTop = scrollTop;
-}
-function applyLibraryFilter() {
-	const words = lib.filter.toLowerCase().split(/\s+/).filter(Boolean);
-	const list = document.getElementById("lib-list");
-	if (!list) return;
-	if (list.querySelector(".lib-story")) {
-		let n = 0;
-		for (const desk of list.querySelectorAll(".lib-desk")) {
-			let k = 0;
-			for (const el of desk.querySelectorAll(".lib-story")) {
-				const ok = words.every((w) => (el.dataset.hay || "").includes(w));
-				el.hidden = !ok;
-				if (ok) k++;
-			}
-			desk.hidden = k === 0;
-			const total = desk.querySelectorAll(".lib-story").length;
-			const count = desk.querySelector(".lib-desk-count");
-			if (count) count.textContent = words.length && k !== total ? `${k} of ${plural(total, "title")}` : plural(total, "title");
-			n += k;
-		}
-		document.getElementById("lib-none").hidden = n > 0;
-		return;
-	}
-	let shown = 0;
-	let label = null, labelHas = false;
-	const closeLabel = () => {
-		if (label) label.hidden = !labelHas;
-	};
-	for (const el of list.children) {
-		if (el.classList.contains("lib-label")) {
-			closeLabel();
-			label = el;
-			labelHas = false;
-			continue;
-		}
-		const hay = el.dataset.hay || "";
-		const ok = words.every((w) => hay.includes(w));
-		el.hidden = !ok;
-		if (ok) {
-			shown++;
-			labelHas = true;
-		}
-	}
-	closeLabel();
-	document.getElementById("lib-none").hidden = shown > 0;
-}
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id !== "lib-filter") return;
-	lib.filter = e.target.value;
-	applyLibraryFilter();
-});
-dom.view.addEventListener("click", (e) => {
-	const sortBtn = e.target.closest("button[data-sort]");
-	if (!sortBtn || !dom.view.querySelector(".lib")?.contains(sortBtn)) return;
-	const fromSeg = Boolean(sortBtn.closest(".lib-seg"));
-	if (sortBtn.dataset.sort !== lib.sort) {
-		lib.sort = sortBtn.dataset.sort;
-		lsSet("libSort", lib.sort);
-		renderLibrary(false);
-	}
-	if (fromSeg) dom.view.querySelector(`.lib-seg [data-sort="${lib.sort}"]`)?.focus();
-	else {
-		const tools = dom.view.querySelector(".lib-tools");
-		if (tools) tools.scrollIntoView({
-			behavior: reduceMotion.matches ? "auto" : "smooth",
-			block: "start"
-		});
-	}
-});
-async function queueBatch(url, body, emptyMsg) {
-	const res = await getJSON(url, body ? {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(body)
-	} : { method: "POST" });
-	for (const j of res.queued || []) state.jobsSeenActive.add(j.id);
-	showToast(res.count ? `Queued ${plural(res.count, "title")}` : emptyMsg);
-	await pollJobs();
-}
-dom.view.addEventListener("click", async (e) => {
-	const btn = e.target.closest("button[data-act]");
-	if (!btn || !dom.view.querySelector(".lib")?.contains(btn)) return;
-	const title = parseInt(btn.dataset.title, 10);
-	const act = btn.dataset.act;
-	if (act === "remove") {
-		if (!btn.classList.contains("is-armed")) {
-			btn.classList.add("is-armed");
-			btn.textContent = "Confirm remove";
-			clearTimeout(btn._t);
-			btn._t = setTimeout(() => {
-				btn.classList.remove("is-armed");
-				btn.textContent = "Remove";
-			}, 4e3);
-			return;
-		}
-		btn.disabled = true;
-		try {
-			await getJSON(`/api/library/${title}`, { method: "DELETE" });
-			showToast(`Removed Title ${title}`);
-			await refreshTitles();
-			await refreshLibrary();
-		} catch (err) {
-			showToast(err.message, 5e3);
-			btn.disabled = false;
-		}
-		return;
-	}
-	btn.disabled = true;
-	try {
-		if (act === "download-suite") {
-			await queueBatch("/api/library/batch-download", { suite: btn.dataset.suite }, "Every title in this suite is installed and current");
-			return;
-		}
-		if (act === "update-all") {
-			await queueBatch("/api/library/update-all", null, "Every installed title is already current");
-			return;
-		}
-		const job = act === "update" ? await getJSON(`/api/library/${title}/update`, { method: "POST" }) : await getJSON("/api/library/download", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				title,
-				part: btn.dataset.part || null,
-				section: btn.dataset.section || null,
-				kind: btn.dataset.kind === "appendix" ? "appendix" : "section"
-			})
-		});
-		state.jobsSeenActive.add(job.id);
-		await pollJobs();
-	} catch (err) {
-		showToast(err.message, 5e3);
-		btn.disabled = false;
-	}
-});
-function setJobs(snapshot) {
-	if (!snapshot) return;
-	state.jobs = snapshot;
-	for (const j of [state.jobs.current, ...state.jobs.queued]) if (j) state.jobsSeenActive.add(j.id);
-	updateDock();
-	updateNavTransfers();
-	document.dispatchEvent(new CustomEvent("framework:jobs-updated", { detail: { snap: snapshot } }));
-}
-function pollJobsIfActive() {
-	if ((state.jobs.current || state.jobs.queued.length) && !state.jobsTimer) state.jobsTimer = setTimeout(pollJobs, 700);
-}
-async function pollJobs() {
-	clearTimeout(state.jobsTimer);
-	state.jobsTimer = null;
-	let snap;
-	try {
-		snap = await getJSON("/api/library/jobs");
-	} catch (e) {
-		state.jobsTimer = setTimeout(pollJobs, 3e3);
-		return;
-	}
-	const before = new Set(state.jobsSeenActive);
-	setJobs(snap);
-	const finished = snap.recent.filter((j) => before.has(j.id));
-	for (const j of finished) {
-		state.jobsSeenActive.delete(j.id);
-		if (j.state === "error") showToast(`${j.label}: ${j.error}`, 6e3);
-		else if (j.state === "cancelled") showToast(`Cancelled ${j.label}`);
-		else showToast(j.phase === "Already installed" ? `${j.label} is already installed` : `Downloaded ${j.label}`);
-	}
-	if (finished.some((j) => j.state === "done")) await refreshTitles(finished.filter((j) => j.state === "done").map((j) => j.title));
-	if (finished.length) {
-		document.dispatchEvent(new CustomEvent("framework:jobs-finished", { detail: {
-			finished,
-			snap
-		} }));
-		navLib.at = 0;
-		state.navStorage = null;
-		if (drawerShown() && navState.panel === "library") ensureNavLibrary(true).then(renderLibraryPanel).catch(() => {});
-		if (drawerShown() || onSettingsPage()) refreshSettingsViews();
-	}
-	if (dom.view.querySelector(".lib")) {
-		if (finished.length) await refreshLibrary();
-		else {
-			const key = [snap.current, ...snap.queued].filter(Boolean).map((j) => `${j.id}${j.state[0]}`).join(",");
-			if (key !== state.lastJobsKey) {
-				state.lastJobsKey = key;
-				renderLibrary(false);
-			}
-		}
-	}
-	refreshWelcome();
-	refreshHomeIfActive();
-	pollJobsIfActive();
-}
-// src/components/news_activity.js
-var newsPop = document.getElementById("news-pop");
-var newsActivityCache = /* @__PURE__ */ new Map();
-state.newsActivityCtx = null;
-function newsActivityButtonHtml() {
-	return `<button type="button" class="btn" id="btn-news-activity" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("news")} <span>Activity</span></button>`;
-}
-async function fillNewsActivity(kind, id, seq) {
-	state.newsActivityCtx = null;
-	if (state.currentTitle !== 29) return;
-	const key = `29|${kind === "part" ? "part:" : ""}${id}`;
-	let data = newsActivityCache.get(key);
-	if (!data) {
-		try {
-			data = await getJSON(kind === "part" ? `/api/news/part/${encodeURIComponent(id)}?title=29` : `/api/news/section/${encodeURIComponent(id)}?title=29`);
-		} catch (e) {
-			return;
-		}
-		newsActivityCache.set(key, data);
-	}
-	if (seq !== state.routeSeq) return;
-	const btn = document.getElementById("btn-news-activity");
-	if (!btn || !data.count) return;
-	state.newsActivityCtx = {
-		kind,
-		id,
-		data
-	};
-	btn.querySelector("span").textContent = data.count === 1 ? "1 rule or citation" : `${data.count} rules & citations`;
-	btn.hidden = false;
-}
-function newsTimelineHtml(ctx) {
-	const label = ctx.kind === "part" ? `Part ${ctx.id}` : `§ ${ctx.id}`;
-	const articles = ctx.data.articles || [];
-	const nodes = articles.map((a) => {
-		let meta = fmtDate(a.published_at), second = "";
-		if (a.category === "rules") meta += ` · Final rule${a.citation ? " · " + a.citation : ""}`;
-		else if (a.category === "rulemaking") meta += " · Proposed rule" + (a.comments_close_on ? ` · comments close ${fmtDate(a.comments_close_on)}` : "");
-		else if (a.category === "public_inspection") meta += " · Public inspection" + (a.scheduled_on ? ` · publishes ${fmtDate(a.scheduled_on)}` : "");
-		else if (a.category === "enforcement") {
-			meta += " · Citation" + (a.penalty_usd ? ` · ${fmtMoney(a.penalty_usd)}` : "");
-			second = [a.company, [a.city, a.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
-		} else meta += " · Notice";
-		const title = a.category === "enforcement" && second ? second : a.title;
-		const hay = `${meta} ${title} ${a.citation || ""}`.toLowerCase();
-		const actNr = inspectionActivityNr(a);
-		const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}" data-pop-nav><span class="tl-title">${escapeHtml(title)}</span></a>` : extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`);
-		return `<li class="tl-node" data-kind="${escapeHtml(a.category)}" data-hay="${escapeHtml(hay)}">
-      <span class="tl-dot" aria-hidden="true"></span>
-      <div class="tl-meta">${escapeHtml(meta)}</div>
-      ${titleHtml}
-    </li>`;
-	}).join("");
-	const allHref = ctx.kind === "part" ? `#/news?part=${encodeURIComponent(ctx.id)}` : `#/news?section=${encodeURIComponent(ctx.id)}`;
-	const filterHtml = articles.length >= 6 ? `<input type="search" class="pop-filter" id="news-pop-filter" placeholder="Filter ${articles.length} events…" aria-label="Filter activity events" autocomplete="off">` : "";
-	return `<div class="news-pop-head-row">
-      <div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
-      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close activity">${icon("close")}</button>
-    </div>
-    ${filterHtml}
-    <ol class="reg-timeline">${nodes}</ol>
-    <a class="news-pop-foot" href="${allHref}">${icon("news")} See all in News</a>`;
-}
-var newsCtrl = createPopover({
-	el: newsPop,
-	triggerSelector: "#btn-news-activity"
-});
-function openNewsActivity() {
-	const btn = document.getElementById("btn-news-activity");
-	if (!btn || !state.newsActivityCtx) return;
-	newsPop.setAttribute("aria-label", `Federal Register and OSHA activity for ${state.newsActivityCtx.kind === "part" ? "Part " : "§ "}${state.newsActivityCtx.id}`);
-	newsCtrl.open(btn, newsTimelineHtml(state.newsActivityCtx), {
-		focusSelector: "#news-pop-filter, a, button",
-		returnFocus: btn
-	});
-}
-function closeNewsActivity(returnFocus = true) {
-	newsCtrl.close(returnFocus);
-}
-newsPop.addEventListener("click", (e) => {
-	if (e.target.closest("[data-pop-close]")) closeNewsActivity(true);
-	else if (e.target.closest("[data-pop-nav]")) closeNewsActivity(false);
-});
-newsPop.addEventListener("input", (e) => {
-	if (e.target.id !== "news-pop-filter") return;
-	const q = e.target.value.trim().toLowerCase();
-	for (const li of newsPop.querySelectorAll(".tl-node")) {
-		const hay = li.dataset.hay || "";
-		li.hidden = Boolean(q && !hay.includes(q));
-	}
-	newsCtrl.reposition(document.getElementById("btn-news-activity"));
-});
-dom.view.addEventListener("click", (e) => {
-	if (e.target.closest("#btn-news-activity")) newsPop.hidden ? openNewsActivity() : closeNewsActivity();
-});
-newsPop.addEventListener("keydown", (e) => {
-	if (e.key === "Escape") {
-		e.preventDefault();
-		e.stopPropagation();
-		closeNewsActivity(true);
-	}
-});
-// src/views/doc_utils.js
-var figModal = document.getElementById("figure-modal");
-var figReturnFocus = null;
-function closeFigureModal() {
-	if (!figModal || figModal.hidden) return;
-	figModal.hidden = true;
-	const dialog = figModal.querySelector(".modal-dialog");
-	if (dialog) dialog.innerHTML = "";
-	if (figReturnFocus && typeof figReturnFocus.focus === "function") figReturnFocus.focus();
-	figReturnFocus = null;
-}
-function openFigureModal(figLink) {
-	if (!figModal || !figLink) return;
-	const img = figLink.querySelector(".reg-img");
-	const fullSrc = figLink.getAttribute("href") || img && img.src || "";
-	if (!fullSrc) return;
-	figReturnFocus = document.activeElement;
-	const caption = figLink.previousElementSibling?.classList.contains("reg-label") ? figLink.previousElementSibling.textContent.trim() : "Regulatory Figure";
-	const dialog = figModal.querySelector(".modal-dialog");
-	if (!dialog) return;
-	dialog.innerHTML = `
-    <div class="modal-head">
-      <div>
-        <div class="doc-kicker">Figure preview</div>
-        <h2 class="modal-title" id="fig-modal-title">${escapeHtml(caption)}</h2>
-      </div>
-      <div class="fig-modal-acts">
-        <button type="button" class="btn btn-sm" id="fig-invert-btn" aria-pressed="false">Invert contrast</button>
-        <a class="btn btn-sm" href="${escapeHtml(fullSrc)}" target="_blank" rel="noopener noreferrer">${icon("external")} Full image</a>
-        <button type="button" class="icon-btn" id="fig-close-btn" aria-label="Close preview">${icon("close")}</button>
-      </div>
-    </div>
-    <div class="fig-modal-stage">
-      <img src="${escapeHtml(fullSrc)}" alt="${escapeHtml(caption)}" id="fig-modal-img">
-    </div>
-  `;
-	figModal.hidden = false;
-	document.getElementById("fig-close-btn")?.focus();
-}
-if (figModal) {
-	figModal.addEventListener("click", (e) => {
-		if (e.target === figModal || e.target.closest("#fig-close-btn")) {
-			closeFigureModal();
-			return;
-		}
-		const inv = e.target.closest("#fig-invert-btn");
-		if (inv) {
-			const stage = figModal.querySelector(".fig-modal-stage");
-			if (!stage) return;
-			const on = !stage.classList.contains("is-inverted");
-			stage.classList.toggle("is-inverted", on);
-			inv.setAttribute("aria-pressed", String(on));
-		}
-	});
-	figModal.addEventListener("keydown", (e) => {
-		if (e.key === "Escape") {
-			e.preventDefault();
-			closeFigureModal();
-		}
-	});
-	window.addEventListener("hashchange", closeFigureModal);
-}
-function findParagraphElement(root, pText) {
-	if (!root) return null;
-	const clean = (pText || "").trim();
-	if (!clean) return null;
-	const paras = [...root.querySelectorAll(".reg-p")];
-	for (const p of paras) {
-		const pm = p.querySelector(".pmark");
-		if (pm && pm.textContent.includes(clean)) return p;
-	}
-	const tokens = clean.match(/\([a-zA-Z0-9]{1,4}\)/g);
-	if (!tokens || !tokens.length) return null;
-	let ti = 0;
-	let lastMatched = null;
-	let minLevel = 0;
-	for (const p of paras) {
-		const lvlMatch = /\blvl-(\d+)\b/.exec(p.className);
-		const lvl = lvlMatch ? Number(lvlMatch[1]) : 0;
-		const pm = p.querySelector(".pmark");
-		if (!pm) continue;
-		const pTokens = pm.textContent.match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
-		if (!pTokens.length) continue;
-		if (ti > 0 && lvl > 0 && lvl <= minLevel) {
-			if (lvl === 1 && tokens[0].toLowerCase() !== pTokens[0].toLowerCase()) {
-				ti = 0;
-				minLevel = 0;
-			}
-		}
-		let matchedHere = 0;
-		let tempIdx = ti;
-		for (const pt of pTokens) if (tempIdx < tokens.length && pt.toLowerCase() === tokens[tempIdx].toLowerCase()) {
-			tempIdx++;
-			matchedHere++;
-		} else break;
-		if (matchedHere > 0 && (ti === 0 || lvl > minLevel)) {
-			ti = tempIdx;
-			minLevel = lvl;
-			lastMatched = p;
-			if (ti === tokens.length) return p;
-		}
-	}
-	return lastMatched;
-}
-function findParagraphRange(root, pText) {
-	const clean = (pText || "").trim();
-	if (!clean || !root) return [];
-	const rangeM = /^\s*((?:\([a-zA-Z0-9]{1,4}\))+)\s*(?:-|–|through|to)\s*((?:\([a-zA-Z0-9]{1,4}\))+)\s*$/i.exec(clean);
-	if (rangeM) {
-		const startEl = findParagraphElement(root, rangeM[1]);
-		const endEl = findParagraphElement(root, rangeM[2]);
-		if (startEl && endEl) {
-			const paras = [...root.querySelectorAll(".reg-p")];
-			const i1 = paras.indexOf(startEl);
-			const i2 = paras.indexOf(endEl);
-			if (i1 >= 0 && i2 >= i1 && i2 - i1 < 16) return paras.slice(i1, i2 + 1);
-			return [startEl];
-		}
-		if (startEl) return [startEl];
-	}
-	const hit = findParagraphElement(root, clean);
-	return hit ? [hit] : [];
-}
-function resolveAnchorTargets(root, target) {
-	if (!root || !target) return [];
-	const clean = String(target).trim();
-	if (!clean) return [];
-	const bareId = clean.startsWith("#") ? clean.slice(1) : clean;
-	if (/^(table|fig|figure|appendix|fn|ftref|sec|p)-?[a-zA-Z0-9_.\-]+$/i.test(bareId)) try {
-		const el = root.querySelector(`#${CSS.escape(bareId)}`);
-		if (el) return [el];
-	} catch (e) {}
-	return findParagraphRange(root, clean);
-}
-function flashElements(els, scroll = true) {
-	if (!els || !els.length) return;
-	for (const el of els) {
-		el.classList.remove("flash");
-		el.offsetWidth;
-		el.classList.add("flash");
-	}
-	if (scroll) els[0].scrollIntoView({
-		behavior: reduceMotion.matches ? "auto" : "smooth",
-		block: "center"
-	});
-}
-function highlightTarget(root, target, delay = 120) {
-	setTimeout(() => {
-		flashElements(resolveAnchorTargets(root, target), true);
-	}, delay);
-}
-function slugifyAnchor(raw) {
-	return raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-function enhanceDomAnchors(root = dom.view) {
-	if (!root) return;
-	const targets = /* @__PURE__ */ new Map();
-	let figSeq = 0;
-	for (const fig of root.querySelectorAll(".reg-figure")) {
-		const cap = fig.previousElementSibling?.classList.contains("reg-label") ? fig.previousElementSibling.textContent.trim() : "";
-		const m = /^\s*(Figure\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(cap);
-		if (!fig.id) {
-			figSeq++;
-			const base = m ? `fig-${slugifyAnchor(m[1].replace(/^figure\s+/i, ""))}` : `fig-${figSeq}`;
-			let id = base;
-			let n = 2;
-			while (root.querySelector(`#${CSS.escape(id)}`)) id = `${base}-${n++}`;
-			fig.id = id;
-		}
-		if (m) targets.set(m[1].toLowerCase(), {
-			label: m[1],
-			id: fig.id
-		});
-	}
-	for (const w of root.querySelectorAll(".table-wrap[id^=\"table-\"]")) {
-		const cap = w.querySelector("caption")?.textContent || "";
-		const m = /^\s*(Table\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(cap);
-		if (m) targets.set(m[1].toLowerCase(), {
-			label: m[1],
-			id: w.id
-		});
-	}
-	for (const appEl of root.querySelectorAll(".reg-appendix[id^=\"appendix-\"]")) {
-		const head = appEl.querySelector(".reg-subhead, .reg-label, .reg-p")?.textContent || "";
-		const m = /^\s*(Appendix\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(head);
-		if (m) targets.set(m[1].toLowerCase(), {
-			label: m[1],
-			id: appEl.id
-		});
-	}
-	if (!targets.size) return;
-	const pattern = [...targets.keys()].map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-	const re = new RegExp(`\\b(${pattern})\\b`, "gi");
-	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
-		const parent = node.parentElement;
-		if (!parent || !parent.closest(".reg-body") || parent.closest("a, button, caption, .reg-table")) return NodeFilter.FILTER_REJECT;
-		const txt = node.nodeValue || "";
-		return /(?:table|figure|appendix)/i.test(txt) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-	} });
-	const nodes = [];
-	let n;
-	while (n = walker.nextNode()) nodes.push(n);
-	for (const textNode of nodes) {
-		const val = textNode.nodeValue || "";
-		re.lastIndex = 0;
-		if (!re.test(val)) continue;
-		re.lastIndex = 0;
-		const frag = document.createDocumentFragment();
-		let last = 0;
-		let match;
-		while ((match = re.exec(val)) !== null) {
-			if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
-			const hit = targets.get(match[1].toLowerCase());
-			if (hit) {
-				const btn = document.createElement("button");
-				btn.type = "button";
-				btn.className = "xref xref-anchor";
-				btn.dataset.anchor = hit.id;
-				btn.textContent = match[0];
-				frag.appendChild(btn);
-			} else frag.appendChild(document.createTextNode(match[0]));
-			last = match.index + match[0].length;
-		}
-		if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
-		textNode.parentNode.replaceChild(frag, textNode);
-	}
-}
-function resolveParagraphPath(root, paraEl) {
-	if (!root || !paraEl) return "";
-	const pm = paraEl.querySelector(".pmark");
-	if (!pm) return "";
-	const firstTok = (pm.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
-	if (!firstTok.length) return "";
-	if (firstTok.length > 1) return firstTok.join("");
-	const lvlMatch = /\blvl-(\d+)\b/.exec(paraEl.className);
-	let targetLvl = lvlMatch ? Number(lvlMatch[1]) : 0;
-	if (targetLvl <= 1) return firstTok[0];
-	const paras = [...root.querySelectorAll(".reg-p")];
-	let idx = paras.indexOf(paraEl);
-	if (idx < 0) return firstTok[0];
-	const chain = [firstTok[0]];
-	for (let i = idx - 1; i >= 0 && targetLvl > 1; i--) {
-		const p = paras[i];
-		const lm = /\blvl-(\d+)\b/.exec(p.className);
-		const lvl = lm ? Number(lm[1]) : 0;
-		if (lvl > 0 && lvl < targetLvl) {
-			const toks = (p.querySelector(".pmark")?.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g);
-			if (toks && toks.length) {
-				chain.unshift(...toks);
-				targetLvl = lvl;
-			}
-		}
-	}
-	return chain.join("");
-}
-function formatCfrCitation(title, sectionLabelOrId, para = "") {
-	const cleanLabel = String(sectionLabelOrId || "").trim();
-	return `${title} C.F.R. ${cleanLabel.startsWith("§") ? cleanLabel : `§ ${cleanLabel}`}${para || ""}`;
-}
-function wrapIbrMentions(root, ibrList) {
-	if (!root || !Array.isArray(ibrList) || !ibrList.length) return;
-	const byMatch = /* @__PURE__ */ new Map();
-	for (const item of ibrList) {
-		if (!item || !item.match_text) continue;
-		byMatch.set(item.match_text.toLowerCase(), item);
-		if (item.code) byMatch.set(item.code.toLowerCase(), item);
-	}
-	if (!byMatch.size) return;
-	const escaped = [...byMatch.keys()].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-	const re = new RegExp(`(${escaped})`, "gi");
-	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
-		const parent = node.parentElement;
-		if (!parent || !parent.closest(".reg-body") || parent.closest("a, button, .pmark, .runin")) return NodeFilter.FILTER_REJECT;
-		return NodeFilter.FILTER_ACCEPT;
-	} });
-	const nodes = [];
-	let n;
-	while (n = walker.nextNode()) nodes.push(n);
-	for (const textNode of nodes) {
-		const val = textNode.nodeValue || "";
-		re.lastIndex = 0;
-		if (!re.test(val)) continue;
-		re.lastIndex = 0;
-		const frag = document.createDocumentFragment();
-		let last = 0;
-		let match;
-		while ((match = re.exec(val)) !== null) {
-			if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
-			const item = byMatch.get(match[1].toLowerCase());
-			if (item) {
-				const btn = document.createElement("button");
-				btn.type = "button";
-				btn.className = "xref xref-ibr";
-				btn.dataset.ibrCode = item.code;
-				btn.title = item.approved_in ? `${item.code} — IBR approved in ${item.approved_in.label}${item.approved_in.para || ""}` : `${item.code} (${item.org_name || item.org})`;
-				btn.textContent = match[0];
-				frag.appendChild(btn);
-			} else frag.appendChild(document.createTextNode(match[0]));
-			last = match.index + match[0].length;
-		}
-		if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
-		textNode.parentNode.replaceChild(frag, textNode);
-	}
-}
-function renderViewError(container, title, message, { retryLabel = "Try again", onRetry = null } = {}) {
-	if (!container) return;
-	container.innerHTML = `
-    <div class="empty-state">
-      <h2>${escapeHtml(title)}</h2>
-      <p>${escapeHtml(message)}</p>
-      ${onRetry ? `<button type="button" class="btn" id="view-err-retry">${escapeHtml(retryLabel)}</button>` : ""}
-    </div>
-  `;
-	if (onRetry) document.getElementById("view-err-retry")?.addEventListener("click", onRetry);
-}
-function parseCfrHref(href, fallbackTitle = 29) {
-	if (!href) return null;
-	if (href.startsWith("#")) {
-		const [pathPart, qs] = href.slice(1).split("?");
-		const params = new URLSearchParams(qs || "");
-		const mTitleSec = /^\/title\/(\d+)\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
-		if (mTitleSec) return {
-			kind: "section",
-			title: parseInt(mTitleSec[1], 10),
-			section: decodeURIComponent(mTitleSec[2]),
-			unit: mTitleSec[3] ? decodeURIComponent(mTitleSec[3]) : null,
-			para: params.get("p") || null
-		};
-		const mSec = /^\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
-		if (mSec) return {
-			kind: "section",
-			title: fallbackTitle,
-			section: decodeURIComponent(mSec[1]),
-			unit: mSec[2] ? decodeURIComponent(mSec[2]) : null,
-			para: params.get("p") || null
-		};
-		const mTitlePart = /^\/title\/(\d+)\/part\/([^/]+)$/.exec(pathPart);
-		if (mTitlePart) return {
-			kind: "part",
-			title: parseInt(mTitlePart[1], 10),
-			part: decodeURIComponent(mTitlePart[2])
-		};
-		const mPart = /^\/part\/([^/]+)$/.exec(pathPart);
-		if (mPart) return {
-			kind: "part",
-			title: fallbackTitle,
-			part: decodeURIComponent(mPart[1])
-		};
-	}
-	return null;
-}
-// src/views/reader_part.js
-async function loadPart(partId) {
-	dom.view.innerHTML = skeletonHtml("list", "Loading Part " + partId + "…");
-	state.currentSection = null;
-	state.currentPart = partId;
-	updateChatContext();
-	try {
-		const seq = state.routeSeq;
-		const signal = state.routeAbort?.signal;
-		const [frontRes] = await Promise.all([fetch("/api/" + state.currentTitle + "/part/" + encodeURIComponent(partId), { signal }), ensureTreeLoaded()]);
-		const front = frontRes.ok ? await frontRes.json() : {
-			part: "",
-			subparts: {}
-		};
-		if (seq !== state.routeSeq) return;
-		const partNode = findPartInTree(state.treeData, partId);
-		if (!partNode) {
-			if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
-				clearTreeSelection();
-				setViewHead("");
-				await renderResolverPage(dom.view, {
-					title: state.currentTitle,
-					part: partId
-				});
-				return;
-			}
-			renderNotFound();
-			return;
-		}
-		let groupsHtml = "";
-		if (partNode.c) {
-			for (const child of partNode.c) if (child.t === "subpart" || child.t === "subject_group") {
-				const subpartFront = front.subparts[child.id] || "";
-				const sections = (child.c || []).map((s) => `
-            <li class="${s.r ? "reserved" : ""}">
-              <a href="#/section/${encodeURIComponent(s.id)}">
-                <span class="toc-num">${escapeHtml(s.l)}</span>
-                <span class="toc-title">${escapeHtml(tocTitle(s))}</span>
-              </a>
-            </li>
-          `).join("");
-				groupsHtml += `
-            <div class="toc-group">
-              <h3>${escapeHtml(child.d && child.d.trim() !== (child.l || "").trim() ? `${child.l}: ${child.d}` : child.l)}</h3>
-              ${subpartFront ? `<div class="front-matter"><details><summary>Subpart notes</summary>${subpartFront}</details></div>` : ""}
-              <ul class="toc-list">${sections}</ul>
-            </div>
-          `;
-			} else if (child.t === "section" || child.t === "appendix") groupsHtml += `
-            <ul class="toc-list">
-              <li class="${child.r ? "reserved" : ""}">
-                <a href="#/section/${encodeURIComponent(child.id)}">
-                  <span class="toc-num">${escapeHtml(child.l)}</span>
-                  <span class="toc-title">${escapeHtml(tocTitle(child))}</span>
-                </a>
-              </li>
-            </ul>
-          `;
-		}
-		document.title = `Part ${partId} · Title ${state.currentTitle}`;
-		setViewHead(docStepHtml(partId, null, firstSectionOf(partId)));
-		dom.view.innerHTML = `
-      <div class="doc-kicker">${state.currentTitle} CFR ${escapeHtml(partNode.l)}</div>
-      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
-      <div class="doc-actions">
-        <a class="btn" href="#/part/${encodeURIComponent(partId)}/full">${icon("list")} See full part</a>
-        ${newsActivityButtonHtml()}
-      </div>
-      ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ""}
-      ${groupsHtml || "<p class=\"muted\">No sections listed in this part.</p>"}
-    `;
-		enterView();
-		selectTreeNode("p-" + partId);
-		recordPartVisit(partId, partNode.d);
-		fillNewsActivity("part", partId, seq);
-	} catch (err) {
-		if (err && err.name === "AbortError") return;
-		console.error(err);
-		setViewHead("");
-		renderViewError(dom.view, "Failed to load part", err?.message || "Unexpected error", { onRetry: () => loadPart(partId) });
-	}
-}
-async function loadPartFull(partId, params) {
-	dom.view.innerHTML = skeletonHtml("doc", "Loading Part " + partId + "…");
-	state.currentSection = null;
-	state.currentPart = partId;
-	updateChatContext();
-	try {
-		const seq = state.routeSeq;
-		const signal = state.routeAbort?.signal;
-		await ensureTreeLoaded();
-		if (seq !== state.routeSeq) return;
-		const partNode = findPartInTree(state.treeData, partId);
-		if (!partNode) {
-			if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
-				clearTreeSelection();
-				setViewHead("");
-				await renderResolverPage(dom.view, {
-					title: state.currentTitle,
-					part: partId
-				});
-				return;
-			}
-			renderNotFound();
-			return;
-		}
-		const res = await fetch("/api/" + state.currentTitle + "/part/" + encodeURIComponent(partId) + "/full", { signal });
-		if (seq !== state.routeSeq) return;
-		if (!res.ok) {
-			renderNotFound();
-			return;
-		}
-		const data = await res.json();
-		if (seq !== state.routeSeq) return;
-		const from = params && params.get("from");
-		const anchorId = (id) => "sec-" + String(id).replace(/[^a-zA-Z0-9.\-]/g, "_");
-		const sectionsHtml = (data.sections || []).map((s) => {
-			const num = escapeHtml(s.label);
-			const title = escapeHtml(s.title || "");
-			const body = s.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : s.html || "";
-			return `<article class="full-section${s.id === from ? " is-from" : ""}" id="${anchorId(s.id)}">
-        <header class="full-section-head">
-          <a class="full-section-anchor" href="${sectionHref(s.id)}" title="Open this section on its own">
-            <span class="full-section-num">${num}</span>
-            <span class="full-section-title">${title}</span>
-          </a>
-        </header>
-        ${body}
-      </article>`;
-		}).join("");
-		document.title = `Part ${partId} (full) · Title ${state.currentTitle}`;
-		const [prevPart, nextPart] = partNeighbors(partId);
-		const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(node.id)}/full`, `Part ${node.id}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
-		setViewHead(prevPart || nextPart ? `<nav class="doc-step" aria-label="Previous and next part">${partBtn(prevPart, -1)}<span class="spacer"></span>${partBtn(nextPart, 1)}</nav>` : "");
-		dom.view.innerHTML = `
-      <div class="doc-kicker">${state.currentTitle} CFR ${escapeHtml(partNode.l)} · <a href="#/part/${encodeURIComponent(partId)}">Table of contents</a></div>
-      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
-      ${sectionsHtml || "<p class=\"muted\">No sections in this part.</p>"}
-    `;
-		enhanceDomAnchors(dom.view);
-		recordPartVisit(partId, partNode.d);
-		if (from) {
-			const el = document.getElementById(anchorId(from));
-			if (el) {
-				const start = performance.now();
-				let lastSet = -1;
-				const anchor = () => {
-					if (lastSet >= 0 && Math.abs(dom.main.scrollTop - lastSet) > 4) return;
-					const r = el.getBoundingClientRect();
-					const m = dom.main.getBoundingClientRect();
-					const rel = r.top - m.top;
-					if (rel < 60 || rel > 100) {
-						el.scrollIntoView({ block: "start" });
-						lastSet = dom.main.scrollTop;
-					}
-					if (performance.now() - start < 2500) requestAnimationFrame(anchor);
-				};
-				requestAnimationFrame(anchor);
-			}
-		} else dom.main.scrollTop = 0;
-		selectTreeNode("s-" + (from || data.sections[0] && data.sections[0].id));
-	} catch (err) {
-		if (err && err.name === "AbortError") return;
-		console.error(err);
-		setViewHead("");
-		renderViewError(dom.view, "Failed to load part", err?.message || "Unexpected error", { onRetry: () => loadPartFull(partId, params) });
-	}
-}
-function tocTitle(node) {
-	const l = cleanInlineLabel(node.l || "");
-	const d = cleanInlineLabel(node.d || "");
-	return l && d.startsWith(l) && d.length > l.length ? d.slice(l.length).trim() : d;
-}
-function findPartInTree(node, partId) {
-	if (!node) return null;
-	if (node.t === "part" && String(node.id) === String(partId)) return node;
-	if (node.c) for (const ch of node.c) {
-		const found = findPartInTree(ch, partId);
-		if (found) return found;
-	}
-	return null;
 }
 // src/components/view_head.js
 function setViewHead(html) {
@@ -9345,6 +5098,7 @@ function docStepHtml(partId, prevSection, nextSection) {
 	return `<nav class="doc-step" aria-label="Previous and next">${left}<span class="spacer"></span>${right}</nav>`;
 }
 // src/components/title_switcher.js
+var switcherDeskFilter = "all";
 function searchPlaceholderFor(on) {
 	if (!on) return "Download a title to search";
 	if (window.matchMedia("(max-width: 600px)").matches) return "Search…";
@@ -9362,35 +5116,74 @@ function setReaderEnabled(on) {
 window.matchMedia("(max-width: 600px)").addEventListener?.("change", () => {
 	if (dom.search) dom.search.placeholder = searchPlaceholderFor(!state.noTitles);
 });
+function switcherGroupsHtml(query = "", desk = switcherDeskFilter) {
+	const corpora = syncCorporaState();
+	const q = query.trim().toLowerCase();
+	const filtered = corpora.filter((c) => {
+		if (desk !== "all" && c.desk !== desk) return false;
+		if (!q) return true;
+		return `${c.code} ${c.name} ${c.jurisdiction_label} ${(c.agencies || []).join(" ")} ${deskLabel(c.desk)}`.toLowerCase().includes(q);
+	});
+	if (!filtered.length) return "<div class=\"tm-empty\">No matching frameworks installed.</div>";
+	return TIER_ORDER.map((tier) => {
+		const items = filtered.filter((c) => c.tier === tier);
+		if (!items.length) return "";
+		const meta = TIER_META[tier];
+		return `
+      <div class="tm-group" data-ref-tier="${meta.refTier}">
+        <div class="tm-group-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(meta.label)}</span><span class="tm-group-count">${items.length}</span></div>
+        ${items.map((c) => {
+			const isCurrent = c.tier === "federal-reg" ? c.title_num === state.currentTitle : c.corpus_id === state.activeCorpusId;
+			const numText = c.tier === "federal-reg" ? `${c.code} CFR` : c.code;
+			const tag = c.partial ? "Partial" : c.jurisdiction !== "US" ? c.jurisdiction_label : c.agencies?.[0] || "";
+			return `<button type="button" class="tm-item${isCurrent ? " is-current" : ""}" role="menuitemradio" aria-checked="${isCurrent}" data-ref-tier="${meta.refTier}" ${c.tier === "federal-reg" ? `data-title="${c.title_num}"` : `data-corpus-hash="${escapeHtml(corpusHashFor(c))}"`} tabindex="-1">
+            <span class="tier-pip" aria-hidden="true"></span>
+            <span class="tm-num">${escapeHtml(numText)}</span><span class="tm-name">${escapeHtml(c.name)}</span>
+            ${tag ? `<span class="tm-meta">${escapeHtml(tag)}</span>` : ""}
+            ${isCurrent ? icon("check", "tm-check") : "<span class=\"tm-check\" aria-hidden=\"true\"></span>"}
+          </button>`;
+		}).join("")}
+      </div>
+    `;
+	}).join("");
+}
 function fillTitleSelect() {
 	if (!dom.titleSelect) return;
+	const corpora = syncCorporaState();
 	const cur = state.installedTitles.find((t) => t.title === state.currentTitle);
 	const name = state.noTitles ? "" : cur ? cur.name : state.metaInfo.name || "";
-	document.getElementById("title-select-num").textContent = state.noTitles ? "No titles" : `Title ${state.currentTitle}`;
+	const numEl = document.getElementById("title-select-num");
+	if (numEl) numEl.textContent = state.noTitles ? "No titles" : `${state.currentTitle} CFR`;
 	document.getElementById("title-select-name").textContent = name;
-	dom.titleSelect.title = state.noTitles ? "Nothing installed yet. Download titles" : `Title ${state.currentTitle}${name ? ": " + name : ""}. Switch title`;
+	dom.titleSelect.dataset.refTier = state.noTitles ? "uninstalled" : "cfr";
+	dom.titleSelect.title = state.noTitles ? "Nothing installed yet. Download titles" : `Title ${state.currentTitle}${name ? ": " + name : ""}. Switch framework or jurisdiction`;
+	const desks = [...new Set(corpora.map((c) => c.desk).filter(Boolean))];
+	const showDesks = corpora.length > 6 || desks.length > 1;
+	const showSearch = corpora.length >= 3;
+	const deskPillsHtml = showDesks ? `
+    <div class="tm-desks" role="group" aria-label="Filter frameworks by desk">
+      <button type="button" class="tm-desk-pill${switcherDeskFilter === "all" ? " is-on" : ""}" data-tm-desk="all">All</button>
+      ${desks.map((d) => `<button type="button" class="tm-desk-pill${switcherDeskFilter === d ? " is-on" : ""}" data-tm-desk="${escapeHtml(d)}">${escapeHtml(deskLabel(d).split(" ")[0])}</button>`).join("")}
+    </div>` : "";
 	dom.titlePop.innerHTML = `
-    <a class="tm-item tm-download" role="menuitem" href="#/library" tabindex="-1">${icon("download")}<span class="tm-name">Download titles…</span></a>
-    ${state.installedTitles.length ? "<div class=\"tm-sep\" role=\"separator\"></div>" : ""}
-    ${state.installedTitles.map((t) => {
-		const on = t.title === state.currentTitle;
-		return `<button type="button" class="tm-item${on ? " is-current" : ""}" role="menuitemradio" aria-checked="${on}" data-title="${t.title}" tabindex="-1">
-        <span class="tm-num">${t.title}</span><span class="tm-name">${escapeHtml(t.name)}</span>
-        ${t.partial ? "<span class=\"tm-meta\">Partial</span>" : ""}
-        ${on ? icon("check", "tm-check") : "<span class=\"tm-check\" aria-hidden=\"true\"></span>"}
-      </button>`;
-	}).join("")}`;
+    <div class="tm-head">
+      ${showSearch ? "<input type=\"search\" class=\"tm-search\" id=\"title-pop-q\" placeholder=\"Filter frameworks, states, or U.S.C.…\" aria-label=\"Filter installed frameworks\" autocomplete=\"off\" spellcheck=\"false\">" : ""}
+      ${deskPillsHtml}
+    </div>
+    <div id="tm-groups">${switcherGroupsHtml()}</div>
+    <div class="tm-sep" role="separator"></div>
+    <a class="tm-item tm-download" role="menuitem" href="#/library" tabindex="-1">${icon("download")}<span class="tm-name">Browse Catalog &amp; Downloads…</span></a>`;
 }
 var titleMenuItems = () => [...dom.titlePop.querySelectorAll(".tm-item")];
 function openTitleMenu(focusWhich = "current") {
 	if (!dom.titlePop.hidden) return;
 	closeAllPopovers(closeTitleMenu, false);
+	fillTitleSelect();
 	dom.titlePop.hidden = false;
 	dom.titleSelect.setAttribute("aria-expanded", "true");
+	const searchEl = document.getElementById("title-pop-q");
 	const items = titleMenuItems();
-	const target = focusWhich === "first" ? items[0] : focusWhich === "last" ? items[items.length - 1] : dom.titlePop.querySelector(".is-current") || items[0];
-	target?.focus({ preventScroll: true });
-	target?.scrollIntoView({ block: "nearest" });
+	(focusWhich === "first" ? items[0] : focusWhich === "last" ? items[items.length - 1] : searchEl || dom.titlePop.querySelector(".is-current") || items[0])?.focus({ preventScroll: true });
 	document.addEventListener("pointerdown", onTitleMenuOutside, true);
 }
 function closeTitleMenu(returnFocus = false) {
@@ -9414,16 +5207,41 @@ dom.titleSelect.addEventListener("keydown", (e) => {
 		openTitleMenu(e.key === "ArrowUp" ? "last" : "current");
 	}
 });
+dom.titlePop.addEventListener("input", (e) => {
+	if (e.target.id !== "title-pop-q") return;
+	const groups = document.getElementById("tm-groups");
+	if (groups) groups.innerHTML = switcherGroupsHtml(e.target.value, switcherDeskFilter);
+});
 dom.titlePop.addEventListener("keydown", (e) => {
+	if (e.target.id === "title-pop-q") {
+		if (e.key === "ArrowDown") {
+			e.preventDefault();
+			titleMenuItems()[0]?.focus();
+		} else if (e.key === "Escape") {
+			e.preventDefault();
+			e.stopPropagation();
+			closeTitleMenu(true);
+		}
+		return;
+	}
 	const items = titleMenuItems();
 	const i = items.indexOf(document.activeElement);
 	const go = (n) => {
 		e.preventDefault();
-		items[(n + items.length) % items.length].focus();
+		items[(n + items.length) % items.length]?.focus();
 	};
 	if (e.key === "ArrowDown") go(i + 1);
-	else if (e.key === "ArrowUp") go(i - 1);
-	else if (e.key === "Home") go(0);
+	else if (e.key === "ArrowUp") {
+		if (i <= 0) {
+			const qEl = document.getElementById("title-pop-q");
+			if (qEl) {
+				e.preventDefault();
+				qEl.focus();
+				return;
+			}
+		}
+		go(i - 1);
+	} else if (e.key === "Home") go(0);
 	else if (e.key === "End") go(items.length - 1);
 	else if (e.key === "Escape") {
 		e.preventDefault();
@@ -9432,16 +5250,46 @@ dom.titlePop.addEventListener("keydown", (e) => {
 	} else if (e.key === "Tab") closeTitleMenu(false);
 });
 dom.titlePop.addEventListener("click", async (e) => {
+	const deskBtn = e.target.closest("[data-tm-desk]");
+	if (deskBtn) {
+		switcherDeskFilter = deskBtn.dataset.tmDesk || "all";
+		dom.titlePop.querySelectorAll("[data-tm-desk]").forEach((b) => b.classList.toggle("is-on", b === deskBtn));
+		const qVal = document.getElementById("title-pop-q")?.value || "";
+		const groups = document.getElementById("tm-groups");
+		if (groups) groups.innerHTML = switcherGroupsHtml(qVal, switcherDeskFilter);
+		return;
+	}
 	const item = e.target.closest(".tm-item");
 	if (!item) return;
 	closeTitleMenu(false);
 	if (item.classList.contains("tm-download")) return;
+	if (item.dataset.corpusHash) {
+		window.location.hash = item.dataset.corpusHash;
+		return;
+	}
 	const newTitle = parseInt(item.dataset.title, 10);
 	if (newTitle && newTitle !== state.currentTitle) {
 		await switchTitle(newTitle);
 		window.location.hash = `#/title/${newTitle}/`;
 	} else dom.titleSelect.focus();
 });
+function renderCorpusStaging(corpus) {
+	const meta = TIER_META[corpus.tier] || TIER_META["state"];
+	const refTier = refTierForCorpus(corpus);
+	document.title = `${corpus.code} · ${corpus.jurisdiction_label} · FRAMEWORK`;
+	dom.view.innerHTML = `
+    <div class="resolver-card has-tier-bar" data-ref-tier="${refTier}">
+      <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span> <span class="sep" aria-hidden="true">·</span> ${escapeHtml(corpus.jurisdiction_label || corpus.jurisdiction)}</div>
+      <h1 class="doc-title">${escapeHtml(corpus.code)} — ${escapeHtml(corpus.name)}</h1>
+      <p class="resolver-msg">${escapeHtml(corpus.summary || `This ${meta.label.toLowerCase()} corpus is pre-wired in FRAMEWORK’s multi-jurisdiction UI router and awaiting its backend ingestion pack.`)}</p>
+      <div class="resolver-acts">
+        <a class="btn btn-accent" href="#/library">Browse Catalog</a>
+        <a class="btn" href="#/title/${state.currentTitle}/">Back to ${state.currentTitle} CFR</a>
+      </div>
+    </div>
+  `;
+	enterView();
+}
 function renderNotFound() {
 	clearTreeSelection();
 	document.title = "Not found · FRAMEWORK";
@@ -10174,6 +6022,5742 @@ dom.tree.addEventListener("keydown", (e) => {
 		scrollIntoTree(next, false);
 	} else if (e.key === "ArrowUp") dom.treeFilter.focus();
 });
+// src/panels/shared.js
+var drLabel = (text, extra = "") => `<h3 class="dr-label"><span>${text}</span>${extra}</h3>`;
+var drEmpty = (title, body) => `<div class="dr-empty"><div class="dr-empty-title">${title}</div><p>${body}</p></div>`;
+function setPanel(panel, html) {
+	const el = document.getElementById(`panel-${panel}`);
+	if (!el) return;
+	const scroller = el.querySelector(".dr-scroll");
+	const top = scroller ? scroller.scrollTop : 0;
+	el.innerHTML = `<div class="dr-scroll">${html}</div>`;
+	const next = el.querySelector(".dr-scroll");
+	if (next) next.scrollTop = top;
+	if (navState.panel === panel) drawerEl.meta.textContent = panelMeta(panel);
+}
+// src/panels/library_panel.js
+var navLib = {
+	data: null,
+	at: 0,
+	loading: null
+};
+async function ensureNavLibrary(force = false) {
+	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
+	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
+		navLib.data = d;
+		navLib.at = Date.now();
+		return d;
+	}).finally(() => {
+		navLib.loading = null;
+	});
+	return navLib.loading;
+}
+function transferHtml() {
+	const j = state.jobs.current;
+	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
+	const m = dockModel(j);
+	return (!j ? "" : `<div class="dr-job">
+      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
+      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
+      ${transferTrackHtml(m.pct, { bindFill: true })}
+      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
+    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
+}
+state.navTransferKey = "";
+function updateNavTransfers() {
+	updateRailBadge();
+	if (navState.panel !== "library" || !drawerShown()) return;
+	const box = document.getElementById("dr-transfers");
+	if (!box) return;
+	const j = state.jobs.current;
+	const m = dockModel(j);
+	const key = [
+		j && j.id,
+		j && j.cancelling,
+		j && j.phase === "Installing",
+		m.pct == null,
+		state.jobs.queued.map((q) => q.id).join(".")
+	].join("|");
+	if (key !== state.navTransferKey) {
+		state.navTransferKey = key;
+		box.innerHTML = transferHtml();
+		const count = document.getElementById("dr-transfers-count");
+		const n = (j ? 1 : 0) + state.jobs.queued.length;
+		if (count) count.textContent = n ? String(n) : "";
+		const sec = document.getElementById("dr-transfers-sec");
+		if (sec) sec.hidden = !n;
+		return;
+	}
+	const set = (f, v) => {
+		const n = box.querySelector(`[data-f="${f}"]`);
+		if (n && n.textContent !== v) n.textContent = v;
+	};
+	set("pct", m.pct == null ? "" : `${m.pct}%`);
+	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
+	set("left", m.left);
+	set("right", m.right);
+	const fill = box.querySelector("[data-f=\"fill\"]");
+	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+}
+function renderLibraryPanel() {
+	const d = navLib.data;
+	state.navTransferKey = "";
+	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
+	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
+	if (!d) {
+		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
+		ensureNavLibrary().then(() => {
+			if (navState.panel === "library") renderLibraryPanel();
+			updateRailBadge();
+		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
+		return;
+	}
+	const live = d.titles.filter((t) => !t.reserved);
+	const installed = live.filter((t) => t.installed);
+	const stale = installed.filter(isStale);
+	const rows = installed.map((t) => {
+		const st = titleStatus(t);
+		return `<a class="dr-row" href="#/title/${t.title}/">
+      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
+      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
+	}).join("");
+	const suites = Object.values(d.suites || {}).map((s) => {
+		const st = suiteState(s, d);
+		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
+		return `<div class="dr-suite">
+      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
+        <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
+      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : st.ts.length ? "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-uninstalled\" title=\"Not installed\" aria-hidden=\"true\"></span>"}
+    </div>`;
+	}).join("");
+	setPanel("library", `
+    <a class="dr-cta" href="#/library">
+      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
+    </a>
+    ${transfers}
+    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
+      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
+    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
+	updateRailBadge();
+}
+// src/components/rail.js
+function sectionHref(id, view) {
+	return `#/section/${encodeURIComponent(id)}${view ? "/" + encodeURIComponent(view) : ""}`;
+}
+function unitShort(u) {
+	if (u.label) return u.label;
+	const t = (u.title || "").trim();
+	return t.length > 18 ? t.slice(0, 17).trim() + "…" : t;
+}
+function unitName(u) {
+	return (u.group && u.kind === "chapter" ? `${u.group_label} · ` : "") + (u.title || u.label || "");
+}
+function unitKind(u) {
+	return {
+		clause: "clause",
+		chapter: "part",
+		appendix: "appendix"
+	}[u.kind] || "part";
+}
+function railHtml(data, mode) {
+	const units = data.outline || [];
+	if (units.length < 2 || mode !== "units" && units.length < 4) return "";
+	const maxChars = Math.max(1, ...units.map((u) => Number(u.chars) || 0));
+	let html = "";
+	let lastGroup;
+	let rows = units.length;
+	units.forEach((u, i) => {
+		if (i && u.group !== lastGroup) {
+			html += "<span class=\"rail-gap\" aria-hidden=\"true\"></span>";
+			rows++;
+		}
+		lastGroup = u.group;
+		const current = mode === "units" && u.key === data.unit;
+		const href = mode === "units" ? sectionHref(data.id, u.key) : `#u-${u.key}`;
+		const name = unitName(u);
+		const ratio = Math.sqrt((Number(u.chars) || 0) / maxChars);
+		const barPx = Math.round(7 + ratio * 7);
+		html += `<a class="rail-item${current ? " is-current" : ""}" href="${href}" data-unit="${escapeHtml(u.key)}"${mode === "units" ? "" : ` data-anchor="u-${escapeHtml(u.key)}"`}${current ? " aria-current=\"true\"" : ""} data-label="${escapeHtml(u.label || "")}" data-name="${escapeHtml(name)}" aria-label="${escapeHtml(`${u.label ? u.label + " " : ""}${name}`)}"><span class="rail-bar" style="--w:${barPx}px" aria-hidden="true"></span></a>`;
+	});
+	return `<nav class="rail" style="--rows:${rows}" aria-label="Contents of this section">${html}<a class="rail-pop" tabindex="-1" aria-hidden="true"><span class="rail-pop-label"></span><span class="rail-pop-name"></span></a></nav>`;
+}
+function bindRail() {
+	const rail = dom.viewHead && dom.viewHead.querySelector(".rail");
+	if (!rail) return;
+	const pop = rail.querySelector(".rail-pop");
+	const items = [...rail.querySelectorAll(".rail-item")];
+	let active = null;
+	let hideTimer = 0;
+	const centerY = (el) => {
+		const r = el.getBoundingClientRect();
+		return r.top + r.height / 2;
+	};
+	const show = (item) => {
+		clearTimeout(hideTimer);
+		const opening = !rail.classList.contains("is-open");
+		if (item === active && !opening) return;
+		if (active) active.classList.remove("is-hover");
+		active = item;
+		item.classList.add("is-hover");
+		pop.querySelector(".rail-pop-label").textContent = item.dataset.label || "";
+		pop.querySelector(".rail-pop-name").textContent = item.dataset.name || "";
+		pop.href = item.getAttribute("href");
+		if (item.dataset.anchor) pop.dataset.anchor = item.dataset.anchor;
+		else delete pop.dataset.anchor;
+		if (opening) pop.classList.add("is-placing");
+		pop.style.top = centerY(item) - rail.getBoundingClientRect().top + "px";
+		if (opening) {
+			pop.offsetHeight;
+			pop.classList.remove("is-placing");
+			rail.classList.add("is-open");
+		}
+	};
+	const hide = () => {
+		clearTimeout(hideTimer);
+		hideTimer = setTimeout(() => {
+			rail.classList.remove("is-open");
+			if (active) active.classList.remove("is-hover");
+			active = null;
+		}, 140);
+	};
+	rail.addEventListener("pointermove", (e) => {
+		if (pop.contains(e.target)) {
+			clearTimeout(hideTimer);
+			return;
+		}
+		let best = null;
+		let bestD = Infinity;
+		for (const it of items) {
+			const d = Math.abs(e.clientY - centerY(it));
+			if (d < bestD) {
+				bestD = d;
+				best = it;
+			}
+		}
+		if (!best) return;
+		if (active && best !== active) {
+			const row = active.getBoundingClientRect().height;
+			if (Math.abs(e.clientY - centerY(active)) - bestD < Math.max(2, row * .35)) {
+				clearTimeout(hideTimer);
+				return;
+			}
+		}
+		show(best);
+	});
+	rail.addEventListener("pointerleave", hide);
+	rail.addEventListener("focusin", (e) => {
+		const it = e.target.closest(".rail-item");
+		if (it) show(it);
+	});
+	rail.addEventListener("focusout", hide);
+}
+function unitStepHtml(data) {
+	const sectionBtn = (s, dir) => s ? docStepBtn("section", dir, sectionHref(s.id), s.label, s.title) : "";
+	const unitBtn = (u, dir) => u ? docStepBtn(unitKind(u), dir, sectionHref(data.id, u.key), unitShort(u), unitName(u)) : "";
+	const sep = "<span class=\"doc-step-sep\" aria-hidden=\"true\"></span>";
+	return `<nav class="doc-step" aria-label="Previous and next">${[sectionBtn(data.prev, -1), unitBtn(data.unit_prev, -1)].filter(Boolean).join(sep)}<span class="spacer"></span>${[unitBtn(data.unit_next, 1), sectionBtn(data.next, 1)].filter(Boolean).join(sep)}</nav>`;
+}
+state.railObserver = null;
+function watchRail() {
+	if (state.railObserver) {
+		state.railObserver.disconnect();
+		state.railObserver = null;
+	}
+	const rail = dom.viewHead && dom.viewHead.querySelector(".rail");
+	const sections = [...dom.view.querySelectorAll(".reg-unit")];
+	if (!rail || !sections.length) return;
+	let lit = null;
+	let frame = 0;
+	const update = () => {
+		frame = 0;
+		const line = dom.main.getBoundingClientRect().top + 96;
+		let key = sections[0].dataset.unit;
+		for (const s of sections) if (s.getBoundingClientRect().top <= line) key = s.dataset.unit;
+		else break;
+		if (key === lit) return;
+		lit = key;
+		rail.querySelectorAll(".rail-item").forEach((a) => {
+			const on = a.dataset.unit === key;
+			a.classList.toggle("is-current", on);
+			if (on) a.setAttribute("aria-current", "true");
+			else a.removeAttribute("aria-current");
+		});
+	};
+	const onScroll = () => {
+		if (!frame) frame = requestAnimationFrame(update);
+	};
+	dom.main.addEventListener("scroll", onScroll, { passive: true });
+	dom.view.addEventListener("load", onScroll, true);
+	state.railObserver = { disconnect: () => {
+		dom.main.removeEventListener("scroll", onScroll);
+		dom.view.removeEventListener("load", onScroll, true);
+		if (frame) cancelAnimationFrame(frame);
+	} };
+	update();
+}
+function scrollToAnchor(id, rootOrOpts = {}) {
+	const isNode = rootOrOpts && typeof rootOrOpts.querySelector === "function";
+	const root = isNode ? rootOrOpts : rootOrOpts.root || dom.view;
+	const flash = isNode ? true : rootOrOpts.flash !== false;
+	let target = null;
+	try {
+		target = root && root.querySelector(`#${CSS.escape(id)}`) || document.getElementById(id);
+	} catch (e) {
+		target = document.getElementById(id);
+	}
+	if (!target) return false;
+	target.scrollIntoView({
+		block: target.matches(".reg-footnote, .reg-p, .reg-figure") ? "center" : "start",
+		behavior: reduceMotion.matches ? "auto" : "smooth"
+	});
+	if (flash && target.matches(".reg-footnote, .reg-p, .table-wrap, .reg-appendix, .reg-figure")) {
+		target.classList.remove("flash");
+		target.offsetWidth;
+		target.classList.add("flash");
+	}
+	return true;
+}
+for (const rootEl of [dom.viewHead, dom.view].filter(Boolean)) rootEl.addEventListener("click", (e) => {
+	const a = e.target.closest("[data-anchor]");
+	if (!a) return;
+	e.preventDefault();
+	scrollToAnchor(a.dataset.anchor, dom.view);
+});
+dom.view.addEventListener("error", (e) => {
+	const img = e.target;
+	if (!(img instanceof HTMLImageElement) || !img.classList.contains("reg-img")) return;
+	const fig = img.closest(".reg-figure");
+	if (!fig || fig.classList.contains("is-broken")) return;
+	fig.classList.add("is-broken");
+	fig.href = state.currentSection && state.currentSection.ecfr_url || fig.href;
+	fig.title = "This figure is only available on eCFR";
+	fig.innerHTML = `${icon("external")}<span>Figure — view on eCFR</span>`;
+}, true);
+function applyFontSize(v) {
+	const size = Math.max(13, Math.min(24, Number(v) || 16));
+	lsSet("fontSize", String(size));
+	document.documentElement.style.setProperty("--reader-size", size + "px");
+	for (const out of document.querySelectorAll("[data-size-val]")) out.textContent = `${size} px`;
+	const range = document.getElementById("set-size");
+	if (range && Number(range.value) !== size) range.value = String(size);
+}
+function adjustFontSize(delta) {
+	applyFontSize((parseInt(lsGet("fontSize"), 10) || 16) + delta);
+}
+// src/citations.ts
+var NEWS_CITE_RE = /\b29\s*C\.?F\.?R\.?\s*(?:§§?\s*)?(\d{1,4}\.\d+)(?:\([a-z0-9]{1,4}\))*|§§?\s*(19\d{2}\.\d+)(?:\([a-z0-9]{1,4}\))*/gi;
+// src/views/core.js
+var HOME_CONTENT = {
+	29: {
+		tagline: "Federal labor regulations — workplace safety, wages and hours, leave, and employee benefits — with local search and Claude.",
+		cards: [
+			{
+				part: "1910",
+				kicker: "OSHA Safety",
+				title: "Part 1910 — General Industry",
+				desc: "PPE, hazard communication, walking-working surfaces, fire protection, and machinery."
+			},
+			{
+				part: "1926",
+				kicker: "OSHA Safety",
+				title: "Part 1926 — Construction",
+				desc: "Scaffolds, fall protection, cranes, excavations, and electrical safety on sites."
+			},
+			{
+				part: "541",
+				kicker: "Wage & Hour",
+				title: "Part 541 — Overtime Exemptions",
+				desc: "Executive, administrative, professional, computer, and outside sales exemptions (FLSA)."
+			},
+			{
+				part: "825",
+				kicker: "Leave & Family",
+				title: "Part 825 — Family & Medical Leave",
+				desc: "FMLA employee eligibility, employer notice obligations, leave duration, and certification."
+			},
+			{
+				part: "1904",
+				kicker: "Recordkeeping",
+				title: "Part 1904 — Injury Recording",
+				desc: "Recording and reporting occupational injuries, illnesses, and severe incidents."
+			},
+			{
+				part: "2560",
+				kicker: "Employee Benefits",
+				title: "Part 2560 — ERISA Administration",
+				desc: "Claims procedures, participant remedies, and retirement plan fiduciaries."
+			}
+		]
+	},
+	40: {
+		tagline: "EPA regulations — air and water quality, hazardous waste, permits, and chemical releases — with local search and Claude.",
+		cards: [
+			{
+				part: "50",
+				kicker: "Air",
+				title: "Part 50 — Air Quality Standards",
+				desc: "National ambient air quality standards (NAAQS) for ozone, particulates, lead, and more."
+			},
+			{
+				part: "70",
+				kicker: "Air Permits",
+				title: "Part 70 — Operating Permits",
+				desc: "State operating permit programs for major stationary sources (Title V)."
+			},
+			{
+				part: "122",
+				kicker: "Water",
+				title: "Part 122 — NPDES Permits",
+				desc: "The discharge permit program for point sources under the Clean Water Act."
+			},
+			{
+				part: "136",
+				kicker: "Water",
+				title: "Part 136 — Test Procedures",
+				desc: "Approved analytical methods for pollutant monitoring and compliance."
+			},
+			{
+				part: "261",
+				kicker: "Hazardous Waste",
+				title: "Part 261 — Waste Identification",
+				desc: "What counts as a solid and hazardous waste under RCRA: listings and characteristics."
+			},
+			{
+				part: "302",
+				kicker: "Emergencies",
+				title: "Part 302 — Reportable Quantities",
+				desc: "CERCLA hazardous substance designations and release notification thresholds."
+			}
+		]
+	},
+	49: {
+		tagline: "DOT regulations — hazardous materials, motor carriers, drivers, and vehicle safety — with local search and Claude.",
+		cards: [
+			{
+				part: "172",
+				kicker: "Hazmat",
+				title: "Part 172 — Hazmat Table & Communication",
+				desc: "The hazardous materials table, shipping papers, marking, labeling, and placarding."
+			},
+			{
+				part: "173",
+				kicker: "Hazmat",
+				title: "Part 173 — Packaging Requirements",
+				desc: "General shipment and packaging requirements by hazard class."
+			},
+			{
+				part: "390",
+				kicker: "Motor Carriers",
+				title: "Part 390 — FMCSA General",
+				desc: "Who the federal motor carrier safety regulations apply to, and general duties."
+			},
+			{
+				part: "391",
+				kicker: "Drivers",
+				title: "Part 391 — Driver Qualifications",
+				desc: "Qualification files, medical certification, and disqualifying offenses."
+			},
+			{
+				part: "383",
+				kicker: "Drivers",
+				title: "Part 383 — Commercial Driver’s License",
+				desc: "CDL standards: who needs one, testing, endorsements, and disqualifications."
+			},
+			{
+				part: "571",
+				kicker: "Vehicles",
+				title: "Part 571 — Vehicle Safety Standards",
+				desc: "Federal motor vehicle safety standards (FMVSS) for cars, trucks, and buses."
+			}
+		]
+	}
+};
+var REF_CATS = [
+	["all", "All Web"],
+	["ibr", "IBR Standards"],
+	["standards", "Standards Bodies"],
+	["portals", "Federal Portals"],
+	["agencies", "Agencies & Guidance"],
+	["technical", "Technical & Other"],
+	["legacy", "Retired URLs"]
+];
+var CAT_LABELS = {
+	standards: "Standards",
+	portals: "Portal",
+	agencies: "Agency",
+	technical: "Technical"
+};
+var refUi = {
+	title: null,
+	beat: "front",
+	cat: "all",
+	q: "",
+	expanded: false
+};
+var titleNewsCache = /* @__PURE__ */ new Map();
+function countLeafSections(node) {
+	if (!node) return 0;
+	if (node.t === "section" || node.t === "appendix") return node.r ? 0 : 1;
+	let total = 0;
+	for (const ch of node.c || []) total += countLeafSections(ch);
+	return total;
+}
+function findChapterLabel(partNode) {
+	let k = treeIdx.parts.get(partNode.id);
+	while (k !== void 0 && k !== null) {
+		const n = treeIdx.nodes[k];
+		if (n && (n.t === "chapter" || n.t === "subtitle")) {
+			const meta = agencyMeta(n);
+			if (meta) return meta.code;
+			return cleanInlineLabel(n.l || n.d || "");
+		}
+		k = treeIdx.parent[k];
+	}
+	return `Title ${state.currentTitle}`;
+}
+function firstLeafSection(node) {
+	if (!node) return null;
+	if ((node.t === "section" || node.t === "appendix") && !node.r) return node;
+	for (const ch of node.c || []) {
+		const hit = firstLeafSection(ch);
+		if (hit) return hit;
+	}
+	return null;
+}
+function listSubparts(partNode) {
+	return (partNode?.c || []).filter((ch) => (ch.t === "subpart" || ch.t === "subject_group") && !ch.r && countLeafSections(ch) > 0);
+}
+function listDirectLeaves(partNode) {
+	const out = [];
+	const walk = (n) => {
+		if (!n) return;
+		if ((n.t === "section" || n.t === "appendix") && !n.r) {
+			out.push(n);
+			return;
+		}
+		for (const ch of n.c || []) {
+			walk(ch);
+			if (out.length >= 6) return;
+		}
+	};
+	walk(partNode);
+	return out;
+}
+/** Synthesize a concise editorial dek from a part's subparts or top sections. */
+function describePartNode(partNode, secCount) {
+	if (!partNode) return secCount ? `${plural(secCount, "section")} in this part` : "";
+	const cleanPhrase = (s) => cleanInlineLabel(s).replace(/\.+$/, "");
+	const subparts = listSubparts(partNode);
+	if (subparts.length) {
+		const names = subparts.slice(0, 3).map((s) => cleanPhrase(s.d || s.l || "")).filter(Boolean);
+		if (names.length) {
+			const rest = subparts.length - names.length;
+			const tail = rest > 0 ? `, and ${plural(rest, "more subpart")}` : "";
+			return `Covers ${names.join(", ")}${tail}.`;
+		}
+	}
+	const leaves = listDirectLeaves(partNode);
+	if (leaves.length) {
+		const names = leaves.slice(0, 3).map((s) => cleanPhrase(s.d || s.l || "")).filter(Boolean);
+		if (names.length) return `Includes ${names.join("; ")}.`;
+	}
+	return `${plural(secCount, "section")} in this part.`;
+}
+function buildDynamicCard(partNode, kickerOverride = "") {
+	const secCount = countLeafSections(partNode);
+	const titleText = cleanInlineLabel(partNode.d || "");
+	return {
+		part: partNode.id,
+		kicker: kickerOverride || findChapterLabel(partNode),
+		title: `Part ${partNode.id}${titleText ? " — " + titleText : ""}`,
+		desc: describePartNode(partNode, secCount),
+		secCount
+	};
+}
+function collectDynamicCards(limit = 6) {
+	if (!treeIdx.partList || !treeIdx.partList.length) return [];
+	const scored = [];
+	for (const k of treeIdx.partList) {
+		const p = treeIdx.nodes[k];
+		if (!p || p.r) continue;
+		if (!countLeafSections(p)) continue;
+		scored.push(buildDynamicCard(p));
+	}
+	if (!scored.length) return [];
+	const bySize = [...scored].sort((a, b) => b.secCount - a.secCount);
+	const lead = bySize[0];
+	const topIds = new Set(bySize.slice(0, limit).map((c) => c.part));
+	return [lead, ...scored.filter((c) => topIds.has(c.part) && c.part !== lead.part)].slice(0, limit);
+}
+function collectAgencyParts(agencyNode) {
+	const out = [];
+	const walk = (n) => {
+		if (!n || n.r) return;
+		if (n.t === "part") {
+			out.push(n);
+			return;
+		}
+		for (const ch of n.c || []) walk(ch);
+	};
+	walk(agencyNode);
+	return out;
+}
+function agencyBeatsList() {
+	return (treeIdx.agencyList || []).map((k) => ({
+		k,
+		node: treeIdx.nodes[k],
+		key: agencyKeyForNode(treeIdx.nodes[k]),
+		info: agencyInfo(treeIdx.nodes[k])
+	})).filter((x) => x.node && x.node.n > 0);
+}
+function cardsForBeat(titleNum, beat) {
+	if (beat && beat !== "front") {
+		const k = treeIdx.agencies.get(beat);
+		const agNode = k != null ? treeIdx.nodes[k] : null;
+		if (agNode) {
+			const info = agencyInfo(agNode);
+			const curatedByPart = new Map(((HOME_CONTENT[titleNum] || {}).cards || []).map((c) => [c.part, c]));
+			return collectAgencyParts(agNode).map((p) => ({
+				node: p,
+				secCount: countLeafSections(p)
+			})).filter((x) => x.secCount > 0).sort((a, b) => b.secCount - a.secCount).slice(0, 7).map(({ node }) => {
+				const curated = curatedByPart.get(node.id);
+				return curated ? {
+					...curated,
+					secCount: countLeafSections(node)
+				} : buildDynamicCard(node, info.code);
+			});
+		}
+	}
+	const curated = HOME_CONTENT[titleNum];
+	if (curated && curated.cards) {
+		if (treeIdx.parts && treeIdx.parts.size > 0) {
+			const present = curated.cards.filter((c) => treeIdx.parts.has(c.part));
+			if (present.length >= 2) return present;
+		} else return curated.cards;
+	}
+	return collectDynamicCards(6);
+}
+function leadInsideLinksHtml(titleNum, partId, partNode) {
+	if (!partNode) return "";
+	const subparts = listSubparts(partNode);
+	const items = [];
+	if (subparts.length) for (const sp of subparts.slice(0, 4)) {
+		const target = firstLeafSection(sp);
+		if (!target) continue;
+		const spLabel = cleanInlineLabel(sp.l || `Subpart ${sp.id}`);
+		const spName = cleanInlineLabel(sp.d || "");
+		items.push({
+			href: titleHref(titleNum, `section/${encodeURIComponent(target.id)}`),
+			code: spLabel,
+			text: spName && spName !== spLabel ? spName : cleanInlineLabel(target.d || target.l || "")
+		});
+	}
+	else for (const sec of listDirectLeaves(partNode).slice(0, 4)) items.push({
+		href: titleHref(titleNum, `section/${encodeURIComponent(sec.id)}`),
+		code: cleanInlineLabel(sec.l || `§ ${sec.id}`),
+		text: cleanInlineLabel(sec.d || "")
+	});
+	if (!items.length) return "";
+	return `
+    <div class="ts-lead-inside">
+      <div class="ts-inside-label">Inside Part ${escapeHtml(partId)}</div>
+      <div class="ts-inside-grid">
+        ${items.map((it) => `
+          <a class="ts-inside-item" href="${it.href}">
+            <span class="ts-inside-code">${escapeHtml(it.code)}</span>
+            ${it.text ? `<span class="ts-inside-text">${escapeHtml(it.text)}</span>` : ""}
+          </a>`).join("")}
+      </div>
+    </div>`;
+}
+function mainBroadsheetHtml(titleNum, beat) {
+	const cards = cardsForBeat(titleNum, beat);
+	const beatInfo = beat !== "front" && treeIdx.agencies.has(beat) ? agencyInfo(treeIdx.nodes[treeIdx.agencies.get(beat)]) : null;
+	const beatK = beat !== "front" ? treeIdx.agencies.get(beat) : null;
+	const flagHtml = beatInfo ? `
+      <div class="ts-sec-flag">
+        <span class="ts-flag-label">${escapeHtml(beatInfo.code)} Beat${beatInfo.name ? ` · ${escapeHtml(beatInfo.name)}` : ""}</span>
+        <span class="ts-flag-acts">
+          <button type="button" class="hm-inline-link" data-ts-open-agency="${beatK}">Open in Contents ${icon("chevronRight")}</button>
+          <button type="button" class="hm-inline-link" data-ts-beat="front">All beats</button>
+        </span>
+      </div>` : `
+      <div class="ts-sec-flag">
+        <span class="ts-flag-label">The Lead Beat</span>
+        <span class="ts-flag-meta">${cards.length ? plural(cards.length, "key part") : "Title overview"}</span>
+      </div>`;
+	if (!cards.length) return `
+      <div class="ts-main-col">
+        ${flagHtml}
+        <div class="ts-lead"><p class="ts-lead-dek">Open the Contents drawer to browse sections in Title ${titleNum}.</p></div>
+      </div>`;
+	const lead = cards[0];
+	const leadNode = state.treeData ? findPartInTree(state.treeData, lead.part) : null;
+	const leadSecCount = leadNode ? countLeafSections(leadNode) : lead.secCount || 0;
+	const subCount = leadNode ? listSubparts(leadNode).length : 0;
+	const leadHref = titleHref(titleNum, `part/${encodeURIComponent(lead.part)}`);
+	const leadFullHref = titleHref(titleNum, `part/${encodeURIComponent(lead.part)}/full`);
+	const briefs = cards.slice(1);
+	const briefsHtml = briefs.length ? `
+    <div class="ts-briefs">
+      ${briefs.map((c) => {
+		const pNode = state.treeData ? findPartInTree(state.treeData, c.part) : null;
+		const cCount = pNode ? countLeafSections(pNode) : c.secCount || 0;
+		const cSubs = pNode ? listSubparts(pNode).length : 0;
+		const pHref = titleHref(titleNum, `part/${encodeURIComponent(c.part)}`);
+		return `
+          <article class="ts-brief">
+            <div class="ts-brief-top">
+              <span class="ts-brief-kicker">${escapeHtml(c.kicker)} · Part ${escapeHtml(c.part)}</span>
+              ${cCount ? `<span class="ts-brief-count">${fmt(cCount)} §</span>` : ""}
+            </div>
+            <h3 class="ts-brief-title"><a href="${pHref}">${escapeHtml(c.title)}</a></h3>
+            <p class="ts-brief-dek">${escapeHtml(c.desc)}</p>
+            <div class="ts-brief-foot">
+              <span>${cSubs ? plural(cSubs, "subpart") : cCount ? plural(cCount, "section") : "Open part"}</span>
+              <span class="ts-brief-go" aria-hidden="true">Read ${icon("chevronRight")}</span>
+            </div>
+          </article>`;
+	}).join("")}
+    </div>` : "";
+	return `
+    <div class="ts-main-col">
+      ${flagHtml}
+      <article class="ts-lead">
+        <div class="ts-lead-top">
+          <span class="ts-lead-kicker">Lead Story · ${escapeHtml(lead.kicker)} · Part ${escapeHtml(lead.part)}</span>
+          ${leadSecCount ? `<span class="ts-lead-stat">${fmt(leadSecCount)} ${leadSecCount === 1 ? "section" : "sections"}${subCount ? ` · ${plural(subCount, "subpart")}` : ""}</span>` : ""}
+        </div>
+        <h2 class="ts-lead-title"><a href="${leadHref}">${escapeHtml(lead.title)}</a></h2>
+        <p class="ts-lead-dek">${escapeHtml(lead.desc)}</p>
+        ${leadInsideLinksHtml(titleNum, lead.part, leadNode)}
+        <div class="ts-lead-foot">
+          <a class="btn btn-sm" href="${leadHref}">Open Part ${escapeHtml(lead.part)} ${icon("chevronRight")}</a>
+          <a class="hm-inline-link" href="${leadFullHref}">Read full part</a>
+        </div>
+      </article>
+      ${briefsHtml}
+    </div>`;
+}
+function titleDeskRailHtml(titleNum) {
+	const usage = loadUsage();
+	const entries = Object.entries(usage.s || {}).map(([key, e]) => {
+		const pipe = key.indexOf("|");
+		if (pipe < 0 || !e) return null;
+		return {
+			title: Number(key.slice(0, pipe)),
+			id: key.slice(pipe + 1),
+			...e
+		};
+	}).filter((e) => e && e.title === titleNum && e.id).sort((a, b) => (b.t || 0) - (a.t || 0));
+	let resumeHtml;
+	if (entries.length) {
+		const last = entries[0];
+		const href = titleHref(titleNum, "section/" + encodeURIComponent(last.id) + (last.u ? "/" + encodeURIComponent(last.u) : ""));
+		const trail = entries.slice(1, 3);
+		resumeHtml = `
+      <div class="ts-rail-block title-resume">
+        <div class="ts-rail-head">
+          <span class="hm-kicker">Continue in Title ${titleNum}</span>
+          <span class="hm-time">${escapeHtml(timeAgo(last.t))}</span>
+        </div>
+        <a class="ts-resume-link" href="${href}">${escapeHtml(last.l || "§ " + last.id)}${last.h ? " " + escapeHtml(last.h) : ""}</a>
+        <div class="ts-resume-meta">
+          ${last.p ? `<a href="${titleHref(titleNum, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
+          ${last.ul ? `<span class="hm-unit-badge">${escapeHtml(last.ul)}</span>` : ""}
+        </div>
+        <div class="ts-resume-acts">
+          <a class="btn btn-sm btn-accent" href="${href}">Resume reading ${icon("chevronRight")}</a>
+        </div>
+        ${trail.length ? `
+          <div class="ts-rail-trail">
+            ${trail.map((e) => `
+              <a class="hm-trail-row" href="${titleHref(titleNum, "section/" + encodeURIComponent(e.id) + (e.u ? "/" + encodeURIComponent(e.u) : ""))}">
+                <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
+                <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
+                <span class="hm-row-val">${escapeHtml(timeAgo(e.t))}</span>
+              </a>`).join("")}
+          </div>` : ""}
+      </div>`;
+	} else {
+		const firstPart = cardsForBeat(titleNum, "front")[0]?.part;
+		resumeHtml = `
+      <div class="ts-rail-block">
+        <div class="ts-rail-head"><span class="hm-kicker">At your desk</span></div>
+        <p class="ts-rail-empty">No recent reading history in Title ${titleNum} yet.</p>
+        ${firstPart ? `<a class="hm-inline-link" href="${titleHref(titleNum, "part/" + encodeURIComponent(firstPart))}">Start at Part ${escapeHtml(firstPart)} ${icon("chevronRight")}</a>` : ""}
+      </div>`;
+	}
+	const matchingProjects = loadProjects().filter((p) => (p.sections || []).some((s) => s.title === titleNum)).sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || "")).slice(0, 3);
+	const wsHtml = `
+    <div class="ts-rail-block">
+      <div class="ts-rail-head">
+        <span class="hm-kicker">Workspaces in Title ${titleNum}</span>
+        <a class="hm-inline-link" href="#/projects">All</a>
+      </div>
+      ${matchingProjects.length ? `
+        <div class="ts-rail-ws-list">
+          ${matchingProjects.map((p) => {
+		const pins = (p.sections || []).filter((s) => s.title === titleNum).slice(0, 3);
+		return `
+              <div class="ts-rail-ws">
+                <a class="hm-ws-name" href="#/projects/${encodeURIComponent(p.id)}">${projDot(p)}<span>${escapeHtml(p.name)}</span></a>
+                <div class="ts-rail-ws-chips">
+                  ${pins.map((s) => `<a class="citation-chip" href="${titleHref(titleNum, "section/" + encodeURIComponent(s.id))}">${escapeHtml(s.label || "§ " + s.id)}</a>`).join("")}
+                </div>
+              </div>`;
+	}).join("")}
+        </div>` : `<p class="ts-rail-empty">Pin any Title ${titleNum} section with <kbd>⌘D</kbd> to build an audit or compliance workspace.</p>`}
+    </div>`;
+	const wireSlotHtml = titleNum === 29 ? (() => {
+		const cached = titleNewsCache.get(29);
+		const fresh = cached && Date.now() - cached.at < 3e5 ? cached.articles : null;
+		return `<div class="ts-rail-block" id="ts-wire-slot"${fresh && fresh.length ? "" : " hidden"}>${fresh && fresh.length ? renderTitleWireHtml(fresh) : ""}</div>`;
+	})() : "";
+	const citedSlotHtml = `
+    <div class="ts-rail-block" id="ts-cited-slot">
+      <div class="ts-rail-head"><span class="hm-kicker">Most-cited in Title ${titleNum}</span></div>
+      ${skeletonHtml("lines")}
+    </div>`;
+	return `
+    <aside class="ts-rail" aria-label="Title desk and regulatory index">
+      ${resumeHtml}
+      ${wsHtml}
+      ${wireSlotHtml}
+      ${citedSlotHtml}
+    </aside>`;
+}
+function renderTitleWireHtml(articles) {
+	if (!articles || !articles.length) return "";
+	return `
+    <div class="ts-rail-head">
+      <span class="hm-kicker">From the OSHA wire</span>
+      <a class="hm-inline-link" href="#/news">Newsroom ${icon("chevronRight")}</a>
+    </div>
+    <ol class="wire-items ts-wire-items">
+      ${articles.slice(0, 3).map((a) => {
+		const actNr = inspectionActivityNr(a);
+		const sec = (a.sections || [])[0];
+		const partRef = (a.cfr_parts || [])[0];
+		return `
+          <li class="wire-entry">
+            <a href="${actNr ? `#/news/inspection/${actNr}` : sec ? newsSectionHref(29, sec) : partRef ? newsPartHref(partRef.title, partRef.part) : `#/news?cat=${encodeURIComponent(a.category || "all")}`}">
+              <span class="wire-entry-head">
+                <span class="wire-entry-title">${escapeHtml(newsKicker(a))}</span>
+                <time class="wire-entry-date">${escapeHtml(shortDate(a.published_at))}</time>
+              </span>
+              <span class="wire-entry-name">${escapeHtml(a.title)}</span>
+              ${a.penalty_usd ? `<span class="wire-entry-summary">${escapeHtml(fmtMoney(a.penalty_usd))} penalty</span>` : ""}
+            </a>
+          </li>`;
+	}).join("")}
+    </ol>`;
+}
+function renderMostCitedHtml(data, titleNum) {
+	const list = data && data.most_cited || [];
+	if (!list.length) return "";
+	return `
+    <div class="ts-rail-head">
+      <span class="hm-kicker">Most-cited in Title ${titleNum}</span>
+      <span class="ts-rail-count">${fmt(data.most_cited_total || list.length)} hubs</span>
+    </div>
+    <ol class="ts-cited-list">
+      ${list.slice(0, 5).map((s, idx) => `
+        <li>
+          <a class="ts-cited-row" href="${titleHref(titleNum, "section/" + encodeURIComponent(s.id))}">
+            <span class="ts-cited-rank">${idx + 1}</span>
+            <span class="ts-cited-body">
+              <span class="ts-cited-num">${escapeHtml(s.label || "§ " + s.id)}</span>
+              <span class="ts-cited-name">${escapeHtml(s.title || "")}</span>
+            </span>
+            <span class="ts-cited-cites">${plural(s.cited_by_count, "cite")}</span>
+          </a>
+        </li>`).join("")}
+    </ol>`;
+}
+function beatsRibbonHtml() {
+	const beats = agencyBeatsList();
+	if (beats.length < 2) return "";
+	const top = [...beats].sort((a, b) => b.node.n - a.node.n).slice(0, 6);
+	const pill = (key, label) => {
+		return `<button type="button" aria-pressed="${refUi.beat === key}" data-ts-beat="${escapeHtml(key)}">${escapeHtml(label)}</button>`;
+	};
+	return `
+    <div class="ts-beats-bar">
+      <div class="lib-seg ts-beats" role="group" aria-label="Filter edition by department">
+        ${pill("front", "Front Page")}
+        ${top.map((b) => pill(b.key, b.info.code)).join("")}
+      </div>
+      <div class="ts-beats-jumps">
+        <button type="button" class="hm-inline-link" data-ts-scroll="ts-depts">${plural(beats.length, "department")}</button>
+        <button type="button" class="hm-inline-link" data-ts-scroll="ts-almanac">Almanac</button>
+      </div>
+    </div>`;
+}
+function departmentsDirectoryHtml() {
+	const beats = agencyBeatsList();
+	if (beats.length < 2) return "";
+	return `
+    <section class="ts-depts" id="ts-depts" aria-label="Departments and agencies">
+      <div class="ts-sec-flag">
+        <span class="ts-flag-label">Departments &amp; Agencies</span>
+        <span class="ts-flag-meta">${plural(beats.length, "chapter")} · Select a beat to focus the front page</span>
+      </div>
+      <div class="ts-dept-grid">
+        ${beats.map((b) => {
+		const on = refUi.beat === b.key;
+		return `
+            <div class="ts-dept-item${on ? " is-active" : ""}">
+              <button type="button" class="ts-dept-btn" data-ts-beat="${escapeHtml(b.key)}" aria-pressed="${on}">
+                <span class="ts-dept-top">
+                  <span class="ts-dept-code">${escapeHtml(b.info.code)}</span>
+                  ${b.info.range ? `<span class="ts-dept-range">Parts ${escapeHtml(b.info.range)}</span>` : ""}
+                </span>
+                <span class="ts-dept-name">${escapeHtml(b.info.name)}</span>
+                <span class="ts-dept-meta">${plural(b.node.partCount || 0, "part")} · ${fmt(b.node.n)} sections</span>
+              </button>
+              <button type="button" class="ts-dept-drawer" data-ts-open-agency="${b.k}" title="Browse ${escapeHtml(b.info.code)} in Contents" aria-label="Browse ${escapeHtml(b.info.code)} in Contents">Contents ${icon("chevronRight")}</button>
+            </div>`;
+	}).join("")}
+      </div>
+    </section>`;
+}
+function filterWebEntries(data, cat, q) {
+	const ql = q.trim().toLowerCase();
+	const hosts = data.hosts && data.hosts.length ? data.hosts : null;
+	const rawItems = data.items || [];
+	let filtered = (hosts || rawItems).filter((it) => {
+		if (cat === "legacy") {
+			if (!it.legacy) return false;
+		} else if (cat !== "all" && it.category !== cat) return false;
+		if (!ql) return true;
+		const subUrls = (it.urls || []).map((u) => `${u.url} ${u.display}`).join(" ");
+		const cites = (it.cited_in || []).map((c) => `${c.id} ${c.label} ${c.title} ${c.part}`).join(" ");
+		return `${it.host} ${it.url} ${it.display} ${subUrls} ${it.legacy?.replacement_url || ""} ${cites}`.toLowerCase().includes(ql);
+	});
+	if (hosts && ql && !filtered.length) filtered = rawItems.filter((it) => {
+		if (cat === "legacy" && !it.legacy) return false;
+		if (cat !== "all" && cat !== "legacy" && it.category !== cat) return false;
+		const cites = (it.cited_in || []).map((c) => `${c.id} ${c.label} ${c.title} ${c.part}`).join(" ");
+		return `${it.host} ${it.url} ${it.display} ${it.legacy?.replacement_url || ""} ${cites}`.toLowerCase().includes(ql);
+	});
+	return filtered;
+}
+function filterIbrEntries(data, q) {
+	const list = data.ibr_standards || [];
+	const ql = q.trim().toLowerCase();
+	if (!ql) return list;
+	return list.filter((s) => {
+		const secs = (s.approved_in || []).map((a) => `${a.id} ${a.label} ${a.part} ${a.para}`).join(" ");
+		return `${s.code} ${s.org} ${s.org_name} ${s.excerpt} ${secs}`.toLowerCase().includes(ql);
+	});
+}
+function authorityStackHtml(titleNum) {
+	return `<div class="ts-auth-stack" aria-label="Legal authority hierarchy">
+    ${jurisdictionStackForTitle(titleNum).nodes.map((node, idx) => {
+		const meta = tierMetaFor(node.tier);
+		const inner = `
+        <span class="tier-pip" aria-hidden="true"></span>
+        <span class="ts-auth-code">${escapeHtml(node.code)}</span>
+        <span class="ts-auth-meta">${escapeHtml(node.current ? "Current" : node.meta || meta.short)}</span>`;
+		const item = node.external && node.href ? `<a class="ts-auth-node${node.current ? " is-current" : ""}" data-ref-tier="${escapeHtml(node.ref_tier)}" href="${escapeHtml(node.href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(node.label)}">${inner}</a>` : node.href ? `<a class="ts-auth-node${node.current ? " is-current" : ""}" data-ref-tier="${escapeHtml(node.ref_tier)}" href="${escapeHtml(node.href)}" title="${escapeHtml(node.label)}">${inner}</a>` : `<span class="ts-auth-node${node.current ? " is-current" : ""}" data-ref-tier="${escapeHtml(node.ref_tier)}" title="${escapeHtml(node.label)}">${inner}</span>`;
+		return `${idx > 0 ? "<span class=\"ts-auth-arrow\" aria-hidden=\"true\">›</span>" : ""}${item}`;
+	}).join("")}
+  </div>`;
+}
+function renderWebItemHtml(item, titleNum) {
+	const citesHtml = (item.cited_in || []).slice(0, 4).map((c) => `<a class="citation-chip" data-ref-tier="cfr" href="#/title/${titleNum}/section/${encodeURIComponent(c.id)}" title="${escapeHtml(c.title)}">${escapeHtml(c.label)}</a>`).join("");
+	const moreCites = item.cite_count > 4 ? `<span class="ref-cite-more">+${item.cite_count - 4}</span>` : "";
+	const href = safeHttpUrl(item.url);
+	const replHref = item.legacy ? safeHttpUrl(item.legacy.replacement_url) : "";
+	const legacyHtml = item.legacy ? `
+    <div class="ref-legacy">
+      <span class="stat-pill is-stale is-bare"><span class="stat-dot is-stale" aria-hidden="true"></span>Retired URL</span>
+      <span class="ref-legacy-note">${escapeHtml(item.legacy.note)}</span>
+      ${replHref ? `<a class="citation-chip" href="${escapeHtml(replHref)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.legacy.replacement_label)} ↗</a>` : ""}
+    </div>` : "";
+	const pageCount = item.url_count > 1 ? `<span class="ref-subpages">${item.url_count} URLs</span>` : "";
+	return `
+    <article class="ref-item">
+      <div class="ref-item-top">
+        <span class="ref-host">${escapeHtml(item.host)}</span>
+        <span class="ref-cat-pill">${escapeHtml(CAT_LABELS[item.category] || item.category)}</span>
+        ${pageCount}
+        <span class="ref-count">${plural(item.cite_count, "section")}</span>
+      </div>
+      ${href ? `<a class="ref-url" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.display)}</a>` : `<span class="ref-url">${escapeHtml(item.display)}</span>`}
+      ${legacyHtml}
+      ${citesHtml ? `<div class="ref-cites"><span class="ref-cites-lbl">Cited in</span>${citesHtml}${moreCites}</div>` : ""}
+    </article>`;
+}
+function renderIbrItemHtml(std, titleNum) {
+	const approved = (std.approved_in || []).slice(0, 4).map((a) => `<a class="citation-chip" data-ref-tier="ibr" href="#/title/${titleNum}/section/${encodeURIComponent(a.id)}${a.para ? "?p=" + encodeURIComponent(a.para) : ""}">${escapeHtml(a.label)}${a.para ? escapeHtml(a.para) : ""}</a>`).join("");
+	const extra = (std.section_count || 0) - 4;
+	const orgHref = safeHttpUrl(std.org_url);
+	return `
+    <article class="ref-item is-ibr has-tier-bar" data-ref-tier="ibr">
+      <div class="ref-item-top">
+        <span class="ref-host">${escapeHtml(std.code)}</span>
+        ${orgHref ? `<a class="ref-cat-pill is-link" href="${escapeHtml(orgHref)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(std.org_name || std.org)}">${escapeHtml(std.org)} ↗</a>` : `<span class="ref-cat-pill">${escapeHtml(std.org)}</span>`}
+        <span class="ref-count">${plural(std.section_count || 1, "section")}</span>
+      </div>
+      <div class="ref-ibr-excerpt">${escapeHtml(std.excerpt)}</div>
+      <div class="ref-cites">
+        <span class="ref-cites-lbl">Approved in</span>
+        ${approved}
+        ${extra > 0 ? `<span class="ref-cite-more">+${extra}</span>` : ""}
+      </div>
+    </article>`;
+}
+function renderRefListHtml(data, titleNum) {
+	const isIbr = refUi.cat === "ibr";
+	const filtered = isIbr ? filterIbrEntries(data, refUi.q) : filterWebEntries(data, refUi.cat, refUi.q);
+	if (!filtered.length) return "<div class=\"ref-empty\">No matching references for the current filter.</div>";
+	const showLimit = refUi.expanded || refUi.q.trim() ? filtered.length : 12;
+	const shown = filtered.slice(0, showLimit);
+	return `<div class="ref-grid">${shown.map((item) => isIbr ? renderIbrItemHtml(item, titleNum) : renderWebItemHtml(item, titleNum)).join("")}</div>${filtered.length > shown.length ? `<div class="ref-more"><button type="button" class="btn btn-sm" id="ref-show-all">Show all ${filtered.length} matching entries</button></div>` : ""}`;
+}
+function updateRefHubDom(data, titleNum) {
+	const hubEl = document.getElementById("ts-almanac");
+	const catsEl = document.getElementById("ref-cats-slot");
+	const listEl = document.getElementById("ref-list-slot");
+	const countEl = document.getElementById("ref-total-count");
+	if (!hubEl || !catsEl || !listEl) return;
+	const webTotal = data.host_total ?? data.total ?? 0;
+	const ibrTotal = data.ibr_total ?? (data.ibr_standards || []).length;
+	const catCounts = data.host_category_counts || data.category_counts || {};
+	const legacyCount = (data.hosts || data.items || []).filter((it) => it.legacy).length;
+	if (!webTotal && !ibrTotal) {
+		const count = Number(state.metaInfo.section_count || 0);
+		hubEl.innerHTML = `
+      <div class="ts-colophon">
+        Edition Colophon · Title ${titleNum}${count ? ` · ${fmt(count)} sections` : ""} · No external web portals or incorporated consensus standards cited.
+      </div>`;
+		return;
+	}
+	if (countEl) {
+		const parts = [];
+		if (webTotal) parts.push(plural(webTotal, data.host_total ? "host" : "resource"));
+		if (ibrTotal) parts.push(plural(ibrTotal, "IBR standard"));
+		countEl.textContent = parts.join(" · ");
+	}
+	if (refUi.cat === "ibr" && !ibrTotal) refUi.cat = "all";
+	if (refUi.cat === "legacy" && !legacyCount) refUi.cat = "all";
+	catsEl.innerHTML = REF_CATS.map(([k, label]) => {
+		const n = k === "all" ? webTotal : k === "ibr" ? ibrTotal : k === "legacy" ? legacyCount : catCounts[k] || 0;
+		if (k !== "all" && !n) return "";
+		return `<button type="button" class="sf-pill${refUi.cat === k ? " is-active" : ""}" data-ref-cat="${k}" aria-pressed="${refUi.cat === k}">${escapeHtml(label)} <span class="sf-pill-count">${n}</span></button>`;
+	}).join("");
+	listEl.innerHTML = renderRefListHtml(data, titleNum);
+}
+function renderMastheadStatusHtml(titleNum) {
+	const libRow = (navLib.data && navLib.data.titles || []).find((x) => x.title === titleNum);
+	if (libRow && isStale(libRow)) return statPill("stale", "Update available", { bare: true });
+	if (state.metaInfo.partial) return statPill("partial", "Partial install", { bare: true });
+	return statPill("synced", "Installed", { bare: true });
+}
+function hydrateTitleWire(titleNum, seq, signal) {
+	if (titleNum !== 29) return;
+	const applyWire = (articles) => {
+		const slot = document.getElementById("ts-wire-slot");
+		if (!slot || seq !== state.routeSeq) return;
+		if (!articles || !articles.length) {
+			slot.hidden = true;
+			return;
+		}
+		slot.hidden = false;
+		slot.innerHTML = renderTitleWireHtml(articles);
+	};
+	const cached = titleNewsCache.get(29);
+	if (cached && Date.now() - cached.at < 3e5) {
+		applyWire(cached.articles);
+		return;
+	}
+	fetch("/api/news?limit=3", { signal }).then((r) => r.ok ? r.json() : null).then((data) => {
+		if (!data || seq !== state.routeSeq) return;
+		const articles = data.articles || [];
+		titleNewsCache.set(29, {
+			at: Date.now(),
+			articles
+		});
+		applyWire(articles);
+	}).catch(() => {});
+}
+async function renderHome() {
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	const titleNum = state.currentTitle;
+	const seq = state.routeSeq;
+	if (refUi.title !== titleNum) {
+		refUi.title = titleNum;
+		refUi.beat = "front";
+		refUi.cat = "all";
+		refUi.q = "";
+		refUi.expanded = false;
+	}
+	document.title = `Title ${titleNum} · FRAMEWORK`;
+	setViewHead("");
+	const snapRow = state.homeSnapshot?.titles?.find((x) => x.title === titleNum);
+	const name = state.metaInfo.name || snapRow?.name || "";
+	const content = HOME_CONTENT[titleNum];
+	const tagline = content?.tagline || snapRow?.summary || `Read, search, and research Title ${titleNum} of the Code of Federal Regulations.`;
+	const count = Number(state.metaInfo.section_count || 0);
+	const readCount = visitedCountFor(titleNum);
+	const folioMeta = joinSep([
+		state.metaInfo.edition ? `Edition ${shortDate(state.metaInfo.edition) || state.metaInfo.edition}` : "",
+		count ? `${fmt(count)} sections` : "",
+		readCount ? `${fmt(readCount)} read` : ""
+	]);
+	dom.view.innerHTML = `
+    <div class="ts-front">
+      <header class="home-hero ts-masthead">
+        <div class="ts-folio">
+          <div class="doc-kicker">
+            <a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><span>${titleNum} CFR${snapRow?.desk ? ` · ${escapeHtml(snapRow.desk)}` : ""}</span>
+          </div>
+          <div class="ts-folio-right">
+            ${folioMeta ? `<span class="ts-folio-meta">${folioMeta}</span>` : ""}
+            ${renderMastheadStatusHtml(titleNum)}
+          </div>
+        </div>
+        <div class="ts-title-row">
+          <div class="ts-title-copy">
+            <h1>Title ${titleNum}${name ? " — " + escapeHtml(name) : ""}</h1>
+            <p>${escapeHtml(tagline)}</p>
+          </div>
+          <div class="home-hero-acts">
+            <button type="button" class="btn btn-sm" id="home-open-contents">${icon("book")} Browse contents</button>
+            <a class="btn btn-sm" href="#/library/${titleNum}">Manage in Library</a>
+          </div>
+        </div>
+        <div class="ts-double-rule" aria-hidden="true"></div>
+        ${authorityStackHtml(titleNum)}
+        <div id="ts-beats-slot">${beatsRibbonHtml()}</div>
+      </header>
+
+      <div class="ts-broadsheet">
+        <div id="ts-main-slot">${mainBroadsheetHtml(titleNum, refUi.beat)}</div>
+        ${titleDeskRailHtml(titleNum)}
+      </div>
+
+      <div id="ts-depts-slot">${departmentsDirectoryHtml()}</div>
+
+      <section class="ref-hub ts-almanac" id="ts-almanac" aria-label="References and authorities">
+        <div class="ts-sec-flag">
+          <span class="ts-flag-label">Almanac · References &amp; Authorities</span>
+          <span class="ref-total-pill" id="ref-total-count">Indexing…</span>
+        </div>
+        <p class="ref-hub-sub">Standards organizations, incorporated consensus standards, federal portals, and external authorities cited across Title ${titleNum}.</p>
+        <div class="ref-controls">
+          <div class="ref-cats" id="ref-cats-slot" role="group" aria-label="Filter by category"></div>
+          <input type="search" class="search-filter-input ref-search" id="ref-filter" value="${escapeHtml(refUi.q)}" placeholder="Filter domains, standards, or citing sections…" aria-label="Filter references" autocomplete="off" spellcheck="false">
+        </div>
+        <div id="ref-list-slot">${skeletonHtml("list", "Indexing references…")}</div>
+      </section>
+    </div>`;
+	enterView();
+	const signal = state.routeAbort?.signal;
+	hydrateTitleWire(titleNum, seq, signal);
+	if (!state.treeData) try {
+		await ensureTreeLoaded();
+		if (seq !== state.routeSeq) return;
+		const beatsSlot = document.getElementById("ts-beats-slot");
+		const mainSlot = document.getElementById("ts-main-slot");
+		const deptsSlot = document.getElementById("ts-depts-slot");
+		if (beatsSlot) beatsSlot.innerHTML = beatsRibbonHtml();
+		if (mainSlot) mainSlot.innerHTML = mainBroadsheetHtml(titleNum, refUi.beat);
+		if (deptsSlot) deptsSlot.innerHTML = departmentsDirectoryHtml();
+	} catch (e) {}
+	if (!snapRow) fetch("/api/titles/snapshot", { signal }).then((r) => r.ok ? r.json() : null).then((snap) => {
+		if (!snap || seq !== state.routeSeq) return;
+		state.homeSnapshot = snap;
+		const row = snap.titles?.find((x) => x.title === titleNum);
+		if (!row) return;
+		const pEl = dom.view.querySelector(".ts-title-copy > p");
+		if (!content && row.summary && pEl) pEl.textContent = row.summary;
+		const crumbSpan = dom.view.querySelector(".ts-folio .doc-kicker > span:last-child");
+		if (row.desk && crumbSpan) crumbSpan.textContent = `${titleNum} CFR · ${row.desk}`;
+	}).catch(() => {});
+	let refData = state.refsCache.get(titleNum);
+	if (!refData) try {
+		const res = await fetch(`/api/${titleNum}/references`, { signal });
+		if (seq !== state.routeSeq) return;
+		if (res.ok) {
+			refData = await res.json();
+			state.refsCache.set(titleNum, refData);
+		}
+	} catch (err) {
+		if (err && err.name === "AbortError") return;
+	}
+	if (seq !== state.routeSeq) return;
+	const citedSlot = document.getElementById("ts-cited-slot");
+	if (refData) {
+		if (citedSlot) {
+			const citedHtml = renderMostCitedHtml(refData, titleNum);
+			if (citedHtml) citedSlot.innerHTML = citedHtml;
+			else citedSlot.hidden = true;
+		}
+		updateRefHubDom(refData, titleNum);
+	} else {
+		if (citedSlot) citedSlot.hidden = true;
+		const listEl = document.getElementById("ref-list-slot");
+		if (listEl) listEl.innerHTML = "<div class=\"ref-empty\">Couldn’t load references for this title.</div>";
+	}
+}
+dom.view.addEventListener("input", (e) => {
+	if (e.target.id !== "ref-filter" || !dom.view.querySelector(".ref-hub")) return;
+	refUi.q = e.target.value;
+	refUi.expanded = false;
+	const data = state.refsCache.get(state.currentTitle);
+	if (data) updateRefHubDom(data, state.currentTitle);
+});
+dom.view.addEventListener("click", (e) => {
+	if (!dom.view.querySelector(".ts-front")) return;
+	if (e.target.closest("#home-open-contents")) {
+		openPanel("reader", { focus: true });
+		return;
+	}
+	const beatEl = e.target.closest("[data-ts-beat]");
+	if (beatEl) {
+		refUi.beat = beatEl.dataset.tsBeat || "front";
+		const beatsSlot = document.getElementById("ts-beats-slot");
+		const mainSlot = document.getElementById("ts-main-slot");
+		const deptsSlot = document.getElementById("ts-depts-slot");
+		if (beatsSlot) beatsSlot.innerHTML = beatsRibbonHtml();
+		if (mainSlot) mainSlot.innerHTML = mainBroadsheetHtml(state.currentTitle, refUi.beat);
+		if (deptsSlot) deptsSlot.innerHTML = departmentsDirectoryHtml();
+		if (beatEl.closest(".ts-depts") && mainSlot) mainSlot.scrollIntoView({
+			behavior: "smooth",
+			block: "start"
+		});
+		return;
+	}
+	const agencyBtn = e.target.closest("[data-ts-open-agency]");
+	if (agencyBtn) {
+		const k = Number(agencyBtn.dataset.tsOpenAgency);
+		if (!Number.isNaN(k)) showAgencyView(k);
+		openPanel("reader", { focus: true });
+		return;
+	}
+	const jumpBtn = e.target.closest("[data-ts-scroll]");
+	if (jumpBtn) {
+		const target = document.getElementById(jumpBtn.dataset.tsScroll);
+		if (target) target.scrollIntoView({
+			behavior: "smooth",
+			block: "start"
+		});
+		return;
+	}
+	if (!dom.view.querySelector(".ref-hub")) return;
+	const catBtn = e.target.closest("[data-ref-cat]");
+	if (catBtn) {
+		refUi.cat = catBtn.dataset.refCat;
+		refUi.expanded = false;
+		const data = state.refsCache.get(state.currentTitle);
+		if (data) updateRefHubDom(data, state.currentTitle);
+		return;
+	}
+	if (e.target.closest("#ref-show-all")) {
+		refUi.expanded = true;
+		const data = state.refsCache.get(state.currentTitle);
+		if (data) updateRefHubDom(data, state.currentTitle);
+	}
+});
+// src/views/home.js
+var HOME_NEWS_CACHE = "newsCache:v1:all";
+var HOME_STATUS_CACHE = "newsCache:v1:status";
+function installedFallbackList() {
+	const base = state.installedTitles.length ? state.installedTitles : state.metaInfo.edition ? [{
+		title: state.currentTitle,
+		name: state.metaInfo.name || `Title ${state.currentTitle}`,
+		section_count: state.metaInfo.section_count,
+		edition: state.metaInfo.edition
+	}] : [];
+	const cachedByTitle = new Map((state.homeSnapshot && state.homeSnapshot.titles || []).map((x) => [x.title, x]));
+	return base.map((t) => {
+		const cached = cachedByTitle.get(t.title) || {};
+		return {
+			agencies: cached.agencies || [],
+			summary: cached.summary || "",
+			scope_parts: cached.scope_parts ?? null,
+			scope_sections_count: cached.scope_sections_count || 0,
+			unreadable: Boolean(cached.unreadable),
+			news: cached.news || {
+				count: 0,
+				latest_title: null,
+				latest_date: null
+			},
+			...t
+		};
+	});
+}
+function sectionLinkHref(e) {
+	return titleHref(e.ti, "section/" + encodeURIComponent(e.id) + (e.u ? "/" + encodeURIComponent(e.u) : ""));
+}
+function activeTransfersHtml() {
+	const j = state.jobs.current;
+	const queued = state.jobs.queued || [];
+	if (!j && !queued.length) return "";
+	const pill = statPill("busy", j ? j.state === "running" ? j.phase || "Downloading" : "Queued" : "Queued");
+	const text = j ? j.label : "Preparing download";
+	const more = queued.length ? ` · +${queued.length} queued` : "";
+	return `
+    <a class="hm-transfer" href="#/library">
+      ${pill}
+      <span class="hm-transfer-text">${escapeHtml(text)}${escapeHtml(more)}</span>
+      <span class="hm-transfer-cta">Watch in Library ${icon("chevronRight")}</span>
+    </a>`;
+}
+function resumeCardHtml(recent, titles) {
+	if (recent.length) {
+		const last = recent[0];
+		const href = sectionLinkHref(last);
+		const trail = recent.slice(1, 3);
+		return `
+      <section class="hm-card hm-resume" aria-label="Continue reading">
+        <div class="hm-card-top">
+          <span class="hm-kicker">Continue reading</span>
+          <span class="hm-time">${escapeHtml(timeAgo(last.t))}</span>
+        </div>
+        <div class="hm-resume-loc">
+          <span>${last.ti} CFR</span>
+          ${last.p ? `${SEP}<a href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
+          ${last.ul ? `${SEP}<span class="hm-unit-badge">${escapeHtml(last.ul)}</span>` : ""}
+        </div>
+        <a class="hm-resume-title" href="${href}">${escapeHtml(last.l)} ${escapeHtml(last.h || "")}</a>
+        <div class="hm-resume-acts">
+          <a class="btn btn-sm btn-accent" href="${href}">Resume reading ${icon("chevronRight")}</a>
+          ${last.p ? `<a class="btn btn-sm" href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
+        </div>
+        ${trail.length ? `
+          <div class="hm-trail">
+            <div class="hm-trail-head">
+              <span class="hm-kicker">Recently opened</span>
+              <button type="button" class="hm-inline-link" data-hm-act="open-history">Full history</button>
+            </div>
+            <div class="hm-trail-list">
+              ${trail.map((e) => `
+                <a class="hm-trail-row" href="${sectionLinkHref(e)}">
+                  <span class="hm-tag">${e.ti} CFR</span>
+                  <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
+                  <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
+                  <span class="hm-row-val">${escapeHtml(timeAgo(e.t))}</span>
+                </a>`).join("")}
+            </div>
+          </div>` : ""}
+      </section>`;
+	}
+	const starters = [];
+	for (const t of titles) {
+		if (t.partial && t.scope_parts && t.scope_parts.length) for (const p of t.scope_parts.slice(0, 2)) {
+			starters.push({
+				ti: t.title,
+				part: p,
+				kicker: `${t.title} CFR`,
+				title: `Part ${p}`
+			});
+			if (starters.length >= 4) break;
+		}
+		else {
+			const c = HOME_CONTENT[t.title];
+			if (c) for (const card of c.cards.slice(0, 2)) {
+				starters.push({
+					ti: t.title,
+					part: card.part,
+					kicker: `${t.title} CFR · ${card.kicker}`,
+					title: card.title
+				});
+				if (starters.length >= 4) break;
+			}
+		}
+		if (starters.length >= 4) break;
+	}
+	return `
+    <section class="hm-card hm-resume" aria-label="Start reading">
+      <div class="hm-card-top">
+        <span class="hm-kicker">Start here</span>
+      </div>
+      <div class="hm-resume-title is-static">Open a regulation to begin</div>
+      <p class="hm-muted">Pick a key part below or search across your downloaded titles from the bar above.</p>
+      ${starters.length ? `
+        <div class="hm-starter-grid">
+          ${starters.map((s) => `
+            <a class="hm-starter" href="${titleHref(s.ti, "part/" + encodeURIComponent(s.part))}">
+              <span class="hm-starter-kicker">${escapeHtml(s.kicker)}</span>
+              <span class="hm-starter-name">${escapeHtml(s.title)}</span>
+            </a>`).join("")}
+        </div>` : ""}
+    </section>`;
+}
+function workspacesCardHtml(projects) {
+	const sorted = [...projects].sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || "")).slice(0, 3);
+	const body = sorted.length ? `
+    <div class="hm-ws-list">
+      ${sorted.map((p) => {
+		const chips = (p.sections || []).slice(0, 3).map((s) => {
+			const ok = titleInstalled(s.title);
+			const href = ok ? `#/title/${s.title}/section/${encodeURIComponent(s.id)}` : `#/library/${s.title}`;
+			const tip = ok ? "" : ` title="Title ${s.title} isn’t installed. Open Library"`;
+			return `<a class="citation-chip${ok ? "" : " is-dim"}" data-ref-tier="${ok ? "cfr" : "uninstalled"}" href="${href}"${tip}>${escapeHtml(s.label || "§ " + s.id)}</a>`;
+		}).join("");
+		const extra = (p.sections || []).length - 3;
+		return `
+          <article class="hm-ws-item">
+            <div class="hm-ws-top">
+              <a class="hm-ws-name" href="#/projects/${encodeURIComponent(p.id)}">${projDot(p)}<span>${escapeHtml(p.name)}</span></a>
+              <span class="hm-ws-meta">${joinSep([plural(p.sections.length, "section"), escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))])}</span>
+            </div>
+            ${p.description ? `<p class="hm-ws-desc">${escapeHtml(p.description)}</p>` : ""}
+            ${chips ? `<div class="hm-ws-chips">${chips}${extra > 0 ? `<a class="hm-more-chip" href="#/projects/${encodeURIComponent(p.id)}">+${extra}</a>` : ""}</div>` : ""}
+          </article>`;
+	}).join("")}
+    </div>` : `
+    <div class="hm-empty-block">
+      <div class="hm-empty-title">Organize program compliance</div>
+      <p class="hm-muted">Group pinned sections and notes for a safety program, facility audit, or permit review.</p>
+      <div class="hm-empty-acts">
+        <button type="button" class="btn btn-sm btn-accent" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
+      </div>
+    </div>`;
+	return `
+    <section class="hm-card hm-ws" aria-label="Workspaces">
+      <div class="hm-panel-head">
+        <h2 class="hm-panel-title">${icon("folder")} Workspaces${projects.length ? ` <span class="hm-count">${projects.length}</span>` : ""}</h2>
+        <div class="hm-panel-acts">
+          <button type="button" class="hm-inline-link" data-hm-act="new-workspace">+ New</button>
+          <a class="hm-inline-link" href="#/projects">All workspaces</a>
+        </div>
+      </div>
+      ${body}
+    </section>`;
+}
+function titleLivingSignalHtml(t, recent, projects) {
+	const lastInTitle = recent.find((e) => e.ti === t.title);
+	if (lastInTitle) return `<a class="hm-signal-link" href="${sectionLinkHref(lastInTitle)}">Last read ${escapeHtml(lastInTitle.l)}${SEP}${escapeHtml(timeAgo(lastInTitle.t))}</a>`;
+	const ws = projects.find((p) => (p.sections || []).some((s) => s.title === t.title));
+	if (ws) return `<a class="hm-signal-link" href="#/projects/${encodeURIComponent(ws.id)}">${projDot(ws)}In ${escapeHtml(ws.name)}</a>`;
+	if (t.news && t.news.count > 0) return `<a class="hm-signal-link" href="#/news">${escapeHtml(plural(t.news.count, "recent OSHA update"))}</a>`;
+	return `<span class="hm-signal-muted">${t.section_count ? `${fmt(t.section_count)} sections ready` : "Ready offline"}</span>`;
+}
+function titleStatusHtml(t, staleSet) {
+	if (t.unreadable) return statPill("stale", "Needs rebuild", { bare: true });
+	const j = jobFor(t.title, "title");
+	if (j) return statPill("busy", j.state === "running" ? "Updating" : "Queued", { bare: true });
+	if (staleSet.has(t.title)) return statPill("stale", "Update available", { bare: true });
+	if (t.partial) {
+		const parts = (t.scope_parts || []).length;
+		return statPill("partial", parts ? `Partial · ${plural(parts, "part")}` : "Partial", { bare: true });
+	}
+	return `<span class="hm-title-ed">${escapeHtml(shortDate(t.edition) || "Ready")}</span>`;
+}
+function titlePartsHtml(t) {
+	if (t.partial && t.scope_parts && t.scope_parts.length) return `
+      <div class="hm-title-parts">
+        ${t.scope_parts.slice(0, 3).map((p) => `<a class="hm-part-chip" href="${titleHref(t.title, "part/" + encodeURIComponent(p))}"><span class="hm-part-num">Part ${escapeHtml(p)}</span></a>`).join("")}
+        ${t.scope_parts.length > 3 ? `<span class="hm-part-more">+${t.scope_parts.length - 3} more</span>` : ""}
+      </div>`;
+	const parts = ((HOME_CONTENT[t.title] || {}).cards || []).slice(0, 3);
+	if (parts.length) return `
+      <div class="hm-title-parts">
+        ${parts.map((c) => {
+		const label = c.title.replace(/^Part\s+\d+\s*[—–-]\s*/, "");
+		return `<a class="hm-part-chip" href="${titleHref(t.title, "part/" + encodeURIComponent(c.part))}"><span class="hm-part-num">${escapeHtml(c.part)}</span><span>${escapeHtml(label)}</span></a>`;
+	}).join("")}
+      </div>`;
+	return `
+    <div class="hm-title-parts">
+      <button type="button" class="hm-part-chip" data-hm-act="open-contents" data-title="${t.title}">Browse contents</button>
+    </div>`;
+}
+function titlesBandHtml(titles, recent, projects, totalSections, totalRead) {
+	const staleSet = new Set((navLib.data && navLib.data.titles || []).filter(isStale).map((t) => t.title));
+	const corpora = syncCorporaState();
+	const deskId = state.activeDesk || "all";
+	const visibleTitles = deskId === "all" ? titles : titles.filter((t) => mapRawDeskToId(t.desk, t.title) === deskId);
+	const shown = visibleTitles.length ? visibleTitles : titles;
+	const ribbonHtml = deskFilterRibbonHtml(deskId, corpora);
+	const cards = shown.map((t) => {
+		const read = visitedCountFor(t.title);
+		const count = Number(t.section_count || 0);
+		const pct = count ? Math.min(100, read / count * 100) : 0;
+		const agencies = (t.agencies || []).slice(0, 3);
+		const corpus = corpora.find((c) => c.tier === "federal-reg" && c.title_num === t.title) || {
+			tier: "federal-reg",
+			desk: mapRawDeskToId(t.desk, t.title)
+		};
+		return `
+      <article class="hm-title-card has-tier-bar" data-ref-tier="${refTierForCorpus(corpus)}">
+        <div class="hm-title-top">
+          <span class="hm-title-kicker"><span class="tier-pip" aria-hidden="true"></span> ${escapeHtml(TIER_META[corpus.tier]?.tag || "FEDERAL REG")} · ${t.title} CFR${agencies.length ? `${SEP}<span class="hm-title-ag">${agencies.map(escapeHtml).join(" · ")}</span>` : ""}</span>
+          ${titleStatusHtml(t, staleSet)}
+        </div>
+        <h3 class="hm-title-name"><a href="${titleHref(t.title)}">${escapeHtml(t.name)}</a></h3>
+        ${t.summary ? `<p class="hm-title-desc">${escapeHtml(t.summary)}</p>` : !(state.homeSnapshot && Array.isArray(state.homeSnapshot.titles)) ? skeletonHtml("summary") : ""}
+        ${titlePartsHtml(t)}
+        <div class="hm-title-foot">
+          <div class="hm-title-signal-row">
+            ${titleLivingSignalHtml(t, recent, projects)}
+            ${t.partial ? `<a class="hm-inline-link" href="#/library/${t.title}">Add parts</a>` : `<button type="button" class="hm-inline-link" data-hm-act="open-contents" data-title="${t.title}">Contents</button>`}
+          </div>
+          <div class="hm-prog-track" title="${fmt(read)} of ${fmt(count)} sections read" aria-hidden="true"><span style="width:${read ? Math.max(3, Math.round(pct)) : 0}%"></span></div>
+        </div>
+      </article>`;
+	}).join("");
+	return `
+    <section class="hm-titles" id="hm-titles" aria-label="Downloaded titles">
+      <div class="hm-sec-head">
+        <div class="hm-sec-head-left">
+          <h2 class="hm-sec-title">Downloaded Frameworks</h2>
+          <span class="hm-sec-meta">${joinSep([
+		plural(shown.length, "framework"),
+		`${fmt(totalSections)} sections offline`,
+		totalRead ? `${fmt(totalRead)} read` : ""
+	])}</span>
+        </div>
+        <a class="hm-inline-link" href="#/library">Add or update frameworks ${icon("chevronRight")}</a>
+      </div>
+      ${ribbonHtml}
+      <div class="hm-title-grid">${cards}</div>
+    </section>`;
+}
+function pulseChipsHtml(a) {
+	const chips = [];
+	for (const r of (a.cfr_parts || []).slice(0, 2)) {
+		const ok = titleInstalled(r.title);
+		chips.push(`<a class="citation-chip${ok ? "" : " is-dim"}" data-ref-tier="${ok ? "cfr" : "uninstalled"}" href="${newsPartHref(r.title, r.part)}">${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
+	}
+	for (const s of (a.sections || []).slice(0, Math.max(0, 3 - chips.length))) {
+		const ok = titleInstalled(29);
+		chips.push(`<a class="citation-chip${ok ? "" : " is-dim"}" data-ref-tier="${ok ? "cfr" : "uninstalled"}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`);
+	}
+	return chips.length ? `<div class="hm-news-chips">${chips.join("")}</div>` : "";
+}
+function newsSkeletonHtml() {
+	return `
+    <div class="hm-panel-head">
+      <h2 class="hm-panel-title">${icon("news")} Regulatory Pulse</h2>
+      <div class="hm-panel-acts">
+        <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
+      </div>
+    </div>
+    <div class="hm-news-skel" aria-busy="true" aria-label="Loading OSHA news…">
+      ${[
+		1,
+		2,
+		3
+	].map(() => `<div class="hm-news-skel-item">${skeletonHtml("pulse")}</div>`).join("")}
+    </div>`;
+}
+function newsSectionHtml(data, status) {
+	const articles = data && data.articles || [];
+	const pill = newsStatusPillHtml(status);
+	if (!articles.length) return `
+      <div class="hm-news-quiet">
+        <span class="hm-news-quiet-label">${icon("news")} No OSHA regulatory news cached yet</span>
+        <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
+      </div>`;
+	const items = articles.slice(0, 3).map((a) => `
+    <article class="hm-news-item">
+      <div class="hm-news-top">
+        <span class="hm-news-kicker">${escapeHtml(newsKicker(a))}</span>
+        <span class="hm-news-right">
+          ${a.penalty_usd ? `<span class="hm-news-fig">${escapeHtml(fmtMoney(a.penalty_usd))}</span>` : ""}
+          <time class="hm-news-date">${escapeHtml(shortDate(a.published_at))}</time>
+        </span>
+      </div>
+      <a class="hm-news-title" href="#/news?cat=${encodeURIComponent(a.category)}">${escapeHtml(a.title)}</a>
+      ${pulseChipsHtml(a)}
+    </article>`).join("");
+	return `
+    <div class="hm-panel-head">
+      <h2 class="hm-panel-title">${icon("news")} Regulatory Pulse</h2>
+      <div class="hm-panel-acts">
+        <span id="hm-news-pill">${pill}</span>
+        <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
+      </div>
+    </div>
+    <div class="hm-news-grid">${items}</div>`;
+}
+async function hydrateHome(seq) {
+	const titlesPromise = getJSON("/api/titles/snapshot").then((snap) => {
+		if (seq !== state.routeSeq) return;
+		if (snap && Array.isArray(snap.titles)) {
+			state.homeSnapshot = snap;
+			const u = loadUsage();
+			const installed = new Set(snap.titles.map((t) => t.title));
+			const split = (key) => {
+				const i = key.indexOf("|");
+				return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
+			};
+			const recent = Object.entries(u.s).map(([k, e]) => {
+				const [ti, id] = split(k);
+				return {
+					...e,
+					ti,
+					id
+				};
+			}).filter((e) => installed.has(e.ti)).sort((a, b) => (b.t || 0) - (a.t || 0));
+			const totalSections = snap.titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
+			const totalRead = snap.titles.reduce((a, t) => a + visitedCountFor(t.title), 0);
+			const box = document.getElementById("hm-titles");
+			if (box) box.outerHTML = titlesBandHtml(snap.titles, recent, loadProjects(), totalSections, totalRead);
+		}
+	}).catch(() => {}).finally(() => {
+		const el = document.getElementById("hm-titles");
+		if (el && seq === state.routeSeq) el.dataset.snapshotLoaded = "1";
+	});
+	const newsPromise = Promise.all([getJSON("/api/news?limit=3"), getJSON("/api/news/status")]).then(([data, status]) => {
+		if (seq !== state.routeSeq) return;
+		const box = document.getElementById("hm-news");
+		if (box) box.innerHTML = newsSectionHtml(data, status);
+		if (data && data.articles && data.articles.length) lsSetJSON(HOME_NEWS_CACHE, {
+			t: Date.now(),
+			data: {
+				articles: data.articles.slice(0, 30),
+				total: data.total,
+				offset: 0
+			}
+		});
+		if (status) lsSetJSON(HOME_STATUS_CACHE, {
+			t: Date.now(),
+			data: status
+		});
+	}).catch(() => {
+		if (seq !== state.routeSeq) return;
+		const box = document.getElementById("hm-news");
+		if (box) box.innerHTML = newsSectionHtml({ articles: [] }, null);
+	}).finally(() => {
+		const el = document.getElementById("hm-news");
+		if (el && seq === state.routeSeq) el.dataset.newsLoaded = "1";
+	});
+	await Promise.allSettled([titlesPromise, newsPromise]);
+}
+function renderHomeScreen({ enter = true } = {}) {
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	document.title = "Home · FRAMEWORK";
+	setViewHead("");
+	const u = loadUsage();
+	const titles = installedFallbackList();
+	const installed = new Set(titles.map((t) => t.title));
+	const split = (key) => {
+		const i = key.indexOf("|");
+		return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
+	};
+	const recent = Object.entries(u.s).map(([k, e]) => {
+		const [ti, id] = split(k);
+		return {
+			...e,
+			ti,
+			id
+		};
+	}).filter((e) => installed.has(e.ti)).sort((a, b) => (b.t || 0) - (a.t || 0));
+	const projects = loadProjects();
+	const totalSections = titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
+	const totalRead = titles.reduce((a, t) => a + visitedCountFor(t.title), 0);
+	const cachedNews = lsGetJSON(HOME_NEWS_CACHE);
+	const cachedStatus = lsGetJSON(HOME_STATUS_CACHE);
+	const sub = joinSep([
+		escapeHtml(`${plural(titles.length, "title")} ready offline`),
+		state.metaInfo.edition ? `Edition ${escapeHtml(shortDate(state.metaInfo.edition))}` : "",
+		projects.length ? escapeHtml(plural(projects.length, "workspace")) : ""
+	]);
+	const scrollTop = dom.main.scrollTop;
+	dom.view.innerHTML = `
+    <div class="hm">
+      <header class="hm-head">
+        <div>
+          <div class="doc-kicker">FRAMEWORK</div>
+          <h1 class="doc-title">Home</h1>
+          <p class="hm-sub">${sub}</p>
+        </div>
+        <div class="hm-head-acts">
+          <button type="button" class="btn btn-sm" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
+          <a class="btn btn-sm" href="#/library">${icon("download")} Manage library</a>
+        </div>
+      </header>
+      ${activeTransfersHtml()}
+      <div class="hm-top">
+        ${resumeCardHtml(recent, titles)}
+        ${workspacesCardHtml(projects)}
+      </div>
+      ${titlesBandHtml(titles, recent, projects, totalSections, totalRead)}
+      <section class="hm-card hm-news" id="hm-news" aria-label="Regulatory Pulse">
+        ${cachedNews && cachedNews.data ? newsSectionHtml(cachedNews.data, cachedStatus && cachedStatus.data) : newsSkeletonHtml()}
+      </section>
+    </div>`;
+	if (enter) enterView();
+	else dom.main.scrollTop = scrollTop;
+	hydrateHome(state.routeSeq);
+}
+function refreshHomeIfActive() {
+	if (routeTarget() === "overview" && dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
+}
+dom.view.addEventListener("click", async (e) => {
+	if (!dom.view.querySelector(".hm")) return;
+	const deskBtn = e.target.closest("[data-desk]");
+	if (deskBtn) {
+		setActiveDesk(deskBtn.dataset.desk || "all");
+		renderHomeScreen({ enter: false });
+		return;
+	}
+	const actEl = e.target.closest("[data-hm-act]");
+	if (!actEl) return;
+	const act = actEl.dataset.hmAct;
+	if (act === "new-workspace") startNewWorkspace();
+	else if (act === "open-history") {
+		state.historyFor = "overview";
+		openPanel("history", { focus: e.detail === 0 });
+	} else if (act === "open-contents") {
+		const t = Number(actEl.dataset.title);
+		if (t && t !== state.currentTitle) await switchTitle(t);
+		openPanel("reader", { focus: true });
+	}
+});
+// src/views/help.js
+var HELP_LOGOS = {
+	dol: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <path d="M32 8 52 16v14c0 13.5-8.6 22.8-20 26-11.4-3.2-20-12.5-20-26V16L32 8Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M32 18v24M21 24h22" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="m21 24-4 9h8l-4-9Zm22 0-4 9h8l-4-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M25 44h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  </svg>`,
+	anthropic: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <rect x="8" y="8" width="48" height="48" rx="14" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M25.5 44 33 20l7.5 24M28.2 36.5h9.6" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M18.5 44 26 20h3.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>
+  </svg>`,
+	fr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <rect x="10" y="10" width="44" height="44" rx="10" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <circle cx="22" cy="42" r="3.2" fill="var(--accent)"/>
+    <path d="M20 31.5a12.5 12.5 0 0 1 12.5 12.5M20 22a22 22 0 0 1 22 22" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M36 18h10M36 24h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".7"/>
+  </svg>`,
+	ecfr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <path d="M12 18c0-2.2 1.8-4 4-4h13c2.2 0 3 1.2 3 3v31c0-1.5-1.3-2.5-3-2.5H16c-2.2 0-4 1.8-4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M52 18c0-2.2-1.8-4-4-4H35c-2.2 0-3 1.2-3 3v31c0-1.5 1.3-2.5 3-2.5h13c2.2 0 4 1.8 4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
+    <path d="M18 23h8M18 29h8M38 23h8M38 29h8" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+  </svg>`
+};
+var FR_RSS_FEEDS = [{
+	label: "OSHA Published Documents RSS",
+	desc: "Final Rules, Proposed Rules, and Notices from the Federal Register.",
+	url: "https://www.federalregister.gov/api/v1/documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
+}, {
+	label: "OSHA Public Inspection RSS",
+	desc: "Pre-publication filings scheduled to appear in tomorrow’s Federal Register.",
+	url: "https://www.federalregister.gov/api/v1/public-inspection-documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
+}];
+async function loadHelp() {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = "Connections & API Keys · FRAMEWORK";
+	if (!state.navEnvStatus) {
+		dom.view.innerHTML = skeletonHtml("cards", "Loading setup guide…");
+		enterView();
+	}
+	try {
+		const [env, newsSt] = await Promise.all([getJSON("/api/settings/env"), getJSON("/api/news/status").catch(() => null)]);
+		if (seq !== state.routeSeq) return;
+		state.navEnvStatus = env;
+		if (newsSt) state.navNewsStatus = newsSt;
+		renderHelp(env, { enter: true });
+	} catch (e) {
+		if (seq !== state.routeSeq) return;
+		renderHelp(state.navEnvStatus || {
+			env_exists: false,
+			env_file: "reader/.env",
+			keys: {}
+		}, { enter: true });
+	}
+}
+function renderHelp(env, opts = {}) {
+	const keys = env && env.keys || {};
+	const dol = keys.DOL_API_KEY || {};
+	const ant = keys.ANTHROPIC_API_KEY || {};
+	const syncOn = keys.NEWS_SYNC ? keys.NEWS_SYNC.value : true;
+	const retDays = keys.NEWS_RETENTION_DAYS ? keys.NEWS_RETENTION_DAYS.value : 365;
+	const titleCount = state.installedTitles.length;
+	const titlesWord = `${titleCount} ${titleCount === 1 ? "title" : "titles"}`;
+	const chip = (target, state, label) => `
+    <button type="button" class="help-status-chip" data-help-jump="${target}">
+      <span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(label)}</button>`;
+	const statusStrip = `
+    <nav class="help-status" aria-label="Connection status">
+      ${chip("federal-register", syncOn ? "synced" : "stale", syncOn ? "Federal Register · On" : "Federal Register · Sync off")}
+      ${chip("ecfr", "synced", `CFR Library · ${titlesWord}`)}
+      ${chip("dol", dol.configured ? "synced" : "uninstalled", `DOL enforcement · ${dol.configured ? "On" : "Off"}`)}
+      ${chip("anthropic", ant.configured ? "synced" : "uninstalled", `Claude assistant · ${ant.configured ? "On" : "Off"}`)}
+    </nav>`;
+	const optionalCards = [{
+		id: "dol",
+		logo: HELP_LOGOS.dol,
+		provider: "U.S. Department of Labor · Free key",
+		title: "OSHA Enforcement Data",
+		pill: dol.configured ? statPill("synced", `On (${dol.masked || "key saved"})`) : statPill("uninstalled", "Off"),
+		body: `
+        <p><strong>What this key allows:</strong> Unlocks the <em>Enforcement &amp; Penalties</em> tab in <a href="#/news?cat=enforcement">News</a> and adds workplace inspection citations to the regulation timeline inside Title 29 sections.</p>
+        <p>You’ll see cited companies, city/state locations, violation severity (Willful, Repeat, Serious), cited 29 CFR standards, and current penalty totals directly from <code>apiprod.dol.gov/v4</code>.</p>`,
+		actions: `
+        <button type="button" class="btn btn-accent" data-open-env="dol_api_key">${icon("key")} ${dol.configured ? "Update DOL key" : "Add DOL key"}</button>
+        <a class="btn" href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">${icon("external")} Get a free DOL key</a>`
+	}, {
+		id: "anthropic",
+		logo: HELP_LOGOS.anthropic,
+		provider: "Anthropic · Paid key",
+		title: "Claude Regulatory Assistant",
+		pill: ant.configured ? statPill("synced", `On (${ant.masked || "key saved"})`) : statPill("uninstalled", "Off"),
+		body: `
+        <p><strong>What this key allows:</strong> Turns on the <em>Ask Claude</em> side panel so you can ask plain-English compliance questions, summarize long sections, and trace requirements across your installed CFR titles.</p>
+        <p>Reading regulations, full-text search, projects, and Federal Register news all work without it—this key is only for the AI assistant.</p>`,
+		actions: `
+        <button type="button" class="btn btn-accent" data-open-env="anthropic_api_key">${icon("key")} ${ant.configured ? "Update Anthropic key" : "Add Anthropic key"}</button>
+        <a class="btn" href="https://console.anthropic.com" target="_blank" rel="noopener">${icon("external")} Get an Anthropic key</a>`
+	}];
+	const includedCards = [{
+		id: "federal-register",
+		logo: HELP_LOGOS.fr,
+		provider: "Federal Register · No key needed",
+		title: "OSHA Rulemaking & Official RSS Feeds",
+		pill: syncOn ? statPill("synced", `On · ${retDays}d history`) : statPill("stale", "Sync off"),
+		body: `
+        <p><strong>What this source allows:</strong> Keeps the <a href="#/news">Newsroom</a> updated on business days with OSHA Final Rules, Proposed Rules, Notices, and Public Inspection filings—automatically, with no key or setup.</p>
+        <div class="help-rss-list">${FR_RSS_FEEDS.map((f) => `
+          <div class="help-rss-row">
+            <div class="help-rss-text"><strong>${escapeHtml(f.label)}</strong><span>${escapeHtml(f.desc)}</span></div>
+            <div class="help-rss-btns">
+              <button type="button" class="btn btn-sm" data-copy-url="${escapeHtml(f.url)}">${icon("copy")} Copy RSS URL</button>
+              <a class="btn btn-sm" href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${icon("rss")} Open</a>
+            </div>
+          </div>`).join("")}
+        </div>
+        <p class="help-fineprint">The same updates, as official Federal Register feeds for any external RSS reader. FRAMEWORK itself reads the richer JSON API and skips <code>osha.gov/rss</code>, which rejects automated readers.</p>`,
+		actions: `
+        <button type="button" class="btn" data-open-env="news_sync">${icon("key")} Sync settings</button>
+        <a class="btn" href="#/news">${icon("news")} Open Newsroom</a>`
+	}, {
+		id: "ecfr",
+		logo: HELP_LOGOS.ecfr,
+		provider: "eCFR · No key needed",
+		title: "Federal Regulations Library (Titles 1–50)",
+		pill: statPill("synced", `On · ${titlesWord} installed`),
+		body: `
+        <p><strong>What this source allows:</strong> Downloads full Code of Federal Regulations titles, parts, or individual sections directly from <code>ecfr.gov</code> into your local SQLite library for fast offline reading and search.</p>`,
+		actions: `
+        <a class="btn" href="#/library">${icon("book")} Browse CFR Library</a>`
+	}];
+	const cardHtml = (c) => `
+    <article class="help-card" id="help-${c.id}">
+      <div class="help-logo" aria-hidden="true">${c.logo}</div>
+      <div class="help-body">
+        <div class="help-card-top">
+          <span class="help-provider">${escapeHtml(c.provider)}</span>
+          ${c.pill}
+        </div>
+        <h3 class="help-card-title">${escapeHtml(c.title)}</h3>
+        <div class="help-card-copy">${c.body}</div>
+        <div class="help-actions">${c.actions}</div>
+      </div>
+    </article>`;
+	dom.view.innerHTML = `
+    <div class="help-front">
+      <header class="help-head">
+        <div>
+          <div class="doc-kicker">FRAMEWORK Settings · Help</div>
+          <h1 class="doc-title">Connections &amp; API Keys</h1>
+          <p class="help-lead">Reading and search work offline out of the box. The optional keys below unlock more—each is saved locally and applies instantly, with no restart.</p>
+        </div>
+        <div class="help-head-actions">
+          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
+        </div>
+      </header>
+      ${statusStrip}
+      <section class="help-group" aria-labelledby="help-group-optional">
+        <h2 class="help-group-label" id="help-group-optional">Optional keys</h2>
+        ${optionalCards.map(cardHtml).join("")}
+      </section>
+      <section class="help-group" aria-labelledby="help-group-included">
+        <h2 class="help-group-label" id="help-group-included">Included · already running</h2>
+        ${includedCards.map(cardHtml).join("")}
+      </section>
+      <footer class="help-footnote">
+        <p>Keys are stored in <code>reader/.env</code>, a private plain-text file on your computer—never shared or uploaded. ${env && env.env_exists ? "Yours exists and is active." : "It’s created the first time you save a key here."}</p>
+        <details class="help-env-details">
+          <summary>What is a .env file?</summary>
+          <p>A <strong>.env</strong> file holds environment settings—API keys and preferences—as plain <code>KEY=value</code> lines. Normally, setting one up means copying example files in a terminal; here, <em>Edit API keys</em> creates and updates <code>reader/.env</code> for you, and changes take effect right away with no restart.</p>
+          <button type="button" class="btn btn-sm" data-open-env="">${icon("key")} Open the editor</button>
+        </details>
+      </footer>
+    </div>`;
+	if (opts.enter) enterView();
+}
+// src/components/news_activity.js
+var newsPop = document.getElementById("news-pop");
+var newsActivityCache = /* @__PURE__ */ new Map();
+state.newsActivityCtx = null;
+function newsActivityButtonHtml() {
+	return `<button type="button" class="btn" id="btn-news-activity" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("news")} <span>Activity</span></button>`;
+}
+async function fillNewsActivity(kind, id, seq) {
+	state.newsActivityCtx = null;
+	if (state.currentTitle !== 29) return;
+	const key = `29|${kind === "part" ? "part:" : ""}${id}`;
+	let data = newsActivityCache.get(key);
+	if (!data) {
+		try {
+			data = await getJSON(kind === "part" ? `/api/news/part/${encodeURIComponent(id)}?title=29` : `/api/news/section/${encodeURIComponent(id)}?title=29`);
+		} catch (e) {
+			return;
+		}
+		newsActivityCache.set(key, data);
+	}
+	if (seq !== state.routeSeq) return;
+	const btn = document.getElementById("btn-news-activity");
+	if (!btn || !data.count) return;
+	state.newsActivityCtx = {
+		kind,
+		id,
+		data
+	};
+	btn.querySelector("span").textContent = data.count === 1 ? "1 rule or citation" : `${data.count} rules & citations`;
+	btn.hidden = false;
+}
+function newsTimelineHtml(ctx) {
+	const label = ctx.kind === "part" ? `Part ${ctx.id}` : `§ ${ctx.id}`;
+	const articles = ctx.data.articles || [];
+	const nodes = articles.map((a) => {
+		let meta = fmtDate(a.published_at), second = "";
+		if (a.category === "rules") meta += ` · Final rule${a.citation ? " · " + a.citation : ""}`;
+		else if (a.category === "rulemaking") meta += " · Proposed rule" + (a.comments_close_on ? ` · comments close ${fmtDate(a.comments_close_on)}` : "");
+		else if (a.category === "public_inspection") meta += " · Public inspection" + (a.scheduled_on ? ` · publishes ${fmtDate(a.scheduled_on)}` : "");
+		else if (a.category === "enforcement") {
+			meta += " · Citation" + (a.penalty_usd ? ` · ${fmtMoney(a.penalty_usd)}` : "");
+			second = [a.company, [a.city, a.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
+		} else meta += " · Notice";
+		const title = a.category === "enforcement" && second ? second : a.title;
+		const hay = `${meta} ${title} ${a.citation || ""}`.toLowerCase();
+		const actNr = inspectionActivityNr(a);
+		const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}" data-pop-nav><span class="tl-title">${escapeHtml(title)}</span></a>` : extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`);
+		return `<li class="tl-node" data-kind="${escapeHtml(a.category)}" data-hay="${escapeHtml(hay)}">
+      <span class="tl-dot" aria-hidden="true"></span>
+      <div class="tl-meta">${escapeHtml(meta)}</div>
+      ${titleHtml}
+    </li>`;
+	}).join("");
+	const allHref = ctx.kind === "part" ? `#/news?part=${encodeURIComponent(ctx.id)}` : `#/news?section=${encodeURIComponent(ctx.id)}`;
+	const filterHtml = articles.length >= 6 ? `<input type="search" class="pop-filter" id="news-pop-filter" placeholder="Filter ${articles.length} events…" aria-label="Filter activity events" autocomplete="off">` : "";
+	return `<div class="news-pop-head-row">
+      <div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close activity">${icon("close")}</button>
+    </div>
+    ${filterHtml}
+    <ol class="reg-timeline">${nodes}</ol>
+    <a class="news-pop-foot" href="${allHref}">${icon("news")} See all in News</a>`;
+}
+var newsCtrl = createPopover({
+	el: newsPop,
+	triggerSelector: "#btn-news-activity"
+});
+function openNewsActivity() {
+	const btn = document.getElementById("btn-news-activity");
+	if (!btn || !state.newsActivityCtx) return;
+	newsPop.setAttribute("aria-label", `Federal Register and OSHA activity for ${state.newsActivityCtx.kind === "part" ? "Part " : "§ "}${state.newsActivityCtx.id}`);
+	newsCtrl.open(btn, newsTimelineHtml(state.newsActivityCtx), {
+		focusSelector: "#news-pop-filter, a, button",
+		returnFocus: btn
+	});
+}
+function closeNewsActivity(returnFocus = true) {
+	newsCtrl.close(returnFocus);
+}
+newsPop.addEventListener("click", (e) => {
+	if (e.target.closest("[data-pop-close]")) closeNewsActivity(true);
+	else if (e.target.closest("[data-pop-nav]")) closeNewsActivity(false);
+});
+newsPop.addEventListener("input", (e) => {
+	if (e.target.id !== "news-pop-filter") return;
+	const q = e.target.value.trim().toLowerCase();
+	for (const li of newsPop.querySelectorAll(".tl-node")) {
+		const hay = li.dataset.hay || "";
+		li.hidden = Boolean(q && !hay.includes(q));
+	}
+	newsCtrl.reposition(document.getElementById("btn-news-activity"));
+});
+dom.view.addEventListener("click", (e) => {
+	if (e.target.closest("#btn-news-activity")) newsPop.hidden ? openNewsActivity() : closeNewsActivity();
+});
+newsPop.addEventListener("keydown", (e) => {
+	if (e.key === "Escape") {
+		e.preventDefault();
+		e.stopPropagation();
+		closeNewsActivity(true);
+	}
+});
+// src/views/doc_utils.js
+var figModal = document.getElementById("figure-modal");
+var figReturnFocus = null;
+function closeFigureModal() {
+	if (!figModal || figModal.hidden) return;
+	figModal.hidden = true;
+	const dialog = figModal.querySelector(".modal-dialog");
+	if (dialog) dialog.innerHTML = "";
+	if (figReturnFocus && typeof figReturnFocus.focus === "function") figReturnFocus.focus();
+	figReturnFocus = null;
+}
+function openFigureModal(figLink) {
+	if (!figModal || !figLink) return;
+	const img = figLink.querySelector(".reg-img");
+	const fullSrc = figLink.getAttribute("href") || img && img.src || "";
+	if (!fullSrc) return;
+	figReturnFocus = document.activeElement;
+	const caption = figLink.previousElementSibling?.classList.contains("reg-label") ? figLink.previousElementSibling.textContent.trim() : "Regulatory Figure";
+	const dialog = figModal.querySelector(".modal-dialog");
+	if (!dialog) return;
+	dialog.innerHTML = `
+    <div class="modal-head">
+      <div>
+        <div class="doc-kicker">Figure preview</div>
+        <h2 class="modal-title" id="fig-modal-title">${escapeHtml(caption)}</h2>
+      </div>
+      <div class="fig-modal-acts">
+        <button type="button" class="btn btn-sm" id="fig-invert-btn" aria-pressed="false">Invert contrast</button>
+        <a class="btn btn-sm" href="${escapeHtml(fullSrc)}" target="_blank" rel="noopener noreferrer">${icon("external")} Full image</a>
+        <button type="button" class="icon-btn" id="fig-close-btn" aria-label="Close preview">${icon("close")}</button>
+      </div>
+    </div>
+    <div class="fig-modal-stage">
+      <img src="${escapeHtml(fullSrc)}" alt="${escapeHtml(caption)}" id="fig-modal-img">
+    </div>
+  `;
+	figModal.hidden = false;
+	document.getElementById("fig-close-btn")?.focus();
+}
+if (figModal) {
+	figModal.addEventListener("click", (e) => {
+		if (e.target === figModal || e.target.closest("#fig-close-btn")) {
+			closeFigureModal();
+			return;
+		}
+		const inv = e.target.closest("#fig-invert-btn");
+		if (inv) {
+			const stage = figModal.querySelector(".fig-modal-stage");
+			if (!stage) return;
+			const on = !stage.classList.contains("is-inverted");
+			stage.classList.toggle("is-inverted", on);
+			inv.setAttribute("aria-pressed", String(on));
+		}
+	});
+	figModal.addEventListener("keydown", (e) => {
+		if (e.key === "Escape") {
+			e.preventDefault();
+			closeFigureModal();
+		}
+	});
+	window.addEventListener("hashchange", closeFigureModal);
+}
+function findParagraphElement(root, pText) {
+	if (!root) return null;
+	const clean = (pText || "").trim();
+	if (!clean) return null;
+	const paras = [...root.querySelectorAll(".reg-p")];
+	for (const p of paras) {
+		const pm = p.querySelector(".pmark");
+		if (pm && pm.textContent.includes(clean)) return p;
+	}
+	const tokens = clean.match(/\([a-zA-Z0-9]{1,4}\)/g);
+	if (!tokens || !tokens.length) return null;
+	let ti = 0;
+	let lastMatched = null;
+	let minLevel = 0;
+	for (const p of paras) {
+		const lvlMatch = /\blvl-(\d+)\b/.exec(p.className);
+		const lvl = lvlMatch ? Number(lvlMatch[1]) : 0;
+		const pm = p.querySelector(".pmark");
+		if (!pm) continue;
+		const pTokens = pm.textContent.match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
+		if (!pTokens.length) continue;
+		if (ti > 0 && lvl > 0 && lvl <= minLevel) {
+			if (lvl === 1 && tokens[0].toLowerCase() !== pTokens[0].toLowerCase()) {
+				ti = 0;
+				minLevel = 0;
+			}
+		}
+		let matchedHere = 0;
+		let tempIdx = ti;
+		for (const pt of pTokens) if (tempIdx < tokens.length && pt.toLowerCase() === tokens[tempIdx].toLowerCase()) {
+			tempIdx++;
+			matchedHere++;
+		} else break;
+		if (matchedHere > 0 && (ti === 0 || lvl > minLevel)) {
+			ti = tempIdx;
+			minLevel = lvl;
+			lastMatched = p;
+			if (ti === tokens.length) return p;
+		}
+	}
+	return lastMatched;
+}
+function findParagraphRange(root, pText) {
+	const clean = (pText || "").trim();
+	if (!clean || !root) return [];
+	const rangeM = /^\s*((?:\([a-zA-Z0-9]{1,4}\))+)\s*(?:-|–|through|to)\s*((?:\([a-zA-Z0-9]{1,4}\))+)\s*$/i.exec(clean);
+	if (rangeM) {
+		const startEl = findParagraphElement(root, rangeM[1]);
+		const endEl = findParagraphElement(root, rangeM[2]);
+		if (startEl && endEl) {
+			const paras = [...root.querySelectorAll(".reg-p")];
+			const i1 = paras.indexOf(startEl);
+			const i2 = paras.indexOf(endEl);
+			if (i1 >= 0 && i2 >= i1 && i2 - i1 < 16) return paras.slice(i1, i2 + 1);
+			return [startEl];
+		}
+		if (startEl) return [startEl];
+	}
+	const hit = findParagraphElement(root, clean);
+	return hit ? [hit] : [];
+}
+function resolveAnchorTargets(root, target) {
+	if (!root || !target) return [];
+	const clean = String(target).trim();
+	if (!clean) return [];
+	const bareId = clean.startsWith("#") ? clean.slice(1) : clean;
+	if (/^(table|fig|figure|appendix|fn|ftref|sec|p)-?[a-zA-Z0-9_.\-]+$/i.test(bareId)) try {
+		const el = root.querySelector(`#${CSS.escape(bareId)}`);
+		if (el) return [el];
+	} catch (e) {}
+	return findParagraphRange(root, clean);
+}
+function flashElements(els, scroll = true) {
+	if (!els || !els.length) return;
+	for (const el of els) {
+		el.classList.remove("flash");
+		el.offsetWidth;
+		el.classList.add("flash");
+	}
+	if (scroll) els[0].scrollIntoView({
+		behavior: reduceMotion.matches ? "auto" : "smooth",
+		block: "center"
+	});
+}
+function highlightTarget(root, target, delay = 120) {
+	setTimeout(() => {
+		flashElements(resolveAnchorTargets(root, target), true);
+	}, delay);
+}
+function slugifyAnchor(raw) {
+	return raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+function enhanceDomAnchors(root = dom.view) {
+	if (!root) return;
+	const targets = /* @__PURE__ */ new Map();
+	let figSeq = 0;
+	for (const fig of root.querySelectorAll(".reg-figure")) {
+		const cap = fig.previousElementSibling?.classList.contains("reg-label") ? fig.previousElementSibling.textContent.trim() : "";
+		const m = /^\s*(Figure\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(cap);
+		if (!fig.id) {
+			figSeq++;
+			const base = m ? `fig-${slugifyAnchor(m[1].replace(/^figure\s+/i, ""))}` : `fig-${figSeq}`;
+			let id = base;
+			let n = 2;
+			while (root.querySelector(`#${CSS.escape(id)}`)) id = `${base}-${n++}`;
+			fig.id = id;
+		}
+		if (m) targets.set(m[1].toLowerCase(), {
+			label: m[1],
+			id: fig.id
+		});
+	}
+	for (const w of root.querySelectorAll(".table-wrap[id^=\"table-\"]")) {
+		const cap = w.querySelector("caption")?.textContent || "";
+		const m = /^\s*(Table\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(cap);
+		if (m) targets.set(m[1].toLowerCase(), {
+			label: m[1],
+			id: w.id
+		});
+	}
+	for (const appEl of root.querySelectorAll(".reg-appendix[id^=\"appendix-\"]")) {
+		const head = appEl.querySelector(".reg-subhead, .reg-label, .reg-p")?.textContent || "";
+		const m = /^\s*(Appendix\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(head);
+		if (m) targets.set(m[1].toLowerCase(), {
+			label: m[1],
+			id: appEl.id
+		});
+	}
+	if (!targets.size) return;
+	const pattern = [...targets.keys()].map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+	const re = new RegExp(`\\b(${pattern})\\b`, "gi");
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
+		const parent = node.parentElement;
+		if (!parent || !parent.closest(".reg-body") || parent.closest("a, button, caption, .reg-table")) return NodeFilter.FILTER_REJECT;
+		const txt = node.nodeValue || "";
+		return /(?:table|figure|appendix)/i.test(txt) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+	} });
+	const nodes = [];
+	let n;
+	while (n = walker.nextNode()) nodes.push(n);
+	for (const textNode of nodes) {
+		const val = textNode.nodeValue || "";
+		re.lastIndex = 0;
+		if (!re.test(val)) continue;
+		re.lastIndex = 0;
+		const frag = document.createDocumentFragment();
+		let last = 0;
+		let match;
+		while ((match = re.exec(val)) !== null) {
+			if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
+			const hit = targets.get(match[1].toLowerCase());
+			if (hit) {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = "xref xref-anchor";
+				btn.dataset.anchor = hit.id;
+				btn.textContent = match[0];
+				frag.appendChild(btn);
+			} else frag.appendChild(document.createTextNode(match[0]));
+			last = match.index + match[0].length;
+		}
+		if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
+		textNode.parentNode.replaceChild(frag, textNode);
+	}
+}
+function resolveParagraphPath(root, paraEl) {
+	if (!root || !paraEl) return "";
+	const pm = paraEl.querySelector(".pmark");
+	if (!pm) return "";
+	const firstTok = (pm.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
+	if (!firstTok.length) return "";
+	if (firstTok.length > 1) return firstTok.join("");
+	const lvlMatch = /\blvl-(\d+)\b/.exec(paraEl.className);
+	let targetLvl = lvlMatch ? Number(lvlMatch[1]) : 0;
+	if (targetLvl <= 1) return firstTok[0];
+	const paras = [...root.querySelectorAll(".reg-p")];
+	let idx = paras.indexOf(paraEl);
+	if (idx < 0) return firstTok[0];
+	const chain = [firstTok[0]];
+	for (let i = idx - 1; i >= 0 && targetLvl > 1; i--) {
+		const p = paras[i];
+		const lm = /\blvl-(\d+)\b/.exec(p.className);
+		const lvl = lm ? Number(lm[1]) : 0;
+		if (lvl > 0 && lvl < targetLvl) {
+			const toks = (p.querySelector(".pmark")?.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g);
+			if (toks && toks.length) {
+				chain.unshift(...toks);
+				targetLvl = lvl;
+			}
+		}
+	}
+	return chain.join("");
+}
+function formatCfrCitation(title, sectionLabelOrId, para = "") {
+	const cleanLabel = String(sectionLabelOrId || "").trim();
+	return `${title} C.F.R. ${cleanLabel.startsWith("§") ? cleanLabel : `§ ${cleanLabel}`}${para || ""}`;
+}
+function wrapIbrMentions(root, ibrList) {
+	if (!root || !Array.isArray(ibrList) || !ibrList.length) return;
+	const byMatch = /* @__PURE__ */ new Map();
+	for (const item of ibrList) {
+		if (!item || !item.match_text) continue;
+		byMatch.set(item.match_text.toLowerCase(), item);
+		if (item.code) byMatch.set(item.code.toLowerCase(), item);
+	}
+	if (!byMatch.size) return;
+	const escaped = [...byMatch.keys()].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+	const re = new RegExp(`(${escaped})`, "gi");
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
+		const parent = node.parentElement;
+		if (!parent || !parent.closest(".reg-body") || parent.closest("a, button, .pmark, .runin")) return NodeFilter.FILTER_REJECT;
+		return NodeFilter.FILTER_ACCEPT;
+	} });
+	const nodes = [];
+	let n;
+	while (n = walker.nextNode()) nodes.push(n);
+	for (const textNode of nodes) {
+		const val = textNode.nodeValue || "";
+		re.lastIndex = 0;
+		if (!re.test(val)) continue;
+		re.lastIndex = 0;
+		const frag = document.createDocumentFragment();
+		let last = 0;
+		let match;
+		while ((match = re.exec(val)) !== null) {
+			if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
+			const item = byMatch.get(match[1].toLowerCase());
+			if (item) {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = "xref xref-ibr";
+				btn.dataset.ibrCode = item.code;
+				btn.title = item.approved_in ? `${item.code} — IBR approved in ${item.approved_in.label}${item.approved_in.para || ""}` : `${item.code} (${item.org_name || item.org})`;
+				btn.textContent = match[0];
+				frag.appendChild(btn);
+			} else frag.appendChild(document.createTextNode(match[0]));
+			last = match.index + match[0].length;
+		}
+		if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
+		textNode.parentNode.replaceChild(frag, textNode);
+	}
+}
+function renderViewError(container, title, message, { retryLabel = "Try again", onRetry = null } = {}) {
+	if (!container) return;
+	container.innerHTML = emptyStateHtml({
+		title,
+		body: escapeHtml(message),
+		actionsHtml: onRetry ? `<button type="button" class="btn" id="view-err-retry">${escapeHtml(retryLabel)}</button>` : ""
+	});
+	if (onRetry) document.getElementById("view-err-retry")?.addEventListener("click", onRetry);
+}
+function parseCfrHref(href, fallbackTitle = 29) {
+	if (!href) return null;
+	if (href.startsWith("#")) {
+		const [pathPart, qs] = href.slice(1).split("?");
+		const params = new URLSearchParams(qs || "");
+		const mCorpusSec = /^\/corpus\/(?:federal-reg|cfr)\/[^/]+\/(\d+)\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
+		if (mCorpusSec) return {
+			kind: "section",
+			title: parseInt(mCorpusSec[1], 10),
+			section: decodeURIComponent(mCorpusSec[2]),
+			unit: mCorpusSec[3] ? decodeURIComponent(mCorpusSec[3]) : null,
+			para: params.get("p") || null
+		};
+		const mTitleSec = /^\/title\/(\d+)\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
+		if (mTitleSec) return {
+			kind: "section",
+			title: parseInt(mTitleSec[1], 10),
+			section: decodeURIComponent(mTitleSec[2]),
+			unit: mTitleSec[3] ? decodeURIComponent(mTitleSec[3]) : null,
+			para: params.get("p") || null
+		};
+		const mSec = /^\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
+		if (mSec) return {
+			kind: "section",
+			title: fallbackTitle,
+			section: decodeURIComponent(mSec[1]),
+			unit: mSec[2] ? decodeURIComponent(mSec[2]) : null,
+			para: params.get("p") || null
+		};
+		const mCorpusPart = /^\/corpus\/(?:federal-reg|cfr)\/[^/]+\/(\d+)\/part\/([^/]+)$/.exec(pathPart);
+		if (mCorpusPart) return {
+			kind: "part",
+			title: parseInt(mCorpusPart[1], 10),
+			part: decodeURIComponent(mCorpusPart[2])
+		};
+		const mTitlePart = /^\/title\/(\d+)\/part\/([^/]+)$/.exec(pathPart);
+		if (mTitlePart) return {
+			kind: "part",
+			title: parseInt(mTitlePart[1], 10),
+			part: decodeURIComponent(mTitlePart[2])
+		};
+		const mPart = /^\/part\/([^/]+)$/.exec(pathPart);
+		if (mPart) return {
+			kind: "part",
+			title: fallbackTitle,
+			part: decodeURIComponent(mPart[1])
+		};
+	}
+	return null;
+}
+// src/components/split_pane.js
+var splitAbort = null;
+var splitSeq = 0;
+var splitHistory = [];
+var activeSplitDoc = null;
+function unitQueryFor(view, para) {
+	if (view === "full") return "";
+	if (view) return "?unit=" + encodeURIComponent(view);
+	const pClause = para && /^\(([a-z])\)/i.exec(para.trim());
+	return "?unit=" + encodeURIComponent(pClause ? pClause[1].toLowerCase() : "");
+}
+function buildSectionHash(title, sectionId, para = null, unit = null) {
+	let h = `#/title/${title}/section/${encodeURIComponent(sectionId)}`;
+	if (unit === "full") h += "/full";
+	else if (unit) h += `/${encodeURIComponent(unit)}`;
+	if (para) h += `?p=${encodeURIComponent(para)}`;
+	return h;
+}
+function closeSplitPane() {
+	if (splitAbort) {
+		try {
+			splitAbort.abort();
+		} catch (e) {}
+		splitAbort = null;
+	}
+	splitSeq++;
+	splitHistory = [];
+	activeSplitDoc = null;
+	state.splitState = null;
+	if (dom.splitPane) {
+		dom.splitPane.hidden = true;
+		dom.splitPane.innerHTML = "";
+	}
+	if (dom.mainStage) dom.mainStage.classList.remove("is-split");
+}
+function promoteSplitToMain() {
+	if (!state.splitState) return;
+	const { title, sectionId, para, unit } = state.splitState;
+	const target = buildSectionHash(title, sectionId, para, unit);
+	closeSplitPane();
+	window.location.hash = target;
+}
+function renderSplitLoading(title, sectionId) {
+	dom.splitPane.innerHTML = `
+    <div class="split-head">
+      <div class="split-head-meta">
+        <div class="doc-kicker">${title} CFR § ${escapeHtml(sectionId)}</div>
+        <div class="split-head-title">Loading…</div>
+      </div>
+      <div class="split-head-acts">
+        <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>
+      </div>
+    </div>
+    <div class="split-body">${skeletonHtml("doc", `Loading § ${sectionId}…`)}</div>
+  `;
+}
+async function openSplitPane({ title, sectionId, para = null, unit = null, pushHistory = true }) {
+	if (!dom.splitPane || !dom.mainStage || !sectionId) return;
+	const tNum = Number(title) || state.currentTitle || 29;
+	const nextEntry = {
+		title: tNum,
+		sectionId: String(sectionId),
+		para: para || null,
+		unit: unit || null
+	};
+	if (pushHistory) {
+		const top = splitHistory[splitHistory.length - 1];
+		if (!top || top.title !== nextEntry.title || top.sectionId !== nextEntry.sectionId || top.unit !== nextEntry.unit || top.para !== nextEntry.para) splitHistory.push(nextEntry);
+	}
+	if (splitAbort) try {
+		splitAbort.abort();
+	} catch (e) {}
+	splitAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+	const seq = ++splitSeq;
+	dom.mainStage.classList.add("is-split");
+	dom.splitPane.hidden = false;
+	state.splitState = nextEntry;
+	renderSplitLoading(tNum, sectionId);
+	try {
+		const qs = unitQueryFor(unit, para);
+		const res = await fetch(`/api/${tNum}/section/${encodeURIComponent(sectionId)}${qs}`, { signal: splitAbort?.signal });
+		if (seq !== splitSeq) return;
+		if (!res.ok) {
+			dom.splitPane.innerHTML = `
+        <div class="split-head">
+          <div class="split-head-meta">
+            <div class="doc-kicker">${tNum} CFR § ${escapeHtml(sectionId)}</div>
+            <div class="split-head-title">Unavailable</div>
+          </div>
+          <div class="split-head-acts">
+            <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>
+          </div>
+        </div>
+        <div class="split-body"><p class="muted">Couldn’t load § ${escapeHtml(sectionId)} from Title ${tNum}.</p></div>
+      `;
+			return;
+		}
+		let data = await res.json();
+		if (seq !== splitSeq) return;
+		activeSplitDoc = data;
+		state.peekCache.set(`${tNum}|${sectionId}|${data.unit || "full"}`, data);
+		const heading = cleanInlineLabel(data.section_title || data.title_label || "");
+		const label = cleanInlineLabel(data.label);
+		const hasBack = splitHistory.length > 1;
+		const outline = data.outline || [];
+		const unitsHtml = data.mode === "units" && outline.length > 1 ? `<div class="split-units" role="navigation" aria-label="Section parts">
+          ${outline.map((u) => `<button type="button" class="split-unit-chip${data.unit === u.key ? " is-active" : ""}" data-split-unit="${escapeHtml(u.key)}">${escapeHtml(unitShort(u))}</button>`).join("")}
+          <button type="button" class="split-unit-chip${!data.unit ? " is-active" : ""}" data-split-unit="full">Full</button>
+        </div>` : "";
+		const partLabel = data.part ? ` · Part ${escapeHtml(data.part)}` : "";
+		const splitTier = tNum !== state.currentTitle ? "cross" : "cfr";
+		dom.splitPane.innerHTML = `
+      <header class="split-head" data-ref-tier="${splitTier}">
+        ${hasBack ? `<button type="button" class="icon-btn" data-split-act="back" title="Back in split pane" aria-label="Back">${icon("chevronLeft")}</button>` : ""}
+        <div class="split-head-meta">
+          <div class="doc-kicker"><span class="tier-pip" aria-hidden="true"></span> ${tNum} CFR${partLabel}</div>
+          <h2 class="split-head-title">${escapeHtml(label)} ${escapeHtml(heading)}</h2>
+        </div>
+        <div class="split-head-acts">
+          <button type="button" class="btn btn-small" data-split-act="promote" title="Open this section in the main reading pane">Open</button>
+          <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>
+        </div>
+      </header>
+      ${unitsHtml}
+      <div class="split-body">
+        ${data.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : ""}
+        ${data.html || ""}
+      </div>
+    `;
+		const bodyEl = dom.splitPane.querySelector(".split-body");
+		if (bodyEl) {
+			enhanceDomAnchors(bodyEl);
+			const cachedGraph = state.graphCache.get(`${tNum}|${data.id}`);
+			if (cachedGraph?.ibr?.length) wrapIbrMentions(bodyEl, cachedGraph.ibr);
+			else fetch(`/api/${tNum}/citations/${encodeURIComponent(data.id)}`, { signal: splitAbort?.signal }).then((r) => r.ok ? r.json() : null).then((g) => {
+				if (!g || seq !== splitSeq || !bodyEl.isConnected) return;
+				state.graphCache.set(`${tNum}|${data.id}`, g);
+				if (g.ibr?.length) wrapIbrMentions(bodyEl, g.ibr);
+			}).catch(() => {});
+			if (para) highlightTarget(bodyEl, para, 60);
+			else dom.splitPane.scrollTop = 0;
+		}
+	} catch (err) {
+		if (err && err.name === "AbortError") return;
+		if (seq !== splitSeq) return;
+		dom.splitPane.innerHTML = `
+      <div class="split-head">
+        <div class="split-head-meta">
+          <div class="doc-kicker">${tNum} CFR § ${escapeHtml(sectionId)}</div>
+          <div class="split-head-title">Load failed</div>
+        </div>
+        <div class="split-head-acts">
+          <button type="button" class="icon-btn" data-split-act="close" aria-label="Close split view">${icon("close")}</button>
+        </div>
+      </div>
+      <div class="split-body"><div class="msg-error">${escapeHtml(err?.message || "Error")}</div></div>
+    `;
+	}
+}
+function getActiveSplitDoc() {
+	return activeSplitDoc;
+}
+if (dom.splitPane) {
+	dom.splitPane.addEventListener("click", (e) => {
+		const actBtn = e.target.closest("[data-split-act]");
+		if (actBtn) {
+			const act = actBtn.dataset.splitAct;
+			if (act === "close") closeSplitPane();
+			else if (act === "promote") promoteSplitToMain();
+			else if (act === "back" && splitHistory.length > 1) {
+				splitHistory.pop();
+				const prev = splitHistory[splitHistory.length - 1];
+				if (prev) openSplitPane({
+					...prev,
+					pushHistory: false
+				});
+			}
+			return;
+		}
+		const unitBtn = e.target.closest("[data-split-unit]");
+		if (unitBtn && state.splitState) {
+			openSplitPane({
+				title: state.splitState.title,
+				sectionId: state.splitState.sectionId,
+				para: null,
+				unit: unitBtn.dataset.splitUnit,
+				pushHistory: false
+			});
+			return;
+		}
+		const anchorTrigger = e.target.closest("[data-anchor]");
+		if (anchorTrigger) {
+			e.preventDefault();
+			scrollToAnchor(anchorTrigger.dataset.anchor, dom.splitPane);
+			return;
+		}
+		const localPara = e.target.closest("a.xref-local[data-local-para]");
+		if (localPara) {
+			e.preventDefault();
+			highlightTarget(dom.splitPane, localPara.dataset.localPara, 0);
+			return;
+		}
+		const figLink = e.target.closest("a.reg-figure:not(.is-broken)");
+		if (figLink && dom.splitPane.contains(figLink)) {
+			e.preventDefault();
+			openFigureModal(figLink);
+			return;
+		}
+		const link = e.target.closest("a[href^=\"#\"]");
+		if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+			const parsed = parseCfrHref(link.getAttribute("href"), state.splitState?.title || state.currentTitle);
+			if (parsed && parsed.kind === "section") {
+				e.preventDefault();
+				openSplitPane({
+					title: parsed.title,
+					sectionId: parsed.section,
+					para: parsed.para,
+					unit: parsed.unit,
+					pushHistory: true
+				});
+			}
+		}
+	});
+	dom.splitPane.addEventListener("error", (e) => {
+		const img = e.target;
+		if (!(img instanceof HTMLImageElement) || !img.classList.contains("reg-img")) return;
+		const fig = img.closest(".reg-figure");
+		if (!fig || fig.classList.contains("is-broken")) return;
+		fig.classList.add("is-broken");
+		if (activeSplitDoc?.ecfr_url) fig.href = activeSplitDoc.ecfr_url;
+		fig.title = "This figure is only available on eCFR";
+		fig.innerHTML = `${icon("external")}<span>Figure — view on eCFR</span>`;
+	}, true);
+}
+// src/views/reader.js
+var READING_MODE_KEY = "readingModeByPart:v1";
+function loadReadingModePrefs() {
+	try {
+		const obj = JSON.parse(lsGet(READING_MODE_KEY) || "{}");
+		return obj && typeof obj === "object" ? obj : {};
+	} catch (e) {
+		return {};
+	}
+}
+function getPreferredPartMode(title, part) {
+	if (!part) return null;
+	return loadReadingModePrefs()[`${title}|${part}`] || null;
+}
+function savePreferredPartMode(title, part, mode) {
+	if (!part) return;
+	const prefs = loadReadingModePrefs();
+	prefs[`${title}|${part}`] = mode;
+	lsSet(READING_MODE_KEY, JSON.stringify(prefs));
+}
+function highlightParagraph(pText, delay = 120) {
+	highlightTarget(dom.view, pText, delay);
+}
+var paraBar = null;
+var paraBarTarget = null;
+function hideParaBar() {
+	if (paraBar) paraBar.hidden = true;
+	paraBarTarget = null;
+}
+function showParaBar(pEl) {
+	if (!dom.view.querySelector(".reg-body") || !pEl?.querySelector(".pmark")) {
+		hideParaBar();
+		return;
+	}
+	if (!paraBar || !paraBar.isConnected) {
+		paraBar = document.createElement("div");
+		paraBar.className = "para-tools";
+		paraBar.setAttribute("aria-label", "Paragraph actions");
+		paraBar.innerHTML = `
+      <button type="button" class="para-tool-btn" data-para-act="copy" title="Copy legal CFR citation">${icon("link")} Cite</button>
+      <button type="button" class="para-tool-btn" data-para-act="clip" title="Clip clause to workspace">${icon("bookmark")} Clip</button>
+    `;
+	}
+	paraBarTarget = pEl;
+	paraBar.hidden = false;
+	pEl.appendChild(paraBar);
+}
+dom.view.addEventListener("mouseover", (e) => {
+	if (!state.currentSection) return;
+	if (paraBar && paraBar.contains(e.target)) return;
+	const p = e.target.closest(".reg-body .reg-p[id]");
+	if (p && p.querySelector(".pmark")) {
+		if (p !== paraBarTarget) showParaBar(p);
+	} else hideParaBar();
+});
+dom.view.addEventListener("mouseleave", () => hideParaBar());
+dom.view.addEventListener("click", async (e) => {
+	const toolBtn = e.target.closest(".para-tool-btn[data-para-act]");
+	if (toolBtn && paraBarTarget && state.currentSection) {
+		e.preventDefault();
+		e.stopPropagation();
+		const para = resolveParagraphPath(dom.view, paraBarTarget);
+		const label = cleanInlineLabel(state.currentSection.label);
+		const cite = formatCfrCitation(state.currentTitle, label, para);
+		if (toolBtn.dataset.paraAct === "copy") try {
+			await navigator.clipboard.writeText(cite);
+			showToast(`Copied ${cite}`);
+		} catch (err) {
+			showToast("Couldn’t copy citation");
+		}
+		else if (toolBtn.dataset.paraAct === "clip") {
+			const clone = paraBarTarget.cloneNode(true);
+			clone.querySelectorAll(".para-tools").forEach((x) => x.remove());
+			const ref = currentSectionRef();
+			if (ref) clipToWorkspace(ref, {
+				para,
+				quote: clone.textContent.trim().slice(0, 320),
+				cite
+			});
+		}
+		return;
+	}
+	const modeBtn = e.target.closest("a[data-mode-pref]");
+	if (modeBtn && state.currentSection?.part) savePreferredPartMode(state.currentTitle, state.currentSection.part, modeBtn.dataset.modePref);
+	if (e.target.closest("#btn-cited-by") && state.currentSection) {
+		const btn = e.target.closest("#btn-cited-by");
+		const graphData = state.graphCache.get(`${state.currentTitle}|${state.currentSection.id}`);
+		if (graphData) openCitedByPopover(btn, graphData);
+		return;
+	}
+	if (e.target.closest("#btn-refs-ledger") && state.currentSection) {
+		openRefsLedgerPopover(e.target.closest("#btn-refs-ledger"));
+		return;
+	}
+	if (e.altKey) return;
+	const localPara = e.target.closest("a.xref-local[data-local-para]");
+	if (localPara) {
+		if (findParagraphElement(dom.view, localPara.dataset.localPara)) {
+			e.preventDefault();
+			highlightParagraph(localPara.dataset.localPara, 0);
+		}
+		return;
+	}
+	const figLink = e.target.closest("a.reg-figure:not(.is-broken)");
+	if (figLink && dom.view.contains(figLink)) {
+		e.preventDefault();
+		openFigureModal(figLink);
+	}
+});
+function renderCitedByListHtml(graphData, filter = "") {
+	const q = filter.trim().toLowerCase();
+	const rows = (graphData.cited_by || []).filter((c) => {
+		if (!q) return true;
+		return `${c.id} ${c.label} ${c.title} ${c.part}`.toLowerCase().includes(q);
+	});
+	if (!rows.length) return "<p class=\"peek-text\" style=\"padding:8px 0\">No matching citing sections.</p>";
+	return `<div class="cited-list">${rows.slice(0, 50).map((c) => `
+    <div class="cited-row">
+      <a class="cited-link" href="#/title/${state.currentTitle}/section/${encodeURIComponent(c.id)}">
+        <span class="cited-num">${escapeHtml(c.label)}</span>
+        <span class="cited-title">${escapeHtml(c.title)}</span>
+      </a>
+      <button type="button" class="lib-act cited-split" data-cited-split="${escapeHtml(c.id)}" title="Open side-by-side">Split</button>
+    </div>
+  `).join("")}</div>`;
+}
+function openCitedByPopover(btn, graphData) {
+	const total = graphData.cited_by_count || 0;
+	const filterHtml = total >= 6 ? `<input type="search" class="pop-filter" id="cited-pop-filter" placeholder="Filter ${total} citing sections…" aria-label="Filter citing sections" autocomplete="off">` : "";
+	citePop.open(btn, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">Cited by ${plural(total, "section")} in Title ${state.currentTitle}</div>
+      <span class="peek-badge">CITED BY</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close citing sections">${icon("close")}</button>
+    </div>
+    ${filterHtml}
+    <div id="cited-pop-list">${renderCitedByListHtml(graphData)}</div>
+  `, {
+		interactive: true,
+		returnFocus: btn,
+		focusSelector: "#cited-pop-filter, .cited-link",
+		refTier: "cfr"
+	});
+	const filterEl = document.getElementById("cited-pop-filter");
+	if (filterEl) filterEl.addEventListener("input", () => {
+		const slot = document.getElementById("cited-pop-list");
+		if (slot) slot.innerHTML = renderCitedByListHtml(graphData, filterEl.value);
+		citePop.reposition(btn);
+	});
+}
+if (dom.citePop) dom.citePop.addEventListener("click", (e) => {
+	const sp = e.target.closest("[data-cited-split]");
+	if (sp) {
+		const secId = sp.dataset.citedSplit;
+		citePop.close(false);
+		openSplitPane({
+			title: state.currentTitle,
+			sectionId: secId,
+			pushHistory: true
+		});
+		return;
+	}
+	const lsp = e.target.closest("[data-ledger-split]");
+	if (lsp) {
+		const parsed = parseCfrHref(lsp.dataset.ledgerSplit || "", state.currentTitle);
+		citePop.close(false);
+		if (parsed?.kind === "section") openSplitPane({
+			title: parsed.title,
+			sectionId: parsed.section,
+			para: parsed.para,
+			unit: parsed.unit,
+			pushHistory: true
+		});
+		return;
+	}
+	const ljmp = e.target.closest("[data-ledger-idx]");
+	if (ljmp) {
+		const idx = Number(ljmp.dataset.ledgerIdx);
+		const item = activeLedgerItems[idx];
+		if (!item) return;
+		if (item.el?.isConnected && (item.tier === "local" || item.tier === "ibr" || item.tier === "uninstalled")) {
+			citePop.close(false);
+			flashElements([item.el], true);
+		} else if (item.href && item.href.startsWith("#")) {
+			citePop.close(false);
+			window.location.hash = item.href;
+		}
+	}
+});
+var LEDGER_GROUPS = [
+	{
+		tier: "usc",
+		label: "Federal Statutes · U.S.C."
+	},
+	{
+		tier: "cfr",
+		label: "Current Title CFR"
+	},
+	{
+		tier: "cross",
+		label: "Cross-Title CFR"
+	},
+	{
+		tier: "state",
+		label: "State Authorities"
+	},
+	{
+		tier: "county",
+		label: "County & Municipal"
+	},
+	{
+		tier: "ibr",
+		label: "IBR Standards"
+	},
+	{
+		tier: "fr",
+		label: "Federal Register"
+	},
+	{
+		tier: "uninstalled",
+		label: "Uninstalled Corpora"
+	},
+	{
+		tier: "local",
+		label: "Clauses, Tables & Figures"
+	},
+	{
+		tier: "web",
+		label: "External Portals"
+	}
+];
+var activeLedgerItems = [];
+function classifyDomRef(el) {
+	if (el.classList.contains("xref-usc")) return "usc";
+	if (el.classList.contains("xref-fr")) return "fr";
+	if (el.classList.contains("xref-ibr")) return "ibr";
+	if (el.classList.contains("xref-state")) return "state";
+	if (el.classList.contains("xref-county")) return "county";
+	if (el.classList.contains("xref-external")) return "uninstalled";
+	if (el.classList.contains("xref-cross")) return "cross";
+	if (el.classList.contains("xref-local") || el.classList.contains("xref-anchor") || el.classList.contains("ftref")) return "local";
+	if (el.classList.contains("xref-web")) return "web";
+	return "cfr";
+}
+function collectSectionReferences() {
+	const body = dom.view.querySelector(".reg-body");
+	if (!body) return [];
+	const seen = /* @__PURE__ */ new Map();
+	const nodes = body.querySelectorAll("a.xref, button.xref-anchor, button.xref-ibr, .ftref[data-anchor]");
+	for (const el of nodes) {
+		const tier = classifyDomRef(el);
+		const label = cleanInlineLabel(el.textContent);
+		if (!label) continue;
+		const href = el.getAttribute("href") || "";
+		const anchor = el.dataset.anchor || "";
+		const ibrCode = el.dataset.ibrCode || "";
+		const localPara = el.dataset.localPara || "";
+		const dedupKey = `${tier}|${href || anchor || ibrCode || localPara || label.toLowerCase()}`;
+		if (seen.has(dedupKey)) continue;
+		let sub = "";
+		if (tier === "usc") sub = el.getAttribute("title")?.replace(/^View\s+|\s+at Cornell LII$/g, "") || "United States Code";
+		else if (tier === "fr") sub = "Federal Register";
+		else if (tier === "ibr") sub = el.getAttribute("title") || "Incorporated consensus standard";
+		else if (tier === "uninstalled") sub = `Title ${el.dataset.cfrTitle || ""} CFR (click to download)`;
+		else if (tier === "local") sub = el.classList.contains("ftref") ? "Footnote in section" : localPara ? "Clause in section" : "Table / Figure / Appendix";
+		else if (tier === "web") sub = href.replace(/^https?:\/\//i, "").split("/")[0];
+		else {
+			const parsed = parseCfrHref(href, state.currentTitle);
+			sub = parsed?.kind === "section" ? `${parsed.title} CFR § ${parsed.section}${parsed.para || ""}` : parsed?.kind === "part" ? `${parsed.title} CFR Part ${parsed.part}` : "CFR Reference";
+		}
+		const parsed = href.startsWith("#") ? parseCfrHref(href, state.currentTitle) : null;
+		const canSplit = Boolean(parsed?.kind === "section");
+		seen.set(dedupKey, {
+			idx: seen.size,
+			tier,
+			code: label,
+			sub,
+			href,
+			external: el.getAttribute("target") === "_blank",
+			splitHref: canSplit ? href : "",
+			el
+		});
+	}
+	return [...seen.values()];
+}
+function renderRefsLedgerHtml(items, filter = "") {
+	const q = filter.trim().toLowerCase();
+	const filtered = q ? items.filter((x) => `${x.code} ${x.sub} ${x.tier}`.toLowerCase().includes(q)) : items;
+	if (!filtered.length) return "<p class=\"peek-text\" style=\"padding:8px 0\">No matching references in this section.</p>";
+	const byTier = /* @__PURE__ */ new Map();
+	for (const item of filtered) {
+		if (!byTier.has(item.tier)) byTier.set(item.tier, []);
+		byTier.get(item.tier).push(item);
+	}
+	return `<div class="refs-ledger-wrap">${LEDGER_GROUPS.filter((g) => byTier.has(g.tier)).map((g) => {
+		const groupItems = byTier.get(g.tier);
+		return `
+      <div class="refs-ledger-group" data-ref-tier="${g.tier}">
+        <div class="refs-ledger-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(g.label)}</span><span class="refs-ledger-count">${groupItems.length}</span></div>
+        ${groupItems.slice(0, 25).map((item) => `
+          <div class="refs-ledger-row">
+            ${item.external && item.href ? `<a class="refs-ledger-link" href="${escapeHtml(item.href)}" target="_blank" rel="noopener noreferrer"><span class="refs-ledger-code">${escapeHtml(item.code)}</span><span class="refs-ledger-sub">${escapeHtml(item.sub)}</span></a>` : `<button type="button" class="refs-ledger-link" data-ledger-idx="${item.idx}"><span class="refs-ledger-code">${escapeHtml(item.code)}</span><span class="refs-ledger-sub">${escapeHtml(item.sub)}</span></button>`}
+            ${item.splitHref ? `<button type="button" class="lib-act cited-split" data-ledger-split="${escapeHtml(item.splitHref)}" title="Open side-by-side">Split</button>` : ""}
+          </div>
+        `).join("")}
+      </div>`;
+	}).join("")}</div>`;
+}
+function openRefsLedgerPopover(btn) {
+	activeLedgerItems = collectSectionReferences();
+	const total = activeLedgerItems.length;
+	const topTier = activeLedgerItems[0]?.tier || "cfr";
+	const filterHtml = total >= 8 ? `<input type="search" class="pop-filter" id="refs-ledger-filter" placeholder="Filter ${total} outgoing references…" aria-label="Filter section references" autocomplete="off">` : "";
+	citePop.open(btn, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">Outgoing References (${total})</div>
+      <span class="peek-badge">LEDGER</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close reference ledger">${icon("close")}</button>
+    </div>
+    ${filterHtml}
+    <div id="refs-ledger-list">${renderRefsLedgerHtml(activeLedgerItems)}</div>
+  `, {
+		interactive: true,
+		returnFocus: btn,
+		focusSelector: "#refs-ledger-filter, .refs-ledger-link",
+		refTier: topTier
+	});
+	const filterEl = document.getElementById("refs-ledger-filter");
+	if (filterEl) filterEl.addEventListener("input", () => {
+		const slot = document.getElementById("refs-ledger-list");
+		if (slot) slot.innerHTML = renderRefsLedgerHtml(activeLedgerItems, filterEl.value);
+		citePop.reposition(btn);
+	});
+}
+function updateRefsLedgerButton() {
+	const btn = document.getElementById("btn-refs-ledger");
+	if (!btn) return;
+	const items = collectSectionReferences();
+	const span = btn.querySelector("span");
+	if (span) span.textContent = items.length ? `Refs ${items.length}` : "Refs";
+	btn.hidden = items.length === 0;
+}
+async function fillSectionGraph(titleNum, sectionId, seq, signal) {
+	const key = `${titleNum}|${sectionId}`;
+	let data = state.graphCache.get(key);
+	if (!data) try {
+		const res = await fetch(`/api/${titleNum}/citations/${encodeURIComponent(sectionId)}`, { signal });
+		if (!res.ok) return;
+		data = await res.json();
+		state.graphCache.set(key, data);
+	} catch (e) {
+		return;
+	}
+	if (seq !== state.routeSeq || !state.currentSection || state.currentSection.id !== sectionId) return;
+	if (data.cited_by_count > 0) {
+		const btn = document.getElementById("btn-cited-by");
+		if (btn) {
+			const span = btn.querySelector("span");
+			if (span) span.textContent = `Cited by ${data.cited_by_count}`;
+			btn.hidden = false;
+		}
+	}
+	if (data.ibr && data.ibr.length) {
+		wrapIbrMentions(dom.view, data.ibr);
+		updateRefsLedgerButton();
+	}
+}
+async function loadSection(sectionId, params, view) {
+	hideParaBar();
+	const knownPart = partForSection(sectionId);
+	const prefMode = !view && !params?.get("p") && knownPart ? getPreferredPartMode(state.currentTitle, knownPart) : null;
+	const full = view === "full" || prefMode === "full";
+	const pClause = params && /^\(([a-z])\)/.exec(params.get("p") || "");
+	const unit = full ? null : view || (pClause ? pClause[1] : "");
+	const sameSection = state.currentSection && state.currentSection.id === sectionId && !dom.view.querySelector(".loading");
+	if (!sameSection) dom.view.innerHTML = skeletonHtml("doc", "Loading section " + sectionId + "…");
+	try {
+		const qs = unit === null ? "" : "?unit=" + encodeURIComponent(unit);
+		const seq = state.routeSeq;
+		const signal = state.routeAbort?.signal;
+		const res = await fetch("/api/" + state.currentTitle + "/section/" + encodeURIComponent(sectionId) + qs, { signal });
+		if (seq !== state.routeSeq) return;
+		if (!res.ok) {
+			if (state.metaInfo?.partial && /^\d+[a-z]?(?:\.\d+.*)?$/i.test(sectionId)) {
+				clearTreeSelection();
+				setViewHead("");
+				await renderResolverPage(dom.view, {
+					title: state.currentTitle,
+					section: sectionId,
+					para: params ? params.get("p") : null
+				});
+				return;
+			}
+			renderNotFound();
+			return;
+		}
+		const data = await res.json();
+		if (seq !== state.routeSeq) return;
+		state.currentSection = data;
+		state.currentPart = data.part;
+		updateChatContext();
+		const reading = data.mode === "units" && data.unit ? "units" : "scroll";
+		const outline = data.outline || [];
+		const unitIdx = reading === "units" ? outline.findIndex((u) => u.key === data.unit) : -1;
+		const current = unitIdx >= 0 ? outline[unitIdx] : null;
+		const heading = cleanInlineLabel(data.section_title || data.title_label || "");
+		const label = cleanInlineLabel(data.label);
+		document.title = `${label}${current ? " " + unitShort(current) : ""} · Title ${state.currentTitle}`;
+		setViewHead((reading === "units" ? unitStepHtml(data) : docStepHtml(data.part, data.prev, data.next)) + railHtml(data, reading));
+		const partLink = data.part ? `<a href="#/part/${encodeURIComponent(data.part)}">Part ${escapeHtml(data.part)}</a>` : "";
+		let unitBannerHtml = "";
+		if (current) unitBannerHtml = `<div class="unit-context"><span>${escapeHtml(current.group && current.kind === "chapter" ? `${current.group_label} · ${current.group_title || ""}` : `${current.label ? `Clause ${current.label}` : current.title}`)}</span><span class="sep" aria-hidden="true">·</span><span class="unit-pos">Unit ${unitIdx + 1} of ${outline.length}</span></div>`;
+		const fullPart = data.part ? `<a class="btn" href="#/part/${encodeURIComponent(data.part)}/full?from=${encodeURIComponent(data.id)}">${icon("list")} See full part</a>` : "";
+		const toggle = data.mode !== "units" ? "" : full ? `<a class="btn" href="${sectionHref(data.id)}" data-mode-pref="units">${icon("stack")} Read in parts</a>` : `<a class="btn" href="${sectionHref(data.id, "full")}" data-mode-pref="full">${icon("expand")} See full section</a>`;
+		dom.view.innerHTML = `
+      <div class="doc-kicker">${state.currentTitle} CFR ${partLink}</div>
+      <h1 class="doc-title">${escapeHtml(label)} ${escapeHtml(heading)}</h1>
+
+      <div class="doc-actions">
+        ${toggle}
+        ${fullPart}
+        ${pinButtonHtml()}
+        ${newsActivityButtonHtml()}
+        <button type="button" class="btn" id="btn-cited-by" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("link")} <span>Cited by</span></button>
+        <button type="button" class="btn" id="btn-refs-ledger" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("list")} <span>Refs</span></button>
+        <div class="spacer"></div>
+        <div class="doc-actions-util">
+          <a class="btn" href="${escapeHtml(data.ecfr_url)}" target="_blank" rel="noopener" title="Open official text on eCFR">${icon("external")} eCFR</a>
+          <button class="btn" id="btn-copy-link" title="Copy direct link">${icon("link")} Copy link</button>
+          <div class="size-ctl" role="group" aria-label="Text size">
+            <button id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+            <button id="font-inc" title="Larger text" aria-label="Larger text">A+</button>
+          </div>
+        </div>
+      </div>
+
+      ${data.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : ""}
+      ${unitBannerHtml}
+
+      ${data.html || ""}
+    `;
+		enhanceDomAnchors(dom.view);
+		updateRefsLedgerButton();
+		enterView();
+		bindRail();
+		if (reading === "scroll") watchRail();
+		else if (state.railObserver) {
+			state.railObserver.disconnect();
+			state.railObserver = null;
+		}
+		document.getElementById("btn-copy-link")?.addEventListener("click", async () => {
+			try {
+				await navigator.clipboard.writeText(window.location.href);
+				showToast("Link copied");
+			} catch (e) {
+				showToast("Couldn’t copy the link");
+			}
+		});
+		document.getElementById("font-dec")?.addEventListener("click", () => adjustFontSize(-1));
+		document.getElementById("font-inc")?.addEventListener("click", () => adjustFontSize(1));
+		if (params && params.get("p")) highlightParagraph(params.get("p"));
+		selectTreeNode("s-" + data.id);
+		const unitInfo = reading === "units" && current ? {
+			key: current.key,
+			label: unitShort(current)
+		} : null;
+		if (!sameSection) recordSectionVisit(data, unitInfo);
+		else recordSectionUnit(data.id, unitInfo);
+		fillNewsActivity("section", data.id, seq);
+		fillSectionGraph(state.currentTitle, data.id, seq, signal);
+	} catch (err) {
+		if (err && err.name === "AbortError") return;
+		console.error(err);
+		setViewHead("");
+		renderViewError(dom.view, "Failed to load section", err?.message || "Unexpected error", { onRetry: () => loadSection(sectionId, params, view) });
+	}
+}
+// src/views/search.js
+state.searchState = null;
+function renderResultRow(r, showTitleInPart) {
+	let snippet = (r.snippet || "").replace(/^[\s.…]+|[\s.…]+$/g, "");
+	snippet = escapeHtml(snippet).replace(/\x02/g, "<mark>").replace(/\x03/g, "</mark>");
+	const rTitle = r.title || state.currentTitle;
+	return `
+    <div class="result">
+      <a class="result-title" href="#/title/${rTitle}/section/${encodeURIComponent(r.id)}">
+        <span class="result-num">${escapeHtml(r.label)}</span>
+        <span class="result-name">${escapeHtml(r.title_label || r.title)}</span>
+        <span class="result-part">${showTitleInPart ? `Title ${rTitle} · ` : ""}Part ${escapeHtml(r.part || "")}</span>
+      </a>
+      ${snippet ? `<div class="result-snippet">…${snippet}…</div>` : ""}
+    </div>
+  `;
+}
+function buildFacetData(rawResults, filters) {
+	const qText = filters.text.trim().toLowerCase();
+	const applyFilters = (list, { ignoreTitle = false, ignorePart = false } = {}) => list.filter((r) => {
+		const rTitle = r.title || state.currentTitle;
+		if (!ignoreTitle && filters.title !== null && rTitle !== filters.title) return false;
+		if (!ignorePart && filters.part !== null && (r.part || "") !== filters.part) return false;
+		if (filters.kind !== "all" && (r.kind || "section") !== filters.kind) return false;
+		if (qText) {
+			if (!`${r.label || ""} ${r.title_label || ""} ${r.part || ""} ${r.snippet || ""} title ${rTitle}`.toLowerCase().includes(qText)) return false;
+		}
+		return true;
+	});
+	const filtered = applyFilters(rawResults);
+	const titleCounts = /* @__PURE__ */ new Map();
+	for (const r of applyFilters(rawResults, {
+		ignoreTitle: true,
+		ignorePart: true
+	})) {
+		const t = r.title || state.currentTitle;
+		titleCounts.set(t, (titleCounts.get(t) || 0) + 1);
+	}
+	const partCounts = /* @__PURE__ */ new Map();
+	for (const r of applyFilters(rawResults, { ignorePart: true })) {
+		const p = r.part || "";
+		if (p) partCounts.set(p, (partCounts.get(p) || 0) + 1);
+	}
+	return {
+		filtered,
+		hasActiveFilter: filters.title !== null || filters.part !== null || filters.kind !== "all" || qText !== "",
+		sortedTitleFacets: [...titleCounts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]),
+		sortedPartFacets: [...partCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], void 0, { numeric: true })),
+		hasAppendices: rawResults.some((r) => r.kind === "appendix")
+	};
+}
+function renderGroupedResults(filtered, collapsed) {
+	if (!filtered.length) return emptyStateHtml({
+		title: "No matching results",
+		body: "None of the loaded results match your current filters."
+	});
+	const byTitle = /* @__PURE__ */ new Map();
+	for (const r of filtered) {
+		const t = r.title || state.currentTitle;
+		if (!byTitle.has(t)) byTitle.set(t, []);
+		byTitle.get(t).push(r);
+	}
+	return `<div class="search-groups">${[...byTitle.entries()].sort((a, b) => b[1].length - a[1].length || a[0] - b[0]).map(([t, tItems]) => {
+		const tMeta = state.installedTitles.find((x) => x.title === t);
+		const tLabel = tMeta ? `Title ${t} — ${tMeta.name}` : `Title ${t}`;
+		const isCollapsed = collapsed.has(t);
+		const byPart = /* @__PURE__ */ new Map();
+		for (const r of tItems) {
+			const p = r.part || "";
+			if (!byPart.has(p)) byPart.set(p, []);
+			byPart.get(p).push(r);
+		}
+		const partsHtml = [...byPart.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], void 0, { numeric: true })).map(([p, pItems]) => `
+      <div class="search-part-group">
+        ${p ? `<div class="search-part-head">
+          <a class="search-part-link" href="#/title/${t}/part/${encodeURIComponent(p)}">Part ${escapeHtml(p)}</a>
+          <span class="search-part-count">${pItems.length} ${pItems.length === 1 ? "result" : "results"}</span>
+        </div>` : ""}
+        ${pItems.map((r) => renderResultRow(r, false)).join("")}
+      </div>
+    `).join("");
+		return `
+      <section class="search-title-group has-tier-bar${isCollapsed ? " is-collapsed" : ""}" data-ref-tier="cfr" data-tgroup="${t}">
+        <button type="button" class="search-title-head" aria-expanded="${!isCollapsed}">
+          <span class="search-title-caret" aria-hidden="true">${icon("chevronDown")}</span>
+          <span class="tier-pip" aria-hidden="true"></span>
+          <span class="search-title-name">${escapeHtml(tLabel)}</span>
+          <span class="ref-badge">FEDERAL CFR</span>
+          <span class="search-title-count">${tItems.length} ${tItems.length === 1 ? "result" : "results"}</span>
+        </button>
+        <div class="search-title-body">${partsHtml}</div>
+      </section>
+    `;
+	}).join("")}</div>`;
+}
+function patchSearchDynamicSlots() {
+	if (!state.searchState) return;
+	const { query, allTitles, data, view, filters, collapsed } = state.searchState;
+	const rawResults = data.results || [];
+	const total = Number(data.total || 0);
+	const countSlot = document.getElementById("search-count-slot");
+	const facetsBar = document.getElementById("search-facets-slot");
+	const kindSlot = document.getElementById("search-kind-slot");
+	const clearSlot = document.getElementById("search-clear-slot");
+	const filtersBox = document.getElementById("search-filters-box");
+	const bodySlot = document.getElementById("search-results-slot");
+	if (!bodySlot) return;
+	for (const btn of dom.view.querySelectorAll("[data-sview]")) {
+		const on = btn.dataset.sview === view;
+		btn.classList.toggle("is-on", on);
+		btn.setAttribute("aria-pressed", String(on));
+	}
+	if (!rawResults.length) {
+		if (filtersBox) filtersBox.hidden = true;
+		if (countSlot) countSlot.textContent = `0 results · ${data.ms} ms`;
+		bodySlot.innerHTML = emptyStateHtml({
+			title: "No results",
+			body: `Nothing in ${allTitles ? "the installed titles" : "Title " + state.currentTitle} matches “${escapeHtml(query)}”. Try fewer or different words.`
+		});
+		return;
+	}
+	const { filtered, hasActiveFilter, sortedTitleFacets, sortedPartFacets, hasAppendices } = buildFacetData(rawResults, filters);
+	const countText = view === "grouped" && hasActiveFilter ? `${filtered.length.toLocaleString()} of ${rawResults.length.toLocaleString()} shown (${total.toLocaleString()} total)` : `${total.toLocaleString()} ${total === 1 ? "result" : "results"}`;
+	if (countSlot) countSlot.textContent = `${countText} · ${data.ms} ms`;
+	if (filtersBox) filtersBox.hidden = view !== "grouped";
+	if (view === "grouped") {
+		if (kindSlot) kindSlot.innerHTML = hasAppendices ? `
+        <button type="button" class="sf-pill${filters.kind === "all" ? " is-active" : ""}" data-fkind="all">All types</button>
+        <button type="button" class="sf-pill${filters.kind === "section" ? " is-active" : ""}" data-fkind="section">Sections</button>
+        <button type="button" class="sf-pill${filters.kind === "appendix" ? " is-active" : ""}" data-fkind="appendix">Appendices</button>
+      ` : "";
+		if (clearSlot) clearSlot.innerHTML = hasActiveFilter ? "<button type=\"button\" class=\"sf-clear\" id=\"sf-clear\">Clear filters</button>" : "";
+		if (facetsBar) {
+			const authPills = `
+        <div class="search-filter-row">
+          <span class="search-filter-label">Authority</span>
+          <div class="search-filter-pills">
+            <button type="button" class="sf-pill is-active" data-fauth="all">All <span class="sf-pill-count">${rawResults.length}</span></button>
+            <button type="button" class="sf-pill" data-ref-tier="cfr" data-fauth="federal-reg"><span class="tier-pip" aria-hidden="true"></span>Federal CFR <span class="sf-pill-count">${rawResults.length}</span></button>
+            <button type="button" class="sf-pill" data-ref-tier="usc" disabled title="U.S.C. corpus indexing slot"><span class="tier-pip is-hollow" aria-hidden="true"></span>U.S.C.</button>
+            <button type="button" class="sf-pill" data-ref-tier="state" disabled title="State corpus indexing slot"><span class="tier-pip is-hollow" aria-hidden="true"></span>State</button>
+            <button type="button" class="sf-pill" data-ref-tier="county" disabled title="County corpus indexing slot"><span class="tier-pip is-hollow" aria-hidden="true"></span>County</button>
+          </div>
+        </div>`;
+			const titlePills = sortedTitleFacets.length > 1 ? `
+        <div class="search-filter-row">
+          <span class="search-filter-label">Titles</span>
+          <div class="search-filter-pills">
+            <button type="button" class="sf-pill${filters.title === null ? " is-active" : ""}" data-ftitle="">All <span class="sf-pill-count">${rawResults.length}</span></button>
+            ${sortedTitleFacets.map(([t, c]) => `<button type="button" class="sf-pill${filters.title === t ? " is-active" : ""}" data-ftitle="${t}">Title ${t} <span class="sf-pill-count">${c}</span></button>`).join("")}
+          </div>
+        </div>` : "";
+			const partPills = sortedPartFacets.length > 1 ? `
+        <div class="search-filter-row">
+          <span class="search-filter-label">Parts</span>
+          <div class="search-filter-pills">
+            <button type="button" class="sf-pill${filters.part === null ? " is-active" : ""}" data-fpart="">All</button>
+            ${sortedPartFacets.slice(0, 14).map(([p, c]) => `<button type="button" class="sf-pill${filters.part === p ? " is-active" : ""}" data-fpart="${escapeHtml(p)}">Part ${escapeHtml(p)} <span class="sf-pill-count">${c}</span></button>`).join("")}
+          </div>
+        </div>` : "";
+			facetsBar.innerHTML = authPills + titlePills + partPills;
+		}
+		bodySlot.innerHTML = renderGroupedResults(filtered, collapsed);
+	} else bodySlot.innerHTML = `<div class="results-list">${rawResults.map((r) => renderResultRow(r, allTitles)).join("")}</div>`;
+}
+function renderSearchView() {
+	if (!state.searchState) return;
+	const { query, allTitles, data, view, filters } = state.searchState;
+	const rawResults = data.results || [];
+	let scopeHtml = "";
+	if (state.installedTitles.length > 1) {
+		const qEnc = encodeURIComponent(query);
+		scopeHtml = `<span class="search-scope" role="group" aria-label="Search scope">
+      <a class="${allTitles ? "" : "scope-on"}" href="#/search?q=${qEnc}"${allTitles ? "" : " aria-current=\"true\""}>Title ${state.currentTitle}</a>
+      <a class="${allTitles ? "scope-on" : ""}" href="#/search?q=${qEnc}&scope=all"${allTitles ? " aria-current=\"true\"" : ""}>All ${state.installedTitles.length} titles</a>
+    </span>`;
+	}
+	const viewToggleHtml = rawResults.length ? `<span class="search-view-toggle" role="group" aria-label="Results layout">
+    <button type="button" class="${view === "compact" ? "is-on" : ""}" data-sview="compact" aria-pressed="${view === "compact"}">Compact</button>
+    <button type="button" class="${view === "grouped" ? "is-on" : ""}" data-sview="grouped" aria-pressed="${view === "grouped"}">Grouped</button>
+  </span>` : "";
+	dom.view.innerHTML = `
+    <div class="search-page">
+      <div class="doc-kicker">Search</div>
+      <h1 class="doc-title">${escapeHtml(query)}</h1>
+      <div class="search-meta">
+        <span id="search-count-slot"></span>
+        <div class="search-controls">${viewToggleHtml}${scopeHtml}</div>
+      </div>
+      <div class="search-filters" id="search-filters-box" role="region" aria-label="Filter search results" hidden>
+        <div class="search-filter-row">
+          <input type="search" id="sf-text" class="search-filter-input" value="${escapeHtml(filters.text)}" placeholder="Filter these results by section, part, or phrase…" autocomplete="off" spellcheck="false">
+          <div class="search-filter-pills" id="search-kind-slot"></div>
+          <span id="search-clear-slot"></span>
+        </div>
+        <div id="search-facets-slot"></div>
+      </div>
+      <div id="search-results-slot"></div>
+    </div>
+  `;
+	patchSearchDynamicSlots();
+}
+dom.view.addEventListener("input", (e) => {
+	if (e.target.id !== "sf-text" || !state.searchState || !dom.view.querySelector(".search-page")) return;
+	state.searchState.filters.text = e.target.value;
+	patchSearchDynamicSlots();
+});
+dom.view.addEventListener("click", (e) => {
+	if (!state.searchState || !dom.view.querySelector(".search-page")) return;
+	const viewBtn = e.target.closest("[data-sview]");
+	if (viewBtn) {
+		const next = viewBtn.dataset.sview;
+		if (next !== state.searchState.view) {
+			state.searchState.view = next;
+			lsSet("searchView", next);
+			patchSearchDynamicSlots();
+		}
+		return;
+	}
+	const titlePill = e.target.closest("[data-ftitle]");
+	if (titlePill) {
+		const val = titlePill.dataset.ftitle === "" ? null : Number(titlePill.dataset.ftitle);
+		state.searchState.filters.title = state.searchState.filters.title === val ? null : val;
+		state.searchState.filters.part = null;
+		patchSearchDynamicSlots();
+		return;
+	}
+	const partPill = e.target.closest("[data-fpart]");
+	if (partPill) {
+		const val = partPill.dataset.fpart === "" ? null : partPill.dataset.fpart;
+		state.searchState.filters.part = state.searchState.filters.part === val ? null : val;
+		patchSearchDynamicSlots();
+		return;
+	}
+	const kindPill = e.target.closest("[data-fkind]");
+	if (kindPill) {
+		state.searchState.filters.kind = kindPill.dataset.fkind;
+		patchSearchDynamicSlots();
+		return;
+	}
+	if (e.target.closest("#sf-clear")) {
+		state.searchState.filters = {
+			title: null,
+			part: null,
+			kind: "all",
+			text: ""
+		};
+		const sfInput = document.getElementById("sf-text");
+		if (sfInput) sfInput.value = "";
+		patchSearchDynamicSlots();
+		return;
+	}
+	const titleHead = e.target.closest(".search-title-head");
+	if (titleHead) {
+		const t = Number(titleHead.closest(".search-title-group").dataset.tgroup);
+		if (state.searchState.collapsed.has(t)) state.searchState.collapsed.delete(t);
+		else state.searchState.collapsed.add(t);
+		patchSearchDynamicSlots();
+	}
+});
+async function loadSearchPage(query, scope) {
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	document.title = "Search · FRAMEWORK";
+	setViewHead("");
+	if (!query.trim()) {
+		state.searchState = null;
+		dom.view.innerHTML = "<div class=\"empty-state\"><h2>Search</h2><p>Type a word, phrase or section number in the search box above.</p></div>";
+		return;
+	}
+	const allTitles = scope === "all" && state.installedTitles.length > 1;
+	dom.view.innerHTML = skeletonHtml("list", `Searching for “${query}”…`);
+	try {
+		const url = allTitles ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=100` : `/api/${state.currentTitle}/search?q=${encodeURIComponent(query)}&limit=100`;
+		const seq = state.routeSeq;
+		const signal = state.routeAbort?.signal;
+		const data = await (await fetch(url, { signal })).json();
+		if (seq !== state.routeSeq) return;
+		state.searchState = {
+			query,
+			allTitles,
+			data,
+			view: lsGet("searchView") === "grouped" ? "grouped" : "compact",
+			filters: {
+				title: null,
+				part: null,
+				kind: "all",
+				text: ""
+			},
+			collapsed: /* @__PURE__ */ new Set()
+		};
+		renderSearchView();
+		enterView();
+	} catch (err) {
+		if (err && err.name === "AbortError") return;
+		renderViewError(dom.view, "Search failed", err?.message || "Unexpected error", { onRetry: () => loadSearchPage(query, scope) });
+	}
+}
+// src/views/welcome.js
+state.profilesData = null;
+function profileSummary(p, names) {
+	const groups = [];
+	for (const d of p.downloads) {
+		let g = groups.find((x) => x.title === d.title);
+		if (!g) {
+			g = {
+				title: d.title,
+				parts: []
+			};
+			groups.push(g);
+		}
+		if (d.part) g.parts.push(String(d.part));
+	}
+	const partsText = (parts) => {
+		if (!parts.length) return "";
+		if (parts.length === 1) return `Part ${parts[0]}`;
+		const nums = parts.map(Number);
+		return nums.every((n) => !isNaN(n)) && nums.every((n, i) => i === 0 || n === nums[i - 1] + 1) ? `Parts ${parts[0]}–${parts[parts.length - 1]}` : `Parts ${parts.join(", ")}`;
+	};
+	return groups.map((g) => {
+		const name = names[g.title] ? ` ${escapeHtml(names[g.title])}` : "";
+		const parts = partsText(g.parts);
+		return `<span class="welcome-item"><span class="welcome-item-num">${g.title}</span>${name}${parts ? `, ${parts}` : ""}</span>`;
+	}).join("<span class=\"sep\" aria-hidden=\"true\">·</span>");
+}
+function welcomeProgressHtml() {
+	const j = state.jobs.current;
+	const queued = state.jobs.queued || [];
+	if (!j && !queued.length) return "";
+	const m = dockModel(j);
+	const pctText = m.pct == null ? "" : `${m.pct}%`;
+	const title = j ? escapeHtml(j.label) : "Preparing download";
+	const steps = DOCK_STEPS.map((_, i) => `<span class="${i < m.step ? "is-done" : i === m.step ? "is-now" : ""}"></span>`).join("");
+	const queueText = queued.length ? `+${queued.length} queued (${queued.map((q) => q.label).join(", ")})` : "Nothing else queued";
+	return `
+    <div class="welcome-progress">
+      <section class="dock-card welcome-job" aria-label="Profile download progress">
+        <div class="dock-head">
+          <span class="stat-dot is-busy" aria-hidden="true"></span>
+          <span class="dock-title">${title}</span>
+          <span class="dock-pct">${pctText}</span>
+        </div>
+        <div class="dock-phase">
+          <span class="dock-phase-text">${escapeHtml(j && j.cancelling ? "Cancelling…" : m.label)}</span>
+          ${m.step >= 0 ? `<span class="dock-steps" aria-hidden="true">${steps}</span>` : ""}
+        </div>
+        ${transferTrackHtml(m.pct)}
+        <div class="dock-tele"><span>${escapeHtml(m.left)}</span><span>${escapeHtml(m.right)}</span></div>
+        <div class="dock-foot"><span class="dock-queue">${escapeHtml(queueText)}</span></div>
+      </section>
+      <p class="welcome-note">The reader opens as soon as the first title is ready; the rest keep downloading in the background. <a href="#/library">Open the library</a> to watch or add more.</p>
+    </div>`;
+}
+async function renderWelcome() {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	document.title = "Welcome · FRAMEWORK";
+	setViewHead("");
+	if (!state.profilesData) {
+		dom.view.innerHTML = skeletonHtml("list", "Loading…");
+		try {
+			state.profilesData = await getJSON("/api/profiles");
+		} catch (err) {
+			if (seq !== state.routeSeq) return;
+			dom.view.innerHTML = emptyStateHtml({
+				title: "Couldn’t load the profiles",
+				body: escapeHtml(err.message),
+				actionsHtml: "<button type=\"button\" class=\"btn\" id=\"welcome-retry\">Try again</button>"
+			});
+			document.getElementById("welcome-retry").addEventListener("click", () => renderWelcome());
+			return;
+		}
+		if (seq !== state.routeSeq) return;
+	}
+	const names = state.profilesData.title_names || {};
+	const busy = Boolean(state.jobs.current || state.jobs.queued && state.jobs.queued.length);
+	dom.view.innerHTML = `
+    <div class="welcome">
+      <div class="doc-kicker">Welcome</div>
+      <div class="welcome-head">
+        <h1 class="doc-title">What do you work in?</h1>
+        <p>Nothing is installed yet. Pick a profile and FRAMEWORK downloads those regulations from eCFR, one title at a time. You can add or remove titles later from the library.</p>
+      </div>
+      <div id="welcome-job-slot">${welcomeProgressHtml()}</div>
+      <div class="welcome-list" id="welcome-list"${busy ? " hidden" : ""}>
+        ${state.profilesData.profiles.map((p) => `
+          <button type="button" class="welcome-card" data-profile="${escapeHtml(p.id)}">
+            <span class="welcome-card-name">${escapeHtml(p.name)}</span>
+            <span class="welcome-card-desc">${escapeHtml(p.description)}</span>
+            <span class="welcome-card-meta">${profileSummary(p, names)}</span>
+          </button>`).join("")}
+        <a class="welcome-card welcome-own" href="#/library">
+          <span class="welcome-card-name">Choose my own</span>
+          <span class="welcome-card-desc">Browse all 50 titles and download whole titles, parts or single sections.</span>
+        </a>
+      </div>
+    </div>`;
+	enterView();
+}
+function refreshWelcome() {
+	const slot = document.getElementById("welcome-job-slot");
+	const list = document.getElementById("welcome-list");
+	if (!slot || !list) return;
+	slot.innerHTML = welcomeProgressHtml();
+	const busy = Boolean(state.jobs.current || state.jobs.queued && state.jobs.queued.length);
+	list.hidden = busy;
+	if (!busy) for (const b of list.querySelectorAll("button")) b.disabled = false;
+}
+async function installProfile(p) {
+	for (const d of p.downloads) {
+		const job = await getJSON("/api/library/download", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: d.title,
+				part: d.part ? String(d.part) : null,
+				section: null,
+				kind: "section"
+			})
+		});
+		state.jobsSeenActive.add(job.id);
+	}
+}
+dom.view.addEventListener("click", async (e) => {
+	const btn = e.target.closest("button[data-profile]");
+	if (!btn || !dom.view.querySelector(".welcome")?.contains(btn)) return;
+	const profile = (state.profilesData?.profiles || []).find((x) => x.id === btn.dataset.profile);
+	if (!profile) return;
+	const list = document.getElementById("welcome-list");
+	for (const b of list.querySelectorAll("button")) b.disabled = true;
+	try {
+		await installProfile(profile);
+	} catch (err) {
+		showToast(err.message, 6e3);
+	}
+	await pollJobs();
+	refreshWelcome();
+});
+// src/router.js
+function parseHash() {
+	const [pathPart, queryPart] = (window.location.hash || "#/").slice(1).split("?");
+	const params = new URLSearchParams(queryPart || "");
+	return {
+		path: pathPart || "/",
+		params
+	};
+}
+async function handleRoute() {
+	const { path, params } = parseHash();
+	state.activeRoute = path;
+	const seq = ++state.routeSeq;
+	if (state.routeAbort) try {
+		state.routeAbort.abort();
+	} catch (e) {}
+	state.routeAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+	syncNavToRoute(path);
+	if (state.noTitles && !/^\/(library|news|projects|settings|help)(\/|$)/.test(path)) {
+		await renderWelcome();
+		return;
+	}
+	let checkPath = path;
+	let titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
+	const corpusMatch = !titleMatch ? parseCorpusPath(path) : null;
+	if (corpusMatch) {
+		syncCorporaState();
+		const isCfr = corpusMatch.tier === "federal-reg" || corpusMatch.tier === "cfr";
+		const cfrTitleNum = isCfr ? parseInt(corpusMatch.code, 10) : NaN;
+		if (isCfr && Number.isFinite(cfrTitleNum)) titleMatch = [
+			path,
+			String(cfrTitleNum),
+			corpusMatch.subPath
+		];
+		else {
+			const matchedCorpus = state.corpora.find((c) => c.tier === corpusMatch.tier && c.jurisdiction.toLowerCase() === corpusMatch.jurisdiction.toLowerCase() && String(c.code).toLowerCase() === String(corpusMatch.code).toLowerCase());
+			clearTreeSelection();
+			setViewHead("");
+			renderCorpusStaging(matchedCorpus || {
+				corpus_id: `${corpusMatch.jurisdiction}:${corpusMatch.tier}:${corpusMatch.code}`,
+				tier: corpusMatch.tier,
+				jurisdiction: corpusMatch.jurisdiction,
+				jurisdiction_label: corpusMatch.jurisdiction,
+				code: corpusMatch.code,
+				name: `${corpusMatch.jurisdiction} ${corpusMatch.code}`,
+				desk: "ehs",
+				agencies: [],
+				installed: false
+			});
+			return;
+		}
+	}
+	if (titleMatch) {
+		const targetTitle = parseInt(titleMatch[1], 10);
+		const subPath = titleMatch[2] || "/";
+		const installed = state.installedTitles.some((t) => t.title === targetTitle);
+		if (!installed && targetTitle >= 1 && targetTitle <= 50) {
+			let section = null;
+			let part = null;
+			if (subPath.startsWith("/section/")) {
+				const rest = subPath.slice(9);
+				const slash = rest.indexOf("/");
+				try {
+					section = decodeURIComponent(slash < 0 ? rest : rest.slice(0, slash));
+				} catch (e) {
+					section = rest;
+				}
+			} else if (subPath.startsWith("/part/")) {
+				part = subPath.slice(6).replace(/\/full$/, "");
+				try {
+					part = decodeURIComponent(part);
+				} catch (e) {}
+			}
+			clearTreeSelection();
+			setViewHead("");
+			await renderResolverPage(dom.view, {
+				title: targetTitle,
+				section,
+				part,
+				para: params.get("p")
+			});
+			return;
+		}
+		if (!installed) {
+			renderNotFound();
+			return;
+		}
+		if (targetTitle && targetTitle !== state.currentTitle) {
+			await switchTitle(targetTitle);
+			if (seq !== state.routeSeq) return;
+		}
+		checkPath = subPath;
+	}
+	if (checkPath === "/" || checkPath === "") {
+		if (titleMatch) renderHome();
+		else renderHomeScreen();
+	} else if (checkPath.startsWith("/section/")) {
+		const rest = checkPath.slice(9);
+		const slash = rest.indexOf("/");
+		const decode = (s) => {
+			try {
+				return decodeURIComponent(s);
+			} catch (e) {
+				return s;
+			}
+		};
+		await loadSection(decode(slash < 0 ? rest : rest.slice(0, slash)), params, slash < 0 ? null : decode(rest.slice(slash + 1)) || null);
+	} else if (checkPath.startsWith("/part/")) {
+		const rest = checkPath.replace("/part/", "");
+		const fullMatch = rest.match(/^(.+?)\/full$/);
+		if (fullMatch) await loadPartFull(fullMatch[1], params);
+		else await loadPart(rest);
+	} else if (checkPath === "/library" || checkPath.startsWith("/library/")) {
+		const m = /^\/library(?:\/(\d+)(?:\/part\/(.+))?)?\/?$/.exec(checkPath);
+		if (!m) renderNotFound();
+		else {
+			const decode = (s) => {
+				try {
+					return decodeURIComponent(s);
+				} catch (e) {
+					return s;
+				}
+			};
+			await loadLibrary(m[1] ? parseInt(m[1], 10) : null, m[2] ? decode(m[2]) : null);
+		}
+	} else if (!titleMatch && (checkPath === "/projects" || checkPath.startsWith("/projects/"))) {
+		const id = checkPath.slice(10);
+		renderProjects(id ? decodeURIComponent(id) : null);
+	} else if (!titleMatch && (checkPath === "/news" || checkPath === "/news/")) await loadNews(params);
+	else if (!titleMatch && /^\/news\/inspection\/\d+\/?$/.test(checkPath)) await loadInspection(parseInt(checkPath.split("/")[3], 10));
+	else if (!titleMatch && (checkPath === "/help" || checkPath === "/help/")) await loadHelp(params);
+	else if (!titleMatch && (checkPath === "/settings" || checkPath === "/settings/")) renderSettingsPage({ enter: true });
+	else if (checkPath.startsWith("/search")) {
+		const q = params.get("q") || "";
+		dom.search.value = q;
+		await loadSearchPage(q, params.get("scope"));
+	} else renderNotFound();
+}
+window.addEventListener("hashchange", handleRoute);
+// src/views/news.js
+var NEWS_CATEGORIES = [
+	{
+		key: "all",
+		label: "All"
+	},
+	{
+		key: "rules",
+		label: "Final Rules"
+	},
+	{
+		key: "rulemaking",
+		label: "Proposed Rules"
+	},
+	{
+		key: "enforcement",
+		label: "Enforcement & Penalties"
+	},
+	{
+		key: "public_inspection",
+		label: "Public Inspection"
+	},
+	{
+		key: "notices",
+		label: "Notices"
+	}
+];
+var NEWS_SOURCE_LABELS = {
+	federal_register: "Federal Register",
+	federal_register_pi: "Federal Register Public Inspection",
+	dol_osha: "DOL enforcement data"
+};
+var US_STATE_NAMES = {
+	AL: "Alabama",
+	AK: "Alaska",
+	AZ: "Arizona",
+	AR: "Arkansas",
+	CA: "California",
+	CO: "Colorado",
+	CT: "Connecticut",
+	DE: "Delaware",
+	DC: "District of Columbia",
+	FL: "Florida",
+	GA: "Georgia",
+	GU: "Guam",
+	HI: "Hawaii",
+	ID: "Idaho",
+	IL: "Illinois",
+	IN: "Indiana",
+	IA: "Iowa",
+	KS: "Kansas",
+	KY: "Kentucky",
+	LA: "Louisiana",
+	ME: "Maine",
+	MD: "Maryland",
+	MA: "Massachusetts",
+	MI: "Michigan",
+	MN: "Minnesota",
+	MS: "Mississippi",
+	MO: "Missouri",
+	MT: "Montana",
+	NE: "Nebraska",
+	NV: "Nevada",
+	NH: "New Hampshire",
+	NJ: "New Jersey",
+	NM: "New Mexico",
+	NY: "New York",
+	NC: "North Carolina",
+	ND: "North Dakota",
+	OH: "Ohio",
+	OK: "Oklahoma",
+	OR: "Oregon",
+	PA: "Pennsylvania",
+	PR: "Puerto Rico",
+	RI: "Rhode Island",
+	SC: "South Carolina",
+	SD: "South Dakota",
+	TN: "Tennessee",
+	TX: "Texas",
+	UT: "Utah",
+	VT: "Vermont",
+	VA: "Virginia",
+	VI: "Virgin Islands",
+	WA: "Washington",
+	WV: "West Virginia",
+	WI: "Wisconsin",
+	WY: "Wyoming"
+};
+var stateName = (code) => US_STATE_NAMES[(code || "").toUpperCase()] || code;
+function lsGetJSON(key) {
+	try {
+		const v = lsGet(key);
+		return v ? JSON.parse(v) : null;
+	} catch (e) {
+		return null;
+	}
+}
+function lsSetJSON(key, value) {
+	lsSet(key, JSON.stringify(value));
+}
+var moneyFmt = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	maximumFractionDigits: 0
+});
+function fmtMoney(n) {
+	return moneyFmt.format(n);
+}
+function safeHttpUrl(u) {
+	if (!u) return "";
+	try {
+		const p = new URL(u, window.location.href).protocol;
+		return p === "http:" || p === "https:" ? u : "";
+	} catch (e) {
+		return "";
+	}
+}
+function extLink(url, html) {
+	const safe = safeHttpUrl(url);
+	return safe ? `<a target="_blank" rel="noopener" href="${escapeHtml(safe)}">${html}</a>` : html;
+}
+function titleInstalled(t) {
+	return state.installedTitles.some((x) => x.title === t);
+}
+function newsSectionHref(t, id) {
+	return titleInstalled(t) ? `#/title/${t}/section/${encodeURIComponent(id)}` : `#/library/${t}`;
+}
+function newsPartHref(t, part) {
+	return titleInstalled(t) ? `#/title/${t}/part/${encodeURIComponent(part)}` : `#/library/${t}`;
+}
+function linkifyNewsText(text) {
+	return escapeHtml(text || "").replace(NEWS_CITE_RE, (m, a, b) => {
+		return `<a class="citation-link" href="${newsSectionHref(29, a || b)}">${m}</a>`;
+	});
+}
+function newsSnippetHtml(snippet) {
+	return escapeHtml(snippet || "").replace(/\x02/g, "<mark>").replace(/\x03/g, "</mark>");
+}
+function inspectionActivityNr(a) {
+	if (!a || a.category !== "enforcement" || !a.guid) return null;
+	const m = /^dol-insp:(\d+)$/.exec(String(a.guid));
+	return m ? m[1] : null;
+}
+var newsState = {
+	view: null,
+	data: null,
+	status: null,
+	facets: null,
+	summary: null,
+	watchToken: 0
+};
+var autoEnrichedCases = /* @__PURE__ */ new Set();
+function newsViewFromParams(params) {
+	const get = (k) => (params && params.get(k) || "").trim();
+	return {
+		cat: NEWS_CATEGORIES.some((c) => c.key === get("cat")) ? get("cat") : "all",
+		q: get("q"),
+		section: get("section"),
+		part: get("part"),
+		state: /^[A-Za-z]{2}$/.test(get("state")) ? get("state").toUpperCase() : "",
+		min_penalty: /^\d+$/.test(get("min_penalty")) ? get("min_penalty") : "",
+		gravity: /^[WRS]$/.test(get("gravity")) ? get("gravity") : ""
+	};
+}
+function isDefaultNewsView(view) {
+	return !view.q && !view.section && !view.part && !view.state && !view.min_penalty && !view.gravity;
+}
+function newsHash(view) {
+	const p = new URLSearchParams();
+	if (view.cat && view.cat !== "all") p.set("cat", view.cat);
+	for (const k of [
+		"q",
+		"section",
+		"part",
+		"state",
+		"min_penalty",
+		"gravity"
+	]) if (view[k]) p.set(k, view[k]);
+	const qs = p.toString();
+	return "#/news" + (qs ? "?" + qs : "");
+}
+function newsApiUrl(view, offset = 0) {
+	const p = new URLSearchParams();
+	if (view.cat && view.cat !== "all") p.set("category", view.cat);
+	for (const k of [
+		"q",
+		"section",
+		"part",
+		"state",
+		"min_penalty",
+		"gravity"
+	]) if (view[k]) p.set(k, view[k]);
+	if (offset) p.set("offset", String(offset));
+	const qs = p.toString();
+	return "/api/news" + (qs ? "?" + qs : "");
+}
+function setNewsView(next, { replace = false } = {}) {
+	const hash = newsHash(next);
+	if (replace) {
+		history.replaceState(null, "", hash);
+		loadNews(new URLSearchParams(hash.split("?")[1] || ""));
+	} else window.location.hash = hash;
+}
+function trimNewsForCache(data) {
+	return {
+		articles: (data.articles || []).slice(0, 30),
+		total: data.total,
+		offset: 0
+	};
+}
+function newsChanged(oldData, newData, oldStatus, newStatus) {
+	const guids = (d) => (d && d.articles || []).map((a) => a.guid).join("|");
+	const oks = (s) => s && s.sources ? Object.values(s.sources).map((x) => x.last_ok_at || "").join("|") : "";
+	return guids(oldData) !== guids(newData) || oks(oldStatus) !== oks(newStatus);
+}
+function preservingNewsScroll(fn) {
+	const mainRect = dom.main.getBoundingClientRect();
+	let anchor = null, offset = 0;
+	for (const el of dom.view.querySelectorAll("[data-guid]")) {
+		const r = el.getBoundingClientRect();
+		if (r.bottom > mainRect.top + 8) {
+			anchor = el.dataset.guid;
+			offset = r.top - mainRect.top;
+			break;
+		}
+	}
+	const top = dom.main.scrollTop;
+	fn();
+	if (anchor) {
+		const el = dom.view.querySelector(`[data-guid="${CSS.escape(anchor)}"]`);
+		if (el) {
+			const r = el.getBoundingClientRect();
+			dom.main.scrollTop += r.top - dom.main.getBoundingClientRect().top - offset;
+			return;
+		}
+	}
+	dom.main.scrollTop = top;
+}
+async function loadNews(params) {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = "News · FRAMEWORK";
+	const view = newsViewFromParams(params);
+	const firstPaint = !dom.view.querySelector(".news-front");
+	const cacheable = isDefaultNewsView(view);
+	const cached = cacheable ? lsGetJSON(`newsCache:v1:${view.cat}`) : null;
+	const cachedStatus = lsGetJSON("newsCache:v1:status");
+	if (cached && cached.data && cachedStatus && cachedStatus.data) renderNews(view, cached.data, cachedStatus.data, {
+		enter: firstPaint,
+		fromCache: true
+	});
+	else {
+		dom.view.innerHTML = skeletonHtml("cards", "Loading news…");
+		if (firstPaint) enterView();
+	}
+	let data, status;
+	try {
+		const wantEnf = view.cat === "enforcement";
+		const [feedRes, statusRes] = await Promise.all([getJSON(newsApiUrl(view)), getJSON("/api/news/status")]);
+		data = feedRes;
+		status = statusRes;
+		if (wantEnf) {
+			const extras = [];
+			if (status.dol_configured && !newsState.facets) extras.push(getJSON("/api/news/facets").then((f) => {
+				newsState.facets = f;
+			}).catch(() => {}));
+			extras.push(getJSON("/api/news/enforcement/summary").then((s) => {
+				newsState.summary = s;
+			}).catch(() => {}));
+			await Promise.all(extras);
+		}
+	} catch (e) {
+		if (seq !== state.routeSeq) return;
+		if (cached && cached.data) markNewsOffline(cached.t);
+		else {
+			dom.view.innerHTML = `
+        <div class="news-front"><div class="news-head"><div>
+          <div class="doc-kicker">FRAMEWORK Newsroom</div><h1 class="doc-title">OSHA Regulatory News</h1>
+        </div></div>
+        <div class="empty-state"><h2>Couldn’t reach the news service</h2>
+        <p>${escapeHtml(e.message)}</p>
+        <button type="button" class="btn" data-news-act="reload">Try again</button></div></div>`;
+			showToast("Could not reach the news service");
+		}
+		return;
+	}
+	if (seq !== state.routeSeq) return;
+	if (cacheable) {
+		lsSetJSON(`newsCache:v1:${view.cat}`, {
+			t: Date.now(),
+			data: trimNewsForCache(data)
+		});
+		lsSetJSON("newsCache:v1:status", {
+			t: Date.now(),
+			data: status
+		});
+	}
+	if (!cached || !cached.data || !cachedStatus || !cachedStatus.data || newsChanged(cached.data, data, cachedStatus.data, status) || view.cat === "enforcement") preservingNewsScroll(() => renderNews(view, data, status, { enter: firstPaint && !(cached && cached.data) }));
+	else {
+		newsState.view = view;
+		newsState.data = data;
+		newsState.status = status;
+	}
+	let watch = status.syncing;
+	if (status.sync_enabled && status.due && !status.syncing) {
+		try {
+			watch = ((await getJSON("/api/news/refresh", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ force: false })
+			})).queued || []).length > 0;
+		} catch (e) {
+			try {
+				watch = (await getJSON("/api/news/status")).syncing;
+			} catch (e2) {
+				watch = false;
+			}
+		}
+		if (seq !== state.routeSeq) return;
+	}
+	if (watch) watchNewsSync(seq, view);
+}
+function markNewsOffline(cachedAt) {
+	const slot = document.getElementById("news-head-status");
+	if (slot) slot.innerHTML = statPill("stale", `Offline · showing saved news from ${fmtDate(new Date(cachedAt).toISOString().slice(0, 10))}`);
+}
+function watchNewsSync(seq, view) {
+	const token = ++newsState.watchToken;
+	const started = Date.now();
+	const slot = document.getElementById("news-head-status");
+	if (slot) slot.innerHTML = statPill("busy", "Checking for news…");
+	const tick = async () => {
+		if (seq !== state.routeSeq || token !== newsState.watchToken || Date.now() - started > 12e4) return;
+		let status;
+		try {
+			status = await getJSON("/api/news/status");
+		} catch (e) {
+			return;
+		}
+		if (seq !== state.routeSeq || token !== newsState.watchToken) return;
+		if (status.syncing) {
+			setTimeout(tick, 3e3);
+			return;
+		}
+		let data;
+		try {
+			data = await getJSON(newsApiUrl(view));
+		} catch (e) {
+			return;
+		}
+		if (seq !== state.routeSeq || token !== newsState.watchToken) return;
+		if (isDefaultNewsView(view)) {
+			lsSetJSON(`newsCache:v1:${view.cat}`, {
+				t: Date.now(),
+				data: trimNewsForCache(data)
+			});
+			lsSetJSON("newsCache:v1:status", {
+				t: Date.now(),
+				data: status
+			});
+		}
+		if (newsChanged(newsState.data, data, newsState.status, status)) preservingNewsScroll(() => renderNews(view, data, status, {}));
+		else {
+			newsState.status = status;
+			const s = document.getElementById("news-head-status");
+			if (s) s.innerHTML = newsHeadStatusHtml(status);
+		}
+	};
+	setTimeout(tick, 3e3);
+}
+async function refreshNewsCommand() {
+	try {
+		await getJSON("/api/news/refresh", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ force: true })
+		});
+		showToast("Checking for news…");
+		if (routeTarget() === "news" && newsState.view) watchNewsSync(state.routeSeq, newsState.view);
+	} catch (err) {
+		const m = String(err.message || "");
+		showToast(/already running/i.test(m) ? "Already checking for news" : /sync is off/i.test(m) ? "News sync is off" : m);
+	}
+}
+function newsStatusPillHtml(status) {
+	if (!status) return "";
+	if (!status.sync_enabled) return statPill("stale", "News sync is off");
+	if (status.syncing) return statPill("busy", "Checking for news…");
+	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
+	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
+	const failed = enabled.find((s) => s.last_error);
+	if (failed && lastOk) return statPill("stale", `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`, { title: failed.last_error || "" });
+	return lastOk ? statPill("synced", `Updated ${timeAgo(Date.parse(lastOk))}`) : "";
+}
+function newsHeadStatusHtml(status) {
+	if (!status) return "";
+	const pill = newsStatusPillHtml(status);
+	if (!status.sync_enabled || status.syncing) return pill;
+	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
+	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
+	if (enabled.find((s) => s.last_error) && lastOk) return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
+	return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Refresh</button>`;
+}
+function newsBreakingHtml(articles) {
+	const today = Date.now();
+	const daysAgo = (iso) => (today - Date.parse(iso + "T00:00:00")) / 864e5;
+	const pi = articles.find((a) => a.category === "public_inspection" && daysAgo(a.published_at) <= 3);
+	const fine = articles.find((a) => a.category === "enforcement" && (a.penalty_usd || 0) >= 5e4 && daysAgo(a.published_at) <= 14);
+	const hit = pi || fine;
+	if (!hit) return "";
+	const tag = pi ? "Public inspection" : "Enforcement";
+	const actNr = !pi ? inspectionActivityNr(hit) : null;
+	const href = pi ? safeHttpUrl(hit.link) : actNr ? `#/news/inspection/${actNr}` : "#/news?cat=enforcement";
+	const ext = pi && href ? " target=\"_blank\" rel=\"noopener\"" : "";
+	if (!href) return "";
+	return `<a class="news-breaking" href="${escapeHtml(href)}"${ext}>
+    <span class="news-breaking-tag">${icon("activity")} ${escapeHtml(tag.toUpperCase())} · ${escapeHtml(fmtDate(hit.published_at))}</span>
+    <span class="news-breaking-text">${escapeHtml(hit.title)}</span>${icon("chevronRight")}</a>`;
+}
+function newsKicker(a) {
+	if (a.category === "enforcement") return ["ENFORCEMENT", a.state].filter(Boolean).join(" · ");
+	if (a.category === "public_inspection") return ["PUBLIC INSPECTION", (a.doc_type || "").toUpperCase()].filter(Boolean).join(" · ");
+	return [a.category === "rules" ? "FINAL RULE" : a.category === "rulemaking" ? "PROPOSED RULE" : "NOTICE", a.citation].filter(Boolean).join(" · ");
+}
+function newsBylineHtml(a) {
+	return `<div class="news-byline">${escapeHtml(fmtDate(a.published_at))}<span class="sep" aria-hidden="true">·</span>${escapeHtml(NEWS_SOURCE_LABELS[a.source] || a.source)}</div>`;
+}
+function newsChipsHtml(a) {
+	const chips = [];
+	for (const r of a.cfr_parts || []) {
+		const href = newsPartHref(r.title, r.part);
+		const dim = !titleInstalled(r.title);
+		chips.push(`<a class="citation-chip${dim ? " is-dim" : ""}" data-ref-tier="${dim ? "uninstalled" : "cfr"}" href="${href}"${dim ? ` title="Title ${r.title} isn’t installed. Open the library"` : ""}>${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
+	}
+	for (const s of a.sections || []) {
+		const dim = !titleInstalled(29);
+		chips.push(`<a class="citation-chip${dim ? " is-dim" : ""}" data-ref-tier="${dim ? "uninstalled" : "cfr"}" href="${newsSectionHref(29, s)}"${dim ? " title=\"Title 29 isn’t installed. Open the library\"" : ""}>§ ${escapeHtml(s)}</a>`);
+	}
+	if (!chips.length) return "";
+	const extra = chips.length - 6;
+	return `<div class="news-chips">${extra > 0 ? chips.slice(0, 6).join("") + chips.slice(6).map((c) => c.replace("citation-chip", "citation-chip is-extra")).join("") + `<button type="button" class="citation-chip news-chip-more" data-news-act="expand-chips">+${extra}</button>` : chips.join("")}</div>`;
+}
+function newsActionsHtml(a) {
+	const out = [];
+	const actNr = inspectionActivityNr(a);
+	if (actNr) out.push(`<a class="btn btn-sm btn-accent" href="#/news/inspection/${actNr}">${icon("file")} Case file</a>`);
+	const srcLabel = a.source === "dol_osha" ? "OSHA.gov" : "Federal Register";
+	const link = safeHttpUrl(a.link);
+	if (link) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(link)}">${icon("external")} ${srcLabel}</a>`);
+	const pdf = safeHttpUrl(a.pdf_url || "");
+	if (pdf) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(pdf)}">${icon("external")} PDF</a>`);
+	const sec = (a.sections || [])[0];
+	const partRef = (a.cfr_parts || [])[0];
+	const secCls = actNr ? "btn btn-sm" : "btn btn-sm btn-accent";
+	if (sec) out.push(`<a class="${secCls}" href="${newsSectionHref(29, sec)}">${icon("book")} Open § ${escapeHtml(sec)}</a>`);
+	else if (partRef) out.push(`<a class="${secCls}" href="${newsPartHref(partRef.title, partRef.part)}">${icon("book")} Open Part ${escapeHtml(String(partRef.part))}</a>`);
+	return out.join("");
+}
+function newsCardHtml(a, { hero = false } = {}) {
+	const tag = hero ? "section" : "article";
+	const figure = a.penalty_usd ? `<span class="news-figure">${escapeHtml(fmtMoney(a.penalty_usd))}</span>` : "";
+	const rows = (a.takeaways || []).map((t, i) => {
+		const text = i === 0 && a.snippet ? newsSnippetHtml(a.snippet) : linkifyNewsText(t.text);
+		return `<dt>${escapeHtml(t.label)}</dt><dd>${text}</dd>`;
+	}).join("");
+	const actNr = inspectionActivityNr(a);
+	const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}">${escapeHtml(a.title)}</a>` : extLink(a.link, escapeHtml(a.title));
+	return `
+    <${tag} class="news-card${hero ? " news-hero" : ""}" data-guid="${escapeHtml(a.guid)}" data-cat="${escapeHtml(a.category)}">
+      <div class="news-card-top"><span class="news-kicker">${escapeHtml(newsKicker(a))}</span>${figure}</div>
+      <h3 class="news-card-title">${titleHtml}</h3>
+      ${newsBylineHtml(a)}
+      ${rows ? `<dl class="news-takeaways">${rows}</dl>` : ""}
+      ${newsChipsHtml(a)}
+      <div class="news-card-foot">${newsActionsHtml(a)}</div>
+    </${tag}>`;
+}
+function newsTabsHtml(view, status) {
+	const counts = status && status.counts || {};
+	return `<div class="lib-seg news-tabs" role="tablist" aria-label="News categories">${NEWS_CATEGORIES.map((c) => {
+		const on = view.cat === c.key;
+		const n = counts[c.key];
+		return `<button type="button" role="tab" aria-selected="${on}" tabindex="${on ? 0 : -1}" aria-pressed="${on}" data-news-cat="${c.key}">${escapeHtml(c.label)}${n ? ` <span class="news-tab-count">${n}</span>` : ""}</button>`;
+	}).join("")}</div>`;
+}
+function newsFilterChipsHtml(view) {
+	const chips = [];
+	const chip = (key, label) => chips.push(`<button type="button" class="news-filter-chip" data-news-act="clear-filter" data-filter-key="${key}" aria-label="Remove filter: ${escapeHtml(label)}">${escapeHtml(label)}${icon("close")}</button>`);
+	if (view.section) chip("section", `Citing § ${view.section}`);
+	if (view.part) chip("part", `Citing Part ${view.part}`);
+	if (view.state) chip("state", stateName(view.state));
+	if (view.min_penalty) chip("min_penalty", `Over ${fmtMoney(Number(view.min_penalty))}`);
+	if (view.gravity) chip("gravity", {
+		W: "Willful",
+		R: "Repeat",
+		S: "Serious"
+	}[view.gravity]);
+	return chips.length ? `<div class="news-filter-chips">${chips.join("")}</div>` : "";
+}
+function newsFacetsHtml(view, status) {
+	if (view.cat !== "enforcement" || !status || !status.dol_configured) return "";
+	const states = newsState.facets && newsState.facets.states || [];
+	const sel = (v, cur) => v === cur ? " selected" : "";
+	return `<div class="news-facets">
+    <select data-news-facet="state" aria-label="State">
+      <option value="">All states</option>
+      ${states.map((s) => `<option value="${escapeHtml(s.code)}"${sel(s.code, view.state)}>${escapeHtml(stateName(s.code))} (${s.count})</option>`).join("")}
+    </select>
+    <select data-news-facet="min_penalty" aria-label="Minimum penalty">
+      <option value="">Any penalty</option>
+      ${[
+		25e3,
+		1e5,
+		25e4
+	].map((v) => `<option value="${v}"${sel(String(v), view.min_penalty)}>Over ${fmtMoney(v)}</option>`).join("")}
+    </select>
+    <select data-news-facet="gravity" aria-label="Violation gravity">
+      <option value="">Any gravity</option>
+      ${[
+		["W", "Willful"],
+		["R", "Repeat"],
+		["S", "Serious"]
+	].map(([v, l]) => `<option value="${v}"${sel(v, view.gravity)}>${l}</option>`).join("")}
+    </select>
+  </div>`;
+}
+function newsEmptyHtml(view, status) {
+	const s = status || {};
+	if (!s.sync_enabled && !(s.counts && s.counts.all)) return `<div class="empty-state"><h2>News sync is off</h2>
+      <p>Set <code>NEWS_SYNC=1</code> in <code>reader/.env</code> and restart FRAMEWORK.</p></div>`;
+	if (view.cat === "enforcement" && !view.q && s && !s.dol_configured) return `<div class="news-setup">
+      <h3>Enforcement data needs a free DOL API key</h3>
+      <p>Register at <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a>,
+      then save <code>DOL_API_KEY</code> in <code>reader/.env</code> using the setup guide or in-app editor.
+      Federal Register news works without it.</p>
+      <div class="news-setup-actions">
+        <button type="button" class="btn btn-sm btn-accent" data-open-env="dol_api_key">${icon("key")} Add DOL key</button>
+        <a class="btn btn-sm" href="#/help">${icon("help")} Connections &amp; API keys</a>
+      </div></div>`;
+	if (view.q) {
+		const tab = NEWS_CATEGORIES.find((c) => c.key === view.cat) || NEWS_CATEGORIES[0];
+		const widen = view.cat !== "all" ? `<button type="button" class="btn" data-news-act="search-all">Search all news</button>` : "";
+		return `<div class="empty-state"><h2>No news matches “${escapeHtml(view.q)}” in ${escapeHtml(tab.label)}</h2>${widen}</div>`;
+	}
+	const enabled = Object.values(s.sources || {}).filter((x) => x.enabled);
+	const neverSynced = enabled.every((x) => !x.last_ok_at);
+	const failed = enabled.find((x) => x.last_error);
+	if (neverSynced && failed) {
+		const retry = failed.retry_after ? `<p>Retrying ${escapeHtml(timeUntil(failed.retry_after))}.</p>` : "";
+		return `<div class="empty-state"><h2>Couldn’t fetch the news</h2>
+      <p>${escapeHtml(failed.last_error)}</p>${retry}
+      <button type="button" class="btn" data-news-act="refresh">Retry</button></div>`;
+	}
+	if (neverSynced) return `<div class="empty-state">${statPill("busy", "Fetching from the Federal Register…")}
+      <p class="dr-note">The first sync takes a few seconds.</p></div>`;
+	return "<div class=\"empty-state\"><h2>Nothing here yet</h2><p>No items in this view.</p></div>";
+}
+function enforcementSummaryHtml(view) {
+	const s = newsState.summary;
+	if (view.cat !== "enforcement" || !isDefaultNewsView(view) || !s || !s.total_cases) return "";
+	const g = s.gravity_counts || {};
+	const highGrav = (g.W || 0) + (g.R || 0);
+	const topSec = (s.top_sections || [])[0];
+	const topState = (s.top_states || [])[0];
+	return `
+    <section class="ins-summary-strip" aria-label="Enforcement telemetry">
+      ${metricCardHtml({
+		label: "Tracked penalties",
+		value: escapeHtml(fmtMoney(s.total_penalty_usd || 0)),
+		sub: escapeHtml(`${plural(s.total_cases, "case")} · avg ${fmtMoney(s.avg_penalty_usd || 0)}`)
+	})}
+      ${metricCardHtml({
+		label: "High gravity",
+		value: fmt(highGrav),
+		of: "cases",
+		sub: joinSep([g.W ? `<button type="button" class="metric-link" data-news-quick-gravity="W">${g.W} Willful</button>` : "0 Willful", g.R ? `<button type="button" class="metric-link" data-news-quick-gravity="R">${g.R} Repeat</button>` : "0 Repeat"])
+	})}
+      ${topSec ? metricCardHtml({
+		label: "Top cited standard",
+		value: `<a class="ins-tile-link" href="${newsSectionHref(29, topSec.section_id)}">§ ${escapeHtml(topSec.section_id)}</a>`,
+		sub: `<button type="button" class="metric-link" data-news-quick-sec="${escapeHtml(topSec.section_id)}">Filter ${plural(topSec.count, "case")} ${icon("chevronRight")}</button>`
+	}) : metricCardHtml({
+		label: "Top cited standard",
+		value: "—",
+		sub: "No CFR mappings yet"
+	})}
+      ${topState ? metricCardHtml({
+		label: "Top state",
+		value: escapeHtml(stateName(topState.code)),
+		sub: `<button type="button" class="metric-link" data-news-quick-state="${escapeHtml(topState.code)}">${escapeHtml(fmtMoney(topState.total_penalty_usd))} · ${plural(topState.count, "case")} ${icon("chevronRight")}</button>`
+	}) : metricCardHtml({
+		label: "Top state",
+		value: "—",
+		sub: "No state data"
+	})}
+    </section>`;
+}
+function renderNews(view, data, status, opts = {}) {
+	newsState.view = view;
+	newsState.data = data;
+	newsState.status = status;
+	const articles = data.articles || [];
+	let hero = null;
+	if (articles.length) {
+		const fresh = (a) => (Date.now() - Date.parse(a.published_at + "T00:00:00")) / 864e5 <= 30;
+		hero = (view.cat === "all" ? articles.find((a) => a.category === "rules" && fresh(a)) : null) || articles[0];
+	}
+	const feed = articles.filter((a) => !hero || a.guid !== hero.guid);
+	const more = data.total > articles.length ? `<div class="news-more"><button type="button" class="btn" data-news-act="more">Load more</button></div>` : "";
+	const qEl = document.getElementById("news-q");
+	const qFocus = qEl && document.activeElement === qEl ? {
+		value: qEl.value,
+		start: qEl.selectionStart,
+		end: qEl.selectionEnd
+	} : null;
+	dom.view.innerHTML = `
+    <div class="news-front">
+      <div class="news-head">
+        <div>
+          <div class="doc-kicker">FRAMEWORK Newsroom · OSHA</div>
+          <h1 class="doc-title">Regulatory News</h1>
+        </div>
+        <div class="news-head-status" id="news-head-status">${newsHeadStatusHtml(status)}</div>
+      </div>
+      ${newsBreakingHtml(articles)}
+      <div class="news-bar">
+        ${newsTabsHtml(view, status)}
+        <input type="search" class="news-q" id="news-q" value="${escapeHtml(view.q)}"
+          placeholder="Search news: keyword, company, § 1910.1030, 91 FR 55744" aria-label="Search news" autocomplete="off" spellcheck="false">
+      </div>
+      ${newsFilterChipsHtml(view)}
+      ${newsFacetsHtml(view, status)}
+      ${enforcementSummaryHtml(view)}
+      ${articles.length ? `
+        ${hero ? newsCardHtml(hero, { hero: true }) : ""}
+        <div class="news-grid" id="news-grid">${feed.map((a) => newsCardHtml(a)).join("")}</div>
+        ${more}` : newsEmptyHtml(view, status)}
+    </div>`;
+	if (opts.enter) enterView();
+	if (qFocus) {
+		const q = document.getElementById("news-q");
+		if (q) {
+			q.value = qFocus.value;
+			q.focus();
+			try {
+				q.setSelectionRange(qFocus.start, qFocus.end);
+			} catch (e) {}
+		}
+	}
+}
+async function loadMoreNews() {
+	const seq = state.routeSeq;
+	const { view, data } = newsState;
+	if (!view || !data) return;
+	let page;
+	try {
+		page = await getJSON(newsApiUrl(view, data.articles.length));
+	} catch (e) {
+		return;
+	}
+	if (seq !== state.routeSeq || newsState.data !== data) return;
+	data.articles = data.articles.concat(page.articles || []);
+	data.total = page.total;
+	const grid = document.getElementById("news-grid");
+	if (grid) {
+		const shown = new Set([...dom.view.querySelectorAll("[data-guid]")].map((el) => el.dataset.guid));
+		grid.insertAdjacentHTML("beforeend", (page.articles || []).filter((a) => !shown.has(a.guid)).map((a) => newsCardHtml(a)).join(""));
+	}
+	const moreBtn = dom.view.querySelector("[data-news-act=\"more\"]");
+	if (moreBtn && data.articles.length >= data.total) moreBtn.closest(".news-more").remove();
+}
+function citationStatusText(v) {
+	const bits = [];
+	if (v.contest_date) bits.push(`Contested ${fmtDate(v.contest_date)}`);
+	if (v.final_order_date) bits.push(`Final ${fmtDate(v.final_order_date)}`);
+	if (v.abate_complete === "X" || v.abate_complete === "3") bits.push("Abated");
+	else if (v.abate_date) bits.push(`Abate due ${fmtDate(v.abate_date)}`);
+	return bits.join(" · ") || "Issued";
+}
+function violationStandardHtml(v) {
+	if (v.section_id) {
+		const dim = !titleInstalled(29);
+		const href = dim ? "#/library/29" : titleHref(29, "section/" + encodeURIComponent(v.section_id) + (v.para ? "?p=" + encodeURIComponent(v.para) : ""));
+		return `<a class="citation-link ins-std-link${dim ? " is-dim" : ""}" href="${href}">${escapeHtml(v.standard_display)}</a>`;
+	}
+	if (v.is_general_duty) return `<span class="ins-std-gdc">${escapeHtml(v.standard_display)}</span>`;
+	return `<span class="ins-std-state">${escapeHtml(v.standard_display || v.raw_standard || "Unlisted")}</span>` + (v.is_state_plan ? "<span class=\"ins-tag\">State plan</span>" : "");
+}
+function inspectionViolationsHtml(data) {
+	const viols = data.violations || [];
+	if (!viols.length) {
+		if (data.dol_configured) return `
+        <div class="ins-panel-empty">
+          <p class="ins-muted">Individual citation rows have not been cached locally for this inspection yet.</p>
+          <button type="button" class="btn btn-sm btn-accent" data-ins-act="enrich" data-act-nr="${data.activity_nr}">${icon("activity")} Load citations from DOL</button>
+        </div>`;
+		return "<div class=\"ins-panel-empty\"><p class=\"ins-muted\">Add a free DOL API key in Settings to load per-citation details on demand.</p></div>";
+	}
+	return `
+    <div class="ins-table-wrap">
+      <table class="ins-table">
+        <thead>
+          <tr>
+            <th>Cit.</th>
+            <th>Standard</th>
+            <th>Type</th>
+            <th>Exposed</th>
+            <th>Status</th>
+            <th class="is-num">Penalty</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${viols.map((v) => {
+		const tags = [];
+		if (v.gravity) tags.push(`Grav ${v.gravity}`);
+		if (v.emphasis) tags.push(`NEP ${v.emphasis}`);
+		if (v.hazcat) tags.push(v.hazcat);
+		if (v.fta_penalty) tags.push(`FTA ${fmtMoney(v.fta_penalty)}`);
+		if ((v.hazsubs || []).length) tags.push(`HazSub ${v.hazsubs.join(", ")}`);
+		const penChanged = v.initial_penalty && v.initial_penalty !== v.current_penalty;
+		const expBits = [v.nr_instances ? plural(v.nr_instances, "inst") : "", v.nr_exposed ? `${v.nr_exposed} exp` : ""].filter(Boolean).join(" · ");
+		return `
+              <tr>
+                <td class="ins-cit-id">${escapeHtml(v.citation_id || "—")}</td>
+                <td>
+                  <div class="ins-std-cell">
+                    ${violationStandardHtml(v)}
+                    ${tags.length ? `<div class="ins-tags">${tags.map((t) => `<span class="ins-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
+                  </div>
+                </td>
+                <td><span class="ins-viol-pill is-${escapeHtml((v.viol_type || "O").toLowerCase())}">${escapeHtml(v.viol_label || v.viol_type)}</span></td>
+                <td class="ins-mono-col">${escapeHtml(expBits || "—")}</td>
+                <td class="ins-status-col">${escapeHtml(citationStatusText(v))}</td>
+                <td class="is-num">
+                  <div class="ins-pen-cur">${v.current_penalty ? escapeHtml(fmtMoney(v.current_penalty)) : "$0"}</div>
+                  ${penChanged ? `<div class="ins-pen-init">Initial ${escapeHtml(fmtMoney(v.initial_penalty))}</div>` : ""}
+                </td>
+              </tr>`;
+	}).join("")}
+        </tbody>
+      </table>
+    </div>`;
+}
+function inspectionSectionsHtml(data) {
+	const secs = (data.article || {}).sections || [];
+	if (!secs.length) return "";
+	return `
+    <div class="ins-cfr-chips">
+      ${secs.map((s) => {
+		return `<a class="citation-chip${!titleInstalled(29) ? " is-dim" : ""}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`;
+	}).join("")}
+    </div>`;
+}
+function renderInspectionCase(data, { enter = true, enriching = false, enrichError = "" } = {}) {
+	const actNr = data.activity_nr;
+	const art = data.article || {};
+	const d = data.detail || {};
+	const company = d.estab_name || art.company || `Inspection #${actNr}`;
+	const docType = d.insp_type_label || art.doc_type || "OSHA inspection";
+	const addrParts = [
+		d.site_address,
+		[d.site_city || art.city, d.site_state || art.state].filter(Boolean).join(", "),
+		d.site_zip
+	].filter(Boolean);
+	const subLine = joinSep([
+		escapeHtml(docType),
+		addrParts.length ? escapeHtml(addrParts.join(" · ")) : "",
+		d.naics_code || art.naics ? `NAICS ${escapeHtml(d.naics_code || art.naics)}` : ""
+	]);
+	const curPen = d.current_penalty_usd ?? art.penalty_usd ?? 0;
+	const initPen = d.initial_penalty_usd ?? curPen;
+	const deltaPct = initPen > 0 && curPen !== initPen ? Math.round((curPen - initPen) / initPen * 100) : 0;
+	const violCount = (data.violations || []).length || d.citation_count || 0;
+	const vCounts = (data.violations || []).reduce((m, v) => {
+		const k = v.viol_label || v.viol_type;
+		if (k) m[k] = (m[k] || 0) + 1;
+		return m;
+	}, {});
+	const violSummary = Object.entries(vCounts).map(([k, n]) => `${n} ${k}`).join(", ") || (art.violation_types || []).join(", ") || "Recorded in summary";
+	const oshaUrl = safeHttpUrl(art.link || `https://www.osha.gov/ords/imis/establishment.inspection_detail?id=${actNr}`);
+	const openDt = d.open_date || art.opened_on;
+	const modDt = d.case_mod_date;
+	const closeDt = d.close_case_date;
+	const metaFacts = [
+		["Activity #", String(actNr)],
+		["Safety / Health", d.safety_hlth_label],
+		["Inspection scope", d.insp_scope_label],
+		["Ownership", d.owner_type_label],
+		["Union status", d.union_status_label],
+		["Advance notice", d.adv_notice === "Y" ? "Yes" : d.adv_notice === "N" ? "No" : null],
+		["Employees at site", d.nr_in_estab != null ? fmt(d.nr_in_estab) : null],
+		["SIC / NAICS", [d.sic_code && `SIC ${d.sic_code}`, (d.naics_code || art.naics) && `NAICS ${d.naics_code || art.naics}`].filter(Boolean).join(" · ") || null],
+		["Reporting ID", d.reporting_id]
+	].filter(([, val]) => val);
+	const gdcList = data.gdc || [];
+	const accidents = data.accidents || [];
+	const events = data.events || [];
+	const takeaways = art.takeaways || [];
+	const statusPill = enriching ? statPill("busy", "Loading DOL case details…") : enrichError ? statPill("stale", enrichError) : data.enriched_at ? statPill("synced", `DOL synced ${timeAgo(Date.parse(data.enriched_at))}`) : "";
+	document.title = `${company} · Inspection #${actNr} · FRAMEWORK`;
+	dom.view.innerHTML = `
+    <div class="news-front ins-front">
+      <div class="ins-top-nav">
+        <a class="hm-inline-link" href="#/news?cat=enforcement">${icon("chevronLeft")} Back to Enforcement</a>
+        <div class="ins-top-status" id="ins-status-slot">${statusPill}</div>
+      </div>
+
+      <header class="ins-head">
+        <div class="ins-head-copy">
+          <div class="doc-kicker">OSHA Enforcement Case File${SEP}Inspection #${actNr}</div>
+          <h1 class="doc-title">${escapeHtml(company)}</h1>
+          ${subLine ? `<p class="ins-sub">${subLine}</p>` : ""}
+        </div>
+        <div class="ins-head-acts">
+          ${data.dol_configured ? `<button type="button" class="btn btn-sm" data-ins-act="enrich" data-act-nr="${actNr}"${enriching ? " disabled" : ""}>${icon("activity")} Refresh from DOL</button>` : ""}
+          ${oshaUrl ? `<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(oshaUrl)}" title="Opens OSHA.gov (may prompt human verification)">${icon("external")} OSHA.gov</a>` : ""}
+        </div>
+      </header>
+
+      <section class="ins-metrics" aria-label="Inspection summary">
+        ${metricCardHtml({
+		label: "Current penalty",
+		value: curPen ? escapeHtml(fmtMoney(curPen)) : "$0",
+		sub: deltaPct ? escapeHtml(`Initial ${fmtMoney(initPen)} (${deltaPct > 0 ? "+" : ""}${deltaPct}%)`) : escapeHtml(initPen ? `Initial ${fmtMoney(initPen)}` : "No penalty assessed")
+	})}
+        ${metricCardHtml({
+		label: "Citations",
+		value: violCount ? escapeHtml(plural(violCount, "citation")) : "Summary only",
+		sub: escapeHtml(violSummary)
+	})}
+        ${metricCardHtml({
+		label: "Case dates",
+		value: art.published_at ? escapeHtml(fmtDate(art.published_at)) : "—",
+		sub: escapeHtml([openDt && `Opened ${fmtDate(openDt)}`, closeDt ? `Closed ${fmtDate(closeDt)}` : modDt ? `Modified ${fmtDate(modDt)}` : "Open"].filter(Boolean).join(" · "))
+	})}
+        ${metricCardHtml({
+		label: "Exposure",
+		value: d.max_exposed ? escapeHtml(`${fmt(d.max_exposed)} exposed`) : d.nr_in_estab ? escapeHtml(`${fmt(d.nr_in_estab)} at site`) : "—",
+		sub: escapeHtml([d.total_instances ? plural(d.total_instances, "instance") : "", d.nr_in_estab && d.max_exposed ? `${fmt(d.nr_in_estab)} at site` : ""].filter(Boolean).join(" · ") || "Site exposure data")
+	})}
+      </section>
+
+      ${takeaways.length && !(data.violations || []).length ? `
+        <section class="ins-panel" aria-label="Cached summary">
+          <h2 class="ins-panel-title">Cached Summary</h2>
+          <dl class="news-takeaways">${takeaways.map((t) => `<dt>${escapeHtml(t.label)}</dt><dd>${linkifyNewsText(t.text)}</dd>`).join("")}</dl>
+          ${inspectionSectionsHtml(data)}
+        </section>` : ""}
+
+      <section class="ins-panel" aria-label="Citations and violated standards">
+        <div class="ins-panel-head">
+          <h2 class="ins-panel-title">Citations &amp; Violated Standards</h2>
+          <span class="ins-panel-meta">${violCount ? escapeHtml(plural(violCount, "item")) : "On-demand DOL lookup"}</span>
+        </div>
+        ${inspectionViolationsHtml(data)}
+      </section>
+
+      ${gdcList.length ? `
+        <section class="ins-panel" aria-label="General Duty Clause narrative">
+          <div class="ins-panel-head">
+            <h2 class="ins-panel-title">General Duty Clause — Section 5(a)(1)</h2>
+            <span class="ins-panel-meta">${escapeHtml(plural(gdcList.length, "narrative"))}</span>
+          </div>
+          ${gdcList.map((g) => `
+            <div class="ins-narrative">
+              <div class="ins-narrative-kicker">Citation ${escapeHtml(g.citation_id)}</div>
+              <p>${escapeHtml(g.text)}</p>
+            </div>`).join("")}
+        </section>` : ""}
+
+      ${accidents.length ? `
+        <section class="ins-panel" aria-label="Accident investigation abstract">
+          <div class="ins-panel-head">
+            <h2 class="ins-panel-title">Accident / Fatality Investigation</h2>
+            <span class="ins-panel-meta">${escapeHtml(plural(accidents.length, "summary"))}</span>
+          </div>
+          ${accidents.map((ac) => `
+            <div class="ins-narrative">
+              <div class="ins-narrative-kicker">${escapeHtml([
+		ac.event_date && fmtDate(ac.event_date),
+		ac.fatality ? "Fatality" : "",
+		ac.event_desc
+	].filter(Boolean).join(" · "))}</div>
+              ${ac.abstract ? `<p>${escapeHtml(ac.abstract)}</p>` : ""}
+              ${ac.keywords ? `<div class="ins-keywords">${escapeHtml(ac.keywords)}</div>` : ""}
+            </div>`).join("")}
+        </section>` : ""}
+
+      ${metaFacts.length || events.length ? `
+        <div class="ins-split">
+          ${metaFacts.length ? `
+            <section class="ins-panel" aria-label="Establishment details">
+              <h2 class="ins-panel-title">Establishment &amp; Case File</h2>
+              <dl class="ins-meta-list">
+                ${metaFacts.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
+              </dl>
+            </section>` : ""}
+          ${events.length ? `
+            <section class="ins-panel" aria-label="Penalty and contest history">
+              <h2 class="ins-panel-title">Citation Revision Timeline</h2>
+              <ol class="ins-events">
+                ${events.map((ev) => `
+                  <li>
+                    <span class="ins-ev-date">${escapeHtml(ev.date ? fmtDate(ev.date) : "—")}</span>
+                    <span class="ins-ev-body">
+                      <strong>${escapeHtml(ev.event_label)}</strong> · Cit. ${escapeHtml(ev.citation_id)}
+                      ${ev.penalty != null ? ` · ${escapeHtml(fmtMoney(ev.penalty))}` : ""}
+                    </span>
+                  </li>`).join("")}
+              </ol>
+            </section>` : ""}
+        </div>` : ""}
+    </div>`;
+	if (enter) enterView();
+}
+async function enrichInspection(activityNr, seq) {
+	try {
+		const res = await getJSON(`/api/news/inspection/${activityNr}/enrich`, { method: "POST" });
+		if (seq !== state.routeSeq) return;
+		renderInspectionCase(res, { enter: false });
+	} catch (err) {
+		if (seq !== state.routeSeq) return;
+		const slot = document.getElementById("ins-status-slot");
+		if (slot) slot.innerHTML = statPill("stale", err.message || "Could not enrich from DOL");
+		const btn = dom.view.querySelector("[data-ins-act=\"enrich\"]");
+		if (btn) btn.disabled = false;
+	}
+}
+async function loadInspection(activityNr) {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = `Inspection #${activityNr} · FRAMEWORK`;
+	dom.view.innerHTML = skeletonHtml("cards", `Loading inspection #${activityNr}…`);
+	enterView();
+	let data;
+	try {
+		data = await getJSON(`/api/news/inspection/${activityNr}`);
+	} catch (err) {
+		if (seq !== state.routeSeq) return;
+		dom.view.innerHTML = `
+      <div class="news-front ins-front">
+        <div class="ins-top-nav"><a class="hm-inline-link" href="#/news?cat=enforcement">${icon("chevronLeft")} Back to Enforcement</a></div>
+        <div class="empty-state">
+          <h2>Inspection #${activityNr} not found</h2>
+          <p>${escapeHtml(err.message)}</p>
+        </div>
+      </div>`;
+		return;
+	}
+	if (seq !== state.routeSeq) return;
+	const auto = Boolean(data.needs_enrichment && data.dol_configured && !autoEnrichedCases.has(activityNr));
+	renderInspectionCase(data, {
+		enter: false,
+		enriching: auto
+	});
+	if (auto) {
+		autoEnrichedCases.add(activityNr);
+		await enrichInspection(activityNr, seq);
+	}
+}
+dom.view.addEventListener("click", (e) => {
+	const tab = e.target.closest("[data-news-cat]");
+	if (tab && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: tab.dataset.newsCat
+		});
+		return;
+	}
+	const qGrav = e.target.closest("[data-news-quick-gravity]");
+	if (qGrav && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: "enforcement",
+			gravity: qGrav.dataset.newsQuickGravity
+		}, { replace: true });
+		return;
+	}
+	const qSec = e.target.closest("[data-news-quick-sec]");
+	if (qSec && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: "enforcement",
+			section: qSec.dataset.newsQuickSec
+		}, { replace: true });
+		return;
+	}
+	const qState = e.target.closest("[data-news-quick-state]");
+	if (qState && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: "enforcement",
+			state: qState.dataset.newsQuickState
+		}, { replace: true });
+		return;
+	}
+	const insAct = e.target.closest("[data-ins-act=\"enrich\"]");
+	if (insAct) {
+		const actNr = parseInt(insAct.dataset.actNr, 10);
+		if (!Number.isNaN(actNr)) {
+			insAct.disabled = true;
+			const slot = document.getElementById("ins-status-slot");
+			if (slot) slot.innerHTML = statPill("busy", "Refreshing from DOL…");
+			enrichInspection(actNr, state.routeSeq);
+		}
+		return;
+	}
+	const act = e.target.closest("[data-news-act]");
+	if (!act) return;
+	const kind = act.dataset.newsAct;
+	if (kind === "refresh") refreshNewsCommand();
+	else if (kind === "reload") handleRoute();
+	else if (kind === "more") loadMoreNews();
+	else if (kind === "search-all") setNewsView({
+		...newsState.view,
+		cat: "all"
+	});
+	else if (kind === "clear-filter") setNewsView({
+		...newsState.view,
+		[act.dataset.filterKey]: ""
+	}, { replace: true });
+	else if (kind === "expand-chips") {
+		const row = act.closest(".news-chips");
+		if (row) {
+			row.classList.add("is-expanded");
+			act.remove();
+		}
+	}
+});
+state.newsQTimer = null;
+dom.view.addEventListener("input", (e) => {
+	if (e.target.id !== "news-q" || !newsState.view) return;
+	clearTimeout(state.newsQTimer);
+	const q = e.target.value.trim();
+	state.newsQTimer = setTimeout(() => {
+		if (newsState.view && q !== newsState.view.q) setNewsView({
+			...newsState.view,
+			q
+		}, { replace: true });
+	}, 250);
+});
+dom.view.addEventListener("keydown", (e) => {
+	if (e.target.id === "news-q" && e.key === "Escape" && e.target.value) {
+		e.target.value = "";
+		if (newsState.view && newsState.view.q) setNewsView({
+			...newsState.view,
+			q: ""
+		}, { replace: true });
+		return;
+	}
+	const tab = e.target.closest && e.target.closest(".news-tabs [role=\"tab\"]");
+	if (!tab) return;
+	if (![
+		"ArrowLeft",
+		"ArrowRight",
+		"Home",
+		"End"
+	].includes(e.key)) return;
+	e.preventDefault();
+	const tabs = [...dom.view.querySelectorAll(".news-tabs [role=\"tab\"]")];
+	const i = tabs.indexOf(tab);
+	tabs[e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : (i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length].focus();
+});
+dom.view.addEventListener("change", (e) => {
+	const facet = e.target.closest && e.target.closest("[data-news-facet]");
+	if (!facet || !newsState.view) return;
+	setNewsView({
+		...newsState.view,
+		[facet.dataset.newsFacet]: facet.value
+	}, { replace: true });
+});
+// src/panels/settings_panel.js
+state.navStorage = null;
+state.navNewsStatus = null;
+state.navEnvStatus = null;
+async function loadEnvStatus() {
+	try {
+		state.navEnvStatus = await getJSON("/api/settings/env");
+	} catch (e) {
+		state.navEnvStatus = null;
+	}
+	if (state.navEnvStatus) refreshSettingsViews();
+}
+function timeUntil(iso) {
+	const s = (Date.parse(iso) - Date.now()) / 1e3;
+	if (isNaN(s)) return "";
+	if (s <= 60) return "any moment";
+	if (s < 3600) return `in ${Math.round(s / 60)}m`;
+	if (s < 86400) return `in ${Math.round(s / 3600)}h`;
+	return `in ${Math.round(s / 86400)}d`;
+}
+function newsSettingsHtml() {
+	const ns = state.navNewsStatus;
+	if (!ns) return "<div class=\"loading\">Checking…</div>";
+	if (!ns.sync_enabled) return "<p class=\"dr-note\">News sync is off (<code>NEWS_SYNC=0</code> in <code>reader/.env</code>).</p>";
+	const enabled = Object.entries(ns.sources).filter(([, s]) => s.enabled);
+	const lastOk = enabled.map(([, s]) => s.last_ok_at).filter(Boolean).sort().pop();
+	const nextDue = enabled.map(([, s]) => s.next_due_at).filter(Boolean).sort()[0];
+	const backing = enabled.filter(([, s]) => s.retry_after);
+	const when = backing.length ? backing.map(([, s]) => `${escapeHtml(s.last_error || "Update failed")} · retrying ${escapeHtml(timeUntil(s.retry_after))}`).join(" · ") : `Last update ${lastOk ? escapeHtml(timeAgo(Date.parse(lastOk))) : "never"} · next check ${nextDue ? escapeHtml(timeUntil(nextDue)) || "due now" : "—"}`;
+	return `
+    <div class="dr-row is-static"><span class="dr-name">Federal Register</span><span class="dr-time">on</span></div>
+    <div class="dr-row is-static"><span class="dr-name">DOL enforcement</span><span class="dr-time">${ns.dol_configured ? "on" : "off"}</span></div>
+    ${ns.dol_configured ? "" : "<p class=\"dr-note\">Enforcement requires a free <code>DOL_API_KEY</code>. <a class=\"dr-inline-link\" href=\"#/help\">Open setup guide</a> or <button type=\"button\" class=\"dr-inline-btn\" data-open-env=\"dol_api_key\">enter key</button>.</p>"}
+    <p class="dr-note">${when}</p>`;
+}
+async function loadNewsSettings() {
+	try {
+		state.navNewsStatus = await getJSON("/api/news/status");
+	} catch (e) {
+		state.navNewsStatus = {
+			sync_enabled: false,
+			sources: {},
+			dol_configured: false
+		};
+	}
+	refreshSettingsViews();
+}
+var settingSeg = (name, value, opts, disabled = false) => segmentedHtml({
+	label: name,
+	value,
+	cls: "seg",
+	dataAttr: `data-set="${escapeHtml(name)}" data-value`,
+	items: opts.map(([v, label]) => ({
+		value: v,
+		label,
+		attrs: disabled ? "disabled" : ""
+	}))
+});
+function settingsClaudeHtml() {
+	return state.chatConfig.configured && state.chatConfig.models.length ? `<select class="set-select" data-set-model aria-label="Claude model">${state.chatConfig.models.map((m) => `<option value="${escapeHtml(m.id)}"${(dom.modelSelect.value || state.chatConfig.default) === m.id ? " selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}</select>` : "<p class=\"dr-note\">Claude requires an <code>ANTHROPIC_API_KEY</code>. <a class=\"dr-inline-link\" href=\"#/help\">Open setup guide</a> or <button type=\"button\" class=\"dr-inline-btn\" data-open-env=\"anthropic_api_key\">enter key</button>.</p>";
+}
+function settingsStorageHtml() {
+	const st = state.navStorage;
+	if (!st) return "<div class=\"loading\">Measuring…</div>";
+	return `
+    <div class="set-total"><span class="set-total-val">${fmtBytes(st.total_bytes) || "0 KB"}</span><span class="set-total-sub">on disk in ${plural(st.titles.length, "title")}</span></div>
+    ${st.titles.map((t) => {
+		const meta = state.installedTitles.find((x) => x.title === t.title);
+		return `<div class="dr-row is-static"><span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(meta ? meta.name : `Title ${t.title}`)}</span><span class="dr-time">${fmtBytes(t.bytes)}</span></div>`;
+	}).join("")}
+    ${st.legacy_bytes ? `<div class="dr-row is-static"><span class="dr-num"></span><span class="dr-name">Title 29 legacy copy</span><span class="dr-time">${fmtBytes(st.legacy_bytes)}</span></div>` : ""}
+    <div class="set-row">
+      <span class="set-name">Temporary files<span class="set-sub">${st.temp_files ? `${plural(st.temp_files, "file")} from unfinished downloads` : "None left over"}</span></span>
+      <button type="button" class="btn btn-sm" data-set-act="prune"${st.temp_files ? "" : " disabled"}>${st.temp_files ? `Clean up ${fmtBytes(st.temp_bytes)}` : "Clean"}</button>
+    </div>`;
+}
+function settingsKeysHtml() {
+	const mod = isMac ? "⌘" : "Ctrl";
+	return `<dl class="set-keys">${[
+		[`${mod} K`, "Search or jump to a section"],
+		["/", "Search"],
+		[">", "Commands, in search"],
+		[`${mod} B`, "Show or hide the drawer"],
+		[`${mod} J`, "Ask Claude"],
+		[`${mod} D`, "Pin section to a workspace"],
+		["G H", "Home"],
+		["G T", "Title start"],
+		["G C", "Contents"],
+		["G P", "Workspaces"],
+		["G N", "News"],
+		["G L", "Library"],
+		["G S", "Settings"],
+		[isMac ? "⌥ 1–7" : "Alt 1–7", "Rail items in order"],
+		["Esc", "Close the floating drawer"]
+	].map(([k, v]) => `<div><dt>${k.split(" ").map((x) => `<kbd>${escapeHtml(x)}</kbd>`).join("")}</dt><dd>${escapeHtml(v)}</dd></div>`).join("")}</dl>`;
+}
+function renderSettingsPanel() {
+	const size = parseInt(lsGet("fontSize"), 10) || 16;
+	const envKeys = state.navEnvStatus && state.navEnvStatus.keys;
+	const configuredKeysCount = envKeys ? (envKeys.DOL_API_KEY.configured ? 1 : 0) + (envKeys.ANTHROPIC_API_KEY.configured ? 1 : 0) : null;
+	const settingsMeta = configuredKeysCount == null ? "Claude · News · Storage · Keyboard" : `${configuredKeysCount} of 2 optional keys set`;
+	setPanel("settings", `
+    <section class="dr-sec">${drLabel("Quick settings")}
+      <div class="set-row"><span class="set-name">Reading text</span>
+        <span class="set-quick-size" role="group" aria-label="Reading text size">
+          <button type="button" data-set-act="font-dec" aria-label="Smaller text">A−</button>
+          <span class="set-val" data-size-val>${size} px</span>
+          <button type="button" data-set-act="font-inc" aria-label="Larger text">A+</button>
+        </span></div>
+      <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? "<span class=\"set-sub\">Overlay on narrow screens</span>" : ""}</span>${settingSeg("mode", mqMobile.matches ? "flyout" : navState.mode, [["pinned", "Pinned"], ["flyout", "Overlay"]], mqMobile.matches)}</div>
+    </section>
+    <section class="dr-sec">${drLabel("Quick actions")}
+      <div class="set-quick-acts">
+        <button type="button" class="dr-act" data-open-env="">${icon("key")} Edit API keys</button>
+        <button type="button" class="dr-act" data-set-act="news-refresh">${icon("news")} Check for news</button>
+        <a class="dr-act" href="#/help">${icon("external")} Connections &amp; API keys</a>
+      </div>
+    </section>
+    <a class="dr-cta" href="#/settings">
+      <span class="dr-cta-text"><span class="dr-cta-title">Open settings</span><span class="dr-cta-meta">${escapeHtml(settingsMeta)}</span></span>${icon("chevronRight")}
+    </a>`);
+	if (!state.navEnvStatus) loadEnvStatus();
+}
+function renderSettingsPage(opts = {}) {
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = "Settings · FRAMEWORK";
+	const size = parseInt(lsGet("fontSize"), 10) || 16;
+	const top = dom.main.scrollTop;
+	dom.view.innerHTML = `
+    <div class="settings-front">
+      <header class="help-head">
+        <div>
+          <div class="doc-kicker">FRAMEWORK</div>
+          <h1 class="doc-title">Settings</h1>
+          <p class="help-lead">Appearance, Claude, news sync, storage and keyboard shortcuts. API keys and data sources live in <a href="#/help">Connections &amp; API Keys</a>.</p>
+        </div>
+        <div class="help-head-actions">
+          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
+        </div>
+      </header>
+      <div class="settings-grid">
+        <section class="set-card">
+          <h2 class="set-card-label">Appearance</h2>
+          <div class="set-row set-col">
+            <div class="set-row-head"><label class="set-name" for="set-size">Reading text</label><span class="set-val" id="set-size-val" data-size-val>${size} px</span></div>
+            <input type="range" class="set-range" id="set-size" min="13" max="24" step="1" value="${size}">
+          </div>
+          <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? "<span class=\"set-sub\">Overlay on narrow screens</span>" : ""}</span>${settingSeg("mode", mqMobile.matches ? "flyout" : navState.mode, [["pinned", "Pinned"], ["flyout", "Overlay"]], mqMobile.matches)}</div>
+          <p class="dr-note">Pinned sits beside the page. Overlay slides over it and closes once you pick something.</p>
+        </section>
+        <section class="set-card">
+          <h2 class="set-card-label">Claude</h2>
+          ${settingsClaudeHtml()}
+        </section>
+        <section class="set-card">
+          <h2 class="set-card-label">News</h2>
+          ${newsSettingsHtml()}
+        </section>
+        <section class="set-card">
+          <h2 class="set-card-label">Storage</h2>
+          ${settingsStorageHtml()}
+        </section>
+        <section class="set-card set-card-wide">
+          <h2 class="set-card-label">Keyboard</h2>
+          ${settingsKeysHtml()}
+        </section>
+      </div>
+    </div>`;
+	if (opts.enter) enterView();
+	else dom.main.scrollTop = top;
+	if (!state.navStorage) loadStorage();
+	if (!state.navNewsStatus) loadNewsSettings();
+	if (!state.navEnvStatus) loadEnvStatus();
+}
+var onSettingsPage = () => state.activeRoute === "/settings" || state.activeRoute === "/settings/";
+function refreshSettingsViews() {
+	if (navState.panel === "settings") renderSettingsPanel();
+	if (onSettingsPage()) renderSettingsPage();
+}
+async function runSettingsAction(btn) {
+	const act = btn.dataset.setAct;
+	if (act === "font-dec") adjustFontSize(-1);
+	else if (act === "font-inc") adjustFontSize(1);
+	else if (act === "news-refresh") refreshNewsCommand();
+	else if (act === "prune") {
+		btn.disabled = true;
+		try {
+			const res = await getJSON("/api/library/storage/prune", { method: "POST" });
+			showToast(res.removed ? `Removed ${plural(res.removed, "temporary file")} (${fmtBytes(res.freed_bytes)})` : "Nothing to clean up");
+		} catch (err) {
+			showToast(err.message, 5e3);
+		}
+		state.navStorage = null;
+		refreshSettingsViews();
+	}
+}
+dom.view.addEventListener("click", (e) => {
+	const set = e.target.closest("[data-set]");
+	if (set) {
+		if (set.dataset.set === "mode") setNavMode(set.dataset.value);
+		return;
+	}
+	const setAct = e.target.closest("[data-set-act]");
+	if (setAct) runSettingsAction(setAct);
+});
+dom.view.addEventListener("input", (e) => {
+	if (e.target.id === "set-size") applyFontSize(e.target.value);
+});
+dom.view.addEventListener("change", (e) => {
+	if (e.target.matches("[data-set-model]")) {
+		dom.modelSelect.value = e.target.value;
+		dom.modelSelect.dispatchEvent(new Event("change"));
+	}
+});
+// src/views/library.js
+var lib = {
+	view: null,
+	data: null,
+	filter: "",
+	sort: "desk",
+	tier: "all",
+	wire: null
+};
+try {
+	const saved = localStorage.getItem("libSort");
+	if ([
+		"desk",
+		"number",
+		"updated"
+	].includes(saved)) lib.sort = saved;
+} catch (e) {}
+state.jobs = {
+	current: null,
+	queued: [],
+	recent: []
+};
+state.jobsTimer = null;
+state.jobsSeenActive = /* @__PURE__ */ new Set();
+state.lastJobsKey = "";
+var isStale = (t) => Boolean(t.installed && t.latest && t.installed.edition && t.latest > t.installed.edition);
+var jobStatus = (j) => j ? statPill("busy", j.state === "running" ? "Downloading" : "Queued", { bare: true }) : "";
+async function getJSON(url, opts) {
+	const res = await fetch(url, opts);
+	let body = null;
+	try {
+		body = await res.json();
+	} catch (e) {}
+	if (!res.ok) throw new Error(body && body.detail || `Request failed (${res.status})`);
+	return body;
+}
+async function loadLibrary(title, part) {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	const sameView = lib.view && lib.view.title === title && lib.view.part === part;
+	if (!sameView) {
+		lib.filter = "";
+		dom.view.innerHTML = skeletonHtml(title ? "list" : "cards", "Loading from eCFR…");
+	}
+	lib.view = {
+		title,
+		part
+	};
+	try {
+		const data = await getJSON(part ? `/api/library/${title}/part/${encodeURIComponent(part)}` : title ? `/api/library/${title}` : "/api/library");
+		if (seq !== state.routeSeq) return;
+		if (!title) setJobs(data.jobs);
+		lib.data = data;
+		renderLibrary(!sameView);
+		if (!title) {
+			pollJobsIfActive();
+			loadWire();
+		}
+	} catch (err) {
+		if (seq !== state.routeSeq) return;
+		dom.view.innerHTML = emptyStateHtml({
+			title: "Couldn’t load the library",
+			body: escapeHtml(err.message),
+			actionsHtml: "<button type=\"button\" class=\"btn\" id=\"lib-retry\">Try again</button>"
+		});
+		document.getElementById("lib-retry").addEventListener("click", () => loadLibrary(title, part));
+	}
+}
+async function refreshLibrary() {
+	if (!lib.view || !dom.view.querySelector(".lib")) return;
+	const { title, part } = lib.view;
+	try {
+		lib.data = await getJSON(part ? `/api/library/${title}/part/${encodeURIComponent(part)}` : title ? `/api/library/${title}` : "/api/library");
+		renderLibrary(false);
+	} catch (e) {}
+}
+function jobFor(title, kind, id) {
+	return [state.jobs.current, ...state.jobs.queued].filter(Boolean).find((j) => j.title === title && (kind === "title" ? j.kind === "title" || j.kind === "update" : kind === "part" ? j.kind === "part" && j.target && j.target.part === id : j.kind === "section" && j.target && j.target.id === id));
+}
+function actBtn(act, label, attrs, cls = "") {
+	return `<button type="button" class="lib-act${cls ? " " + cls : ""}" data-act="${act}" ${attrs}>${label}</button>`;
+}
+function libRow({ href, num, name, status, actions, dim, key }) {
+	const main = href ? `<a class="lib-main" href="${href}"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></a>` : `<span class="lib-main"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></span>`;
+	return `<div class="lib-row${dim ? " is-dim" : ""}${actions ? " has-actions" : ""}" data-hay="${escapeHtml(`${num} ${name}`.toLowerCase())}"${key ? ` data-key="${escapeHtml(key)}"` : ""}>
+    ${main}<span class="lib-status">${status || ""}</span><span class="lib-actions">${actions || ""}</span></div>`;
+}
+var libHref = (title, part) => "#/library" + (title ? `/${title}` : "") + (part ? `/part/${encodeURIComponent(part)}` : "");
+function titleStatus(t) {
+	if (t.reserved) return {
+		state: "uninstalled",
+		text: "Reserved"
+	};
+	const j = jobFor(t.title, "title");
+	if (j) return {
+		state: "busy",
+		text: j.state === "running" ? j.kind === "update" ? "Updating" : "Downloading" : "Queued"
+	};
+	const inst = t.installed;
+	if (!inst) return {
+		state: "uninstalled",
+		text: "Not installed"
+	};
+	if (isStale(t)) return {
+		state: "stale",
+		text: "Update available",
+		title: `eCFR has a newer edition (${fmtDate(t.latest)})`
+	};
+	if (!inst.whole) {
+		const what = [inst.parts ? plural(inst.parts, "part") : "", inst.sections ? plural(inst.sections, "section") : ""].filter(Boolean).join(", ");
+		return {
+			state: "partial",
+			text: "Partial",
+			title: what ? `Installed: ${what}` : ""
+		};
+	}
+	return {
+		state: "synced",
+		text: "Installed",
+		title: `Edition ${fmtDate(inst.edition)}`
+	};
+}
+function renderStatusPill(t, opts = {}) {
+	const s = titleStatus(t);
+	return statPill(s.state, s.text, {
+		title: s.title,
+		...opts
+	});
+}
+function relTime(ms) {
+	const s = Math.max(0, (Date.now() - ms) / 1e3);
+	if (s < 60) return "just now";
+	if (s < 3600) return `${Math.round(s / 60)} min ago`;
+	if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+	return shortDate(new Date(ms).toISOString().slice(0, 10));
+}
+function amendedWeek(d) {
+	const newest = d.titles.reduce((m, t) => t.latest && t.latest > m ? t.latest : m, "");
+	if (!newest) return {
+		newest: "",
+		cut: "",
+		recent: 0
+	};
+	const [y, m, dd] = newest.split("-").map(Number);
+	const cut = new Date(Date.UTC(y, m - 1, dd - 7)).toISOString().slice(0, 10);
+	return {
+		newest,
+		cut,
+		recent: d.titles.filter((t) => t.amended && t.amended >= cut).length
+	};
+}
+var LIB_SORTS = [
+	["desk", "By desk"],
+	["number", "By number"],
+	["updated", "Recently amended"]
+];
+function titleActions(t) {
+	if (t.reserved || jobFor(t.title, "title")) return "";
+	const inst = t.installed;
+	if (!inst) return actBtn("download", `${icon("download")}Download`, `data-title="${t.title}"`, "is-primary");
+	return `<a class="lib-act" href="#/title/${t.title}/">Open</a>` + (inst.whole ? "" : actBtn("download", "Download all", `data-title="${t.title}"`)) + (isStale(t) ? actBtn("update", "Update", `data-title="${t.title}" title="eCFR has a newer edition (${escapeHtml(fmtDate(t.latest))})"`) : "") + actBtn("remove", "Remove", `data-title="${t.title}"`, "is-danger");
+}
+function libStory(t) {
+	const inst = t.installed;
+	const agencies = (t.agencies || []).slice(0, 3);
+	const kicker = `Title ${t.title}${agencies.length ? `${SEP}<span class="story-ag">${agencies.map(escapeHtml).join(" ")}</span>` : ""}`;
+	const name = escapeHtml(t.name);
+	const headline = t.reserved ? name : `<a href="${libHref(t.title)}">${name}</a>`;
+	const sections = inst ? inst.section_count : t.sections;
+	const dateline = joinSep([
+		t.amended ? `Amended ${escapeHtml(shortDate(t.amended))}` : "",
+		t.reserved ? "" : fmtSections(sections),
+		t.reserved || !t.size_mb ? "" : `<span title="Size of the title's text on eCFR">${fmtMB(t.size_mb)}</span>`
+	]);
+	const acts = titleActions(t);
+	const hay = `${t.title} title ${t.name} ${t.summary || ""} ${t.desk || ""} ${(t.agencies || []).join(" ")}`.toLowerCase();
+	return `<article class="lib-story has-tier-bar${t.reserved ? " is-dim" : ""}" data-ref-tier="cfr" data-hay="${escapeHtml(hay)}">
+    <div class="story-top"><span class="story-kicker">${kicker}</span>${renderStatusPill(t, { bare: !inst })}</div>
+    <h3 class="story-name">${headline}</h3>
+    ${t.summary ? `<p class="story-dek">${escapeHtml(t.summary)}</p>` : ""}
+    <div class="story-foot"><span class="story-date">${dateline}</span>${acts ? `<div class="story-actions">${acts}</div>` : ""}</div>
+  </article>`;
+}
+function libMetrics(d) {
+	const live = d.titles.filter((t) => !t.reserved);
+	const inst = live.filter((t) => t.installed);
+	const sections = inst.reduce((a, t) => a + (t.installed.section_count || 0), 0);
+	const bytes = inst.reduce((a, t) => a + (t.installed.bytes || 0), 0);
+	const stale = live.filter(isStale);
+	const { cut, recent } = amendedWeek(d);
+	const updating = [state.jobs.current, ...state.jobs.queued].some((j) => j && j.kind === "update");
+	return `<section class="lib-metrics" aria-label="Library at a glance">
+    ${metricCardHtml({
+		label: "<span class=\"stat-dot is-synced\" aria-hidden=\"true\"></span>eCFR",
+		value: "Online",
+		sub: d.checked_at ? `Title list checked ${escapeHtml(relTime(d.checked_at * 1e3))}` : `${live.length} titles tracked`
+	})}
+    ${metricCardHtml({
+		label: "Installed",
+		value: String(inst.length),
+		of: `of ${live.length}`,
+		sub: joinSep([fmtSections(sections) || "No sections yet", bytes ? `${fmtBytes(bytes)} on disk` : ""])
+	})}
+    ${metricCardHtml({
+		label: "Amended this week",
+		value: String(recent),
+		sub: cut ? `Since ${escapeHtml(shortDate(cut))}${SEP}<button type="button" class="metric-link" data-sort="updated">Show</button>` : "No edition date"
+	})}
+    ${stale.length ? metricCardHtml({
+		label: "<span class=\"stat-dot is-stale\" aria-hidden=\"true\"></span>Editions",
+		value: `${stale.length} outdated`,
+		sub: updating ? statPill("busy", "Updating", { bare: true }) : `<button type="button" class="metric-link is-strong" data-act="update-all">Update all ${icon("chevronRight")}</button>`,
+		alert: true
+	}) : metricCardHtml({
+		label: "Editions",
+		value: inst.length ? "Current" : "—",
+		sub: inst.length ? "Every installed title is up to date" : "Nothing installed yet"
+	})}
+  </section>`;
+}
+function suiteState(s, d) {
+	const ts = s.titles.map((n) => d.titles.find((t) => t.title === n)).filter((t) => t && !t.reserved);
+	const busy = ts.filter((t) => jobFor(t.title, "title"));
+	const whole = ts.filter((t) => t.installed && t.installed.whole);
+	const any = ts.filter((t) => t.installed);
+	const stale = ts.filter(isStale);
+	const needs = ts.filter((t) => !jobFor(t.title, "title") && (!t.installed || !t.installed.whole || isStale(t)));
+	let pill;
+	if (!ts.length) pill = statPill("uninstalled", "Not installed", { bare: true });
+	else if (busy.length) pill = statPill("busy", `${busy.length} of ${ts.length} in progress`);
+	else if (whole.length === ts.length && !stale.length) pill = statPill("synced", "Installed");
+	else if (whole.length === ts.length) pill = statPill("stale", "Update available");
+	else if (any.length) pill = statPill("partial", `${any.length} of ${ts.length} installed`);
+	else pill = statPill("uninstalled", "Not installed", { bare: true });
+	const onlyUpdates = needs.length && needs.every((t) => t.installed && t.installed.whole);
+	const label = !needs.length ? "" : onlyUpdates ? `Update ${needs.length === ts.length ? "suite" : plural(needs.length, "title")}` : needs.length === ts.length ? "Download suite" : `Download ${plural(needs.length, "remaining title")}`;
+	return {
+		ts,
+		pill,
+		needs,
+		label,
+		busy
+	};
+}
+function suiteHero(s, d) {
+	const st = suiteState(s, d);
+	const rows = st.ts.map((t) => {
+		const parts = ((HOME_CONTENT[t.title] || {}).cards || []).slice(0, 3);
+		const partHref = (p) => t.installed && t.installed.whole ? `#/title/${t.title}/part/${encodeURIComponent(p)}` : libHref(t.title, p);
+		return `<li class="suite-row">
+      <span class="suite-num">${t.title}</span>
+      <div class="suite-row-body">
+        <a class="suite-name" href="${libHref(t.title)}">${escapeHtml(t.name)}</a>
+        <span class="suite-ag">${(t.agencies || []).slice(0, 3).map(escapeHtml).join(" ")}</span>
+        ${parts.length ? `<div class="suite-parts">${parts.map((c) => {
+			const [num, ...rest] = c.title.replace(/^Part\s+/, "").split(" — ");
+			return `<a href="${partHref(c.part)}"><span class="suite-part-num">${escapeHtml(num)}</span>${escapeHtml(rest.join(" — "))}</a>`;
+		}).join("")}</div>` : ""}
+        <div class="suite-meta">${joinSep([
+			t.amended ? `Amended ${escapeHtml(shortDate(t.amended))}` : "",
+			fmtSections(t.installed ? t.installed.section_count : t.sections),
+			t.size_mb ? fmtMB(t.size_mb) : "",
+			t.installed && t.installed.bytes ? `${fmtBytes(t.installed.bytes)} on disk` : ""
+		].map((x) => x && `<span>${x}</span>`))}</div>
+      </div>
+      ${renderStatusPill(t, { bare: true })}
+    </li>`;
+	}).join("");
+	const action = st.label ? `<button type="button" class="btn btn-accent" data-act="download-suite" data-suite="${escapeHtml(s.id)}">${icon("download")}${escapeHtml(st.label)}</button>` : st.busy.length ? "" : `<a class="btn" href="#/title/${st.ts[0] ? st.ts[0].title : ""}/">Open in reader</a>`;
+	return `<article class="suite-hero has-tier-bar" data-ref-tier="cfr" aria-labelledby="suite-${escapeHtml(s.id)}">
+    <div class="story-top"><span class="story-kicker"><span class="ref-badge">FEDERAL CFR PACK</span>${s.badge ? `${SEP}${escapeHtml(s.badge)}` : ""}</span>${st.pill}</div>
+    <h2 class="suite-title" id="suite-${escapeHtml(s.id)}">${escapeHtml(s.name)}</h2>
+    <p class="suite-dek">${escapeHtml(s.summary)}</p>
+    <ul class="suite-rows">${rows}</ul>
+    <div class="suite-foot">
+      <span class="suite-telemetry">${joinSep([
+		plural(st.ts.length, "title"),
+		fmtSections(s.sections),
+		s.size_mb ? `${fmtMB(s.size_mb)} of text` : ""
+	])}</span>
+      ${action}
+    </div>
+  </article>`;
+}
+function suiteCard(s, d) {
+	const st = suiteState(s, d);
+	const titles = st.ts.map((t) => `<a href="${libHref(t.title)}"><span class="suite-part-num">${t.title}</span>${escapeHtml(t.name)}</a>`).join("");
+	const action = st.label ? actBtn("download-suite", `${icon("download")}${escapeHtml(st.label)}`, `data-suite="${escapeHtml(s.id)}"`, "is-primary") : "";
+	return `<article class="suite-card has-tier-bar" data-ref-tier="cfr">
+    <div class="story-top"><span class="story-kicker"><span class="ref-badge">CFR PACK</span>${s.badge ? `${SEP}${escapeHtml(s.badge)}` : ""}</span>${st.pill}</div>
+    <h3 class="story-name">${escapeHtml(s.name)}</h3>
+    <p class="story-dek">${escapeHtml(s.summary)}</p>
+    <div class="suite-parts suite-card-titles">${titles}</div>
+    <div class="story-foot"><span class="story-date">${joinSep([fmtSections(s.sections), fmtMB(s.size_mb)])}</span>${action}</div>
+  </article>`;
+}
+function wireSummary(c) {
+	if (!c) return "<span class=\"wire-pending\" aria-hidden=\"true\"></span>";
+	if (!c.count) return "";
+	if (c.removed === c.count) return escapeHtml(`${plural(c.count, "section")} removed`);
+	const verb = c.kind === "revised" ? "revised" : "amended";
+	const parts = c.parts.slice(0, 3);
+	const more = c.parts.length - parts.length;
+	const where = parts.length ? ` in ${parts.length + more === 1 ? "Part" : "Parts"} ${parts.join(", ")}${more > 0 ? ` +${more}` : ""}` : "";
+	return `${escapeHtml(`${plural(c.count, "section")} ${verb}${where}`)}${c.first && c.first.name ? `<span class="wire-first">${escapeHtml(c.first.name)}</span>` : ""}`;
+}
+function libWire(d) {
+	const top = d.titles.filter((t) => !t.reserved && t.amended).sort((a, b) => b.amended.localeCompare(a.amended) || a.title - b.title).slice(0, 5);
+	const byTitle = new Map((lib.wire && lib.wire.items || []).map((c) => [c.title, c]));
+	const failed = lib.wire && lib.wire.failed;
+	return `<aside class="reg-wire" id="lib-wire" aria-labelledby="wire-title">
+    <div class="wire-head">
+      <h2 class="wire-title" id="wire-title">${icon("activity")}The Regulatory Wire</h2>
+      <span class="wire-badge">Live eCFR</span>
+    </div>
+    <p class="wire-sub">Latest amendments, newest first</p>
+    <ol class="wire-items">${top.map((t) => {
+		const c = byTitle.get(t.title);
+		const summary = !lib.wire ? wireSummary(null) : failed || !c || c.amended !== t.amended ? "" : wireSummary(c);
+		return `<li class="wire-entry"><a href="${libHref(t.title)}">
+        <span class="wire-entry-head"><span class="wire-entry-title">Title ${t.title}${(t.agencies || [])[0] ? `${SEP}${escapeHtml(t.agencies[0])}` : ""}</span>
+          <time class="wire-entry-date" datetime="${escapeHtml(t.amended)}">${escapeHtml(shortDate(t.amended))}</time></span>
+        <span class="wire-entry-name">${escapeHtml(t.name)}</span>
+        ${summary ? `<span class="wire-entry-summary">${summary}</span>` : ""}
+      </a></li>`;
+	}).join("")}</ol>
+    <div class="wire-foot"><button type="button" class="wire-link" data-sort="updated">All titles by last amendment ${icon("chevronRight")}</button></div>
+  </aside>`;
+}
+async function loadWire() {
+	if (lib.wire && Date.now() - lib.wire.at < 18e5 && !lib.wire.failed) return;
+	try {
+		lib.wire = {
+			at: Date.now(),
+			items: await getJSON("/api/library/wire")
+		};
+	} catch (e) {
+		lib.wire = {
+			at: Date.now(),
+			items: [],
+			failed: true
+		};
+	}
+	const el = document.getElementById("lib-wire");
+	if (el && lib.data && lib.view && !lib.view.title) el.outerHTML = libWire(lib.data);
+}
+function libTitleList(d, sort) {
+	const live = d.titles.filter((t) => !t.reserved);
+	const reserved = d.titles.filter((t) => t.reserved);
+	const grid = (ts) => `<div class="lib-stories">${ts.map(libStory).join("")}</div>`;
+	const desk = (name, ts, extra = "") => `<section class="lib-desk${extra}" aria-label="${escapeHtml(name)}">
+      <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(name)}</h3><span class="lib-desk-count">${plural(ts.length, "title")}</span></header>
+      ${grid(ts)}</section>`;
+	if (sort === "number" || sort === "updated") {
+		const ordered = sort === "number" ? live : [...live].sort((a, b) => (b.amended || "").localeCompare(a.amended || "") || a.title - b.title);
+		return desk(sort === "number" ? "All titles by number" : "All titles by last amendment", ordered, " is-flat") + (reserved.length ? desk("Reserved", reserved) : "");
+	}
+	const names = [...d.desks || []];
+	for (const t of live) if (!names.includes(t.desk)) names.push(t.desk);
+	return names.map((name) => {
+		const ts = live.filter((t) => t.desk === name);
+		return ts.length ? desk(name, ts) : "";
+	}).join("") + (reserved.length ? desk("Reserved", reserved) : "");
+}
+var LIB_TIER_TABS = [
+	{
+		id: "all",
+		label: "All Authorities",
+		refTier: "cfr"
+	},
+	{
+		id: "federal-statute",
+		label: "U.S. Code",
+		refTier: "usc"
+	},
+	{
+		id: "federal-reg",
+		label: "Federal CFR",
+		refTier: "cfr"
+	},
+	{
+		id: "state",
+		label: "States",
+		refTier: "state"
+	},
+	{
+		id: "county",
+		label: "Counties",
+		refTier: "county"
+	},
+	{
+		id: "standard",
+		label: "Standards",
+		refTier: "ibr"
+	}
+];
+function libTierTabsHtml(d) {
+	const cfrCount = (d.titles || []).filter((t) => !t.reserved).length;
+	const extras = state.extraCorpora || [];
+	const countFor = (id) => {
+		if (id === "all") return cfrCount + extras.length;
+		if (id === "federal-reg") return cfrCount + extras.filter((c) => c.tier === "federal-reg").length;
+		return extras.filter((c) => c.tier === id).length;
+	};
+	return `<div class="lib-tier-bar" role="tablist" aria-label="Filter catalog by authority tier">${LIB_TIER_TABS.map((t) => {
+		const on = lib.tier === t.id;
+		const count = countFor(t.id);
+		return `<button type="button" role="tab" aria-selected="${on}" class="lib-tier-tab${on ? " is-active" : ""}" data-ref-tier="${t.refTier}" data-lib-tier="${t.id}">
+      <span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(t.label)}</span>${count ? `<span class="lib-tier-count">${count}</span>` : ""}
+    </button>`;
+	}).join("")}</div>`;
+}
+function libExtraTierBodyHtml(tierId) {
+	const meta = TIER_META[tierId] || TIER_META["state"];
+	const matches = (state.extraCorpora || []).filter((c) => c.tier === tierId);
+	if (matches.length) return `<section class="lib-desk" aria-label="${escapeHtml(meta.label)}">
+      <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(meta.label)}</h3><span class="lib-desk-count">${plural(matches.length, "corpus")}</span></header>
+      <div class="lib-stories">${matches.map((c) => `
+        <article class="lib-story has-tier-bar" data-ref-tier="${refTierForCorpus(c)}">
+          <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}${escapeHtml(c.jurisdiction_label || c.jurisdiction)}</span>${statPill("synced", "Ready")}</div>
+          <h3 class="story-name"><a href="${escapeHtml(corpusHashFor(c))}">${escapeHtml(c.code)} — ${escapeHtml(c.name)}</a></h3>
+          ${c.summary ? `<p class="story-dek">${escapeHtml(c.summary)}</p>` : ""}
+          <div class="story-foot"><span class="story-date">${escapeHtml((c.agencies || []).join(" · ") || meta.label)}</span><div class="story-actions"><a class="lib-act" href="${escapeHtml(corpusHashFor(c))}">Open</a></div></div>
+        </article>`).join("")}</div></section>`;
+	return `<section class="resolver-card has-tier-bar" data-ref-tier="${meta.refTier}" style="margin-top:8px">
+    <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}Catalog Slot Pre-Wired</div>
+    <h2 class="doc-title" style="font-size:20px">${escapeHtml(meta.label)}</h2>
+    <p class="resolver-msg">${escapeHtml({
+		"federal-statute": "United States Code (U.S.C.) XML statutory packs (Title 29 OSH Act/FLSA, Title 42 EPA statutes, Title 49 Transportation) plug directly into this catalog slot alongside CFR cross-links.",
+		"state": "State administrative codes and OSHA-approved State Plans (e.g., California 8 CCR, Texas TAC, Washington WAC) share the same CorpusSummary contract and search facets.",
+		"county": "County and municipal fire, air-quality, and environmental health ordinances attach under State feeds using jurisdiction codes like US-CA-LA.",
+		"standard": "Incorporated consensus standards (ANSI, NFPA, ASTM, ASME) currently resolve inside section peeker popovers and each Title Start Almanac."
+	}[tierId] || "Backend ingestion pack pending.")}</p>
+    <div class="resolver-acts">
+      <button type="button" class="btn btn-accent" data-lib-tier="federal-reg">View Federal CFR Catalog</button>
+      <a class="btn" href="#/title/${state.currentTitle}/">Open ${state.currentTitle} CFR Almanac</a>
+    </div>
+  </section>`;
+}
+function libFrontHtml(d) {
+	const live = d.titles.filter((t) => !t.reserved);
+	const { newest, recent } = amendedWeek(d);
+	const sub = joinSep([
+		"Multi-Jurisdiction Regulatory Catalog",
+		newest ? `Edition ${escapeHtml(fmtDate(newest))}` : "",
+		`${live.length} CFR titles`,
+		recent ? `${recent} amended this week` : "No amendments this week"
+	]);
+	const suites = Object.values(d.suites || {});
+	const lead = suites.find((s) => s.featured) || suites[0];
+	const others = suites.filter((s) => s !== lead);
+	const showCfr = lib.tier === "all" || lib.tier === "federal-reg";
+	const extraTiers = TIER_ORDER.filter((t) => t !== "federal-reg" && (lib.extraCorporaCount || (state.extraCorpora || []).some((c) => c.tier === t)));
+	const cfrBody = `
+    <div class="lib-broadsheet${lead ? "" : " is-wire-only"}">${lead ? suiteHero(lead, d) : ""}${libWire(d)}</div>
+    ${others.length ? `<section class="lib-suites" aria-label="More compliance suites">
+      <header class="lib-desk-header"><h2 class="lib-desk-name">Jurisdiction Packs</h2><span class="lib-desk-count">${plural(others.length, "pack")}</span></header>
+      <div class="lib-suite-grid">${others.map((s) => suiteCard(s, d)).join("")}</div></section>` : ""}
+    <div class="lib-tools">
+      <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter titles or agencies…" aria-label="Filter titles or agencies" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
+      <div class="lib-seg" role="group" aria-label="Order titles">${LIB_SORTS.map(([k, label]) => `<button type="button" data-sort="${k}" aria-pressed="${lib.sort === k}">${label}</button>`).join("")}</div>
+    </div>
+    <div class="lib-list" id="lib-list">${libTitleList(d, lib.sort)}</div>
+    <div class="lib-none" id="lib-none" hidden>No title matches. Try an agency (“OSHA”) or a topic.</div>`;
+	return `<div class="lib lib-front">
+    <div class="doc-kicker"><a href="#/">Home</a></div>
+    <header class="lib-masthead">
+      <h1 class="doc-title">Library</h1>
+      <p class="lib-sub">${sub}</p>
+    </header>
+    ${libMetrics(d)}
+    ${libTierTabsHtml(d)}
+    ${showCfr ? cfrBody : libExtraTierBodyHtml(lib.tier)}
+    ${lib.tier === "all" && extraTiers.length ? extraTiers.map(libExtraTierBodyHtml).join("") : ""}
+  </div>`;
+}
+function renderLibrary(fresh) {
+	const { title, part } = lib.view;
+	const d = lib.data;
+	let crumbs, heading, sub, head = "", body = "", placeholder;
+	const scrollTop = dom.main.scrollTop;
+	if (!title) {
+		document.title = "Library · FRAMEWORK";
+		const existingList = !fresh && document.getElementById("lib-list");
+		const frontShell = dom.view.querySelector(".lib-front");
+		if (existingList && frontShell) {
+			const tmp = document.createElement("div");
+			tmp.innerHTML = libFrontHtml(d);
+			const nextMetrics = tmp.querySelector(".lib-metrics");
+			const curMetrics = frontShell.querySelector(".lib-metrics");
+			if (nextMetrics && curMetrics) curMetrics.replaceWith(nextMetrics);
+			const nextBroad = tmp.querySelector(".lib-broadsheet");
+			const curBroad = frontShell.querySelector(".lib-broadsheet");
+			if (nextBroad && curBroad) curBroad.replaceWith(nextBroad);
+			const nextSuites = tmp.querySelector(".lib-suites");
+			const curSuites = frontShell.querySelector(".lib-suites");
+			if (nextSuites && curSuites) curSuites.replaceWith(nextSuites);
+			for (const btn of frontShell.querySelectorAll(".lib-seg [data-sort]")) btn.setAttribute("aria-pressed", String(btn.dataset.sort === lib.sort));
+			existingList.innerHTML = libTitleList(d, lib.sort);
+			applyLibraryFilter();
+			dom.main.scrollTop = scrollTop;
+			return;
+		}
+		dom.view.innerHTML = libFrontHtml(d);
+		applyLibraryFilter();
+		if (fresh) enterView();
+		else dom.main.scrollTop = scrollTop;
+		return;
+	}
+	if (!part) {
+		document.title = `Title ${title} · Library · FRAMEWORK`;
+		const inst = d.installed;
+		crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a>`;
+		heading = `Title ${title} — ${d.name}`;
+		sub = inst ? inst.whole ? `Installed · ${fmtDate(inst.edition)} · ${fmt(inst.section_count)} sections` : `Partly installed · ${fmt(inst.section_count)} ${inst.section_count === 1 ? "section" : "sections"}` : `Not installed · eCFR edition ${fmtDate(d.latest)}`;
+		placeholder = "Filter parts";
+		const j = jobFor(title, "title");
+		head = d.reserved ? "" : j ? `<span class="lib-head-status">${jobStatus(j)}</span>` : inst && inst.whole ? `<a class="btn" href="#/title/${title}/">Open in reader</a>` : `<button type="button" class="btn" data-act="download" data-title="${title}">${icon("download")} Download whole title</button>`;
+		body = d.groups.map((g) => `
+      ${g.label ? `<div class="lib-label">${escapeHtml(g.label)}</div>` : ""}
+      ${g.parts.map((p) => {
+			const pj = jobFor(title, "part", p.id);
+			if (p.r || !p.leaves) return libRow({
+				num: p.l.replace(/^Parts?\s+/, ""),
+				name: p.d || "Reserved",
+				status: "Reserved",
+				dim: true
+			});
+			const status = p.installed === "all" ? statPill("synced", "Installed", { bare: true }) : p.installed === "some" ? statPill("partial", `${p.installed_sections} of ${fmt(p.leaves)}`, {
+				bare: true,
+				title: "Sections installed"
+			}) : escapeHtml(fmtSections(p.leaves));
+			const acts = p.installed === "all" ? `<a class="lib-act" href="#/title/${title}/part/${encodeURIComponent(p.id)}">Open</a>` : actBtn("download", "Download part", `data-title="${title}" data-part="${escapeHtml(p.id)}"`);
+			return libRow({
+				href: libHref(title, p.id),
+				num: p.id,
+				name: p.d || p.l,
+				status: pj ? jobStatus(pj) : status,
+				actions: pj ? "" : acts,
+				key: `p${p.id}`
+			});
+		}).join("")}`).join("");
+	} else {
+		document.title = `Part ${part} · Library · FRAMEWORK`;
+		crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a><span class="sep" aria-hidden="true">›</span><a href="${libHref(title)}">Title ${title}</a>`;
+		heading = `${d.l} — ${d.d}`;
+		const countText = fmtSections(d.groups.reduce((a, g) => a + g.sections.filter((s) => !s.r).length, 0)) || "0 sections";
+		sub = d.installed === "all" ? `Installed · ${countText}` : d.installed === "some" ? `Partly installed · ${countText}` : countText;
+		placeholder = "Filter sections";
+		const j = jobFor(title, "part", part);
+		head = j ? `<span class="lib-head-status">${jobStatus(j)}</span>` : d.installed === "all" ? `<a class="btn" href="#/title/${title}/part/${encodeURIComponent(part)}">Open in reader</a>` : `<button type="button" class="btn" data-act="download" data-title="${title}" data-part="${escapeHtml(part)}">${icon("download")} Download part</button>`;
+		body = d.groups.map((g) => `
+      ${g.label ? `<div class="lib-label">${escapeHtml(g.label)}</div>` : ""}
+      ${g.sections.map((s) => {
+			const num = s.t === "appendix" ? s.l : s.l.replace(/^§\s*/, "");
+			const name = s.t === "appendix" ? s.d && s.d !== s.l ? s.d.replace(s.l, "").replace(/^\s*[—–-]\s*/, "") : "" : s.d;
+			if (s.r) return libRow({
+				num,
+				name: name || "Reserved",
+				status: "Reserved",
+				dim: true
+			});
+			const sj = jobFor(title, "section", s.id);
+			const acts = s.installed ? `<a class="lib-act" href="#/title/${title}/section/${encodeURIComponent(s.id)}">Open</a>` : actBtn("download", "Download", `data-title="${title}" data-part="${escapeHtml(part)}" data-section="${escapeHtml(s.id)}" data-kind="${s.t}"`);
+			return libRow({
+				num,
+				name,
+				status: sj ? jobStatus(sj) : s.installed ? statPill("synced", "Installed", { bare: true }) : "",
+				actions: sj ? "" : acts,
+				key: `s${s.id}`
+			});
+		}).join("")}`).join("");
+	}
+	const viewKey = `${title}|${part || ""}`;
+	if (!fresh && dom.view.querySelector(`.lib[data-lib-view="${CSS.escape(viewKey)}"]`)) {
+		const subEl = document.getElementById("lib-sub-slot");
+		const headEl = document.getElementById("lib-head-act-slot");
+		const listEl = document.getElementById("lib-list");
+		if (subEl) subEl.textContent = sub;
+		if (headEl) headEl.innerHTML = head;
+		if (listEl) listEl.innerHTML = body;
+		applyLibraryFilter();
+		dom.main.scrollTop = scrollTop;
+		return;
+	}
+	dom.view.innerHTML = `
+    <div class="lib" data-lib-view="${escapeHtml(viewKey)}">
+      <div class="doc-kicker">${crumbs}</div>
+      <div class="lib-head">
+        <div class="lib-head-text">
+          <h1 class="doc-title">${escapeHtml(heading)}</h1>
+          <p class="lib-sub" id="lib-sub-slot">${escapeHtml(sub)}</p>
+        </div>
+        <span id="lib-head-act-slot">${head}</span>
+      </div>
+      <input class="lib-filter" id="lib-filter" type="search" placeholder="${placeholder}…" aria-label="${placeholder}" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
+      <div class="lib-list" id="lib-list">${body}</div>
+      <div class="lib-none" id="lib-none" hidden>Nothing matches.</div>
+    </div>`;
+	applyLibraryFilter();
+	if (fresh) enterView();
+	else dom.main.scrollTop = scrollTop;
+}
+function applyLibraryFilter() {
+	const words = lib.filter.toLowerCase().split(/\s+/).filter(Boolean);
+	const list = document.getElementById("lib-list");
+	if (!list) return;
+	if (list.querySelector(".lib-story")) {
+		let n = 0;
+		for (const desk of list.querySelectorAll(".lib-desk")) {
+			let k = 0;
+			for (const el of desk.querySelectorAll(".lib-story")) {
+				const ok = words.every((w) => (el.dataset.hay || "").includes(w));
+				el.hidden = !ok;
+				if (ok) k++;
+			}
+			desk.hidden = k === 0;
+			const total = desk.querySelectorAll(".lib-story").length;
+			const count = desk.querySelector(".lib-desk-count");
+			if (count) count.textContent = words.length && k !== total ? `${k} of ${plural(total, "title")}` : plural(total, "title");
+			n += k;
+		}
+		document.getElementById("lib-none").hidden = n > 0;
+		return;
+	}
+	let shown = 0;
+	let label = null, labelHas = false;
+	const closeLabel = () => {
+		if (label) label.hidden = !labelHas;
+	};
+	for (const el of list.children) {
+		if (el.classList.contains("lib-label")) {
+			closeLabel();
+			label = el;
+			labelHas = false;
+			continue;
+		}
+		const hay = el.dataset.hay || "";
+		const ok = words.every((w) => hay.includes(w));
+		el.hidden = !ok;
+		if (ok) {
+			shown++;
+			labelHas = true;
+		}
+	}
+	closeLabel();
+	document.getElementById("lib-none").hidden = shown > 0;
+}
+dom.view.addEventListener("input", (e) => {
+	if (e.target.id !== "lib-filter") return;
+	lib.filter = e.target.value;
+	applyLibraryFilter();
+});
+dom.view.addEventListener("click", (e) => {
+	const tierBtn = e.target.closest("button[data-lib-tier]");
+	if (tierBtn && dom.view.querySelector(".lib-front")?.contains(tierBtn)) {
+		lib.tier = tierBtn.dataset.libTier || "all";
+		dom.view.innerHTML = libFrontHtml(lib.data);
+		applyLibraryFilter();
+		return;
+	}
+	const sortBtn = e.target.closest("button[data-sort]");
+	if (!sortBtn || !dom.view.querySelector(".lib")?.contains(sortBtn)) return;
+	const fromSeg = Boolean(sortBtn.closest(".lib-seg"));
+	if (sortBtn.dataset.sort !== lib.sort) {
+		lib.sort = sortBtn.dataset.sort;
+		lsSet("libSort", lib.sort);
+		renderLibrary(false);
+	}
+	if (fromSeg) dom.view.querySelector(`.lib-seg [data-sort="${lib.sort}"]`)?.focus();
+	else {
+		const tools = dom.view.querySelector(".lib-tools");
+		if (tools) tools.scrollIntoView({
+			behavior: reduceMotion.matches ? "auto" : "smooth",
+			block: "start"
+		});
+	}
+});
+async function queueBatch(url, body, emptyMsg) {
+	const res = await getJSON(url, body ? {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body)
+	} : { method: "POST" });
+	for (const j of res.queued || []) state.jobsSeenActive.add(j.id);
+	showToast(res.count ? `Queued ${plural(res.count, "title")}` : emptyMsg);
+	await pollJobs();
+}
+dom.view.addEventListener("click", async (e) => {
+	const btn = e.target.closest("button[data-act]");
+	if (!btn || !dom.view.querySelector(".lib")?.contains(btn)) return;
+	const title = parseInt(btn.dataset.title, 10);
+	const act = btn.dataset.act;
+	if (act === "remove") {
+		if (!btn.classList.contains("is-armed")) {
+			btn.classList.add("is-armed");
+			btn.textContent = "Confirm remove";
+			clearTimeout(btn._t);
+			btn._t = setTimeout(() => {
+				btn.classList.remove("is-armed");
+				btn.textContent = "Remove";
+			}, 4e3);
+			return;
+		}
+		btn.disabled = true;
+		try {
+			await getJSON(`/api/library/${title}`, { method: "DELETE" });
+			showToast(`Removed Title ${title}`);
+			await refreshTitles();
+			await refreshLibrary();
+		} catch (err) {
+			showToast(err.message, 5e3);
+			btn.disabled = false;
+		}
+		return;
+	}
+	btn.disabled = true;
+	try {
+		if (act === "download-suite") {
+			await queueBatch("/api/library/batch-download", { suite: btn.dataset.suite }, "Every title in this suite is installed and current");
+			return;
+		}
+		if (act === "update-all") {
+			await queueBatch("/api/library/update-all", null, "Every installed title is already current");
+			return;
+		}
+		const job = act === "update" ? await getJSON(`/api/library/${title}/update`, { method: "POST" }) : await getJSON("/api/library/download", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title,
+				part: btn.dataset.part || null,
+				section: btn.dataset.section || null,
+				kind: btn.dataset.kind === "appendix" ? "appendix" : "section"
+			})
+		});
+		state.jobsSeenActive.add(job.id);
+		await pollJobs();
+	} catch (err) {
+		showToast(err.message, 5e3);
+		btn.disabled = false;
+	}
+});
+function setJobs(snapshot) {
+	if (!snapshot) return;
+	state.jobs = snapshot;
+	for (const j of [state.jobs.current, ...state.jobs.queued]) if (j) state.jobsSeenActive.add(j.id);
+	updateDock();
+	updateNavTransfers();
+	document.dispatchEvent(new CustomEvent("framework:jobs-updated", { detail: { snap: snapshot } }));
+}
+function pollJobsIfActive() {
+	if ((state.jobs.current || state.jobs.queued.length) && !state.jobsTimer) state.jobsTimer = setTimeout(pollJobs, 700);
+}
+async function pollJobs() {
+	clearTimeout(state.jobsTimer);
+	state.jobsTimer = null;
+	let snap;
+	try {
+		snap = await getJSON("/api/library/jobs");
+	} catch (e) {
+		state.jobsTimer = setTimeout(pollJobs, 3e3);
+		return;
+	}
+	const before = new Set(state.jobsSeenActive);
+	setJobs(snap);
+	const finished = snap.recent.filter((j) => before.has(j.id));
+	for (const j of finished) {
+		state.jobsSeenActive.delete(j.id);
+		if (j.state === "error") showToast(`${j.label}: ${j.error}`, 6e3);
+		else if (j.state === "cancelled") showToast(`Cancelled ${j.label}`);
+		else showToast(j.phase === "Already installed" ? `${j.label} is already installed` : `Downloaded ${j.label}`);
+	}
+	if (finished.some((j) => j.state === "done")) await refreshTitles(finished.filter((j) => j.state === "done").map((j) => j.title));
+	if (finished.length) {
+		document.dispatchEvent(new CustomEvent("framework:jobs-finished", { detail: {
+			finished,
+			snap
+		} }));
+		navLib.at = 0;
+		state.navStorage = null;
+		if (drawerShown() && navState.panel === "library") ensureNavLibrary(true).then(renderLibraryPanel).catch(() => {});
+		if (drawerShown() || onSettingsPage()) refreshSettingsViews();
+	}
+	if (dom.view.querySelector(".lib")) {
+		if (finished.length) await refreshLibrary();
+		else {
+			const key = [snap.current, ...snap.queued].filter(Boolean).map((j) => `${j.id}${j.state[0]}`).join(",");
+			if (key !== state.lastJobsKey) {
+				state.lastJobsKey = key;
+				renderLibrary(false);
+			}
+		}
+	}
+	refreshWelcome();
+	refreshHomeIfActive();
+	pollJobsIfActive();
+}
 // src/panels/projects_panel.js
 state.newProjectOpen = false;
 function showNewProjectForm() {
@@ -10230,10 +11814,20 @@ var PROJECT_HUES = [
 	"--danger"
 ];
 var validProject = (p) => p && typeof p.id === "string" && typeof p.name === "string" && Array.isArray(p.sections);
+var normalizeWorkspace = (p) => ({
+	...p,
+	tags: Array.isArray(p.tags) ? p.tags : [],
+	sections: p.sections.map((s) => ({
+		tier: "federal-reg",
+		jurisdiction: "US",
+		...s
+	})),
+	projects: Array.isArray(p.projects) ? p.projects : []
+});
 function loadProjects() {
 	try {
 		const v = JSON.parse(lsGet("framework_projects_v1") || "[]");
-		return Array.isArray(v) ? v.filter(validProject) : [];
+		return Array.isArray(v) ? v.filter(validProject).map(normalizeWorkspace) : [];
 	} catch (e) {
 		return [];
 	}
@@ -10257,6 +11851,7 @@ function createProject(name, extra = {}) {
 		created_at: nowIso(),
 		updated_at: nowIso(),
 		sections: [],
+		projects: [],
 		...extra
 	};
 	list.unshift(p);
@@ -10304,7 +11899,9 @@ function currentSectionRef() {
 		id: state.currentSection.id,
 		label: state.currentSection.label || `§ ${state.currentSection.id}`,
 		heading: state.currentSection.section_title || state.currentSection.title_label || "",
-		part: state.currentSection.part || ""
+		part: state.currentSection.part || "",
+		tier: "federal-reg",
+		jurisdiction: "US"
 	};
 }
 function clipToWorkspace(sec, { para = "", quote = "", cite = "", projectId = null } = {}) {
@@ -10407,12 +12004,45 @@ function onProjectAction(btn) {
 			window.location.hash = "#/projects";
 			saveProjects(list);
 			showToast("Workspace deleted");
-		} else {
+		} else if (act === "unpin") {
 			const [title, ...rest] = btn.dataset.sec.split("|");
 			updateProject(projectRouteId(), (p) => {
 				p.sections = p.sections.filter((s) => !(s.title === Number(title) && s.id === rest.join("|")));
 			});
 		}
+	} else if (act === "task-cycle") {
+		const taskId = btn.dataset.taskId;
+		const order = [
+			"open",
+			"in_progress",
+			"done"
+		];
+		updateProject(projectRouteId(), (p) => {
+			const item = (p.projects || []).find((x) => x.id === taskId);
+			if (item) item.status = order[(order.indexOf(item.status) + 1) % order.length];
+		});
+	} else if (act === "task-remove") {
+		const taskId = btn.dataset.taskId;
+		updateProject(projectRouteId(), (p) => {
+			p.projects = (p.projects || []).filter((x) => x.id !== taskId);
+		});
+	} else if (act === "task-add") {
+		const inp = btn.closest(".proj-detail")?.querySelector("#proj-task-input");
+		const title = inp?.value.trim() || "";
+		if (!title) {
+			inp?.focus();
+			return;
+		}
+		updateProject(projectRouteId(), (p) => {
+			if (!Array.isArray(p.projects)) p.projects = [];
+			p.projects.unshift({
+				id: `act_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+				title,
+				status: "open",
+				created_at: nowIso()
+			});
+		});
+		showToast("Action project added");
 	}
 }
 dom.sidebar.addEventListener("click", (e) => {
@@ -10423,6 +12053,30 @@ dom.view.addEventListener("click", (e) => {
 	const b = e.target.closest("[data-proj-act]");
 	if (b && dom.view.querySelector(".proj-page, .hm")) onProjectAction(b);
 });
+var TASK_STATUS_LABEL = {
+	open: "Open",
+	in_progress: "In Progress",
+	done: "Done"
+};
+function renderWorkspaceTasksHtml(p) {
+	const tasks = p.projects || [];
+	const rows = tasks.map((t) => `
+    <div class="proj-task-row is-${escapeHtml(t.status || "open")}">
+      <button type="button" class="proj-task-status" data-proj-act="task-cycle" data-task-id="${escapeHtml(t.id)}" title="Click to advance status">${escapeHtml(TASK_STATUS_LABEL[t.status] || "Open")}</button>
+      <span class="proj-task-title">${escapeHtml(t.title)}</span>
+      <button type="button" class="icon-btn proj-task-del" data-proj-act="task-remove" data-task-id="${escapeHtml(t.id)}" aria-label="Remove action project">${icon("close")}</button>
+    </div>
+  `).join("");
+	return `
+    <div class="lib-desk proj-actions-sec">
+      <header class="lib-desk-header"><h2 class="lib-desk-name">Action projects</h2><span class="lib-desk-count">${plural(tasks.length, "project")}</span></header>
+      <div class="proj-task-add">
+        <input type="text" class="ui-input proj-task-input" id="proj-task-input" placeholder="Add an action project (e.g. Audit GHS SDS binder for Line 4)…" aria-label="New action project title" autocomplete="off">
+        <button type="button" class="btn btn-sm btn-accent" data-proj-act="task-add">${icon("plus")} Add project</button>
+      </div>
+      ${rows ? `<div class="proj-task-list">${rows}</div>` : "<p class=\"proj-task-empty\">Action projects turn the legal authorities pinned below into checklists and deliverables.</p>"}
+    </div>`;
+}
 function titlesOf(p) {
 	const ts = [...new Set(p.sections.map((s) => s.title))].sort((a, b) => a - b);
 	return ts.length ? `${ts.length === 1 ? "Title" : "Titles"} ${ts.join(", ")}` : "";
@@ -10437,21 +12091,29 @@ function renderProjects(id) {
 	const sections = list.reduce((a, p) => a + p.sections.length, 0);
 	const fresh = !dom.view.querySelector(`.proj-page[data-id="${id || ""}"]`);
 	if (!id) {
-		document.title = "Projects · FRAMEWORK";
-		const cards = list.map((p) => `<article class="lib-story proj-card">
+		document.title = "Workspaces · FRAMEWORK";
+		const cards = list.map((p) => {
+			const topTier = refTierForCorpus(p.sections[0]?.tier || "federal-reg");
+			const taskCount = (p.projects || []).length;
+			return `<article class="lib-story proj-card has-tier-bar" data-ref-tier="${topTier}">
         <div class="story-top"><span class="story-kicker">${projDot(p)}Workspace${SEP}Updated ${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</span></div>
         <h3 class="story-name"><a href="#/projects/${encodeURIComponent(p.id)}">${escapeHtml(p.name)}</a></h3>
         ${p.description ? `<p class="story-dek">${escapeHtml(p.description)}</p>` : ""}
         ${p.tags && p.tags.length ? `<div class="proj-tags">${p.tags.map((t) => `<span class="proj-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
-        <div class="story-foot"><span class="story-date">${joinSep([plural(p.sections.length, "section"), escapeHtml(titlesOf(p))])}</span></div>
-      </article>`).join("");
+        <div class="story-foot"><span class="story-date">${joinSep([
+				plural(p.sections.length, "section"),
+				taskCount ? plural(taskCount, "project") : "",
+				escapeHtml(titlesOf(p))
+			])}</span></div>
+      </article>`;
+		}).join("");
 		const mod = isMac ? "⌘" : "Ctrl ";
 		dom.view.innerHTML = `<div class="lib lib-front proj-page" data-id="">
       <div class="doc-kicker"><a href="#/">Home</a></div>
       <div class="lib-head">
-        <div class="lib-head-text"><h1 class="doc-title">Projects</h1>
+        <div class="lib-head-text"><h1 class="doc-title">Workspaces</h1>
           <p class="lib-sub">${joinSep([
-			"Workspaces of pinned sections for program compliance, audits, or reviews",
+			"Subject-based workspaces of pinned sections and projects",
 			plural(list.length, "workspace"),
 			plural(sections, "section")
 		])}</p></div>
@@ -10467,32 +12129,47 @@ function renderProjects(id) {
 	}
 	const p = list.find((x) => x.id === id);
 	if (!p) {
-		document.title = "Projects · FRAMEWORK";
-		dom.view.innerHTML = `<div class="empty-state proj-page" data-id="${escapeHtml(id)}"><h2>No such workspace</h2><p>It may have been deleted, or it lives in another browser.</p><a class="btn" href="#/projects">All workspaces</a></div>`;
+		document.title = "Workspaces · FRAMEWORK";
+		dom.view.innerHTML = emptyStateHtml({
+			title: "No such workspace",
+			body: "It may have been deleted, or it lives in another browser.",
+			actionsHtml: "<a class=\"btn\" href=\"#/projects\">All workspaces</a>",
+			cls: "proj-page"
+		});
 		return;
 	}
-	document.title = `${p.name} · Projects · FRAMEWORK`;
+	document.title = `${p.name} · Workspaces · FRAMEWORK`;
 	const installed = new Set(state.installedTitles.map((t) => t.title));
-	const items = p.sections.map((s) => {
-		const href = `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
-		return `<article class="proj-item">
-      <div class="story-top"><span class="story-kicker">Title ${s.title}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ""}</span>
-        <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || "").slice(0, 10)))}</span></div>
-      <h3 class="story-name">${installed.has(s.title) ? `<a href="${href}">${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}</a>` : `${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}`}</h3>
-      ${installed.has(s.title) ? "" : `<p class="proj-missing">Title ${s.title} isn’t installed. <a href="#/library/${s.title}">Download it</a> to read this section.</p>`}
-      <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || "")}</textarea>
-      <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
-    </article>`;
+	const groupedHtml = TIER_ORDER.map((tier) => {
+		const tierSecs = p.sections.filter((s) => (s.tier || "federal-reg") === tier);
+		if (!tierSecs.length) return "";
+		const tMeta = TIER_META[tier] || TIER_META["federal-reg"];
+		const rTier = tMeta.refTier;
+		const rows = tierSecs.map((s) => {
+			const href = `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
+			return `<article class="proj-item has-tier-bar" data-ref-tier="${rTier}">
+        <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(tMeta.tag)}</span>${SEP}Title ${s.title}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ""}</span>
+          <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || "").slice(0, 10)))}</span></div>
+        <h3 class="story-name">${installed.has(s.title) ? `<a href="${href}">${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}</a>` : `${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}`}</h3>
+        ${installed.has(s.title) ? "" : `<p class="proj-missing">Title ${s.title} isn’t installed. <a href="#/library/${s.title}">Download it</a> to read this section.</p>`}
+        <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || "")}</textarea>
+        <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
+      </article>`;
+		}).join("");
+		return `<div class="proj-tier-group" data-ref-tier="${rTier}">
+      <div class="proj-tier-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(tMeta.label)}</span><span class="proj-tier-count">${tierSecs.length}</span></div>
+      ${rows}
+    </div>`;
 	}).join("");
 	const mod = isMac ? "⌘" : "Ctrl ";
 	dom.view.innerHTML = `<div class="lib proj-page proj-detail" data-id="${escapeHtml(p.id)}">
-    <div class="doc-kicker"><a href="#/projects">Projects</a></div>
+    <div class="doc-kicker"><a href="#/projects">Workspaces</a></div>
     <div class="proj-head">
       <span class="proj-icon" style="--hue: var(${projectHue(p)})" aria-hidden="true">${icon("folder")}</span>
       <input class="proj-name" value="${escapeHtml(p.name)}" maxlength="80" aria-label="Workspace name" spellcheck="false">
       <span class="proj-head-acts">
-        <button type="button" class="lib-act" data-proj-act="export-one" data-id="${escapeHtml(p.id)}">Export</button>
-        <button type="button" class="lib-act is-danger" data-proj-act="delete" data-id="${escapeHtml(p.id)}">Delete</button>
+        <button type="button" class="btn btn-sm" data-proj-act="export-one" data-id="${escapeHtml(p.id)}">Export</button>
+        <button type="button" class="btn btn-sm is-danger" data-proj-act="delete" data-id="${escapeHtml(p.id)}">Delete</button>
       </span>
     </div>
     <textarea class="proj-desc" rows="1" placeholder="Add a description…" aria-label="Description">${escapeHtml(p.description || "")}</textarea>
@@ -10502,9 +12179,10 @@ function renderProjects(id) {
       <div><dt>Created</dt><dd>${escapeHtml(fmtDate((p.created_at || "").slice(0, 10)))}</dd></div>
       <div><dt>Updated</dt><dd data-f="updated">${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</dd></div>
     </dl>
+    ${renderWorkspaceTasksHtml(p)}
     <div class="lib-desk">
       <header class="lib-desk-header"><h2 class="lib-desk-name">Pinned sections</h2><span class="lib-desk-count">${plural(p.sections.length, "section")}</span></header>
-      ${items || `<div class="proj-empty is-inline"><p>Nothing pinned yet. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd> to add it here.</p></div>`}
+      ${groupedHtml || `<div class="proj-empty is-inline"><p>Nothing pinned yet. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd> to add it here.</p></div>`}
     </div>
   </div>`;
 	for (const t of dom.view.querySelectorAll(".proj-desc, .proj-note")) autosize(t);
@@ -10535,10 +12213,16 @@ dom.view.addEventListener("input", (e) => {
 		}, { quiet: true });
 		const upd = page.querySelector("[data-f=\"updated\"]");
 		if (upd) upd.textContent = "just now";
-		if (t.matches(".proj-name")) document.title = `${t.value.trim() || "Untitled workspace"} · Projects · FRAMEWORK`;
+		if (t.matches(".proj-name")) document.title = `${t.value.trim() || "Untitled workspace"} · Workspaces · FRAMEWORK`;
 	}, 300);
 });
 dom.view.addEventListener("keydown", (e) => {
+	if (e.key === "Enter" && e.target.id === "proj-task-input") {
+		e.preventDefault();
+		const btn = e.target.closest(".proj-task-add")?.querySelector("[data-proj-act=\"task-add\"]");
+		if (btn) onProjectAction(btn);
+		return;
+	}
 	if (e.key === "Enter" && e.target.matches(".proj-name, .proj-tags-input")) {
 		e.preventDefault();
 		e.target.blur();
@@ -10661,8 +12345,7 @@ function renderHistoryPanel() {
 dom.sidebar.addEventListener("click", async (e) => {
 	const set = e.target.closest("[data-set]");
 	if (set) {
-		if (set.dataset.set === "theme") setTheme(set.dataset.value);
-		else if (set.dataset.set === "mode") setNavMode(set.dataset.value);
+		if (set.dataset.set === "mode") setNavMode(set.dataset.value);
 		return;
 	}
 	const navAct = e.target.closest("[data-nav-act]");
@@ -10704,7 +12387,7 @@ dom.sidebar.addEventListener("change", (e) => {
 // src/nav.js
 var NAV_PANELS = {
 	reader: "Contents",
-	projects: "Projects",
+	projects: "Workspaces",
 	library: "Library",
 	settings: "Settings",
 	history: "Recent"
@@ -11223,187 +12906,6 @@ dom.chatNew.addEventListener("click", () => {
 });
 dom.chatToggle.addEventListener("click", toggleChat);
 dom.chatClose.addEventListener("click", closeChat);
-// src/views/help.js
-var HELP_LOGOS = {
-	dol: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <path d="M32 8 52 16v14c0 13.5-8.6 22.8-20 26-11.4-3.2-20-12.5-20-26V16L32 8Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M32 18v24M21 24h22" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
-    <path d="m21 24-4 9h8l-4-9Zm22 0-4 9h8l-4-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-    <path d="M25 44h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-  </svg>`,
-	anthropic: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <rect x="8" y="8" width="48" height="48" rx="14" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M25.5 44 33 20l7.5 24M28.2 36.5h9.6" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M18.5 44 26 20h3.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>
-  </svg>`,
-	fr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <rect x="10" y="10" width="44" height="44" rx="10" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <circle cx="22" cy="42" r="3.2" fill="var(--accent)"/>
-    <path d="M20 31.5a12.5 12.5 0 0 1 12.5 12.5M20 22a22 22 0 0 1 22 22" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round"/>
-    <path d="M36 18h10M36 24h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".7"/>
-  </svg>`,
-	ecfr: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <path d="M12 18c0-2.2 1.8-4 4-4h13c2.2 0 3 1.2 3 3v31c0-1.5-1.3-2.5-3-2.5H16c-2.2 0-4 1.8-4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M52 18c0-2.2-1.8-4-4-4H35c-2.2 0-3 1.2-3 3v31c0-1.5 1.3-2.5 3-2.5h13c2.2 0 4 1.8 4 4V18Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
-    <path d="M18 23h8M18 29h8M38 23h8M38 29h8" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
-  </svg>`
-};
-var FR_RSS_FEEDS = [{
-	label: "OSHA Published Documents RSS",
-	desc: "Final Rules, Proposed Rules, and Notices from the Federal Register.",
-	url: "https://www.federalregister.gov/api/v1/documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
-}, {
-	label: "OSHA Public Inspection RSS",
-	desc: "Pre-publication filings scheduled to appear in tomorrow’s Federal Register.",
-	url: "https://www.federalregister.gov/api/v1/public-inspection-documents.rss?conditions%5Bagencies%5D%5B%5D=occupational-safety-and-health-administration"
-}];
-async function loadHelp() {
-	const seq = state.routeSeq;
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	document.title = "Connections & API Keys · FRAMEWORK";
-	if (!state.navEnvStatus) {
-		dom.view.innerHTML = skeletonHtml("cards", "Loading setup guide…");
-		enterView();
-	}
-	try {
-		const [env, newsSt] = await Promise.all([getJSON("/api/settings/env"), getJSON("/api/news/status").catch(() => null)]);
-		if (seq !== state.routeSeq) return;
-		state.navEnvStatus = env;
-		if (newsSt) state.navNewsStatus = newsSt;
-		renderHelp(env, { enter: true });
-	} catch (e) {
-		if (seq !== state.routeSeq) return;
-		renderHelp(state.navEnvStatus || {
-			env_exists: false,
-			env_file: "reader/.env",
-			keys: {}
-		}, { enter: true });
-	}
-}
-function renderHelp(env, opts = {}) {
-	const keys = env && env.keys || {};
-	const dol = keys.DOL_API_KEY || {};
-	const ant = keys.ANTHROPIC_API_KEY || {};
-	const syncOn = keys.NEWS_SYNC ? keys.NEWS_SYNC.value : true;
-	const retDays = keys.NEWS_RETENTION_DAYS ? keys.NEWS_RETENTION_DAYS.value : 365;
-	const titleCount = state.installedTitles.length;
-	const titlesWord = `${titleCount} ${titleCount === 1 ? "title" : "titles"}`;
-	const chip = (target, state, label) => `
-    <button type="button" class="help-status-chip" data-help-jump="${target}">
-      <span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(label)}</button>`;
-	const statusStrip = `
-    <nav class="help-status" aria-label="Connection status">
-      ${chip("federal-register", syncOn ? "synced" : "stale", syncOn ? "Federal Register · On" : "Federal Register · Sync off")}
-      ${chip("ecfr", "synced", `CFR Library · ${titlesWord}`)}
-      ${chip("dol", dol.configured ? "synced" : "uninstalled", `DOL enforcement · ${dol.configured ? "On" : "Off"}`)}
-      ${chip("anthropic", ant.configured ? "synced" : "uninstalled", `Claude assistant · ${ant.configured ? "On" : "Off"}`)}
-    </nav>`;
-	const optionalCards = [{
-		id: "dol",
-		logo: HELP_LOGOS.dol,
-		provider: "U.S. Department of Labor · Free key",
-		title: "OSHA Enforcement Data",
-		pill: dol.configured ? statPill("synced", `On (${dol.masked || "key saved"})`) : statPill("uninstalled", "Off"),
-		body: `
-        <p><strong>What this key allows:</strong> Unlocks the <em>Enforcement &amp; Penalties</em> tab in <a href="#/news?cat=enforcement">News</a> and adds workplace inspection citations to the regulation timeline inside Title 29 sections.</p>
-        <p>You’ll see cited companies, city/state locations, violation severity (Willful, Repeat, Serious), cited 29 CFR standards, and current penalty totals directly from <code>apiprod.dol.gov/v4</code>.</p>`,
-		actions: `
-        <button type="button" class="btn btn-accent" data-open-env="dol_api_key">${icon("key")} ${dol.configured ? "Update DOL key" : "Add DOL key"}</button>
-        <a class="btn" href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">${icon("external")} Get a free DOL key</a>`
-	}, {
-		id: "anthropic",
-		logo: HELP_LOGOS.anthropic,
-		provider: "Anthropic · Paid key",
-		title: "Claude Regulatory Assistant",
-		pill: ant.configured ? statPill("synced", `On (${ant.masked || "key saved"})`) : statPill("uninstalled", "Off"),
-		body: `
-        <p><strong>What this key allows:</strong> Turns on the <em>Ask Claude</em> side panel so you can ask plain-English compliance questions, summarize long sections, and trace requirements across your installed CFR titles.</p>
-        <p>Reading regulations, full-text search, projects, and Federal Register news all work without it—this key is only for the AI assistant.</p>`,
-		actions: `
-        <button type="button" class="btn btn-accent" data-open-env="anthropic_api_key">${icon("key")} ${ant.configured ? "Update Anthropic key" : "Add Anthropic key"}</button>
-        <a class="btn" href="https://console.anthropic.com" target="_blank" rel="noopener">${icon("external")} Get an Anthropic key</a>`
-	}];
-	const includedCards = [{
-		id: "federal-register",
-		logo: HELP_LOGOS.fr,
-		provider: "Federal Register · No key needed",
-		title: "OSHA Rulemaking & Official RSS Feeds",
-		pill: syncOn ? statPill("synced", `On · ${retDays}d history`) : statPill("stale", "Sync off"),
-		body: `
-        <p><strong>What this source allows:</strong> Keeps the <a href="#/news">Newsroom</a> updated on business days with OSHA Final Rules, Proposed Rules, Notices, and Public Inspection filings—automatically, with no key or setup.</p>
-        <div class="help-rss-list">${FR_RSS_FEEDS.map((f) => `
-          <div class="help-rss-row">
-            <div class="help-rss-text"><strong>${escapeHtml(f.label)}</strong><span>${escapeHtml(f.desc)}</span></div>
-            <div class="help-rss-btns">
-              <button type="button" class="btn btn-sm" data-copy-url="${escapeHtml(f.url)}">${icon("copy")} Copy RSS URL</button>
-              <a class="btn btn-sm" href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${icon("rss")} Open</a>
-            </div>
-          </div>`).join("")}
-        </div>
-        <p class="help-fineprint">The same updates, as official Federal Register feeds for any external RSS reader. FRAMEWORK itself reads the richer JSON API and skips <code>osha.gov/rss</code>, which rejects automated readers.</p>`,
-		actions: `
-        <button type="button" class="btn" data-open-env="news_sync">${icon("key")} Sync settings</button>
-        <a class="btn" href="#/news">${icon("news")} Open Newsroom</a>`
-	}, {
-		id: "ecfr",
-		logo: HELP_LOGOS.ecfr,
-		provider: "eCFR · No key needed",
-		title: "Federal Regulations Library (Titles 1–50)",
-		pill: statPill("synced", `On · ${titlesWord} installed`),
-		body: `
-        <p><strong>What this source allows:</strong> Downloads full Code of Federal Regulations titles, parts, or individual sections directly from <code>ecfr.gov</code> into your local SQLite library for fast offline reading and search.</p>`,
-		actions: `
-        <a class="btn" href="#/library">${icon("book")} Browse CFR Library</a>`
-	}];
-	const cardHtml = (c) => `
-    <article class="help-card" id="help-${c.id}">
-      <div class="help-logo" aria-hidden="true">${c.logo}</div>
-      <div class="help-body">
-        <div class="help-card-top">
-          <span class="help-provider">${escapeHtml(c.provider)}</span>
-          ${c.pill}
-        </div>
-        <h3 class="help-card-title">${escapeHtml(c.title)}</h3>
-        <div class="help-card-copy">${c.body}</div>
-        <div class="help-actions">${c.actions}</div>
-      </div>
-    </article>`;
-	dom.view.innerHTML = `
-    <div class="help-front">
-      <header class="help-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK Settings · Help</div>
-          <h1 class="doc-title">Connections &amp; API Keys</h1>
-          <p class="help-lead">Reading and search work offline out of the box. The optional keys below unlock more—each is saved locally and applies instantly, with no restart.</p>
-        </div>
-        <div class="help-head-actions">
-          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
-        </div>
-      </header>
-      ${statusStrip}
-      <section class="help-group" aria-labelledby="help-group-optional">
-        <h2 class="help-group-label" id="help-group-optional">Optional keys</h2>
-        ${optionalCards.map(cardHtml).join("")}
-      </section>
-      <section class="help-group" aria-labelledby="help-group-included">
-        <h2 class="help-group-label" id="help-group-included">Included · already running</h2>
-        ${includedCards.map(cardHtml).join("")}
-      </section>
-      <footer class="help-footnote">
-        <p>Keys are stored in <code>reader/.env</code>, a private plain-text file on your computer—never shared or uploaded. ${env && env.env_exists ? "Yours exists and is active." : "It’s created the first time you save a key here."}</p>
-        <details class="help-env-details">
-          <summary>What is a .env file?</summary>
-          <p>A <strong>.env</strong> file holds environment settings—API keys and preferences—as plain <code>KEY=value</code> lines. Normally, setting one up means copying example files in a terminal; here, <em>Edit API keys</em> creates and updates <code>reader/.env</code> for you, and changes take effect right away with no restart.</p>
-          <button type="button" class="btn btn-sm" data-open-env="">${icon("key")} Open the editor</button>
-        </details>
-      </footer>
-    </div>`;
-	if (opts.enter) enterView();
-}
 // src/components/env_modal.js
 var envModalEl = document.getElementById("env-modal");
 var envModalDialog = envModalEl ? envModalEl.querySelector(".modal-dialog") : null;
@@ -11762,7 +13264,7 @@ function dockHtml(j, m) {
       <span class="dock-phase-text">${escapeHtml(cancelling ? "Cancelling…" : m.label)}</span>
       ${m.step >= 0 ? `<span class="dock-steps" role="img" aria-label="Step ${m.step + 1} of ${DOCK_STEPS.length}">${steps}</span>` : ""}
     </div>
-    <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+    ${transferTrackHtml(m.pct, { bindFill: true })}
     <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
     <div class="dock-foot">
       <span class="dock-queue">${queued.length ? `<span class="dock-queue-count">+${queued.length} queued</span>${escapeHtml(queued.map((q) => q.label).join(", "))}` : "Nothing queued"}</span>
@@ -11894,245 +13396,12 @@ async function refreshTitles(changed = []) {
 	}
 	if (dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
 }
-// src/components/split_pane.js
-var splitAbort = null;
-var splitSeq = 0;
-var splitHistory = [];
-var activeSplitDoc = null;
-function unitQueryFor(view, para) {
-	if (view === "full") return "";
-	if (view) return "?unit=" + encodeURIComponent(view);
-	const pClause = para && /^\(([a-z])\)/i.exec(para.trim());
-	return "?unit=" + encodeURIComponent(pClause ? pClause[1].toLowerCase() : "");
-}
-function buildSectionHash(title, sectionId, para = null, unit = null) {
-	let h = `#/title/${title}/section/${encodeURIComponent(sectionId)}`;
-	if (unit === "full") h += "/full";
-	else if (unit) h += `/${encodeURIComponent(unit)}`;
-	if (para) h += `?p=${encodeURIComponent(para)}`;
-	return h;
-}
-function closeSplitPane() {
-	if (splitAbort) {
-		try {
-			splitAbort.abort();
-		} catch (e) {}
-		splitAbort = null;
-	}
-	splitSeq++;
-	splitHistory = [];
-	activeSplitDoc = null;
-	state.splitState = null;
-	if (dom.splitPane) {
-		dom.splitPane.hidden = true;
-		dom.splitPane.innerHTML = "";
-	}
-	if (dom.mainStage) dom.mainStage.classList.remove("is-split");
-}
-function promoteSplitToMain() {
-	if (!state.splitState) return;
-	const { title, sectionId, para, unit } = state.splitState;
-	const target = buildSectionHash(title, sectionId, para, unit);
-	closeSplitPane();
-	window.location.hash = target;
-}
-function renderSplitLoading(title, sectionId) {
-	dom.splitPane.innerHTML = `
-    <div class="split-head">
-      <div class="split-head-meta">
-        <div class="doc-kicker">${title} CFR § ${escapeHtml(sectionId)}</div>
-        <div class="split-head-title">Loading…</div>
-      </div>
-      <div class="split-head-acts">
-        <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>
-      </div>
-    </div>
-    <div class="split-body">${skeletonHtml("doc", `Loading § ${sectionId}…`)}</div>
-  `;
-}
-async function openSplitPane({ title, sectionId, para = null, unit = null, pushHistory = true }) {
-	if (!dom.splitPane || !dom.mainStage || !sectionId) return;
-	const tNum = Number(title) || state.currentTitle || 29;
-	const nextEntry = {
-		title: tNum,
-		sectionId: String(sectionId),
-		para: para || null,
-		unit: unit || null
-	};
-	if (pushHistory) {
-		const top = splitHistory[splitHistory.length - 1];
-		if (!top || top.title !== nextEntry.title || top.sectionId !== nextEntry.sectionId || top.unit !== nextEntry.unit || top.para !== nextEntry.para) splitHistory.push(nextEntry);
-	}
-	if (splitAbort) try {
-		splitAbort.abort();
-	} catch (e) {}
-	splitAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
-	const seq = ++splitSeq;
-	dom.mainStage.classList.add("is-split");
-	dom.splitPane.hidden = false;
-	state.splitState = nextEntry;
-	renderSplitLoading(tNum, sectionId);
-	try {
-		const qs = unitQueryFor(unit, para);
-		const res = await fetch(`/api/${tNum}/section/${encodeURIComponent(sectionId)}${qs}`, { signal: splitAbort?.signal });
-		if (seq !== splitSeq) return;
-		if (!res.ok) {
-			dom.splitPane.innerHTML = `
-        <div class="split-head">
-          <div class="split-head-meta">
-            <div class="doc-kicker">${tNum} CFR § ${escapeHtml(sectionId)}</div>
-            <div class="split-head-title">Unavailable</div>
-          </div>
-          <div class="split-head-acts">
-            <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>
-          </div>
-        </div>
-        <div class="split-body"><p class="muted">Couldn’t load § ${escapeHtml(sectionId)} from Title ${tNum}.</p></div>
-      `;
-			return;
-		}
-		let data = await res.json();
-		if (seq !== splitSeq) return;
-		activeSplitDoc = data;
-		state.peekCache.set(`${tNum}|${sectionId}|${data.unit || "full"}`, data);
-		const heading = cleanInlineLabel(data.section_title || data.title_label || "");
-		const label = cleanInlineLabel(data.label);
-		const hasBack = splitHistory.length > 1;
-		const outline = data.outline || [];
-		const unitsHtml = data.mode === "units" && outline.length > 1 ? `<div class="split-units" role="navigation" aria-label="Section parts">
-          ${outline.map((u) => `<button type="button" class="split-unit-chip${data.unit === u.key ? " is-active" : ""}" data-split-unit="${escapeHtml(u.key)}">${escapeHtml(unitShort(u))}</button>`).join("")}
-          <button type="button" class="split-unit-chip${!data.unit ? " is-active" : ""}" data-split-unit="full">Full</button>
-        </div>` : "";
-		const partLabel = data.part ? ` · Part ${escapeHtml(data.part)}` : "";
-		dom.splitPane.innerHTML = `
-      <header class="split-head">
-        ${hasBack ? `<button type="button" class="icon-btn" data-split-act="back" title="Back in split pane" aria-label="Back">${icon("chevronLeft")}</button>` : ""}
-        <div class="split-head-meta">
-          <div class="doc-kicker">${tNum} CFR${partLabel}</div>
-          <h2 class="split-head-title">${escapeHtml(label)} ${escapeHtml(heading)}</h2>
-        </div>
-        <div class="split-head-acts">
-          <button type="button" class="btn btn-small" data-split-act="promote" title="Open this section in the main reading pane">Open</button>
-          <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>
-        </div>
-      </header>
-      ${unitsHtml}
-      <div class="split-body">
-        ${data.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : ""}
-        ${data.html || ""}
-      </div>
-    `;
-		const bodyEl = dom.splitPane.querySelector(".split-body");
-		if (bodyEl) {
-			enhanceDomAnchors(bodyEl);
-			const cachedGraph = state.graphCache.get(`${tNum}|${data.id}`);
-			if (cachedGraph?.ibr?.length) wrapIbrMentions(bodyEl, cachedGraph.ibr);
-			else fetch(`/api/${tNum}/citations/${encodeURIComponent(data.id)}`, { signal: splitAbort?.signal }).then((r) => r.ok ? r.json() : null).then((g) => {
-				if (!g || seq !== splitSeq || !bodyEl.isConnected) return;
-				state.graphCache.set(`${tNum}|${data.id}`, g);
-				if (g.ibr?.length) wrapIbrMentions(bodyEl, g.ibr);
-			}).catch(() => {});
-			if (para) highlightTarget(bodyEl, para, 60);
-			else dom.splitPane.scrollTop = 0;
-		}
-	} catch (err) {
-		if (err && err.name === "AbortError") return;
-		if (seq !== splitSeq) return;
-		dom.splitPane.innerHTML = `
-      <div class="split-head">
-        <div class="split-head-meta">
-          <div class="doc-kicker">${tNum} CFR § ${escapeHtml(sectionId)}</div>
-          <div class="split-head-title">Load failed</div>
-        </div>
-        <div class="split-head-acts">
-          <button type="button" class="icon-btn" data-split-act="close" aria-label="Close split view">${icon("close")}</button>
-        </div>
-      </div>
-      <div class="split-body"><div class="msg-error">${escapeHtml(err?.message || "Error")}</div></div>
-    `;
-	}
-}
-function getActiveSplitDoc() {
-	return activeSplitDoc;
-}
-if (dom.splitPane) {
-	dom.splitPane.addEventListener("click", (e) => {
-		const actBtn = e.target.closest("[data-split-act]");
-		if (actBtn) {
-			const act = actBtn.dataset.splitAct;
-			if (act === "close") closeSplitPane();
-			else if (act === "promote") promoteSplitToMain();
-			else if (act === "back" && splitHistory.length > 1) {
-				splitHistory.pop();
-				const prev = splitHistory[splitHistory.length - 1];
-				if (prev) openSplitPane({
-					...prev,
-					pushHistory: false
-				});
-			}
-			return;
-		}
-		const unitBtn = e.target.closest("[data-split-unit]");
-		if (unitBtn && state.splitState) {
-			openSplitPane({
-				title: state.splitState.title,
-				sectionId: state.splitState.sectionId,
-				para: null,
-				unit: unitBtn.dataset.splitUnit,
-				pushHistory: false
-			});
-			return;
-		}
-		const anchorTrigger = e.target.closest("[data-anchor]");
-		if (anchorTrigger) {
-			e.preventDefault();
-			scrollToAnchor(anchorTrigger.dataset.anchor, dom.splitPane);
-			return;
-		}
-		const localPara = e.target.closest("a.xref-local[data-local-para]");
-		if (localPara) {
-			e.preventDefault();
-			highlightTarget(dom.splitPane, localPara.dataset.localPara, 0);
-			return;
-		}
-		const figLink = e.target.closest("a.reg-figure:not(.is-broken)");
-		if (figLink && dom.splitPane.contains(figLink)) {
-			e.preventDefault();
-			openFigureModal(figLink);
-			return;
-		}
-		const link = e.target.closest("a[href^=\"#\"]");
-		if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
-			const parsed = parseCfrHref(link.getAttribute("href"), state.splitState?.title || state.currentTitle);
-			if (parsed && parsed.kind === "section") {
-				e.preventDefault();
-				openSplitPane({
-					title: parsed.title,
-					sectionId: parsed.section,
-					para: parsed.para,
-					unit: parsed.unit,
-					pushHistory: true
-				});
-			}
-		}
-	});
-	dom.splitPane.addEventListener("error", (e) => {
-		const img = e.target;
-		if (!(img instanceof HTMLImageElement) || !img.classList.contains("reg-img")) return;
-		const fig = img.closest(".reg-figure");
-		if (!fig || fig.classList.contains("is-broken")) return;
-		fig.classList.add("is-broken");
-		if (activeSplitDoc?.ecfr_url) fig.href = activeSplitDoc.ecfr_url;
-		fig.title = "This figure is only available on eCFR";
-		fig.innerHTML = `${icon("external")}<span>Figure — view on eCFR</span>`;
-	}, true);
-}
 // src/components/cfr_resolver.js
 var titleInfoCache = /* @__PURE__ */ new Map();
 var INFO_TTL_MS = 3e5;
-var citePopEl = document.getElementById("cite-pop");
+var citePopEl = dom.citePop;
 var citePop = createPopover({
-	el: citePopEl,
+	el: dom.citePop,
 	scrollContainer: dom.main,
 	padding: 12
 });
@@ -12242,7 +13511,7 @@ function resolverBodyHtml(target, { info = null, error = null, loading = false, 
           <span class="stat-dot is-busy" aria-hidden="true"></span>
           <span>${escapeHtml(isQueued ? `Queued · ${job.label}` : `${m.label}${pctText}`)}</span>
         </div>
-        <div class="dock-track"><span class="dock-fill${m.pct == null ? " is-indeterminate" : ""}" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+        ${transferTrackHtml(m.pct)}
         <p class="resolver-note">${escapeHtml(note)}</p>
       </div>
     `;
@@ -12307,6 +13576,7 @@ function renderPopResolver(ctx) {
 	citePopEl.innerHTML = `
     <div class="pop-head-row">
       <div class="pop-kicker">${escapeHtml(targetDisplayTitle(target))}</div>
+      <span class="peek-badge">UNINSTALLED</span>
       <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close download prompt">${icon("close")}</button>
     </div>
     ${resolverBodyHtml(target, {
@@ -12331,7 +13601,8 @@ async function openCfrDownloadCard(anchorEl, rawTarget, { openInSplit = false } 
 	activeModalCtx = ctx;
 	citePop.open(anchorEl, "", {
 		interactive: true,
-		returnFocus: anchorEl
+		returnFocus: anchorEl,
+		refTier: "uninstalled"
 	});
 	renderPopResolver(ctx);
 	try {
@@ -12409,7 +13680,7 @@ async function handleResolverActionClick(btn, ctx, redraw) {
 		redraw();
 	}
 }
-if (citePopEl) citePopEl.addEventListener("click", (e) => {
+if (dom.citePop) dom.citePop.addEventListener("click", (e) => {
 	if (e.target.closest("[data-pop-close]")) {
 		activeModalCtx = null;
 		citePop.close(true);
@@ -12523,679 +13794,330 @@ window.addEventListener("hashchange", () => {
 	activeModalCtx = null;
 	if (!dom.view.querySelector(".resolver-card")) activePageCtx = null;
 });
-// src/views/reader.js
-var READING_MODE_KEY = "readingModeByPart:v1";
-function loadReadingModePrefs() {
+// src/views/reader_part.js
+async function loadPart(partId) {
+	dom.view.innerHTML = skeletonHtml("list", "Loading Part " + partId + "…");
+	state.currentSection = null;
+	state.currentPart = partId;
+	updateChatContext();
 	try {
-		const obj = JSON.parse(lsGet(READING_MODE_KEY) || "{}");
-		return obj && typeof obj === "object" ? obj : {};
-	} catch (e) {
-		return {};
-	}
-}
-function getPreferredPartMode(title, part) {
-	if (!part) return null;
-	return loadReadingModePrefs()[`${title}|${part}`] || null;
-}
-function savePreferredPartMode(title, part, mode) {
-	if (!part) return;
-	const prefs = loadReadingModePrefs();
-	prefs[`${title}|${part}`] = mode;
-	lsSet(READING_MODE_KEY, JSON.stringify(prefs));
-}
-function highlightParagraph(pText, delay = 120) {
-	highlightTarget(dom.view, pText, delay);
-}
-var paraBar = null;
-var paraBarTarget = null;
-function hideParaBar() {
-	if (paraBar) paraBar.hidden = true;
-	paraBarTarget = null;
-}
-function showParaBar(pEl) {
-	if (!dom.view.querySelector(".reg-body") || !pEl?.querySelector(".pmark")) {
-		hideParaBar();
-		return;
-	}
-	if (!paraBar || !paraBar.isConnected) {
-		paraBar = document.createElement("div");
-		paraBar.className = "para-tools";
-		paraBar.setAttribute("aria-label", "Paragraph actions");
-		paraBar.innerHTML = `
-      <button type="button" class="para-tool-btn" data-para-act="copy" title="Copy legal CFR citation">${icon("link")} Cite</button>
-      <button type="button" class="para-tool-btn" data-para-act="clip" title="Clip clause to workspace">${icon("bookmark")} Clip</button>
-    `;
-	}
-	paraBarTarget = pEl;
-	paraBar.hidden = false;
-	pEl.appendChild(paraBar);
-}
-dom.view.addEventListener("mouseover", (e) => {
-	if (!state.currentSection) return;
-	if (paraBar && paraBar.contains(e.target)) return;
-	const p = e.target.closest(".reg-body .reg-p[id]");
-	if (p && p.querySelector(".pmark")) {
-		if (p !== paraBarTarget) showParaBar(p);
-	} else hideParaBar();
-});
-dom.view.addEventListener("mouseleave", () => hideParaBar());
-dom.view.addEventListener("click", async (e) => {
-	const toolBtn = e.target.closest(".para-tool-btn[data-para-act]");
-	if (toolBtn && paraBarTarget && state.currentSection) {
-		e.preventDefault();
-		e.stopPropagation();
-		const para = resolveParagraphPath(dom.view, paraBarTarget);
-		const label = cleanInlineLabel(state.currentSection.label);
-		const cite = formatCfrCitation(state.currentTitle, label, para);
-		if (toolBtn.dataset.paraAct === "copy") try {
-			await navigator.clipboard.writeText(cite);
-			showToast(`Copied ${cite}`);
-		} catch (err) {
-			showToast("Couldn’t copy citation");
-		}
-		else if (toolBtn.dataset.paraAct === "clip") {
-			const clone = paraBarTarget.cloneNode(true);
-			clone.querySelectorAll(".para-tools").forEach((x) => x.remove());
-			const ref = currentSectionRef();
-			if (ref) clipToWorkspace(ref, {
-				para,
-				quote: clone.textContent.trim().slice(0, 320),
-				cite
-			});
-		}
-		return;
-	}
-	const modeBtn = e.target.closest("a[data-mode-pref]");
-	if (modeBtn && state.currentSection?.part) savePreferredPartMode(state.currentTitle, state.currentSection.part, modeBtn.dataset.modePref);
-	if (e.target.closest("#btn-cited-by") && state.currentSection) {
-		const btn = e.target.closest("#btn-cited-by");
-		const graphData = state.graphCache.get(`${state.currentTitle}|${state.currentSection.id}`);
-		if (graphData) openCitedByPopover(btn, graphData);
-		return;
-	}
-	if (e.altKey) return;
-	const localPara = e.target.closest("a.xref-local[data-local-para]");
-	if (localPara) {
-		if (findParagraphElement(dom.view, localPara.dataset.localPara)) {
-			e.preventDefault();
-			highlightParagraph(localPara.dataset.localPara, 0);
-		}
-		return;
-	}
-	const figLink = e.target.closest("a.reg-figure:not(.is-broken)");
-	if (figLink && dom.view.contains(figLink)) {
-		e.preventDefault();
-		openFigureModal(figLink);
-	}
-});
-function renderCitedByListHtml(graphData, filter = "") {
-	const q = filter.trim().toLowerCase();
-	const rows = (graphData.cited_by || []).filter((c) => {
-		if (!q) return true;
-		return `${c.id} ${c.label} ${c.title} ${c.part}`.toLowerCase().includes(q);
-	});
-	if (!rows.length) return "<p class=\"peek-text\" style=\"padding:8px 0\">No matching citing sections.</p>";
-	return `<div class="cited-list">${rows.slice(0, 50).map((c) => `
-    <div class="cited-row">
-      <a class="cited-link" href="#/title/${state.currentTitle}/section/${encodeURIComponent(c.id)}">
-        <span class="cited-num">${escapeHtml(c.label)}</span>
-        <span class="cited-title">${escapeHtml(c.title)}</span>
-      </a>
-      <button type="button" class="lib-act cited-split" data-cited-split="${escapeHtml(c.id)}" title="Open side-by-side">Split</button>
-    </div>
-  `).join("")}</div>`;
-}
-function openCitedByPopover(btn, graphData) {
-	const total = graphData.cited_by_count || 0;
-	const filterHtml = total >= 6 ? `<input type="search" class="pop-filter" id="cited-pop-filter" placeholder="Filter ${total} citing sections…" aria-label="Filter citing sections" autocomplete="off">` : "";
-	citePop.open(btn, `
-    <div class="pop-head-row">
-      <div class="pop-kicker">Cited by ${plural(total, "section")} in Title ${state.currentTitle}</div>
-      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close citing sections">${icon("close")}</button>
-    </div>
-    ${filterHtml}
-    <div id="cited-pop-list">${renderCitedByListHtml(graphData)}</div>
-  `, {
-		interactive: true,
-		returnFocus: btn,
-		focusSelector: "#cited-pop-filter, .cited-link"
-	});
-	const filterEl = document.getElementById("cited-pop-filter");
-	if (filterEl) filterEl.addEventListener("input", () => {
-		const slot = document.getElementById("cited-pop-list");
-		if (slot) slot.innerHTML = renderCitedByListHtml(graphData, filterEl.value);
-		citePop.reposition(btn);
-	});
-}
-if (citePopEl) citePopEl.addEventListener("click", (e) => {
-	const sp = e.target.closest("[data-cited-split]");
-	if (!sp) return;
-	const secId = sp.dataset.citedSplit;
-	citePop.close(false);
-	openSplitPane({
-		title: state.currentTitle,
-		sectionId: secId,
-		pushHistory: true
-	});
-});
-async function fillSectionGraph(titleNum, sectionId, seq, signal) {
-	const key = `${titleNum}|${sectionId}`;
-	let data = state.graphCache.get(key);
-	if (!data) try {
-		const res = await fetch(`/api/${titleNum}/citations/${encodeURIComponent(sectionId)}`, { signal });
-		if (!res.ok) return;
-		data = await res.json();
-		state.graphCache.set(key, data);
-	} catch (e) {
-		return;
-	}
-	if (seq !== state.routeSeq || !state.currentSection || state.currentSection.id !== sectionId) return;
-	if (data.cited_by_count > 0) {
-		const btn = document.getElementById("btn-cited-by");
-		if (btn) {
-			const span = btn.querySelector("span");
-			if (span) span.textContent = `Cited by ${data.cited_by_count}`;
-			btn.hidden = false;
-		}
-	}
-	if (data.ibr && data.ibr.length) wrapIbrMentions(dom.view, data.ibr);
-}
-async function loadSection(sectionId, params, view) {
-	hideParaBar();
-	const knownPart = partForSection(sectionId);
-	const prefMode = !view && !params?.get("p") && knownPart ? getPreferredPartMode(state.currentTitle, knownPart) : null;
-	const full = view === "full" || prefMode === "full";
-	const pClause = params && /^\(([a-z])\)/.exec(params.get("p") || "");
-	const unit = full ? null : view || (pClause ? pClause[1] : "");
-	const sameSection = state.currentSection && state.currentSection.id === sectionId && !dom.view.querySelector(".loading");
-	if (!sameSection) dom.view.innerHTML = skeletonHtml("doc", "Loading section " + sectionId + "…");
-	try {
-		const qs = unit === null ? "" : "?unit=" + encodeURIComponent(unit);
 		const seq = state.routeSeq;
 		const signal = state.routeAbort?.signal;
-		const res = await fetch("/api/" + state.currentTitle + "/section/" + encodeURIComponent(sectionId) + qs, { signal });
+		const [frontRes] = await Promise.all([fetch("/api/" + state.currentTitle + "/part/" + encodeURIComponent(partId), { signal }), ensureTreeLoaded()]);
+		const front = frontRes.ok ? await frontRes.json() : {
+			part: "",
+			subparts: {}
+		};
 		if (seq !== state.routeSeq) return;
-		if (!res.ok) {
-			if (state.metaInfo?.partial && /^\d+[a-z]?(?:\.\d+.*)?$/i.test(sectionId)) {
+		const partNode = findPartInTree(state.treeData, partId);
+		if (!partNode) {
+			if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
 				clearTreeSelection();
 				setViewHead("");
 				await renderResolverPage(dom.view, {
 					title: state.currentTitle,
-					section: sectionId,
-					para: params ? params.get("p") : null
+					part: partId
 				});
 				return;
 			}
 			renderNotFound();
 			return;
 		}
-		const data = await res.json();
-		if (seq !== state.routeSeq) return;
-		state.currentSection = data;
-		state.currentPart = data.part;
-		updateChatContext();
-		const reading = data.mode === "units" && data.unit ? "units" : "scroll";
-		const outline = data.outline || [];
-		const unitIdx = reading === "units" ? outline.findIndex((u) => u.key === data.unit) : -1;
-		const current = unitIdx >= 0 ? outline[unitIdx] : null;
-		const heading = cleanInlineLabel(data.section_title || data.title_label || "");
-		const label = cleanInlineLabel(data.label);
-		document.title = `${label}${current ? " " + unitShort(current) : ""} · Title ${state.currentTitle}`;
-		setViewHead((reading === "units" ? unitStepHtml(data) : docStepHtml(data.part, data.prev, data.next)) + railHtml(data, reading));
-		const partLink = data.part ? `<a href="#/part/${encodeURIComponent(data.part)}">Part ${escapeHtml(data.part)}</a>` : "";
-		let unitBannerHtml = "";
-		if (current) unitBannerHtml = `<div class="unit-context"><span>${escapeHtml(current.group && current.kind === "chapter" ? `${current.group_label} · ${current.group_title || ""}` : `${current.label ? `Clause ${current.label}` : current.title}`)}</span><span class="sep" aria-hidden="true">·</span><span class="unit-pos">Unit ${unitIdx + 1} of ${outline.length}</span></div>`;
-		const fullPart = data.part ? `<a class="btn" href="#/part/${encodeURIComponent(data.part)}/full?from=${encodeURIComponent(data.id)}">${icon("list")} See full part</a>` : "";
-		const toggle = data.mode !== "units" ? "" : full ? `<a class="btn" href="${sectionHref(data.id)}" data-mode-pref="units">${icon("stack")} Read in parts</a>` : `<a class="btn" href="${sectionHref(data.id, "full")}" data-mode-pref="full">${icon("expand")} See full section</a>`;
-		dom.view.innerHTML = `
-      <div class="doc-kicker">${state.currentTitle} CFR ${partLink}</div>
-      <h1 class="doc-title">${escapeHtml(label)} ${escapeHtml(heading)}</h1>
-
-      <div class="doc-actions">
-        ${toggle}
-        ${fullPart}
-        ${pinButtonHtml()}
-        ${newsActivityButtonHtml()}
-        <button type="button" class="btn" id="btn-cited-by" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("link")} <span>Cited by</span></button>
-        <div class="spacer"></div>
-        <div class="doc-actions-util">
-          <a class="btn" href="${escapeHtml(data.ecfr_url)}" target="_blank" rel="noopener" title="Open official text on eCFR">${icon("external")} eCFR</a>
-          <button class="btn" id="btn-copy-link" title="Copy direct link">${icon("link")} Copy link</button>
-          <div class="size-ctl" role="group" aria-label="Text size">
-            <button id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
-            <button id="font-inc" title="Larger text" aria-label="Larger text">A+</button>
-          </div>
-        </div>
-      </div>
-
-      ${data.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : ""}
-      ${unitBannerHtml}
-
-      ${data.html || ""}
-    `;
-		enhanceDomAnchors(dom.view);
-		enterView();
-		bindRail();
-		if (reading === "scroll") watchRail();
-		else if (state.railObserver) {
-			state.railObserver.disconnect();
-			state.railObserver = null;
+		let groupsHtml = "";
+		if (partNode.c) {
+			for (const child of partNode.c) if (child.t === "subpart" || child.t === "subject_group") {
+				const subpartFront = front.subparts[child.id] || "";
+				const sections = (child.c || []).map((s) => `
+            <li class="${s.r ? "reserved" : ""}">
+              <a href="#/section/${encodeURIComponent(s.id)}">
+                <span class="toc-num">${escapeHtml(s.l)}</span>
+                <span class="toc-title">${escapeHtml(tocTitle(s))}</span>
+              </a>
+            </li>
+          `).join("");
+				groupsHtml += `
+            <div class="toc-group">
+              <h3>${escapeHtml(child.d && child.d.trim() !== (child.l || "").trim() ? `${child.l}: ${child.d}` : child.l)}</h3>
+              ${subpartFront ? `<div class="front-matter"><details><summary>Subpart notes</summary>${subpartFront}</details></div>` : ""}
+              <ul class="toc-list">${sections}</ul>
+            </div>
+          `;
+			} else if (child.t === "section" || child.t === "appendix") groupsHtml += `
+            <ul class="toc-list">
+              <li class="${child.r ? "reserved" : ""}">
+                <a href="#/section/${encodeURIComponent(child.id)}">
+                  <span class="toc-num">${escapeHtml(child.l)}</span>
+                  <span class="toc-title">${escapeHtml(tocTitle(child))}</span>
+                </a>
+              </li>
+            </ul>
+          `;
 		}
-		document.getElementById("btn-copy-link")?.addEventListener("click", async () => {
-			try {
-				await navigator.clipboard.writeText(window.location.href);
-				showToast("Link copied");
-			} catch (e) {
-				showToast("Couldn’t copy the link");
-			}
-		});
-		document.getElementById("font-dec")?.addEventListener("click", () => adjustFontSize(-1));
-		document.getElementById("font-inc")?.addEventListener("click", () => adjustFontSize(1));
-		if (params && params.get("p")) highlightParagraph(params.get("p"));
-		selectTreeNode("s-" + data.id);
-		const unitInfo = reading === "units" && current ? {
-			key: current.key,
-			label: unitShort(current)
-		} : null;
-		if (!sameSection) recordSectionVisit(data, unitInfo);
-		else recordSectionUnit(data.id, unitInfo);
-		fillNewsActivity("section", data.id, seq);
-		fillSectionGraph(state.currentTitle, data.id, seq, signal);
+		document.title = `Part ${partId} · Title ${state.currentTitle}`;
+		setViewHead(docStepHtml(partId, null, firstSectionOf(partId)));
+		dom.view.innerHTML = `
+      <div class="doc-kicker">${state.currentTitle} CFR ${escapeHtml(partNode.l)}</div>
+      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
+      <div class="doc-actions">
+        <a class="btn" href="#/part/${encodeURIComponent(partId)}/full">${icon("list")} See full part</a>
+        ${newsActivityButtonHtml()}
+      </div>
+      ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ""}
+      ${groupsHtml || "<p class=\"muted\">No sections listed in this part.</p>"}
+    `;
+		enterView();
+		selectTreeNode("p-" + partId);
+		recordPartVisit(partId, partNode.d);
+		fillNewsActivity("part", partId, seq);
 	} catch (err) {
 		if (err && err.name === "AbortError") return;
 		console.error(err);
 		setViewHead("");
-		renderViewError(dom.view, "Failed to load section", err?.message || "Unexpected error", { onRetry: () => loadSection(sectionId, params, view) });
+		renderViewError(dom.view, "Failed to load part", err?.message || "Unexpected error", { onRetry: () => loadPart(partId) });
 	}
 }
-// src/views/search.js
-state.searchState = null;
-function renderResultRow(r, showTitleInPart) {
-	let snippet = (r.snippet || "").replace(/^[\s.…]+|[\s.…]+$/g, "");
-	snippet = escapeHtml(snippet).replace(/\x02/g, "<mark>").replace(/\x03/g, "</mark>");
-	const rTitle = r.title || state.currentTitle;
-	return `
-    <div class="result">
-      <a class="result-title" href="#/title/${rTitle}/section/${encodeURIComponent(r.id)}">
-        <span class="result-num">${escapeHtml(r.label)}</span>
-        <span class="result-name">${escapeHtml(r.title_label || r.title)}</span>
-        <span class="result-part">${showTitleInPart ? `Title ${rTitle} · ` : ""}Part ${escapeHtml(r.part || "")}</span>
-      </a>
-      ${snippet ? `<div class="result-snippet">…${snippet}…</div>` : ""}
-    </div>
-  `;
-}
-function buildFacetData(rawResults, filters) {
-	const qText = filters.text.trim().toLowerCase();
-	const applyFilters = (list, { ignoreTitle = false, ignorePart = false } = {}) => list.filter((r) => {
-		const rTitle = r.title || state.currentTitle;
-		if (!ignoreTitle && filters.title !== null && rTitle !== filters.title) return false;
-		if (!ignorePart && filters.part !== null && (r.part || "") !== filters.part) return false;
-		if (filters.kind !== "all" && (r.kind || "section") !== filters.kind) return false;
-		if (qText) {
-			if (!`${r.label || ""} ${r.title_label || ""} ${r.part || ""} ${r.snippet || ""} title ${rTitle}`.toLowerCase().includes(qText)) return false;
-		}
-		return true;
-	});
-	const filtered = applyFilters(rawResults);
-	const titleCounts = /* @__PURE__ */ new Map();
-	for (const r of applyFilters(rawResults, {
-		ignoreTitle: true,
-		ignorePart: true
-	})) {
-		const t = r.title || state.currentTitle;
-		titleCounts.set(t, (titleCounts.get(t) || 0) + 1);
-	}
-	const partCounts = /* @__PURE__ */ new Map();
-	for (const r of applyFilters(rawResults, { ignorePart: true })) {
-		const p = r.part || "";
-		if (p) partCounts.set(p, (partCounts.get(p) || 0) + 1);
-	}
-	return {
-		filtered,
-		hasActiveFilter: filters.title !== null || filters.part !== null || filters.kind !== "all" || qText !== "",
-		sortedTitleFacets: [...titleCounts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]),
-		sortedPartFacets: [...partCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], void 0, { numeric: true })),
-		hasAppendices: rawResults.some((r) => r.kind === "appendix")
-	};
-}
-function renderGroupedResults(filtered, collapsed) {
-	if (!filtered.length) return "<div class=\"empty-state\"><h2>No matching results</h2><p>None of the loaded results match your current filters.</p></div>";
-	const byTitle = /* @__PURE__ */ new Map();
-	for (const r of filtered) {
-		const t = r.title || state.currentTitle;
-		if (!byTitle.has(t)) byTitle.set(t, []);
-		byTitle.get(t).push(r);
-	}
-	return `<div class="search-groups">${[...byTitle.entries()].sort((a, b) => b[1].length - a[1].length || a[0] - b[0]).map(([t, tItems]) => {
-		const tMeta = state.installedTitles.find((x) => x.title === t);
-		const tLabel = tMeta ? `Title ${t} — ${tMeta.name}` : `Title ${t}`;
-		const isCollapsed = collapsed.has(t);
-		const byPart = /* @__PURE__ */ new Map();
-		for (const r of tItems) {
-			const p = r.part || "";
-			if (!byPart.has(p)) byPart.set(p, []);
-			byPart.get(p).push(r);
-		}
-		const partsHtml = [...byPart.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], void 0, { numeric: true })).map(([p, pItems]) => `
-      <div class="search-part-group">
-        ${p ? `<div class="search-part-head">
-          <a class="search-part-link" href="#/title/${t}/part/${encodeURIComponent(p)}">Part ${escapeHtml(p)}</a>
-          <span class="search-part-count">${pItems.length} ${pItems.length === 1 ? "result" : "results"}</span>
-        </div>` : ""}
-        ${pItems.map((r) => renderResultRow(r, false)).join("")}
-      </div>
-    `).join("");
-		return `
-      <section class="search-title-group${isCollapsed ? " is-collapsed" : ""}" data-tgroup="${t}">
-        <button type="button" class="search-title-head" aria-expanded="${!isCollapsed}">
-          <span class="search-title-caret" aria-hidden="true">${icon("chevronDown")}</span>
-          <span class="search-title-name">${escapeHtml(tLabel)}</span>
-          <span class="search-title-count">${tItems.length} ${tItems.length === 1 ? "result" : "results"}</span>
-        </button>
-        <div class="search-title-body">${partsHtml}</div>
-      </section>
-    `;
-	}).join("")}</div>`;
-}
-function patchSearchDynamicSlots() {
-	if (!state.searchState) return;
-	const { query, allTitles, data, view, filters, collapsed } = state.searchState;
-	const rawResults = data.results || [];
-	const total = Number(data.total || 0);
-	const countSlot = document.getElementById("search-count-slot");
-	const facetsBar = document.getElementById("search-facets-slot");
-	const kindSlot = document.getElementById("search-kind-slot");
-	const clearSlot = document.getElementById("search-clear-slot");
-	const filtersBox = document.getElementById("search-filters-box");
-	const bodySlot = document.getElementById("search-results-slot");
-	if (!bodySlot) return;
-	for (const btn of dom.view.querySelectorAll("[data-sview]")) {
-		const on = btn.dataset.sview === view;
-		btn.classList.toggle("is-on", on);
-		btn.setAttribute("aria-pressed", String(on));
-	}
-	if (!rawResults.length) {
-		if (filtersBox) filtersBox.hidden = true;
-		if (countSlot) countSlot.textContent = `0 results · ${data.ms} ms`;
-		bodySlot.innerHTML = `<div class="empty-state"><h2>No results</h2><p>Nothing in ${allTitles ? "the installed titles" : "Title " + state.currentTitle} matches “${escapeHtml(query)}”. Try fewer or different words.</p></div>`;
-		return;
-	}
-	const { filtered, hasActiveFilter, sortedTitleFacets, sortedPartFacets, hasAppendices } = buildFacetData(rawResults, filters);
-	const countText = view === "grouped" && hasActiveFilter ? `${filtered.length.toLocaleString()} of ${rawResults.length.toLocaleString()} shown (${total.toLocaleString()} total)` : `${total.toLocaleString()} ${total === 1 ? "result" : "results"}`;
-	if (countSlot) countSlot.textContent = `${countText} · ${data.ms} ms`;
-	if (filtersBox) filtersBox.hidden = view !== "grouped";
-	if (view === "grouped") {
-		if (kindSlot) kindSlot.innerHTML = hasAppendices ? `
-        <button type="button" class="sf-pill${filters.kind === "all" ? " is-active" : ""}" data-fkind="all">All types</button>
-        <button type="button" class="sf-pill${filters.kind === "section" ? " is-active" : ""}" data-fkind="section">Sections</button>
-        <button type="button" class="sf-pill${filters.kind === "appendix" ? " is-active" : ""}" data-fkind="appendix">Appendices</button>
-      ` : "";
-		if (clearSlot) clearSlot.innerHTML = hasActiveFilter ? "<button type=\"button\" class=\"sf-clear\" id=\"sf-clear\">Clear filters</button>" : "";
-		if (facetsBar) facetsBar.innerHTML = (sortedTitleFacets.length > 1 ? `
-        <div class="search-filter-row">
-          <span class="search-filter-label">Titles</span>
-          <div class="search-filter-pills">
-            <button type="button" class="sf-pill${filters.title === null ? " is-active" : ""}" data-ftitle="">All <span class="sf-pill-count">${rawResults.length}</span></button>
-            ${sortedTitleFacets.map(([t, c]) => `<button type="button" class="sf-pill${filters.title === t ? " is-active" : ""}" data-ftitle="${t}">Title ${t} <span class="sf-pill-count">${c}</span></button>`).join("")}
-          </div>
-        </div>` : "") + (sortedPartFacets.length > 1 ? `
-        <div class="search-filter-row">
-          <span class="search-filter-label">Parts</span>
-          <div class="search-filter-pills">
-            <button type="button" class="sf-pill${filters.part === null ? " is-active" : ""}" data-fpart="">All</button>
-            ${sortedPartFacets.slice(0, 14).map(([p, c]) => `<button type="button" class="sf-pill${filters.part === p ? " is-active" : ""}" data-fpart="${escapeHtml(p)}">Part ${escapeHtml(p)} <span class="sf-pill-count">${c}</span></button>`).join("")}
-          </div>
-        </div>` : "");
-		bodySlot.innerHTML = renderGroupedResults(filtered, collapsed);
-	} else bodySlot.innerHTML = `<div class="results-list">${rawResults.map((r) => renderResultRow(r, allTitles)).join("")}</div>`;
-}
-function renderSearchView() {
-	if (!state.searchState) return;
-	const { query, allTitles, data, view, filters } = state.searchState;
-	const rawResults = data.results || [];
-	let scopeHtml = "";
-	if (state.installedTitles.length > 1) {
-		const qEnc = encodeURIComponent(query);
-		scopeHtml = `<span class="search-scope" role="group" aria-label="Search scope">
-      <a class="${allTitles ? "" : "scope-on"}" href="#/search?q=${qEnc}"${allTitles ? "" : " aria-current=\"true\""}>Title ${state.currentTitle}</a>
-      <a class="${allTitles ? "scope-on" : ""}" href="#/search?q=${qEnc}&scope=all"${allTitles ? " aria-current=\"true\"" : ""}>All ${state.installedTitles.length} titles</a>
-    </span>`;
-	}
-	const viewToggleHtml = rawResults.length ? `<span class="search-view-toggle" role="group" aria-label="Results layout">
-    <button type="button" class="${view === "compact" ? "is-on" : ""}" data-sview="compact" aria-pressed="${view === "compact"}">Compact</button>
-    <button type="button" class="${view === "grouped" ? "is-on" : ""}" data-sview="grouped" aria-pressed="${view === "grouped"}">Grouped</button>
-  </span>` : "";
-	dom.view.innerHTML = `
-    <div class="search-page">
-      <div class="doc-kicker">Search</div>
-      <h1 class="doc-title">${escapeHtml(query)}</h1>
-      <div class="search-meta">
-        <span id="search-count-slot"></span>
-        <div class="search-controls">${viewToggleHtml}${scopeHtml}</div>
-      </div>
-      <div class="search-filters" id="search-filters-box" role="region" aria-label="Filter search results" hidden>
-        <div class="search-filter-row">
-          <input type="search" id="sf-text" class="search-filter-input" value="${escapeHtml(filters.text)}" placeholder="Filter these results by section, part, or phrase…" autocomplete="off" spellcheck="false">
-          <div class="search-filter-pills" id="search-kind-slot"></div>
-          <span id="search-clear-slot"></span>
-        </div>
-        <div id="search-facets-slot"></div>
-      </div>
-      <div id="search-results-slot"></div>
-    </div>
-  `;
-	patchSearchDynamicSlots();
-}
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id !== "sf-text" || !state.searchState || !dom.view.querySelector(".search-page")) return;
-	state.searchState.filters.text = e.target.value;
-	patchSearchDynamicSlots();
-});
-dom.view.addEventListener("click", (e) => {
-	if (!state.searchState || !dom.view.querySelector(".search-page")) return;
-	const viewBtn = e.target.closest("[data-sview]");
-	if (viewBtn) {
-		const next = viewBtn.dataset.sview;
-		if (next !== state.searchState.view) {
-			state.searchState.view = next;
-			lsSet("searchView", next);
-			patchSearchDynamicSlots();
-		}
-		return;
-	}
-	const titlePill = e.target.closest("[data-ftitle]");
-	if (titlePill) {
-		const val = titlePill.dataset.ftitle === "" ? null : Number(titlePill.dataset.ftitle);
-		state.searchState.filters.title = state.searchState.filters.title === val ? null : val;
-		state.searchState.filters.part = null;
-		patchSearchDynamicSlots();
-		return;
-	}
-	const partPill = e.target.closest("[data-fpart]");
-	if (partPill) {
-		const val = partPill.dataset.fpart === "" ? null : partPill.dataset.fpart;
-		state.searchState.filters.part = state.searchState.filters.part === val ? null : val;
-		patchSearchDynamicSlots();
-		return;
-	}
-	const kindPill = e.target.closest("[data-fkind]");
-	if (kindPill) {
-		state.searchState.filters.kind = kindPill.dataset.fkind;
-		patchSearchDynamicSlots();
-		return;
-	}
-	if (e.target.closest("#sf-clear")) {
-		state.searchState.filters = {
-			title: null,
-			part: null,
-			kind: "all",
-			text: ""
-		};
-		const sfInput = document.getElementById("sf-text");
-		if (sfInput) sfInput.value = "";
-		patchSearchDynamicSlots();
-		return;
-	}
-	const titleHead = e.target.closest(".search-title-head");
-	if (titleHead) {
-		const t = Number(titleHead.closest(".search-title-group").dataset.tgroup);
-		if (state.searchState.collapsed.has(t)) state.searchState.collapsed.delete(t);
-		else state.searchState.collapsed.add(t);
-		patchSearchDynamicSlots();
-	}
-});
-async function loadSearchPage(query, scope) {
+async function loadPartFull(partId, params) {
+	dom.view.innerHTML = skeletonHtml("doc", "Loading Part " + partId + "…");
 	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
+	state.currentPart = partId;
 	updateChatContext();
-	document.title = "Search · FRAMEWORK";
-	setViewHead("");
-	if (!query.trim()) {
-		state.searchState = null;
-		dom.view.innerHTML = "<div class=\"empty-state\"><h2>Search</h2><p>Type a word, phrase or section number in the search box above.</p></div>";
-		return;
-	}
-	const allTitles = scope === "all" && state.installedTitles.length > 1;
-	dom.view.innerHTML = skeletonHtml("list", `Searching for “${query}”…`);
 	try {
-		const url = allTitles ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=100` : `/api/${state.currentTitle}/search?q=${encodeURIComponent(query)}&limit=100`;
 		const seq = state.routeSeq;
 		const signal = state.routeAbort?.signal;
-		const data = await (await fetch(url, { signal })).json();
+		await ensureTreeLoaded();
 		if (seq !== state.routeSeq) return;
-		state.searchState = {
-			query,
-			allTitles,
-			data,
-			view: lsGet("searchView") === "grouped" ? "grouped" : "compact",
-			filters: {
-				title: null,
-				part: null,
-				kind: "all",
-				text: ""
-			},
-			collapsed: /* @__PURE__ */ new Set()
-		};
-		renderSearchView();
-		enterView();
-	} catch (err) {
-		if (err && err.name === "AbortError") return;
-		renderViewError(dom.view, "Search failed", err?.message || "Unexpected error", { onRetry: () => loadSearchPage(query, scope) });
-	}
-}
-// src/router.js
-function parseHash() {
-	const [pathPart, queryPart] = (window.location.hash || "#/").slice(1).split("?");
-	const params = new URLSearchParams(queryPart || "");
-	return {
-		path: pathPart || "/",
-		params
-	};
-}
-async function handleRoute() {
-	const { path, params } = parseHash();
-	state.activeRoute = path;
-	const seq = ++state.routeSeq;
-	if (state.routeAbort) try {
-		state.routeAbort.abort();
-	} catch (e) {}
-	state.routeAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
-	syncNavToRoute(path);
-	if (state.noTitles && !/^\/(library|news|projects|settings|help)(\/|$)/.test(path)) {
-		await renderWelcome();
-		return;
-	}
-	let checkPath = path;
-	const titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
-	if (titleMatch) {
-		const targetTitle = parseInt(titleMatch[1], 10);
-		const subPath = titleMatch[2] || "/";
-		const installed = state.installedTitles.some((t) => t.title === targetTitle);
-		if (!installed && targetTitle >= 1 && targetTitle <= 50) {
-			let section = null;
-			let part = null;
-			if (subPath.startsWith("/section/")) {
-				const rest = subPath.slice(9);
-				const slash = rest.indexOf("/");
-				try {
-					section = decodeURIComponent(slash < 0 ? rest : rest.slice(0, slash));
-				} catch (e) {
-					section = rest;
-				}
-			} else if (subPath.startsWith("/part/")) {
-				part = subPath.slice(6).replace(/\/full$/, "");
-				try {
-					part = decodeURIComponent(part);
-				} catch (e) {}
+		const partNode = findPartInTree(state.treeData, partId);
+		if (!partNode) {
+			if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
+				clearTreeSelection();
+				setViewHead("");
+				await renderResolverPage(dom.view, {
+					title: state.currentTitle,
+					part: partId
+				});
+				return;
 			}
-			clearTreeSelection();
-			setViewHead("");
-			await renderResolverPage(dom.view, {
-				title: targetTitle,
-				section,
-				part,
-				para: params.get("p")
-			});
-			return;
-		}
-		if (!installed) {
 			renderNotFound();
 			return;
 		}
-		if (targetTitle && targetTitle !== state.currentTitle) {
-			await switchTitle(targetTitle);
-			if (seq !== state.routeSeq) return;
+		const res = await fetch("/api/" + state.currentTitle + "/part/" + encodeURIComponent(partId) + "/full", { signal });
+		if (seq !== state.routeSeq) return;
+		if (!res.ok) {
+			renderNotFound();
+			return;
 		}
-		checkPath = subPath;
-	}
-	if (checkPath === "/" || checkPath === "") {
-		if (titleMatch) renderHome();
-		else renderHomeScreen();
-	} else if (checkPath.startsWith("/section/")) {
-		const rest = checkPath.slice(9);
-		const slash = rest.indexOf("/");
-		const decode = (s) => {
-			try {
-				return decodeURIComponent(s);
-			} catch (e) {
-				return s;
+		const data = await res.json();
+		if (seq !== state.routeSeq) return;
+		const from = params && params.get("from");
+		const anchorId = (id) => "sec-" + String(id).replace(/[^a-zA-Z0-9.\-]/g, "_");
+		const sectionsHtml = (data.sections || []).map((s) => {
+			const num = escapeHtml(s.label);
+			const title = escapeHtml(s.title || "");
+			const body = s.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : s.html || "";
+			return `<article class="full-section${s.id === from ? " is-from" : ""}" id="${anchorId(s.id)}">
+        <header class="full-section-head">
+          <a class="full-section-anchor" href="${sectionHref(s.id)}" title="Open this section on its own">
+            <span class="full-section-num">${num}</span>
+            <span class="full-section-title">${title}</span>
+          </a>
+        </header>
+        ${body}
+      </article>`;
+		}).join("");
+		document.title = `Part ${partId} (full) · Title ${state.currentTitle}`;
+		const [prevPart, nextPart] = partNeighbors(partId);
+		const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(node.id)}/full`, `Part ${node.id}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
+		setViewHead(prevPart || nextPart ? `<nav class="doc-step" aria-label="Previous and next part">${partBtn(prevPart, -1)}<span class="spacer"></span>${partBtn(nextPart, 1)}</nav>` : "");
+		dom.view.innerHTML = `
+      <div class="doc-kicker">${state.currentTitle} CFR ${escapeHtml(partNode.l)} · <a href="#/part/${encodeURIComponent(partId)}">Table of contents</a></div>
+      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
+      ${sectionsHtml || "<p class=\"muted\">No sections in this part.</p>"}
+    `;
+		enhanceDomAnchors(dom.view);
+		recordPartVisit(partId, partNode.d);
+		if (from) {
+			const el = document.getElementById(anchorId(from));
+			if (el) {
+				const start = performance.now();
+				let lastSet = -1;
+				const anchor = () => {
+					if (lastSet >= 0 && Math.abs(dom.main.scrollTop - lastSet) > 4) return;
+					const r = el.getBoundingClientRect();
+					const m = dom.main.getBoundingClientRect();
+					const rel = r.top - m.top;
+					if (rel < 60 || rel > 100) {
+						el.scrollIntoView({ block: "start" });
+						lastSet = dom.main.scrollTop;
+					}
+					if (performance.now() - start < 2500) requestAnimationFrame(anchor);
+				};
+				requestAnimationFrame(anchor);
 			}
-		};
-		await loadSection(decode(slash < 0 ? rest : rest.slice(0, slash)), params, slash < 0 ? null : decode(rest.slice(slash + 1)) || null);
-	} else if (checkPath.startsWith("/part/")) {
-		const rest = checkPath.replace("/part/", "");
-		const fullMatch = rest.match(/^(.+?)\/full$/);
-		if (fullMatch) await loadPartFull(fullMatch[1], params);
-		else await loadPart(rest);
-	} else if (checkPath === "/library" || checkPath.startsWith("/library/")) {
-		const m = /^\/library(?:\/(\d+)(?:\/part\/(.+))?)?\/?$/.exec(checkPath);
-		if (!m) renderNotFound();
-		else {
-			const decode = (s) => {
-				try {
-					return decodeURIComponent(s);
-				} catch (e) {
-					return s;
-				}
-			};
-			await loadLibrary(m[1] ? parseInt(m[1], 10) : null, m[2] ? decode(m[2]) : null);
-		}
-	} else if (!titleMatch && (checkPath === "/projects" || checkPath.startsWith("/projects/"))) {
-		const id = checkPath.slice(10);
-		renderProjects(id ? decodeURIComponent(id) : null);
-	} else if (!titleMatch && (checkPath === "/news" || checkPath === "/news/")) await loadNews(params);
-	else if (!titleMatch && /^\/news\/inspection\/\d+\/?$/.test(checkPath)) await loadInspection(parseInt(checkPath.split("/")[3], 10));
-	else if (!titleMatch && (checkPath === "/help" || checkPath === "/help/")) await loadHelp(params);
-	else if (!titleMatch && (checkPath === "/settings" || checkPath === "/settings/")) renderSettingsPage({ enter: true });
-	else if (checkPath.startsWith("/search")) {
-		const q = params.get("q") || "";
-		dom.search.value = q;
-		await loadSearchPage(q, params.get("scope"));
-	} else renderNotFound();
+		} else dom.main.scrollTop = 0;
+		selectTreeNode("s-" + (from || data.sections[0] && data.sections[0].id));
+	} catch (err) {
+		if (err && err.name === "AbortError") return;
+		console.error(err);
+		setViewHead("");
+		renderViewError(dom.view, "Failed to load part", err?.message || "Unexpected error", { onRetry: () => loadPartFull(partId, params) });
+	}
 }
-window.addEventListener("hashchange", handleRoute);
+function tocTitle(node) {
+	const l = cleanInlineLabel(node.l || "");
+	const d = cleanInlineLabel(node.d || "");
+	return l && d.startsWith(l) && d.length > l.length ? d.slice(l.length).trim() : d;
+}
+function findPartInTree(node, partId) {
+	if (!node) return null;
+	if (node.t === "part" && String(node.id) === String(partId)) return node;
+	if (node.c) for (const ch of node.c) {
+		const found = findPartInTree(ch, partId);
+		if (found) return found;
+	}
+	return null;
+}
+// src/usage.js
+var USAGE_KEY = "usage";
+function loadUsage() {
+	try {
+		const u = JSON.parse(lsGet("usage") || "null");
+		if (u && u.v === 1 && u.s && u.p) return u;
+	} catch (e) {}
+	return {
+		v: 1,
+		since: Date.now(),
+		s: {},
+		p: {}
+	};
+}
+function bumpPart(u, title, part, heading, now) {
+	if (!part) return;
+	const key = title + "|" + part;
+	const e = u.p[key] || (u.p[key] = { n: 0 });
+	e.n += 1;
+	e.t = now;
+	if (heading) e.h = String(heading).trim();
+}
+function recordSectionVisit(data, unitInfo = null) {
+	if (!data || !data.id) return;
+	const u = loadUsage();
+	const now = Date.now();
+	const key = state.currentTitle + "|" + data.id;
+	const e = u.s[key] || (u.s[key] = { n: 0 });
+	e.n += 1;
+	e.t = now;
+	e.l = data.label || data.id;
+	e.h = data.section_title || data.title_label || "";
+	e.p = data.part || "";
+	if (unitInfo && unitInfo.key) {
+		e.u = unitInfo.key;
+		e.ul = unitInfo.label || unitInfo.key;
+	} else {
+		delete e.u;
+		delete e.ul;
+	}
+	const partNode = data.part && state.treeData ? findPartInTree(state.treeData, data.part) : null;
+	bumpPart(u, state.currentTitle, data.part, partNode && partNode.d, now);
+	lsSet(USAGE_KEY, JSON.stringify(u));
+}
+function recordSectionUnit(sectionId, unitInfo = null) {
+	if (!sectionId) return;
+	const u = loadUsage();
+	const key = state.currentTitle + "|" + sectionId;
+	const e = u.s[key];
+	if (!e) return;
+	e.t = Date.now();
+	if (unitInfo && unitInfo.key) {
+		e.u = unitInfo.key;
+		e.ul = unitInfo.label || unitInfo.key;
+	} else {
+		delete e.u;
+		delete e.ul;
+	}
+	lsSet(USAGE_KEY, JSON.stringify(u));
+}
+function recordPartVisit(partId, heading) {
+	const u = loadUsage();
+	bumpPart(u, state.currentTitle, partId, heading, Date.now());
+	lsSet(USAGE_KEY, JSON.stringify(u));
+}
+function visitedCountFor(title) {
+	try {
+		const raw = lsGet(title === 29 ? "visited" : "visited-" + title);
+		return raw ? JSON.parse(raw).length : 0;
+	} catch (e) {
+		return 0;
+	}
+}
+function timeAgo(ms) {
+	const s = Math.max(0, (Date.now() - ms) / 1e3);
+	if (s < 60) return "just now";
+	if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+	if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+	const d = Math.floor(s / 86400);
+	if (d === 1) return "yesterday";
+	if (d < 30) return `${d}d ago`;
+	return new Date(ms).toLocaleDateString(void 0, {
+		month: "short",
+		day: "numeric",
+		year: "numeric"
+	});
+}
+var fmt = (n) => Number(n || 0).toLocaleString();
+var titleHref = (t, rest) => `#/title/${t}/${rest || ""}`;
+// src/components/ui.js
+var SEP = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
+var joinSep = (xs) => xs.filter(Boolean).join(SEP);
+var fmtDate = (iso) => {
+	if (!iso) return "";
+	const d = /* @__PURE__ */ new Date(iso + "T00:00:00");
+	return isNaN(d) ? iso : d.toLocaleDateString(void 0, {
+		month: "short",
+		day: "numeric",
+		year: "numeric"
+	});
+};
+var shortDate = (iso) => {
+	if (!iso) return "";
+	const d = /* @__PURE__ */ new Date(iso + "T00:00:00");
+	if (isNaN(d)) return iso;
+	const opts = d.getFullYear() === (/* @__PURE__ */ new Date()).getFullYear() ? {
+		month: "short",
+		day: "numeric"
+	} : {
+		month: "short",
+		day: "numeric",
+		year: "numeric"
+	};
+	return d.toLocaleDateString(void 0, opts);
+};
+var fmtBytes = (bytes) => {
+	if (!bytes || bytes <= 0) return "";
+	if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+	const mb = bytes / 1048576;
+	if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+	return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`;
+};
+var fmtMB = (mb) => mb ? fmtBytes(mb * 1048576) : "";
+var fmtSections = (n) => n ? `${fmt(n)} ${n === 1 ? "section" : "sections"}` : "";
+function statPill(state, text, { bare = false, title = "" } = {}) {
+	return `<span class="stat-pill is-${state}${bare ? " is-bare" : ""}"${title ? ` title="${escapeHtml(title)}"` : ""}><span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(text)}</span>`;
+}
+function metricCardHtml({ label, value, of = "", sub = "", alert = false }) {
+	return `<div class="metric-card${alert ? " is-alert" : ""}"><div class="metric-label">${label}</div><div class="metric-val">${value}${of ? `<span class="metric-of">${escapeHtml(of)}</span>` : ""}</div><div class="metric-sub">${sub}</div></div>`;
+}
+function emptyStateHtml({ title, body = "", actionsHtml = "", cls = "" } = {}) {
+	return `<div class="empty-state${cls ? " " + cls : ""}"><h2>${escapeHtml(title)}</h2>` + (body ? `<p>${body}</p>` : "") + (actionsHtml || "") + "</div>";
+}
+function segmentedHtml({ label, items, value, cls = "seg", role = "group", dataAttr = "data-value" }) {
+	return `<div class="${cls}" role="${role}" aria-label="${escapeHtml(label)}">${items.map((it) => {
+		const on = it.value === value;
+		return `<button type="button" ${dataAttr}="${escapeHtml(it.value)}" aria-pressed="${on}"${it.attrs ? " " + it.attrs : ""}>${it.label}</button>`;
+	}).join("")}</div>`;
+}
+function transferTrackHtml(pct, { bindFill = false } = {}) {
+	return `<div class="dock-track"><span class="dock-fill${pct == null ? " is-indeterminate" : ""}"${bindFill ? " data-f=\"fill\"" : ""} style="width:${pct == null ? 35 : pct}%"></span></div>`;
+}
 // src/components/palette.js
 function commandList() {
 	const mod = isMac ? "⌘" : "Ctrl ";
@@ -13216,7 +14138,7 @@ function commandList() {
 			"G C"
 		],
 		[
-			"Open projects",
+			"Open workspaces",
 			"cmd:projects",
 			"G P"
 		],
@@ -13280,11 +14202,6 @@ function commandList() {
 			"cmd:chat",
 			`${mod}J`
 		],
-		[
-			`Switch to ${document.documentElement.dataset.theme === "light" ? "dark" : "light"} theme`,
-			"cmd:theme",
-			""
-		],
 		...loadProjects().map((p) => [
 			`Workspace: ${p.name}`,
 			`#/projects/${encodeURIComponent(p.id)}`,
@@ -13308,8 +14225,7 @@ function commandItemsHtml(q) {
 	}).join("") + "<div class=\"sd-footer\">Commands · <kbd>↑</kbd><kbd>↓</kbd> to move, <kbd>Enter</kbd> to run</div>";
 }
 function runCommand(cmd) {
-	if (cmd === "theme") setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
-	else if (cmd === "drawer") toggleDrawer();
+	if (cmd === "drawer") toggleDrawer();
 	else if (cmd === "chat") toggleChat();
 	else if (cmd === "new-project") showNewProjectForm();
 	else if (cmd === "news-refresh") refreshNewsCommand();
@@ -13347,10 +14263,14 @@ dom.search.addEventListener("input", () => {
 			else {
 				const items = data.results.map((r) => {
 					let snip = (r.snippet || "").replace(/[\x02\x03]/g, "");
+					const rTitle = r.title || state.currentTitle;
 					return `
-            <a class="sd-item" href="#/title/${r.title || state.currentTitle}/section/${encodeURIComponent(r.id)}">
-              <span class="sd-label">${escapeHtml(r.label)}</span>
-              <span>${escapeHtml(r.title_label || r.title)}</span>
+            <a class="sd-item" data-ref-tier="cfr" href="#/title/${rTitle}/section/${encodeURIComponent(r.id)}">
+              <div class="sd-item-top">
+                <span class="sd-label">${escapeHtml(r.label)}</span>
+                <span class="sd-item-title">${escapeHtml(r.title_label || r.title)}</span>
+                <span class="ref-badge">${rTitle} CFR</span>
+              </div>
               ${snip ? `<span class="sd-snippet">${escapeHtml(snip)}</span>` : ""}
             </a>
           `;
@@ -13587,6 +14507,7 @@ function renderLocalParaPeek(trigger, root) {
 	return `
     <div class="pop-head-row">
       <div class="pop-kicker">${secId ? `${t} CFR § ${escapeHtml(secId)} ` : ""}${escapeHtml(para)}</div>
+      <span class="peek-badge">CLAUSE</span>
     </div>
     <p class="peek-text">${escapeHtml(snippet)}</p>
     <div class="peek-foot">
@@ -13610,6 +14531,7 @@ function renderFootnotePeek(trigger, root) {
 	return `
     <div class="pop-head-row">
       <div class="pop-kicker">Footnote ${escapeHtml(trigger.textContent.trim())}</div>
+      <span class="peek-badge">FOOTNOTE</span>
     </div>
     <p class="peek-text">${escapeHtml(txt)}</p>
     <div class="peek-foot">
@@ -13638,6 +14560,7 @@ function renderAnchorPeek(trigger, root) {
 		return `
       <div class="pop-head-row">
         <div class="pop-kicker">${escapeHtml(clipText(caption, 90))}</div>
+        <span class="peek-badge">TABLE</span>
       </div>
       <div class="peek-table-box">
         <table class="peek-table">
@@ -13656,6 +14579,7 @@ function renderAnchorPeek(trigger, root) {
 		return `
       <div class="pop-head-row">
         <div class="pop-kicker">${escapeHtml(caption)}</div>
+        <span class="peek-badge">FIGURE</span>
       </div>
       ${img?.src ? `<div class="peek-fig-mat"><img class="peek-fig-img" src="${escapeHtml(img.src)}" alt="${escapeHtml(caption)}"></div>` : ""}
       <div class="peek-foot">
@@ -13669,6 +14593,7 @@ function renderAnchorPeek(trigger, root) {
 		return `
       <div class="pop-head-row">
         <div class="pop-kicker">${escapeHtml(clipText(head, 80))}</div>
+        <span class="peek-badge">APPENDIX</span>
       </div>
       <p class="peek-text">${escapeHtml(para)}</p>
       <div class="peek-foot">
@@ -13691,12 +14616,41 @@ function renderExternalHintPeek(trigger) {
 	return `
     <div class="pop-head-row">
       <div class="pop-kicker">${escapeHtml(label)}</div>
-      <span class="peek-badge">External</span>
+      <span class="peek-badge">UNINSTALLED</span>
     </div>
     <p class="peek-text">${escapeHtml(sub)} Click to download into the reader or open on eCFR.</p>
   `;
 }
-async function openSectionHrefPeek(trigger, root, parsed) {
+function renderUscPeek(trigger) {
+	const href = trigger.getAttribute("href") || "";
+	const m = /\/uscode\/text\/(\d+)\/([^/?#]+)/i.exec(href);
+	const uscTitle = m ? m[1] : "";
+	const uscSec = m ? m[2] : "";
+	const titleAttr = trigger.getAttribute("title") || "";
+	return `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${escapeHtml(uscTitle && uscSec ? `${uscTitle} U.S.C. § ${uscSec}` : cleanInlineLabel(trigger.textContent))}</div>
+      <span class="peek-badge">U.S. CODE</span>
+    </div>
+    <div class="peek-title">${escapeHtml(titleAttr || `Title ${uscTitle || ""} United States Code`)}</div>
+    <p class="peek-text">Statutory authority codified in the United States Code. Click to inspect the enacted text on Cornell LII.</p>
+  `;
+}
+function renderFrPeek(trigger) {
+	const href = trigger.getAttribute("href") || "";
+	const m = /\/citation\/(\d+)-FR-(\d+)/i.exec(href);
+	const vol = m ? m[1] : "";
+	const page = m ? m[2] : "";
+	return `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${escapeHtml(vol && page ? `${vol} FR ${page}` : cleanInlineLabel(trigger.textContent))}</div>
+      <span class="peek-badge">FED. REGISTER</span>
+    </div>
+    <div class="peek-title">Federal Register Publication</div>
+    <p class="peek-text">Rulemaking history, preamble, and final rule publication at Volume ${escapeHtml(vol || "—")}, page ${escapeHtml(page || "—")}.</p>
+  `;
+}
+async function openSectionHrefPeek(trigger, root, parsed, rootTitle) {
 	const pClause = parsed.para && /^\(([a-z])\)/i.exec(parsed.para.trim());
 	const unitKey = parsed.unit === "full" ? null : parsed.unit || (pClause ? pClause[1].toLowerCase() : "");
 	const cacheKey = `${parsed.title}|${parsed.section}|${unitKey || "full"}`;
@@ -13741,9 +14695,12 @@ async function openSectionHrefPeek(trigger, root, parsed) {
 			unit: parsed.unit
 		}
 	};
+	const isCross = Number(parsed.title) !== Number(rootTitle) || trigger.classList.contains("xref-cross");
+	const tier = isCross ? "cross" : "cfr";
 	citePop.open(trigger, `
     <div class="pop-head-row">
       <div class="pop-kicker">${parsed.title} CFR ${escapeHtml(label)}${parsed.para ? " " + escapeHtml(parsed.para) : ""}</div>
+      <span class="peek-badge">${isCross ? `CROSS-TITLE · ${parsed.title} CFR` : `${parsed.title} CFR`}</span>
     </div>
     ${titleText ? `<div class="peek-title">${escapeHtml(titleText)}</div>` : ""}
     ${snippet ? `<p class="peek-text">${escapeHtml(snippet)}</p>` : ""}
@@ -13751,7 +14708,10 @@ async function openSectionHrefPeek(trigger, root, parsed) {
       <a class="btn btn-small" href="${escapeHtml(href)}">Open</a>
       <button type="button" class="btn btn-small" data-peek-split="1">Open side-by-side</button>
     </div>
-  `, { interactive: false });
+  `, {
+		interactive: false,
+		refTier: tier
+	});
 }
 function renderIbrPeek(trigger, root) {
 	const code = trigger.dataset.ibrCode;
@@ -13773,7 +14733,7 @@ function renderIbrPeek(trigger, root) {
 	return `
     <div class="pop-head-row">
       <div class="pop-kicker">${escapeHtml(item.code)}</div>
-      <span class="peek-badge">${escapeHtml(item.org)}</span>
+      <span class="peek-badge">IBR · ${escapeHtml(item.org)}</span>
     </div>
     ${item.org_name ? `<div class="peek-title">${escapeHtml(item.org_name)}</div>` : ""}
     ${app ? `<p class="peek-text"><strong>${item.exact ? "IBR approved" : "Closest approved edition"} in ${escapeHtml(app.label)}${escapeHtml(app.para || "")}:</strong> ${escapeHtml(app.excerpt)}</p>` : `<p class="peek-text">Consensus technical standard published by ${escapeHtml(item.org_name || item.org)}.</p>`}
@@ -13785,7 +14745,7 @@ function renderIbrPeek(trigger, root) {
   `;
 }
 function getPeekTrigger(el) {
-	return el.closest?.("a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], button.xref-ibr[data-ibr-code], a.xref-external[data-cfr-title], a.xref[href], a.xref-cross[href], a.citation-chip[href*=\"/section/\"]") || null;
+	return el.closest?.("a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], button.xref-ibr[data-ibr-code], a.xref-external[data-cfr-title], a.xref-usc, a.xref-fr, a.xref[href], a.xref-cross[href], a.citation-chip[href*=\"/section/\"]") || null;
 }
 function handleHoverOver(e, root) {
 	if (citePop.isOpen() && citePop.isInteractive()) return;
@@ -13805,32 +14765,63 @@ function handleHoverOver(e, root) {
 		if (hoverTarget !== trigger || citePop.isOpen() && citePop.isInteractive()) return;
 		if (trigger.matches("a.xref-local[data-local-para]")) {
 			const html = renderLocalParaPeek(trigger, root);
-			if (html) citePop.open(trigger, html, { interactive: false });
+			if (html) citePop.open(trigger, html, {
+				interactive: false,
+				refTier: "local"
+			});
 			return;
 		}
 		if (trigger.matches(".ftref[data-anchor]")) {
 			const html = renderFootnotePeek(trigger, root);
-			if (html) citePop.open(trigger, html, { interactive: false });
+			if (html) citePop.open(trigger, html, {
+				interactive: false,
+				refTier: "local"
+			});
 			return;
 		}
 		if (trigger.matches("button.xref-anchor[data-anchor]")) {
 			const html = renderAnchorPeek(trigger, root);
-			if (html) citePop.open(trigger, html, { interactive: false });
+			if (html) citePop.open(trigger, html, {
+				interactive: false,
+				refTier: "local"
+			});
 			return;
 		}
 		if (trigger.matches("button.xref-ibr[data-ibr-code]")) {
 			const html = renderIbrPeek(trigger, root);
-			if (html) citePop.open(trigger, html, { interactive: false });
+			if (html) citePop.open(trigger, html, {
+				interactive: false,
+				refTier: "ibr"
+			});
 			return;
 		}
 		if (trigger.matches("a.xref-external[data-cfr-title]")) {
 			lastHoverContext = null;
-			citePop.open(trigger, renderExternalHintPeek(trigger), { interactive: false });
+			citePop.open(trigger, renderExternalHintPeek(trigger), {
+				interactive: false,
+				refTier: "uninstalled"
+			});
+			return;
+		}
+		if (trigger.matches("a.xref-usc")) {
+			lastHoverContext = null;
+			citePop.open(trigger, renderUscPeek(trigger), {
+				interactive: false,
+				refTier: "usc"
+			});
+			return;
+		}
+		if (trigger.matches("a.xref-fr")) {
+			lastHoverContext = null;
+			citePop.open(trigger, renderFrPeek(trigger), {
+				interactive: false,
+				refTier: "fr"
+			});
 			return;
 		}
 		if (trigger.matches("a[href^=\"#\"]")) {
 			const parsed = parseCfrHref(trigger.getAttribute("href"), rootTitle);
-			if (parsed && parsed.kind === "section") openSectionHrefPeek(trigger, root, parsed);
+			if (parsed && parsed.kind === "section") openSectionHrefPeek(trigger, root, parsed, rootTitle);
 		}
 	}, 250);
 }
@@ -13854,20 +14845,21 @@ for (const root of [dom.view, dom.splitPane].filter(Boolean)) {
 			cancelHoverTimers();
 			citePop.open(ibrBtn, html, {
 				interactive: true,
-				returnFocus: ibrBtn
+				returnFocus: ibrBtn,
+				refTier: "ibr"
 			});
 		}
 	});
 }
-if (citePopEl) {
-	citePopEl.addEventListener("mouseenter", () => {
+if (dom.citePop) {
+	dom.citePop.addEventListener("mouseenter", () => {
 		clearTimeout(closeTimer);
 		closeTimer = null;
 	});
-	citePopEl.addEventListener("mouseleave", () => {
+	dom.citePop.addEventListener("mouseleave", () => {
 		if (!citePop.isInteractive()) scheduleCloseHover();
 	});
-	citePopEl.addEventListener("click", (e) => {
+	dom.citePop.addEventListener("click", (e) => {
 		const jumpBtn = e.target.closest("[data-peek-jump]");
 		if (jumpBtn && lastHoverContext) {
 			const ctx = lastHoverContext;
@@ -13954,9 +14946,6 @@ for (const root of [
 	dom.tree
 ].filter(Boolean)) root.addEventListener("click", (e) => handleCfrLinkClick(e, root));
 // src/main.js
-dom.themeToggle.addEventListener("click", () => {
-	setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
-});
 var chatKbd = document.getElementById("chat-kbd");
 if (chatKbd) chatKbd.textContent = isMac ? "⌘J" : "Ctrl J";
 async function init() {
@@ -13965,6 +14954,7 @@ async function init() {
 		if (titlesRes.ok) {
 			state.installedTitles = await titlesRes.json();
 			state.noTitles = state.installedTitles.length === 0;
+			syncCorporaState();
 			if (state.installedTitles.length && !state.installedTitles.some((t) => t.title === state.currentTitle)) await switchTitle(state.installedTitles[0].title);
 			fillTitleSelect();
 			updateRailHome();

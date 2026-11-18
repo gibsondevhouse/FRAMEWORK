@@ -94,6 +94,15 @@ export function skeletonHtml(kind = 'doc', label = 'Loading…') {
     body = `<div class="skel-stack" style="gap:18px">${line('18%', 'is-sm')}${line('36%', 'is-xl')}<div class="skel-grid-2">${[1, 2, 3, 4].map(() =>
       `<div class="skel-card">${line('34%', 'is-sm')}${line('74%', 'is-lg')}${line('92%')}${line('64%')}</div>`
     ).join('')}</div></div>`;
+  } else if (kind === 'lines') {
+    body = `<div class="skel-stack" style="gap:8px;margin-top:8px" aria-hidden="true">${line('86%', 'is-sm')}${line('74%', 'is-sm')}${line('68%', 'is-sm')}</div>`;
+    return body;
+  } else if (kind === 'summary') {
+    body = `<div class="skel-stack" style="margin-top:8px;gap:6px" aria-hidden="true">${line('92%', 'is-sm')}${line('68%', 'is-sm')}</div>`;
+    return body;
+  } else if (kind === 'pulse') {
+    body = `<div class="skel-stack" style="gap:8px" aria-hidden="true">${line('46%', 'is-sm')}${line('92%')}${line('74%')}</div>`;
+    return body;
   } else {
     body = `<div class="skel-stack" style="gap:16px">${line('24%', 'is-sm')}${line('62%', 'is-xl')}<div class="skel-stack" style="gap:10px;margin-top:8px">${line('94%')}${line('88%')}${line('91%')}${line('76%')}${line('84%')}</div></div>`;
   }

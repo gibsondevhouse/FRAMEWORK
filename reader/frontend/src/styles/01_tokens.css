@@ -30,6 +30,8 @@
 }
 
 :root {
+  color-scheme: dark;
+
   /* Type */
   --sans: "Geist", "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont,
           "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -40,10 +42,26 @@
   --reader-size: 16px;
 
   /* Shape */
+  --r-2: 2px;
   --r-4: 4px;
   --r-6: 6px;
   --r-8: 8px;
+  --r-10: 10px;
   --r-12: 12px;
+  --r-pill: 999px;
+
+  /* Elevation layers */
+  --z-sticky: 4;
+  --z-rail: 27;
+  --z-drawer-backdrop: 25;
+  --z-drawer: 26;
+  --z-topbar: 30;
+  --z-dock: 40;
+  --z-pop: 45;
+  --z-toast: 50;
+  --z-news-pop: 70;
+  --z-cite-pop: 75;
+  --z-modal: 90;
 
   /* Layout */
   --topbar-h: 48px;
@@ -60,92 +78,62 @@
   --t-slow: .3s;
   --t-ui: .3s;
 
-  /* Status & indicator hues (color reserved strictly for state/status) */
-  --blue: #71717a;
-  --yellow: #f0bf00;
-}
-
-[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0A0A0A;            /* Deep neutral-950 canvas */
-  --panel: #0E0E0F;         /* Reading pane & sidebar base */
-  --card: #121212;          /* Elevated card surface */
-  --card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0%, rgba(255, 255, 255, 0) 100%), #121212;
-  --card-hover: #171718;    /* Hovered card surface */
+  /* Yakuza Editorial Obsidian Surface & Ink Hierarchy */
+  --bg: #070708;            /* Deep canvas void */
+  --panel: #0B0B0D;         /* Primary reading pane & drawer base */
+  --card: #111114;          /* Elevated card surface */
+  --card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0) 100%), #111114;
+  --card-hover: #16161A;    /* Hovered card surface */
   --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  --raise: #121212;         /* Wells & inset callouts */
-  --pop: #161617;           /* Menus, popovers, dropdowns */
+  --raise: #111114;         /* Wells & inset callouts */
+  --pop: #151519;           /* Menus, popovers, dropdowns */
   --hover: rgba(255, 255, 255, 0.045);
   --active: rgba(255, 255, 255, 0.085);
-  --field: rgba(255, 255, 255, 0.025);
-  --line: rgba(255, 255, 255, 0.055);
+  --field: rgba(255, 255, 255, 0.028);
+  --line: rgba(255, 255, 255, 0.065);
   --line-soft: rgba(255, 255, 255, 0.045);
-  --line-strong: rgba(255, 255, 255, 0.15);
-  --fg: rgba(255, 255, 255, 0.90);      /* Primary headings & labels */
-  --fg-2: rgba(255, 255, 255, 0.60);    /* Body text */
-  --fg-3: rgba(255, 255, 255, 0.42);    /* Metadata, timestamps & quiet links */
-  --fg-4: rgba(255, 255, 255, 0.24);    /* Separators & faint markers */
-  --fg-strong: #ffffff;
-  --brand: #EDEDED;         /* Monochromatic high-contrast primary action */
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --fg: rgba(244, 244, 246, 0.92);      /* Primary headings & labels */
+  --fg-2: rgba(235, 235, 240, 0.68);    /* Long-form prose body ink */
+  --fg-3: rgba(235, 235, 240, 0.45);    /* Metadata, timestamps & quiet links */
+  --fg-4: rgba(235, 235, 240, 0.26);    /* Separators & faint markers */
+  --fg-strong: #FAFAFC;
+  --brand: #EDEDED;         /* High-contrast primary action */
   --brand-hover: #FFFFFF;
-  --on-brand: #0A0A0A;
-  --accent: rgba(255, 255, 255, 0.90);
-  --focus: rgba(255, 255, 255, 0.72);
+  --on-brand: #070708;
+  --accent: rgba(244, 244, 246, 0.92);
+  --focus: rgba(250, 250, 252, 0.78);
   --danger: #ff8583;
-  --mark: rgba(240, 191, 0, .24);
-  --scroll: rgba(255, 255, 255, .08);
-  --scroll-hover: rgba(255, 255, 255, .18);
-  --fig-mat: #f4f4f5;
-  --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 12px 32px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.4);
-  /* Status (dot + word) */
+  --mark: rgba(234, 179, 8, .24);
+  --scroll: rgba(255, 255, 255, .09);
+  --scroll-hover: rgba(255, 255, 255, .20);
+  --fig-mat: #D4D4D8;       /* Soft dark-room slate matte for line-art figures */
+  --shadow-card: 0 4px 14px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-card-hover: 0 10px 32px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 14px 36px rgba(0, 0, 0, 0.72), 0 2px 8px rgba(0, 0, 0, 0.45);
+  --shadow-inset-field: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  --overlay-scrim: rgba(0, 0, 0, 0.42);
+
+  /* Editorial stamp accents & sync status */
+  --editorial-crimson: #E11D48;
+  --editorial-gold: #EAB308;
+  --blue: #71717a;
+  --yellow: #f0bf00;
   --ok: #4cb782;
   --warn: #f0b33c;
   --partial: #a1a1aa;
   --glow: 1;
-  --shadow-lift: 0 8px 30px rgba(0, 0, 0, 0.28);
-  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2378787c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
-}
+  --shadow-lift: 0 10px 32px rgba(0, 0, 0, 0.36);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2388888f' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
 
-[data-theme="light"] {
-  color-scheme: light;
-  --bg: #f5f5f6;
-  --panel: #ffffff;
-  --card: #fafafa;
-  --card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(250, 250, 250, 1) 100%);
-  --card-hover: #f4f4f5;
-  --card-top: inset 0 1px 0 rgba(255, 255, 255, 1);
-  --raise: #fafafa;
-  --pop: #ffffff;
-  --hover: rgba(0, 0, 0, .035);
-  --active: rgba(0, 0, 0, .065);
-  --field: rgba(0, 0, 0, .02);
-  --line: rgba(0, 0, 0, .06);
-  --line-soft: rgba(0, 0, 0, .045);
-  --line-strong: rgba(0, 0, 0, .15);
-  --fg: rgba(9, 9, 11, 0.92);
-  --fg-2: rgba(9, 9, 11, 0.62);
-  --fg-3: rgba(9, 9, 11, 0.45);
-  --fg-4: rgba(9, 9, 11, 0.28);
-  --fg-strong: #09090b;
-  --brand: #18181b;
-  --brand-hover: #27272a;
-  --on-brand: #ffffff;
-  --accent: #18181b;
-  --focus: #18181b;
-  --danger: #c53030;
-  --mark: rgba(240, 191, 0, .34);
-  --scroll: rgba(0, 0, 0, .12);
-  --scroll-hover: rgba(0, 0, 0, .24);
-  --fig-mat: #ffffff;
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, .04);
-  --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, .08), inset 0 1px 0 rgba(255, 255, 255, 1);
-  --shadow-pop: 0 0 0 1px rgba(0, 0, 0, .05), 0 4px 16px rgba(0, 0, 0, .09), 0 8px 28px rgba(0, 0, 0, .06);
-  --ok: #23865a;
-  --warn: #9a5b00;
-  --partial: #71717a;
-  --glow: 0;
-  --shadow-lift: 0 8px 30px rgba(0, 0, 0, .08);
-  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236b6f76' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E");
+  /* 9-Tier Semantic Legal Authority & Reference Chromatics */
+  --ref-local: #94A3B8;         /* 1. Local spatial / same-section anchor / footnote */
+  --ref-cfr: #7DD3FC;           /* 2. Same-title Federal CFR */
+  --ref-cross: #38BDF8;         /* 3. Cross-title installed Federal CFR */
+  --ref-uninstalled: #FB923C;   /* 4. Uninstalled downloadable corpus */
+  --ref-usc: #FACC15;           /* 5. Federal Statute (U.S.C.) */
+  --ref-fr: #FB7185;            /* 6. Federal Register rulemaking */
+  --ref-ibr: #C084FC;           /* 7. IBR Consensus Standard (ANSI, NFPA, ASTM...) */
+  --ref-state: #34D399;         /* 8. State statute / admin code */
+  --ref-county: #2DD4BF;        /* 9. County / municipal ordinance */
 }

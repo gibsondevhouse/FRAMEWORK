@@ -5,11 +5,12 @@ import { adjustFontSize, applyFontSize } from '../components/rail';
 import { clearTreeSelection, plural } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
 import { enterView, escapeHtml, icon, isMac, lsGet, lsSet, showToast } from '../dom';
-import { navState, setNavMode } from '../nav';
+import { mqMobile, navState, setNavMode } from '../nav';
 import { drLabel, setPanel } from '../panels/shared';
 import { dom } from '../state_init';
 import { timeAgo } from '../usage';
-import { fmtBytes, getJSON } from '../views/library';
+import { fmtBytes, segmentedHtml } from '../components/ui';
+import { getJSON } from '../views/library';
 import { refreshNewsCommand } from '../views/news';
 
 // --- Settings panel ---
@@ -62,16 +63,15 @@ export async function loadNewsSettings() {
   refreshSettingsViews();
 }
 
-export function setTheme(next) {
-  document.documentElement.dataset.theme = next;
-  lsSet('theme', next);
-  refreshSettingsViews();
-}
-
 
 // Shared builders for the light drawer panel and the full #/settings page.
-export const settingSeg = (name, value, opts) => `<div class="lib-seg" role="group" aria-label="${name}">${opts.map(([v, label]) =>
-  `<button type="button" data-set="${name}" data-value="${v}" aria-pressed="${value === v}">${label}</button>`).join('')}</div>`;
+export const settingSeg = (name, value, opts, disabled = false) => segmentedHtml({
+  label: name,
+  value,
+  cls: 'seg',
+  dataAttr: `data-set="${escapeHtml(name)}" data-value`,
+  items: opts.map(([v, label]) => ({ value: v, label, attrs: disabled ? 'disabled' : '' })),
+});
 
 
 export function settingsClaudeHtml() {
@@ -94,7 +94,7 @@ export function settingsStorageHtml() {
     ${st.legacy_bytes ? `<div class="dr-row is-static"><span class="dr-num"></span><span class="dr-name">Title 29 legacy copy</span><span class="dr-time">${fmtBytes(st.legacy_bytes)}</span></div>` : ''}
     <div class="set-row">
       <span class="set-name">Temporary files<span class="set-sub">${st.temp_files ? `${plural(st.temp_files, 'file')} from unfinished downloads` : 'None left over'}</span></span>
-      <button type="button" class="lib-act" data-set-act="prune"${st.temp_files ? '' : ' disabled'}>${st.temp_files ? `Clean up ${fmtBytes(st.temp_bytes)}` : 'Clean'}</button>
+      <button type="button" class="btn btn-sm" data-set-act="prune"${st.temp_files ? '' : ' disabled'}>${st.temp_files ? `Clean up ${fmtBytes(st.temp_bytes)}` : 'Clean'}</button>
     </div>`;
 }
 
@@ -104,7 +104,7 @@ export function settingsKeysHtml() {
   const keys = [
     [`${mod} K`, 'Search or jump to a section'], ['/', 'Search'], ['>', 'Commands, in search'],
     [`${mod} B`, 'Show or hide the drawer'], [`${mod} J`, 'Ask Claude'], [`${mod} D`, 'Pin section to a workspace'],
-    ['G H', 'Home'], ['G T', 'Title start'], ['G C', 'Contents'], ['G P', 'Projects'], ['G N', 'News'], ['G L', 'Library'], ['G S', 'Settings'],
+    ['G H', 'Home'], ['G T', 'Title start'], ['G C', 'Contents'], ['G P', 'Workspaces'], ['G N', 'News'], ['G L', 'Library'], ['G S', 'Settings'],
     [isMac ? '⌥ 1–7' : 'Alt 1–7', 'Rail items in order'], ['Esc', 'Close the floating drawer'],
   ];
   return `<dl class="set-keys">${keys.map(([k, v]) => `<div><dt>${k.split(' ').map(x => `<kbd>${escapeHtml(x)}</kbd>`).join('')}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>`;
@@ -115,7 +115,6 @@ export function settingsKeysHtml() {
 // a few one-click actions, and one way into the full page. Everything deeper (Claude
 // model, News status, Storage, Keyboard) lives at #/settings.
 export function renderSettingsPanel() {
-  const theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
   const size = parseInt(lsGet('fontSize'), 10) || 16;
   const envKeys = state.navEnvStatus && state.navEnvStatus.keys;
   const configuredKeysCount = envKeys
@@ -125,14 +124,13 @@ export function renderSettingsPanel() {
     : `${configuredKeysCount} of 2 optional keys set`;
   setPanel('settings', `
     <section class="dr-sec">${drLabel('Quick settings')}
-      <div class="set-row"><span class="set-name">Theme</span>${settingSeg('theme', theme, [['dark', 'Dark'], ['light', 'Light']])}</div>
       <div class="set-row"><span class="set-name">Reading text</span>
         <span class="set-quick-size" role="group" aria-label="Reading text size">
           <button type="button" data-set-act="font-dec" aria-label="Smaller text">A−</button>
           <span class="set-val" data-size-val>${size} px</span>
           <button type="button" data-set-act="font-inc" aria-label="Larger text">A+</button>
         </span></div>
-      <div class="set-row"><span class="set-name">Drawer</span>${settingSeg('mode', navState.mode, [['pinned', 'Pinned'], ['flyout', 'Overlay']])}</div>
+      <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? '<span class="set-sub">Overlay on narrow screens</span>' : ''}</span>${settingSeg('mode', mqMobile.matches ? 'flyout' : navState.mode, [['pinned', 'Pinned'], ['flyout', 'Overlay']], mqMobile.matches)}</div>
     </section>
     <section class="dr-sec">${drLabel('Quick actions')}
       <div class="set-quick-acts">
@@ -156,7 +154,6 @@ export function renderSettingsPage(opts = {}) {
   updateChatContext();
   setViewHead('');
   document.title = 'Settings · FRAMEWORK';
-  const theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
   const size = parseInt(lsGet('fontSize'), 10) || 16;
   const top = dom.main.scrollTop;
   dom.view.innerHTML = `
@@ -174,12 +171,11 @@ export function renderSettingsPage(opts = {}) {
       <div class="settings-grid">
         <section class="set-card">
           <h2 class="set-card-label">Appearance</h2>
-          <div class="set-row"><span class="set-name">Theme</span>${settingSeg('theme', theme, [['dark', 'Dark'], ['light', 'Light']])}</div>
           <div class="set-row set-col">
             <div class="set-row-head"><label class="set-name" for="set-size">Reading text</label><span class="set-val" id="set-size-val" data-size-val>${size} px</span></div>
             <input type="range" class="set-range" id="set-size" min="13" max="24" step="1" value="${size}">
           </div>
-          <div class="set-row"><span class="set-name">Drawer</span>${settingSeg('mode', navState.mode, [['pinned', 'Pinned'], ['flyout', 'Overlay']])}</div>
+          <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? '<span class="set-sub">Overlay on narrow screens</span>' : ''}</span>${settingSeg('mode', mqMobile.matches ? 'flyout' : navState.mode, [['pinned', 'Pinned'], ['flyout', 'Overlay']], mqMobile.matches)}</div>
           <p class="dr-note">Pinned sits beside the page. Overlay slides over it and closes once you pick something.</p>
         </section>
         <section class="set-card">
@@ -241,8 +237,7 @@ export async function runSettingsAction(btn) {
 dom.view.addEventListener('click', (e) => {
   const set = e.target.closest('[data-set]');
   if (set) {
-    if (set.dataset.set === 'theme') setTheme(set.dataset.value);
-    else if (set.dataset.set === 'mode') setNavMode(set.dataset.value);
+    if (set.dataset.set === 'mode') setNavMode(set.dataset.value);
     return;
   }
   const setAct = e.target.closest('[data-set-act]');

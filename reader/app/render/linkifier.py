@@ -43,6 +43,20 @@ _WORD_PART = WORD_PART_RE
 _TAG_SPLIT = re.compile(r"(<[^>]+>)")
 _ANCHOR_SPLIT = re.compile(r"(<a\b[^>]*>.*?</a>)", re.IGNORECASE | re.DOTALL)
 
+# Canonical semantic CSS classes emitted by the linkifier and styled in 07_reader.css
+SEMANTIC_XREF_CLASSES = (
+    "xref",
+    "xref-part",
+    "xref-local",
+    "xref-cross",
+    "xref-external",
+    "xref-usc",
+    "xref-fr",
+    "xref-web",
+    "xref-state",
+    "xref-county",
+)
+
 
 def _outside_anchors(text: str, fn: Callable[[str], str]) -> str:
     """Apply `fn` to the parts of `text` that are not already inside an `<a>…</a>`."""

@@ -28,7 +28,7 @@ dom.search.addEventListener('input', () => {
     return;
   }
   if (q.startsWith('>')) {
-    // Commands: navigation, drawer panels, theme, projects and titles.
+    // Commands: navigation, drawer panels, workspaces and corpora.
     dom.searchDropdown.innerHTML = commandItemsHtml(q.slice(1));
     dom.searchDropdown.hidden = false;
     moveSdActive(1);
@@ -45,9 +45,12 @@ dom.search.addEventListener('input', () => {
           let snip = (r.snippet || '').replace(/[\x02\x03]/g, '');
           const rTitle = r.title || state.currentTitle;
           return `
-            <a class="sd-item" href="#/title/${rTitle}/section/${encodeURIComponent(r.id)}">
-              <span class="sd-label">${escapeHtml(r.label)}</span>
-              <span>${escapeHtml(r.title_label || r.title)}</span>
+            <a class="sd-item" data-ref-tier="cfr" href="#/title/${rTitle}/section/${encodeURIComponent(r.id)}">
+              <div class="sd-item-top">
+                <span class="sd-label">${escapeHtml(r.label)}</span>
+                <span class="sd-item-title">${escapeHtml(r.title_label || r.title)}</span>
+                <span class="ref-badge">${rTitle} CFR</span>
+              </div>
               ${snip ? `<span class="sd-snippet">${escapeHtml(snip)}</span>` : ''}
             </a>
           `;

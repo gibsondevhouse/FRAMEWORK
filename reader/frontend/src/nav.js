@@ -25,7 +25,7 @@ import { loadProjects } from './views/projects';
 // Re-clicking Overview or Home while on it opens "Recent" (reading history and pins).
 // Keys: ⌘B / Ctrl+B toggles the drawer; G then O H C P L S jumps to a rail item (Linear's
 // "go to"); Alt+1…6 does the same; ⌘D pins the open section to a project.
-export const NAV_PANELS = { reader: 'Contents', projects: 'Projects', library: 'Library', settings: 'Settings', history: 'Recent' };
+export const NAV_PANELS = { reader: 'Contents', projects: 'Workspaces', library: 'Library', settings: 'Settings', history: 'Recent' };
 
 // Alt+1…7 follows this order; News is a link like Overview and Home.
 export const NAV_TARGETS = ['overview', 'home', 'reader', 'projects', 'news', 'library', 'settings'];

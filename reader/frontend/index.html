@@ -3,16 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark light">
+  <meta name="color-scheme" content="dark">
   <title>FRAMEWORK</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230a0a0a'/><text x='16' y='23' text-anchor='middle' font-family='Inter,Segoe UI,Arial,sans-serif' font-weight='600' font-size='20' fill='%23ededed'>E</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23070708'/><text x='16' y='23' text-anchor='middle' font-family='Inter,Segoe UI,Arial,sans-serif' font-weight='600' font-size='20' fill='%23ededed'>E</text></svg>">
   <link rel="stylesheet" href="/src/styles/styles.css">
   <script>
-    // Apply saved theme/size before first paint to avoid a flash. Dark is the default look.
+    // Apply saved reading font size and drawer geometry before first paint to avoid a flash.
     (function () {
-      var root = document.documentElement, theme = null, size = null;
-      try { theme = localStorage.getItem("theme"); size = localStorage.getItem("fontSize"); } catch (e) {}
-      root.dataset.theme = theme === "light" ? "light" : "dark";
+      var root = document.documentElement, size = null;
+      try { size = localStorage.getItem("fontSize"); } catch (e) {}
       root.style.setProperty("--reader-size", (parseInt(size, 10) || 16) + "px");
       // The drawer's width, collapsed state and mode (app.js "Navigation"), so the first paint
       // has the right layout. Older keys (sidebarW, sidebarHidden) are read once as a fallback.
@@ -52,9 +51,6 @@
       <div id="search-dropdown" class="search-dropdown" hidden></div>
     </div>
     <span class="edition" id="edition" title="eCFR edition loaded in this app"></span>
-    <button class="icon-btn" id="theme-toggle" title="Switch theme" aria-label="Switch between dark and light theme">
-      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 0 1 0 11Z" fill="currentColor" stroke="none"/></svg>
-    </button>
     <button class="btn" id="chat-toggle" title="Ask Claude" aria-controls="chat" aria-expanded="false">
       <svg class="icon icon-accent" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.25 9.35 6.65 13.75 8 9.35 9.35 8 13.75 6.65 9.35 2.25 8 6.65 6.65Z"/></svg>
       <span class="btn-label">Ask Claude</span>
@@ -77,7 +73,7 @@
         <button type="button" class="ar-btn" data-target="reader" aria-controls="sidebar" aria-expanded="false" aria-label="Contents" data-tip="Contents" data-keys="G C">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 12.5A1.5 1.5 0 0 1 4 11h9.5"/><path d="M4 2.5h9.5v11H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 2.5Z"/><path d="M6 5.5h4.5M6 8h3"/></svg>
         </button>
-        <button type="button" class="ar-btn" data-target="projects" aria-controls="sidebar" aria-expanded="false" aria-label="Projects" data-tip="Projects" data-keys="G P">
+        <button type="button" class="ar-btn" data-target="projects" aria-controls="sidebar" aria-expanded="false" aria-label="Workspaces" data-tip="Workspaces" data-keys="G P">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5A1.5 1.5 0 0 1 4 3h2.6l1.4 1.5h4A1.5 1.5 0 0 1 13.5 6v6A1.5 1.5 0 0 1 12 13.5H4A1.5 1.5 0 0 1 2.5 12Z"/></svg>
         </button>
         <a class="ar-btn" data-target="news" href="#/news" aria-label="News" data-tip="News" data-keys="G N">
@@ -122,7 +118,7 @@
           </div>
           <div class="tree" id="tree"><div class="loading is-skel skel-stack" aria-label="Loading contents…"><span class="skel skel-line" style="width:76%"></span><span class="skel skel-line" style="width:58%"></span><span class="skel skel-line" style="width:68%"></span></div></div>
         </section>
-        <section class="drawer-panel" data-panel="projects" id="panel-projects" aria-label="Projects" hidden></section>
+        <section class="drawer-panel" data-panel="projects" id="panel-projects" aria-label="Workspaces" hidden></section>
         <section class="drawer-panel" data-panel="library" id="panel-library" aria-label="Library" hidden></section>
         <section class="drawer-panel" data-panel="settings" id="panel-settings" aria-label="Settings" hidden></section>
         <section class="drawer-panel" data-panel="history" id="panel-history" aria-label="Recent" hidden></section>

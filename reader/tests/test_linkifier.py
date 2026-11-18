@@ -2,7 +2,9 @@
 import unittest
 
 from app.render import clean_label, make_linkifier
+from app.render.linkifier import SEMANTIC_XREF_CLASSES
 from tests.base import HermeticTestCase
+from tests.frontend_sources import combined_css
 
 
 class TestLinkifier(HermeticTestCase):
@@ -152,6 +154,13 @@ class TestLinkifier(HermeticTestCase):
             clean_label('Alternative Conditions Under § 1910.401(<span class="standard">a</span>)(3) &amp; x &lt; 5'),
             'Alternative Conditions Under § 1910.401(a)(3) & x < 5',
         )
+
+    def test_semantic_xref_classes_styled_in_reader_css(self):
+        css = combined_css()
+        for cls in SEMANTIC_XREF_CLASSES:
+            if cls == "xref-part":
+                continue
+            self.assertIn(f".{cls}", css)
 
 
 if __name__ == "__main__":

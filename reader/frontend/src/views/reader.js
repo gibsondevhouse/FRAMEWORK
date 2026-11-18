@@ -1,5 +1,5 @@
 import { state } from '../state';
-import { citePop, citePopEl, renderResolverPage } from '../components/cfr_resolver';
+import { citePop, renderResolverPage } from '../components/cfr_resolver';
 import { updateChatContext } from '../components/chat';
 import { fillNewsActivity, newsActivityButtonHtml } from '../components/news_activity';
 import { pinButtonHtml } from '../components/pin_pop';
@@ -12,8 +12,8 @@ import { cleanInlineLabel, enterView, escapeHtml, icon, lsGet, lsSet, showToast,
 import { dom } from '../state_init';
 import { recordSectionUnit, recordSectionVisit } from '../usage';
 import {
-  enhanceDomAnchors, findParagraphElement, formatCfrCitation, highlightTarget,
-  openFigureModal, renderViewError, resolveParagraphPath, wrapIbrMentions,
+  enhanceDomAnchors, findParagraphElement, flashElements, formatCfrCitation, highlightTarget,
+  openFigureModal, parseCfrHref, renderViewError, resolveParagraphPath, wrapIbrMentions,
 } from './doc_utils';
 import { clipToWorkspace, currentSectionRef } from './projects';
 
@@ -123,6 +123,12 @@ dom.view.addEventListener('click', async (e) => {
     return;
   }
 
+  if (e.target.closest('#btn-refs-ledger') && state.currentSection) {
+    const btn = e.target.closest('#btn-refs-ledger');
+    openRefsLedgerPopover(btn);
+    return;
+  }
+
   if (e.altKey) return;
   const localPara = e.target.closest('a.xref-local[data-local-para]');
   if (localPara) {
@@ -168,11 +174,12 @@ function openCitedByPopover(btn, graphData) {
   citePop.open(btn, `
     <div class="pop-head-row">
       <div class="pop-kicker">Cited by ${plural(total, 'section')} in Title ${state.currentTitle}</div>
+      <span class="peek-badge">CITED BY</span>
       <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close citing sections">${icon('close')}</button>
     </div>
     ${filterHtml}
     <div id="cited-pop-list">${renderCitedByListHtml(graphData)}</div>
-  `, { interactive: true, returnFocus: btn, focusSelector: '#cited-pop-filter, .cited-link' });
+  `, { interactive: true, returnFocus: btn, focusSelector: '#cited-pop-filter, .cited-link', refTier: 'cfr' });
 
   const filterEl = document.getElementById('cited-pop-filter');
   if (filterEl) {
@@ -184,14 +191,173 @@ function openCitedByPopover(btn, graphData) {
   }
 }
 
-if (citePopEl) {
-  citePopEl.addEventListener('click', (e) => {
+if (dom.citePop) {
+  dom.citePop.addEventListener('click', (e) => {
     const sp = e.target.closest('[data-cited-split]');
-    if (!sp) return;
-    const secId = sp.dataset.citedSplit;
-    citePop.close(false);
-    openSplitPane({ title: state.currentTitle, sectionId: secId, pushHistory: true });
+    if (sp) {
+      const secId = sp.dataset.citedSplit;
+      citePop.close(false);
+      openSplitPane({ title: state.currentTitle, sectionId: secId, pushHistory: true });
+      return;
+    }
+    const lsp = e.target.closest('[data-ledger-split]');
+    if (lsp) {
+      const parsed = parseCfrHref(lsp.dataset.ledgerSplit || '', state.currentTitle);
+      citePop.close(false);
+      if (parsed?.kind === 'section') {
+        openSplitPane({ title: parsed.title, sectionId: parsed.section, para: parsed.para, unit: parsed.unit, pushHistory: true });
+      }
+      return;
+    }
+    const ljmp = e.target.closest('[data-ledger-idx]');
+    if (ljmp) {
+      const idx = Number(ljmp.dataset.ledgerIdx);
+      const item = activeLedgerItems[idx];
+      if (!item) return;
+      if (item.el?.isConnected && (item.tier === 'local' || item.tier === 'ibr' || item.tier === 'uninstalled')) {
+        citePop.close(false);
+        flashElements([item.el], true);
+      } else if (item.href && item.href.startsWith('#')) {
+        citePop.close(false);
+        window.location.hash = item.href;
+      }
+    }
   });
+}
+
+const LEDGER_GROUPS = [
+  { tier: 'usc', label: 'Federal Statutes · U.S.C.' },
+  { tier: 'cfr', label: 'Current Title CFR' },
+  { tier: 'cross', label: 'Cross-Title CFR' },
+  { tier: 'state', label: 'State Authorities' },
+  { tier: 'county', label: 'County & Municipal' },
+  { tier: 'ibr', label: 'IBR Standards' },
+  { tier: 'fr', label: 'Federal Register' },
+  { tier: 'uninstalled', label: 'Uninstalled Corpora' },
+  { tier: 'local', label: 'Clauses, Tables & Figures' },
+  { tier: 'web', label: 'External Portals' },
+];
+
+let activeLedgerItems = [];
+
+function classifyDomRef(el) {
+  if (el.classList.contains('xref-usc')) return 'usc';
+  if (el.classList.contains('xref-fr')) return 'fr';
+  if (el.classList.contains('xref-ibr')) return 'ibr';
+  if (el.classList.contains('xref-state')) return 'state';
+  if (el.classList.contains('xref-county')) return 'county';
+  if (el.classList.contains('xref-external')) return 'uninstalled';
+  if (el.classList.contains('xref-cross')) return 'cross';
+  if (el.classList.contains('xref-local') || el.classList.contains('xref-anchor') || el.classList.contains('ftref')) return 'local';
+  if (el.classList.contains('xref-web')) return 'web';
+  return 'cfr';
+}
+
+function collectSectionReferences() {
+  const body = dom.view.querySelector('.reg-body');
+  if (!body) return [];
+  const seen = new Map();
+  const nodes = body.querySelectorAll('a.xref, button.xref-anchor, button.xref-ibr, .ftref[data-anchor]');
+  for (const el of nodes) {
+    const tier = classifyDomRef(el);
+    const label = cleanInlineLabel(el.textContent);
+    if (!label) continue;
+    const href = el.getAttribute('href') || '';
+    const anchor = el.dataset.anchor || '';
+    const ibrCode = el.dataset.ibrCode || '';
+    const localPara = el.dataset.localPara || '';
+    const dedupKey = `${tier}|${href || anchor || ibrCode || localPara || label.toLowerCase()}`;
+    if (seen.has(dedupKey)) continue;
+
+    let sub = '';
+    if (tier === 'usc') sub = el.getAttribute('title')?.replace(/^View\s+|\s+at Cornell LII$/g, '') || 'United States Code';
+    else if (tier === 'fr') sub = 'Federal Register';
+    else if (tier === 'ibr') sub = el.getAttribute('title') || 'Incorporated consensus standard';
+    else if (tier === 'uninstalled') sub = `Title ${el.dataset.cfrTitle || ''} CFR (click to download)`;
+    else if (tier === 'local') sub = el.classList.contains('ftref') ? 'Footnote in section' : (localPara ? 'Clause in section' : 'Table / Figure / Appendix');
+    else if (tier === 'web') sub = href.replace(/^https?:\/\//i, '').split('/')[0];
+    else {
+      const parsed = parseCfrHref(href, state.currentTitle);
+      sub = parsed?.kind === 'section' ? `${parsed.title} CFR § ${parsed.section}${parsed.para || ''}`
+        : parsed?.kind === 'part' ? `${parsed.title} CFR Part ${parsed.part}` : 'CFR Reference';
+    }
+
+    const parsed = href.startsWith('#') ? parseCfrHref(href, state.currentTitle) : null;
+    const canSplit = Boolean(parsed?.kind === 'section');
+    seen.set(dedupKey, {
+      idx: seen.size,
+      tier,
+      code: label,
+      sub,
+      href,
+      external: el.getAttribute('target') === '_blank',
+      splitHref: canSplit ? href : '',
+      el,
+    });
+  }
+  return [...seen.values()];
+}
+
+function renderRefsLedgerHtml(items, filter = '') {
+  const q = filter.trim().toLowerCase();
+  const filtered = q ? items.filter(x => `${x.code} ${x.sub} ${x.tier}`.toLowerCase().includes(q)) : items;
+  if (!filtered.length) return '<p class="peek-text" style="padding:8px 0">No matching references in this section.</p>';
+  const byTier = new Map();
+  for (const item of filtered) {
+    if (!byTier.has(item.tier)) byTier.set(item.tier, []);
+    byTier.get(item.tier).push(item);
+  }
+  return `<div class="refs-ledger-wrap">${LEDGER_GROUPS.filter(g => byTier.has(g.tier)).map(g => {
+    const groupItems = byTier.get(g.tier);
+    return `
+      <div class="refs-ledger-group" data-ref-tier="${g.tier}">
+        <div class="refs-ledger-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(g.label)}</span><span class="refs-ledger-count">${groupItems.length}</span></div>
+        ${groupItems.slice(0, 25).map(item => `
+          <div class="refs-ledger-row">
+            ${item.external && item.href
+              ? `<a class="refs-ledger-link" href="${escapeHtml(item.href)}" target="_blank" rel="noopener noreferrer"><span class="refs-ledger-code">${escapeHtml(item.code)}</span><span class="refs-ledger-sub">${escapeHtml(item.sub)}</span></a>`
+              : `<button type="button" class="refs-ledger-link" data-ledger-idx="${item.idx}"><span class="refs-ledger-code">${escapeHtml(item.code)}</span><span class="refs-ledger-sub">${escapeHtml(item.sub)}</span></button>`}
+            ${item.splitHref ? `<button type="button" class="lib-act cited-split" data-ledger-split="${escapeHtml(item.splitHref)}" title="Open side-by-side">Split</button>` : ''}
+          </div>
+        `).join('')}
+      </div>`;
+  }).join('')}</div>`;
+}
+
+function openRefsLedgerPopover(btn) {
+  activeLedgerItems = collectSectionReferences();
+  const total = activeLedgerItems.length;
+  const topTier = activeLedgerItems[0]?.tier || 'cfr';
+  const filterHtml = total >= 8
+    ? `<input type="search" class="pop-filter" id="refs-ledger-filter" placeholder="Filter ${total} outgoing references…" aria-label="Filter section references" autocomplete="off">`
+    : '';
+  citePop.open(btn, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">Outgoing References (${total})</div>
+      <span class="peek-badge">LEDGER</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close reference ledger">${icon('close')}</button>
+    </div>
+    ${filterHtml}
+    <div id="refs-ledger-list">${renderRefsLedgerHtml(activeLedgerItems)}</div>
+  `, { interactive: true, returnFocus: btn, focusSelector: '#refs-ledger-filter, .refs-ledger-link', refTier: topTier });
+
+  const filterEl = document.getElementById('refs-ledger-filter');
+  if (filterEl) {
+    filterEl.addEventListener('input', () => {
+      const slot = document.getElementById('refs-ledger-list');
+      if (slot) slot.innerHTML = renderRefsLedgerHtml(activeLedgerItems, filterEl.value);
+      citePop.reposition(btn);
+    });
+  }
+}
+
+function updateRefsLedgerButton() {
+  const btn = document.getElementById('btn-refs-ledger');
+  if (!btn) return;
+  const items = collectSectionReferences();
+  const span = btn.querySelector('span');
+  if (span) span.textContent = items.length ? `Refs ${items.length}` : 'Refs';
+  btn.hidden = items.length === 0;
 }
 
 async function fillSectionGraph(titleNum, sectionId, seq, signal) {
@@ -219,6 +385,7 @@ async function fillSectionGraph(titleNum, sectionId, seq, signal) {
   }
   if (data.ibr && data.ibr.length) {
     wrapIbrMentions(dom.view, data.ibr);
+    updateRefsLedgerButton();
   }
 }
 
@@ -294,6 +461,7 @@ export async function loadSection(sectionId, params, view) {
         ${pinButtonHtml()}
         ${newsActivityButtonHtml()}
         <button type="button" class="btn" id="btn-cited-by" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('link')} <span>Cited by</span></button>
+        <button type="button" class="btn" id="btn-refs-ledger" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('list')} <span>Refs</span></button>
         <div class="spacer"></div>
         <div class="doc-actions-util">
           <a class="btn" href="${escapeHtml(data.ecfr_url)}" target="_blank" rel="noopener" title="Open official text on eCFR">${icon('external')} eCFR</a>
@@ -312,6 +480,7 @@ export async function loadSection(sectionId, params, view) {
     `;
 
     enhanceDomAnchors(dom.view);
+    updateRefsLedgerButton();
     enterView();
     bindRail();
     if (reading === 'scroll') watchRail();

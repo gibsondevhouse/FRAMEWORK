@@ -3,7 +3,8 @@ import { dockModel } from '../components/transfer_dock';
 import { escapeHtml, icon } from '../dom';
 import { drawerShown, navState, updateRailBadge } from '../nav';
 import { drEmpty, drLabel, setPanel } from '../panels/shared';
-import { amendedWeek, fmtMB, getJSON, isStale, joinSep, suiteState, titleStatus } from '../views/library';
+import { fmtMB, joinSep, transferTrackHtml } from '../components/ui';
+import { amendedWeek, getJSON, isStale, suiteState, titleStatus } from '../views/library';
 
 // --- Library panel: transfers, installed titles, suites ---
 export const navLib = { data: null, at: 0, loading: null };
@@ -28,7 +29,7 @@ export function transferHtml() {
   const card = !j ? '' : `<div class="dr-job">
       <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? '' : m.pct + '%'}</span></div>
       <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? 'Cancelling…' : m.label)}</div>
-      <div class="dock-track"><span class="dock-fill${m.pct == null ? ' is-indeterminate' : ''}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+      ${transferTrackHtml(m.pct, { bindFill: true })}
       <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
       <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === 'Installing' ? ' disabled' : ''}>Cancel</button></div>
     </div>`;
@@ -95,7 +96,9 @@ export function renderLibraryPanel() {
       <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
         <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
       ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon('download')}</button>`
-        : st.busy.length ? '<span class="stat-dot is-busy" title="In progress" aria-hidden="true"></span>' : '<span class="stat-dot is-synced" title="Installed" aria-hidden="true"></span>'}
+        : st.busy.length ? '<span class="stat-dot is-busy" title="In progress" aria-hidden="true"></span>'
+        : st.ts.length ? '<span class="stat-dot is-synced" title="Installed" aria-hidden="true"></span>'
+        : '<span class="stat-dot is-uninstalled" title="Not installed" aria-hidden="true"></span>'}
     </div>`;
   }).join('');
   setPanel('library', `

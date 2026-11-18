@@ -4,6 +4,7 @@ import { clearTreeSelection } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
 import { enterView, escapeHtml, icon, lsGet, lsSet, skeletonHtml } from '../dom';
 import { dom } from '../state_init';
+import { emptyStateHtml } from '../components/ui';
 import { renderViewError } from './doc_utils';
 
 // --- Search Page (with partial DOM patching so filter typing keeps natural input/scroll) ---
@@ -65,7 +66,7 @@ function buildFacetData(rawResults, filters) {
 
 function renderGroupedResults(filtered, collapsed) {
   if (!filtered.length) {
-    return '<div class="empty-state"><h2>No matching results</h2><p>None of the loaded results match your current filters.</p></div>';
+    return emptyStateHtml({ title: 'No matching results', body: 'None of the loaded results match your current filters.' });
   }
   const byTitle = new Map();
   for (const r of filtered) {
@@ -99,10 +100,12 @@ function renderGroupedResults(filtered, collapsed) {
     `).join('');
 
     return `
-      <section class="search-title-group${isCollapsed ? ' is-collapsed' : ''}" data-tgroup="${t}">
+      <section class="search-title-group has-tier-bar${isCollapsed ? ' is-collapsed' : ''}" data-ref-tier="cfr" data-tgroup="${t}">
         <button type="button" class="search-title-head" aria-expanded="${!isCollapsed}">
           <span class="search-title-caret" aria-hidden="true">${icon('chevronDown')}</span>
+          <span class="tier-pip" aria-hidden="true"></span>
           <span class="search-title-name">${escapeHtml(tLabel)}</span>
+          <span class="ref-badge">FEDERAL CFR</span>
           <span class="search-title-count">${tItems.length} ${tItems.length === 1 ? 'result' : 'results'}</span>
         </button>
         <div class="search-title-body">${partsHtml}</div>
@@ -135,7 +138,10 @@ function patchSearchDynamicSlots() {
   if (!rawResults.length) {
     if (filtersBox) filtersBox.hidden = true;
     if (countSlot) countSlot.textContent = `0 results · ${data.ms} ms`;
-    bodySlot.innerHTML = `<div class="empty-state"><h2>No results</h2><p>Nothing in ${allTitles ? 'the installed titles' : 'Title ' + state.currentTitle} matches “${escapeHtml(query)}”. Try fewer or different words.</p></div>`;
+    bodySlot.innerHTML = emptyStateHtml({
+      title: 'No results',
+      body: `Nothing in ${allTitles ? 'the installed titles' : 'Title ' + state.currentTitle} matches “${escapeHtml(query)}”. Try fewer or different words.`,
+    });
     return;
   }
 
@@ -158,6 +164,17 @@ function patchSearchDynamicSlots() {
       clearSlot.innerHTML = hasActiveFilter ? '<button type="button" class="sf-clear" id="sf-clear">Clear filters</button>' : '';
     }
     if (facetsBar) {
+      const authPills = `
+        <div class="search-filter-row">
+          <span class="search-filter-label">Authority</span>
+          <div class="search-filter-pills">
+            <button type="button" class="sf-pill is-active" data-fauth="all">All <span class="sf-pill-count">${rawResults.length}</span></button>
+            <button type="button" class="sf-pill" data-ref-tier="cfr" data-fauth="federal-reg"><span class="tier-pip" aria-hidden="true"></span>Federal CFR <span class="sf-pill-count">${rawResults.length}</span></button>
+            <button type="button" class="sf-pill" data-ref-tier="usc" disabled title="U.S.C. corpus indexing slot"><span class="tier-pip is-hollow" aria-hidden="true"></span>U.S.C.</button>
+            <button type="button" class="sf-pill" data-ref-tier="state" disabled title="State corpus indexing slot"><span class="tier-pip is-hollow" aria-hidden="true"></span>State</button>
+            <button type="button" class="sf-pill" data-ref-tier="county" disabled title="County corpus indexing slot"><span class="tier-pip is-hollow" aria-hidden="true"></span>County</button>
+          </div>
+        </div>`;
       const titlePills = sortedTitleFacets.length > 1 ? `
         <div class="search-filter-row">
           <span class="search-filter-label">Titles</span>
@@ -174,7 +191,7 @@ function patchSearchDynamicSlots() {
             ${sortedPartFacets.slice(0, 14).map(([p, c]) => `<button type="button" class="sf-pill${filters.part === p ? ' is-active' : ''}" data-fpart="${escapeHtml(p)}">Part ${escapeHtml(p)} <span class="sf-pill-count">${c}</span></button>`).join('')}
           </div>
         </div>` : '';
-      facetsBar.innerHTML = titlePills + partPills;
+      facetsBar.innerHTML = authPills + titlePills + partPills;
     }
     bodySlot.innerHTML = renderGroupedResults(filtered, collapsed);
   } else {

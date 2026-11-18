@@ -8,7 +8,8 @@ import { handleRoute } from '../router';
 import { dom } from '../state_init';
 import { fmt, titleHref } from '../usage';
 import { renderHomeScreen } from '../views/home';
-import { fmtBytes, fmtSections, getJSON, pollJobs } from '../views/library';
+import { fmtBytes, fmtSections, transferTrackHtml } from './ui';
+import { getJSON, pollJobs } from '../views/library';
 
 // --- Transfer dock: downloads in progress, wherever the reader is ---
 // A floating card at the bottom right of the reading panel (`#transfer-dock`, outside the
@@ -104,7 +105,7 @@ export function dockHtml(j, m) {
       <span class="dock-phase-text">${escapeHtml(cancelling ? 'Cancelling…' : m.label)}</span>
       ${m.step >= 0 ? `<span class="dock-steps" role="img" aria-label="Step ${m.step + 1} of ${DOCK_STEPS.length}">${steps}</span>` : ''}
     </div>
-    <div class="dock-track"><span class="dock-fill${m.pct == null ? ' is-indeterminate' : ''}" data-f="fill" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+    ${transferTrackHtml(m.pct, { bindFill: true })}
     <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
     <div class="dock-foot">
       <span class="dock-queue">${queued.length ? `<span class="dock-queue-count">+${queued.length} queued</span>${escapeHtml(queued.map(q => q.label).join(', '))}` : 'Nothing queued'}</span>

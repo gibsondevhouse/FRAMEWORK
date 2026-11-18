@@ -4,15 +4,16 @@ import { dom } from '../state_init';
 import { createPopover } from './popover';
 import { dockModel } from './transfer_dock';
 import { openSplitPane } from './split_pane';
-import { fmtDate, getJSON, jobFor, pollJobs } from '../views/library';
+import { fmtDate, transferTrackHtml } from './ui';
+import { getJSON, jobFor, pollJobs } from '../views/library';
 
 // --- Seamless Click-to-Download CFR Resolver (Phase 4) ---
 const titleInfoCache = new Map(); // title -> { info, at }
 const INFO_TTL_MS = 5 * 60 * 1000;
 
-export const citePopEl = document.getElementById('cite-pop');
+export const citePopEl = dom.citePop;
 export const citePop = createPopover({
-  el: citePopEl,
+  el: dom.citePop,
   scrollContainer: dom.main,
   padding: 12,
 });
@@ -121,7 +122,7 @@ function resolverBodyHtml(target, { info = null, error = null, loading = false, 
           <span class="stat-dot is-busy" aria-hidden="true"></span>
           <span>${escapeHtml(isQueued ? `Queued · ${job.label}` : `${m.label}${pctText}`)}</span>
         </div>
-        <div class="dock-track"><span class="dock-fill${m.pct == null ? ' is-indeterminate' : ''}" style="width:${m.pct == null ? 35 : m.pct}%"></span></div>
+        ${transferTrackHtml(m.pct)}
         <p class="resolver-note">${escapeHtml(note)}</p>
       </div>
     `;
@@ -197,6 +198,7 @@ function renderPopResolver(ctx) {
   citePopEl.innerHTML = `
     <div class="pop-head-row">
       <div class="pop-kicker">${escapeHtml(targetDisplayTitle(target))}</div>
+      <span class="peek-badge">UNINSTALLED</span>
       <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close download prompt">${icon('close')}</button>
     </div>
     ${resolverBodyHtml(target, { info, loading, error, openInSplit, isPage: false })}
@@ -209,7 +211,7 @@ export async function openCfrDownloadCard(anchorEl, rawTarget, { openInSplit = f
   const ctx = { target, info: null, loading: true, error: null, openInSplit };
   activeModalCtx = ctx;
 
-  citePop.open(anchorEl, '', { interactive: true, returnFocus: anchorEl });
+  citePop.open(anchorEl, '', { interactive: true, returnFocus: anchorEl, refTier: 'uninstalled' });
   renderPopResolver(ctx);
 
   try {
@@ -279,8 +281,8 @@ async function handleResolverActionClick(btn, ctx, redraw) {
   }
 }
 
-if (citePopEl) {
-  citePopEl.addEventListener('click', (e) => {
+if (dom.citePop) {
+  dom.citePop.addEventListener('click', (e) => {
     if (e.target.closest('[data-pop-close]')) {
       activeModalCtx = null;
       citePop.close(true);
