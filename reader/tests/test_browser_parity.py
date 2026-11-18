@@ -504,6 +504,25 @@ class BehaviorTests(BrowserCase):
         self.assertEqual(page.inner_text(".proj-task-status"), "OPEN")
         page.locator(".proj-task-status").click()
         self.assertEqual(page.inner_text(".proj-task-status"), "IN PROGRESS")
+
+        # 6. Part TOC, See Full Part, and Title Start page elevations.
+        page.goto(f"{ENV.base_url}/#/title/29/part/1910")
+        page.wait_for_selector(".toc-group[data-ref-tier='cfr']", timeout=5000)
+        self.assertEqual(page.inner_text(".doc-kicker .ref-badge"), "FEDERAL REG")
+        self.assertGreaterEqual(page.locator(".toc-group-count").count(), 1)
+
+        page.goto(f"{ENV.base_url}/#/title/40/part/261/full")
+        page.wait_for_selector("#btn-part-refs-ledger:not([hidden])", timeout=10000)
+        self.assertEqual(page.inner_text(".doc-kicker .ref-badge"), "FULL PART")
+        self.assertGreaterEqual(page.locator(".full-section-head.has-tier-bar[data-ref-tier='cfr']").count(), 1)
+        page.locator("#btn-part-refs-ledger").click()
+        page.wait_for_selector("#cite-pop[data-ref-tier]:not([hidden])", timeout=5000)
+
+        page.goto(f"{ENV.base_url}/#/title/29/")
+        page.wait_for_selector(".ts-auth-stack", timeout=5000)
+        self.assertGreaterEqual(page.locator(".ts-lead.has-tier-bar[data-ref-tier='cfr']").count(), 1)
+        self.assertGreaterEqual(page.locator(".ts-rail[data-ref-tier='cfr']").count(), 1)
+        self.assertEqual(page.inner_text(".ts-folio .ref-badge"), "FEDERAL CFR")
         self.assert_no_external_requests()
 
 

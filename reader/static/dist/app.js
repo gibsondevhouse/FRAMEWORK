@@ -6725,17 +6725,17 @@ function mainBroadsheetHtml(titleNum, beat) {
 	return `
     <div class="ts-main-col">
       ${flagHtml}
-      <article class="ts-lead">
+      <article class="ts-lead has-tier-bar" data-ref-tier="cfr">
         <div class="ts-lead-top">
-          <span class="ts-lead-kicker">Lead Story · ${escapeHtml(lead.kicker)} · Part ${escapeHtml(lead.part)}</span>
+          <span class="ts-lead-kicker"><span class="ref-badge">LEAD BEAT</span> · ${escapeHtml(lead.kicker)} · Part ${escapeHtml(lead.part)}</span>
           ${leadSecCount ? `<span class="ts-lead-stat">${fmt(leadSecCount)} ${leadSecCount === 1 ? "section" : "sections"}${subCount ? ` · ${plural(subCount, "subpart")}` : ""}</span>` : ""}
         </div>
         <h2 class="ts-lead-title"><a href="${leadHref}">${escapeHtml(lead.title)}</a></h2>
         <p class="ts-lead-dek">${escapeHtml(lead.desc)}</p>
         ${leadInsideLinksHtml(titleNum, lead.part, leadNode)}
         <div class="ts-lead-foot">
-          <a class="btn btn-sm" href="${leadHref}">Open Part ${escapeHtml(lead.part)} ${icon("chevronRight")}</a>
-          <a class="hm-inline-link" href="${leadFullHref}">Read full part</a>
+          <a class="btn btn-sm btn-accent" href="${leadHref}">Open Part ${escapeHtml(lead.part)} ${icon("chevronRight")}</a>
+          <a class="hm-inline-link" href="${leadFullHref}">See full part</a>
         </div>
       </article>
       ${briefsHtml}
@@ -6805,7 +6805,7 @@ function titleDeskRailHtml(titleNum) {
               <div class="ts-rail-ws">
                 <a class="hm-ws-name" href="#/projects/${encodeURIComponent(p.id)}">${projDot(p)}<span>${escapeHtml(p.name)}</span></a>
                 <div class="ts-rail-ws-chips">
-                  ${pins.map((s) => `<a class="citation-chip" href="${titleHref(titleNum, "section/" + encodeURIComponent(s.id))}">${escapeHtml(s.label || "§ " + s.id)}</a>`).join("")}
+                  ${pins.map((s) => `<a class="citation-chip" data-ref-tier="cfr" href="${titleHref(titleNum, "section/" + encodeURIComponent(s.id))}">${escapeHtml(s.label || "§ " + s.id)}</a>`).join("")}
                 </div>
               </div>`;
 	}).join("")}
@@ -6822,7 +6822,7 @@ function titleDeskRailHtml(titleNum) {
       ${skeletonHtml("lines")}
     </div>`;
 	return `
-    <aside class="ts-rail" aria-label="Title desk and regulatory index">
+    <aside class="ts-rail" data-ref-tier="cfr" aria-label="Title desk and regulatory index">
       ${resumeHtml}
       ${wsHtml}
       ${wireSlotHtml}
@@ -7116,8 +7116,8 @@ async function renderHome() {
     <div class="ts-front">
       <header class="home-hero ts-masthead">
         <div class="ts-folio">
-          <div class="doc-kicker">
-            <a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><span>${titleNum} CFR${snapRow?.desk ? ` · ${escapeHtml(snapRow.desk)}` : ""}</span>
+          <div class="doc-kicker" data-ref-tier="cfr">
+            <span class="ref-badge">FEDERAL CFR</span><span class="sep" aria-hidden="true">·</span><a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><span>${titleNum} CFR${snapRow?.desk ? ` · ${escapeHtml(snapRow.desk)}` : ""}</span>
           </div>
           <div class="ts-folio-right">
             ${folioMeta ? `<span class="ts-folio-meta">${folioMeta}</span>` : ""}
@@ -8844,44 +8844,47 @@ function classifyDomRef(el) {
 	if (el.classList.contains("xref-web")) return "web";
 	return "cfr";
 }
-function collectSectionReferences() {
-	const body = dom.view.querySelector(".reg-body");
-	if (!body) return [];
+function collectSectionReferences(root = dom.view) {
+	const bodies = [...root?.querySelectorAll?.(".reg-body, .front-matter") || []];
+	const scopes = bodies.length ? bodies : root ? [root] : [];
+	if (!scopes.length) return [];
 	const seen = /* @__PURE__ */ new Map();
-	const nodes = body.querySelectorAll("a.xref, button.xref-anchor, button.xref-ibr, .ftref[data-anchor]");
-	for (const el of nodes) {
-		const tier = classifyDomRef(el);
-		const label = cleanInlineLabel(el.textContent);
-		if (!label) continue;
-		const href = el.getAttribute("href") || "";
-		const anchor = el.dataset.anchor || "";
-		const ibrCode = el.dataset.ibrCode || "";
-		const localPara = el.dataset.localPara || "";
-		const dedupKey = `${tier}|${href || anchor || ibrCode || localPara || label.toLowerCase()}`;
-		if (seen.has(dedupKey)) continue;
-		let sub = "";
-		if (tier === "usc") sub = el.getAttribute("title")?.replace(/^View\s+|\s+at Cornell LII$/g, "") || "United States Code";
-		else if (tier === "fr") sub = "Federal Register";
-		else if (tier === "ibr") sub = el.getAttribute("title") || "Incorporated consensus standard";
-		else if (tier === "uninstalled") sub = `Title ${el.dataset.cfrTitle || ""} CFR (click to download)`;
-		else if (tier === "local") sub = el.classList.contains("ftref") ? "Footnote in section" : localPara ? "Clause in section" : "Table / Figure / Appendix";
-		else if (tier === "web") sub = href.replace(/^https?:\/\//i, "").split("/")[0];
-		else {
-			const parsed = parseCfrHref(href, state.currentTitle);
-			sub = parsed?.kind === "section" ? `${parsed.title} CFR § ${parsed.section}${parsed.para || ""}` : parsed?.kind === "part" ? `${parsed.title} CFR Part ${parsed.part}` : "CFR Reference";
+	for (const scope of scopes) {
+		const nodes = scope.querySelectorAll("a.xref, button.xref-anchor, button.xref-ibr, .ftref[data-anchor]");
+		for (const el of nodes) {
+			const tier = classifyDomRef(el);
+			const label = cleanInlineLabel(el.textContent);
+			if (!label) continue;
+			const href = el.getAttribute("href") || "";
+			const anchor = el.dataset.anchor || "";
+			const ibrCode = el.dataset.ibrCode || "";
+			const localPara = el.dataset.localPara || "";
+			const dedupKey = `${tier}|${href || anchor || ibrCode || localPara || label.toLowerCase()}`;
+			if (seen.has(dedupKey)) continue;
+			let sub = "";
+			if (tier === "usc") sub = el.getAttribute("title")?.replace(/^View\s+|\s+at Cornell LII$/g, "") || "United States Code";
+			else if (tier === "fr") sub = "Federal Register";
+			else if (tier === "ibr") sub = el.getAttribute("title") || "Incorporated consensus standard";
+			else if (tier === "uninstalled") sub = `Title ${el.dataset.cfrTitle || ""} CFR (click to download)`;
+			else if (tier === "local") sub = el.classList.contains("ftref") ? "Footnote in section" : localPara ? "Clause in section" : "Table / Figure / Appendix";
+			else if (tier === "web") sub = href.replace(/^https?:\/\//i, "").split("/")[0];
+			else {
+				const parsed = parseCfrHref(href, state.currentTitle);
+				sub = parsed?.kind === "section" ? `${parsed.title} CFR § ${parsed.section}${parsed.para || ""}` : parsed?.kind === "part" ? `${parsed.title} CFR Part ${parsed.part}` : "CFR Reference";
+			}
+			const parsed = href.startsWith("#") ? parseCfrHref(href, state.currentTitle) : null;
+			const canSplit = Boolean(parsed?.kind === "section");
+			seen.set(dedupKey, {
+				idx: seen.size,
+				tier,
+				code: label,
+				sub,
+				href,
+				external: el.getAttribute("target") === "_blank",
+				splitHref: canSplit ? href : "",
+				el
+			});
 		}
-		const parsed = href.startsWith("#") ? parseCfrHref(href, state.currentTitle) : null;
-		const canSplit = Boolean(parsed?.kind === "section");
-		seen.set(dedupKey, {
-			idx: seen.size,
-			tier,
-			code: label,
-			sub,
-			href,
-			external: el.getAttribute("target") === "_blank",
-			splitHref: canSplit ? href : "",
-			el
-		});
 	}
 	return [...seen.values()];
 }
@@ -8909,7 +8912,7 @@ function renderRefsLedgerHtml(items, filter = "") {
 	}).join("")}</div>`;
 }
 function openRefsLedgerPopover(btn) {
-	activeLedgerItems = collectSectionReferences();
+	activeLedgerItems = collectSectionReferences(dom.view);
 	const total = activeLedgerItems.length;
 	const topTier = activeLedgerItems[0]?.tier || "cfr";
 	const filterHtml = total >= 8 ? `<input type="search" class="pop-filter" id="refs-ledger-filter" placeholder="Filter ${total} outgoing references…" aria-label="Filter section references" autocomplete="off">` : "";
@@ -13824,46 +13827,61 @@ async function loadPart(partId) {
 			return;
 		}
 		let groupsHtml = "";
+		let sectionCount = 0;
+		let subpartCount = 0;
+		const secRowHtml = (s) => {
+			sectionCount++;
+			const tTitle = tocTitle(s);
+			const hay = `${s.l || ""} ${s.id || ""} ${tTitle}`.toLowerCase();
+			return `
+        <li class="${s.r ? "reserved" : ""}" data-hay="${escapeHtml(hay)}">
+          <a href="#/section/${encodeURIComponent(s.id)}">
+            <span class="toc-num">${escapeHtml(s.l)}</span>
+            <span class="toc-title">${escapeHtml(tTitle)}</span>
+          </a>
+        </li>`;
+		};
 		if (partNode.c) {
 			for (const child of partNode.c) if (child.t === "subpart" || child.t === "subject_group") {
+				subpartCount++;
 				const subpartFront = front.subparts[child.id] || "";
-				const sections = (child.c || []).map((s) => `
-            <li class="${s.r ? "reserved" : ""}">
-              <a href="#/section/${encodeURIComponent(s.id)}">
-                <span class="toc-num">${escapeHtml(s.l)}</span>
-                <span class="toc-title">${escapeHtml(tocTitle(s))}</span>
-              </a>
-            </li>
-          `).join("");
+				const children = child.c || [];
+				const sections = children.map(secRowHtml).join("");
+				const headingText = child.d && child.d.trim() !== (child.l || "").trim() ? `${child.l}: ${child.d}` : child.l;
 				groupsHtml += `
-            <div class="toc-group">
-              <h3>${escapeHtml(child.d && child.d.trim() !== (child.l || "").trim() ? `${child.l}: ${child.d}` : child.l)}</h3>
+            <div class="toc-group" data-ref-tier="cfr">
+              <h3><span>${escapeHtml(headingText)}</span><span class="toc-group-count">${children.length}</span></h3>
               ${subpartFront ? `<div class="front-matter"><details><summary>Subpart notes</summary>${subpartFront}</details></div>` : ""}
               <ul class="toc-list">${sections}</ul>
             </div>
           `;
-			} else if (child.t === "section" || child.t === "appendix") groupsHtml += `
-            <ul class="toc-list">
-              <li class="${child.r ? "reserved" : ""}">
-                <a href="#/section/${encodeURIComponent(child.id)}">
-                  <span class="toc-num">${escapeHtml(child.l)}</span>
-                  <span class="toc-title">${escapeHtml(tocTitle(child))}</span>
-                </a>
-              </li>
-            </ul>
-          `;
+			} else if (child.t === "section" || child.t === "appendix") groupsHtml += `<div class="toc-group is-flat" data-ref-tier="cfr"><ul class="toc-list">${secRowHtml(child)}</ul></div>`;
 		}
 		document.title = `Part ${partId} · Title ${state.currentTitle}`;
 		setViewHead(docStepHtml(partId, null, firstSectionOf(partId)));
+		const sep = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
+		const filterHtml = sectionCount >= 6 ? `<div class="part-toc-tools">
+          <input type="search" id="part-toc-filter" class="ui-input part-toc-filter" placeholder="Filter ${plural(sectionCount, "section")} in Part ${escapeHtml(partId)}…" aria-label="Filter sections in part" autocomplete="off" spellcheck="false">
+        </div>` : "";
 		dom.view.innerHTML = `
-      <div class="doc-kicker">${state.currentTitle} CFR ${escapeHtml(partNode.l)}</div>
+      <div class="doc-kicker" data-ref-tier="cfr">
+        <span class="ref-badge">FEDERAL REG</span>${sep}<span>${state.currentTitle} CFR ${escapeHtml(partNode.l)}</span>
+        ${sectionCount ? `${sep}<span>${plural(sectionCount, "section")}</span>` : ""}
+        ${subpartCount ? `${sep}<span>${plural(subpartCount, "subpart")}</span>` : ""}
+      </div>
       <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
       <div class="doc-actions">
-        <a class="btn" href="#/part/${encodeURIComponent(partId)}/full">${icon("list")} See full part</a>
+        <a class="btn btn-accent" href="#/part/${encodeURIComponent(partId)}/full">${icon("list")} See full part</a>
         ${newsActivityButtonHtml()}
+        <div class="spacer"></div>
+        <div class="doc-actions-util">
+          <button type="button" class="btn" id="btn-part-copy" title="Copy part link">${icon("link")} Copy link</button>
+        </div>
       </div>
       ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ""}
+      ${filterHtml}
       ${groupsHtml || "<p class=\"muted\">No sections listed in this part.</p>"}
+      <p class="part-toc-empty muted" id="part-toc-empty" hidden>No matching sections in Part ${escapeHtml(partId)}.</p>
     `;
 		enterView();
 		selectTreeNode("p-" + partId);
@@ -13910,16 +13928,18 @@ async function loadPartFull(partId, params) {
 		if (seq !== state.routeSeq) return;
 		const from = params && params.get("from");
 		const anchorId = (id) => "sec-" + String(id).replace(/[^a-zA-Z0-9.\-]/g, "_");
-		const sectionsHtml = (data.sections || []).map((s) => {
+		const sections = data.sections || [];
+		const sectionsHtml = sections.map((s) => {
 			const num = escapeHtml(s.label);
 			const title = escapeHtml(s.title || "");
 			const body = s.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : s.html || "";
 			return `<article class="full-section${s.id === from ? " is-from" : ""}" id="${anchorId(s.id)}">
-        <header class="full-section-head">
+        <header class="full-section-head has-tier-bar" data-ref-tier="cfr">
           <a class="full-section-anchor" href="${sectionHref(s.id)}" title="Open this section on its own">
             <span class="full-section-num">${num}</span>
             <span class="full-section-title">${title}</span>
           </a>
+          <button type="button" class="lib-act full-section-split" data-full-split="${escapeHtml(s.id)}" title="Open ${num} side-by-side">Split</button>
         </header>
         ${body}
       </article>`;
@@ -13928,13 +13948,37 @@ async function loadPartFull(partId, params) {
 		const [prevPart, nextPart] = partNeighbors(partId);
 		const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(node.id)}/full`, `Part ${node.id}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
 		setViewHead(prevPart || nextPart ? `<nav class="doc-step" aria-label="Previous and next part">${partBtn(prevPart, -1)}<span class="spacer"></span>${partBtn(nextPart, 1)}</nav>` : "");
+		const sep = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
 		dom.view.innerHTML = `
-      <div class="doc-kicker">${state.currentTitle} CFR ${escapeHtml(partNode.l)} · <a href="#/part/${encodeURIComponent(partId)}">Table of contents</a></div>
+      <div class="doc-kicker" data-ref-tier="cfr">
+        <span class="ref-badge">FULL PART</span>${sep}<span>${state.currentTitle} CFR ${escapeHtml(partNode.l)}</span>${sep}<span>${plural(sections.length, "section")}</span>${sep}<a href="#/part/${encodeURIComponent(partId)}">Table of contents</a>
+      </div>
       <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
+      <div class="doc-actions">
+        <a class="btn" href="#/part/${encodeURIComponent(partId)}">${icon("list")} Table of contents</a>
+        ${newsActivityButtonHtml()}
+        <button type="button" class="btn" id="btn-part-refs-ledger" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("list")} <span>Refs</span></button>
+        <div class="spacer"></div>
+        <div class="doc-actions-util">
+          <button type="button" class="btn" id="btn-part-copy" title="Copy direct link">${icon("link")} Copy link</button>
+          <div class="size-ctl" role="group" aria-label="Text size">
+            <button type="button" id="part-font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+            <button type="button" id="part-font-inc" title="Larger text" aria-label="Larger text">A+</button>
+          </div>
+        </div>
+      </div>
       ${sectionsHtml || "<p class=\"muted\">No sections in this part.</p>"}
     `;
 		enhanceDomAnchors(dom.view);
+		const refs = collectSectionReferences(dom.view);
+		const ledgerBtn = document.getElementById("btn-part-refs-ledger");
+		if (ledgerBtn && refs.length) {
+			const span = ledgerBtn.querySelector("span");
+			if (span) span.textContent = `Refs ${refs.length}`;
+			ledgerBtn.hidden = false;
+		}
 		recordPartVisit(partId, partNode.d);
+		fillNewsActivity("part", partId, seq);
 		if (from) {
 			const el = document.getElementById(anchorId(from));
 			if (el) {
@@ -13954,7 +13998,7 @@ async function loadPartFull(partId, params) {
 				requestAnimationFrame(anchor);
 			}
 		} else dom.main.scrollTop = 0;
-		selectTreeNode("s-" + (from || data.sections[0] && data.sections[0].id));
+		selectTreeNode("s-" + (from || sections[0] && sections[0].id));
 	} catch (err) {
 		if (err && err.name === "AbortError") return;
 		console.error(err);
@@ -13962,6 +14006,56 @@ async function loadPartFull(partId, params) {
 		renderViewError(dom.view, "Failed to load part", err?.message || "Unexpected error", { onRetry: () => loadPartFull(partId, params) });
 	}
 }
+dom.view.addEventListener("input", (e) => {
+	if (e.target.id !== "part-toc-filter") return;
+	const q = e.target.value.trim().toLowerCase();
+	let visible = 0;
+	for (const grp of dom.view.querySelectorAll(".toc-group")) {
+		let grpShown = 0;
+		for (const li of grp.querySelectorAll("li[data-hay]")) {
+			const show = !q || li.dataset.hay.includes(q);
+			li.hidden = !show;
+			if (show) {
+				grpShown++;
+				visible++;
+			}
+		}
+		grp.hidden = grpShown === 0;
+		const cnt = grp.querySelector(".toc-group-count");
+		if (cnt) cnt.textContent = String(grpShown);
+	}
+	const emptyEl = document.getElementById("part-toc-empty");
+	if (emptyEl) emptyEl.hidden = visible > 0 || !q;
+});
+dom.view.addEventListener("click", async (e) => {
+	if (e.target.closest("#btn-part-refs-ledger")) {
+		openRefsLedgerPopover(e.target.closest("#btn-part-refs-ledger"));
+		return;
+	}
+	if (e.target.closest("#btn-part-copy")) {
+		try {
+			await navigator.clipboard.writeText(window.location.href);
+			showToast("Link copied");
+		} catch (err) {
+			showToast("Couldn’t copy the link");
+		}
+		return;
+	}
+	if (e.target.closest("#part-font-dec")) {
+		adjustFontSize(-1);
+		return;
+	}
+	if (e.target.closest("#part-font-inc")) {
+		adjustFontSize(1);
+		return;
+	}
+	const splitBtn = e.target.closest("[data-full-split]");
+	if (splitBtn) openSplitPane({
+		title: state.currentTitle,
+		sectionId: splitBtn.dataset.fullSplit,
+		pushHistory: true
+	});
+});
 function tocTitle(node) {
 	const l = cleanInlineLabel(node.l || "");
 	const d = cleanInlineLabel(node.d || "");
