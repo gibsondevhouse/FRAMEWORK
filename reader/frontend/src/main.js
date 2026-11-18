@@ -34,6 +34,7 @@ import './panels/drawer_width';
 import './components/chat';
 import './components/selection_tool';
 import './components/popover';
+import './components/reader_tabs';
 import './components/split_pane';
 import './components/cfr_resolver';
 import './components/peek';
@@ -44,6 +45,8 @@ import { syncCorporaState } from './components/corpora';
 import { fillTitleSelect, setReaderEnabled } from './components/title_switcher';
 import { isMac } from './dom';
 import { updateRailHome } from './nav';
+import { restoreSessionTabsSnapshot } from './components/reader_tabs';
+import { restoreSplitTabs } from './components/split_pane';
 import { handleRoute } from './router';
 import { dom } from './state_init';
 import { getJSON, pollJobsIfActive, setJobs } from './views/library';
@@ -91,7 +94,12 @@ export async function init() {
     console.warn('Initialization warnings:', e);
   }
 
-  handleRoute();
+  const sessionSnap = restoreSessionTabsSnapshot();
+  await handleRoute();
+  if (sessionSnap?.splitTabs?.length && (state.currentSection || state.currentPart)) {
+    const idx = Math.max(0, sessionSnap.splitTabs.findIndex(t => t.id === sessionSnap.activeSplitTabId));
+    restoreSplitTabs(sessionSnap.splitTabs, idx, sessionSnap.splitWide);
+  }
   // A download may already be running (started in another tab or before a reload).
   getJSON('/api/library/jobs').then(snap => { setJobs(snap); pollJobsIfActive(); }).catch(() => {});
 }

@@ -3,6 +3,7 @@ import { cleanInlineLabel, escapeHtml, icon } from '../dom';
 import { dom } from '../state_init';
 import { scrollToAnchor } from './rail';
 import { citePop, citePopEl, checkLocalCfrTarget, normalizeCfrTarget, openCfrDownloadCard, targetHashFor } from './cfr_resolver';
+import { openMainReaderTab } from './reader_tabs';
 import { closeSplitPane, openSplitPane } from './split_pane';
 import { findParagraphElement, highlightTarget, parseCfrHref } from '../views/doc_utils';
 
@@ -240,7 +241,22 @@ function renderFrPeek(trigger) {
   `;
 }
 
-async function openSectionHrefPeek(trigger, root, parsed, rootTitle) {
+function peekActionsHtml({ href, isSplitRoot = false, interactive = false } = {}) {
+  if (isSplitRoot) {
+    return `
+      <button type="button" class="btn btn-small${interactive ? ' btn-accent' : ''}" data-peek-split="1">Open side-by-side tab</button>
+      <button type="button" class="btn btn-small" data-peek-tab="1">Open in main tab</button>
+      <button type="button" class="btn btn-small" data-peek-replace-split="1">Open in this pane</button>
+    `;
+  }
+  return `
+    <button type="button" class="btn btn-small${interactive ? ' btn-accent' : ''}" data-peek-split="1">Open side-by-side</button>
+    <button type="button" class="btn btn-small" data-peek-tab="1">Open in reader tab</button>
+    <a class="btn btn-small" href="${escapeHtml(href)}">${interactive ? 'Open here' : 'Open'}</a>
+  `;
+}
+
+async function openSectionHrefPeek(trigger, root, parsed, rootTitle, { interactive = false } = {}) {
   const pClause = parsed.para && /^\(([a-z])\)/i.exec(parsed.para.trim());
   const unitKey = parsed.unit === 'full' ? null : (parsed.unit || (pClause ? pClause[1].toLowerCase() : ''));
   const cacheKey = `${parsed.title}|${parsed.section}|${unitKey || 'full'}`;
@@ -251,7 +267,30 @@ async function openSectionHrefPeek(trigger, root, parsed, rootTitle) {
   hoverAbort = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const sig = hoverAbort?.signal;
 
+  const isCross = Number(parsed.title) !== Number(rootTitle) || trigger.classList.contains('xref-cross');
+  const tier = isCross ? 'cross' : 'cfr';
+  const isSplitRoot = root === dom.splitPane;
+  const href = trigger.getAttribute('href') || targetHashFor({ title: parsed.title, section: parsed.section, para: parsed.para });
+  lastHoverContext = {
+    root,
+    split: { kind: 'section', title: parsed.title, sectionId: parsed.section, para: parsed.para, unit: parsed.unit },
+  };
+
   let data = state.peekCache.get(cacheKey);
+  const waitedForFetch = !data;
+  if (!data && interactive) {
+    citePop.open(trigger, `
+      <div class="pop-head-row">
+        <div class="pop-kicker">${parsed.title} CFR § ${escapeHtml(parsed.section)}${parsed.para ? ' ' + escapeHtml(parsed.para) : ''}</div>
+        <span class="peek-badge">${isCross ? `CROSS-TITLE · ${parsed.title} CFR` : `${parsed.title} CFR`}</span>
+        <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close reference actions">${icon('close')}</button>
+      </div>
+      <div class="peek-foot" style="margin-top:4px;border-top:0;padding-top:2px">
+        ${peekActionsHtml({ href, isSplitRoot, interactive })}
+      </div>
+    `, { interactive: true, returnFocus: trigger, focusSelector: '[data-peek-split]', refTier: tier });
+  }
+
   if (!data) {
     const qs = unitKey === null ? '' : '?unit=' + encodeURIComponent(unitKey);
     try {
@@ -263,7 +302,8 @@ async function openSectionHrefPeek(trigger, root, parsed, rootTitle) {
       return;
     }
   }
-  if (hoverTarget !== trigger || (citePop.isOpen() && citePop.isInteractive())) return;
+  if (!interactive && (hoverTarget !== trigger || (citePop.isOpen() && citePop.isInteractive()))) return;
+  if (interactive && waitedForFetch && citePop.getAnchor() !== trigger) return;
 
   const doc = new DOMParser().parseFromString(data.html || '', 'text/html');
   let snippet = '';
@@ -279,26 +319,45 @@ async function openSectionHrefPeek(trigger, root, parsed, rootTitle) {
 
   const label = cleanInlineLabel(data.label);
   const titleText = cleanInlineLabel(data.section_title || data.title_label || '');
-  const href = trigger.getAttribute('href') || targetHashFor({ title: parsed.title, section: parsed.section, para: parsed.para });
   lastHoverContext = {
     root,
-    split: { title: parsed.title, sectionId: parsed.section, para: parsed.para, unit: parsed.unit },
+    split: { kind: 'section', title: parsed.title, sectionId: parsed.section, para: parsed.para, unit: parsed.unit, label: `${parsed.title} CFR ${label}`, heading: titleText },
   };
 
-  const isCross = Number(parsed.title) !== Number(rootTitle) || trigger.classList.contains('xref-cross');
-  const tier = isCross ? 'cross' : 'cfr';
   citePop.open(trigger, `
     <div class="pop-head-row">
       <div class="pop-kicker">${parsed.title} CFR ${escapeHtml(label)}${parsed.para ? ' ' + escapeHtml(parsed.para) : ''}</div>
       <span class="peek-badge">${isCross ? `CROSS-TITLE · ${parsed.title} CFR` : `${parsed.title} CFR`}</span>
+      ${interactive ? `<button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close reference actions">${icon('close')}</button>` : ''}
     </div>
     ${titleText ? `<div class="peek-title">${escapeHtml(titleText)}</div>` : ''}
     ${snippet ? `<p class="peek-text">${escapeHtml(snippet)}</p>` : ''}
     <div class="peek-foot">
-      <a class="btn btn-small" href="${escapeHtml(href)}">Open</a>
-      <button type="button" class="btn btn-small" data-peek-split="1">Open side-by-side</button>
+      ${peekActionsHtml({ href, isSplitRoot, interactive })}
     </div>
-  `, { interactive: false, refTier: tier });
+  `, interactive ? { interactive: true, returnFocus: trigger, focusSelector: '[data-peek-split]', refTier: tier } : { interactive: false, refTier: tier });
+}
+
+function openPartHrefPeek(trigger, root, parsed, rootTitle, { interactive = false } = {}) {
+  const isCross = Number(parsed.title) !== Number(rootTitle) || trigger.classList.contains('xref-cross');
+  const tier = isCross ? 'cross' : 'cfr';
+  const isSplitRoot = root === dom.splitPane;
+  const href = trigger.getAttribute('href') || targetHashFor({ title: parsed.title, part: parsed.part });
+  lastHoverContext = {
+    root,
+    split: { kind: 'part', title: parsed.title, partId: parsed.part },
+  };
+  citePop.open(trigger, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${parsed.title} CFR Part ${escapeHtml(parsed.part)}</div>
+      <span class="peek-badge">${isCross ? `CROSS-TITLE · PART` : `PART ${escapeHtml(parsed.part)}`}</span>
+      ${interactive ? `<button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close reference actions">${icon('close')}</button>` : ''}
+    </div>
+    <p class="peek-text">Open Part ${escapeHtml(parsed.part)} of Title ${parsed.title} CFR side-by-side or in a reader tab.</p>
+    <div class="peek-foot">
+      ${peekActionsHtml({ href, isSplitRoot, interactive })}
+    </div>
+  `, interactive ? { interactive: true, returnFocus: trigger, focusSelector: '[data-peek-split]', refTier: tier } : { interactive: false, refTier: tier });
 }
 
 function renderIbrPeek(trigger, root) {
@@ -315,7 +374,7 @@ function renderIbrPeek(trigger, root) {
     ? `#/title/${t}/section/${encodeURIComponent(app.section_id)}${app.para ? '?p=' + encodeURIComponent(app.para) : ''}`
     : '';
   lastHoverContext = app
-    ? { root, split: { title: t, sectionId: app.section_id, para: app.para || null } }
+    ? { root, split: { kind: 'section', title: t, sectionId: app.section_id, para: app.para || null } }
     : null;
 
   return `
@@ -328,8 +387,9 @@ function renderIbrPeek(trigger, root) {
       ? `<p class="peek-text"><strong>${item.exact ? 'IBR approved' : 'Closest approved edition'} in ${escapeHtml(app.label)}${escapeHtml(app.para || '')}:</strong> ${escapeHtml(app.excerpt)}</p>`
       : `<p class="peek-text">Consensus technical standard published by ${escapeHtml(item.org_name || item.org)}.</p>`}
     <div class="peek-foot">
+      ${app ? `<button type="button" class="btn btn-small" data-peek-split="1">Open side-by-side</button>` : ''}
+      ${app ? `<button type="button" class="btn btn-small" data-peek-tab="1">Open in reader tab</button>` : ''}
       ${app ? `<a class="btn btn-small" href="${escapeHtml(appHref)}">Open ${escapeHtml(app.label)}</a>` : ''}
-      ${app ? '<button type="button" class="btn btn-small" data-peek-split="1">Open side-by-side</button>' : ''}
       ${item.org_url ? `<a class="btn btn-small" href="${escapeHtml(item.org_url)}" target="_blank" rel="noopener noreferrer">${icon('external')} ${escapeHtml(item.org)}</a>` : ''}
     </div>
   `;
@@ -398,6 +458,8 @@ function handleHoverOver(e, root) {
       const parsed = parseCfrHref(trigger.getAttribute('href'), rootTitle);
       if (parsed && parsed.kind === 'section') {
         openSectionHrefPeek(trigger, root, parsed, rootTitle);
+      } else if (parsed && parsed.kind === 'part' && trigger.classList.contains('xref')) {
+        openPartHrefPeek(trigger, root, parsed, rootTitle);
       }
     }
   }, 250);
@@ -451,7 +513,21 @@ if (dom.citePop) {
     if (splitBtn && lastHoverContext?.split) {
       const sp = lastHoverContext.split;
       citePop.close(false);
-      openSplitPane({ ...sp, pushHistory: true });
+      openSplitPane({ ...sp, newTab: true, pushHistory: true });
+      return;
+    }
+    const replaceSplitBtn = e.target.closest('[data-peek-replace-split]');
+    if (replaceSplitBtn && lastHoverContext?.split) {
+      const sp = lastHoverContext.split;
+      citePop.close(false);
+      openSplitPane({ ...sp, newTab: false, pushHistory: true });
+      return;
+    }
+    const tabBtn = e.target.closest('[data-peek-tab]');
+    if (tabBtn && lastHoverContext?.split) {
+      const sp = lastHoverContext.split;
+      citePop.close(false);
+      openMainReaderTab({ ...sp });
       return;
     }
     if (e.target.closest('a[href^="#"]')) {
@@ -462,7 +538,8 @@ if (dom.citePop) {
 
 // Click interception on main view, split pane, and sidebar tree:
 // - Normal click on uninstalled CFR links (`a.xref-external[data-cfr-title]`) opens Download Micro-Card
-// - Alt/Option+Click on any section link or local paragraph opens Side-by-Side Split View
+// - Normal click on referenced CFR links inside reading text opens interactive Side-by-Side / Tab launcher
+// - Alt/Option+Click on any section/part link or local paragraph opens Side-by-Side Split View immediately
 async function handleCfrLinkClick(e, root) {
   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
   const link = e.target.closest('a');
@@ -483,16 +560,43 @@ async function handleCfrLinkClick(e, root) {
     });
     const status = await checkLocalCfrTarget(target);
     if (status.installed) {
-      if ((e.altKey || isSplitChild) && target.section) {
-        openSplitPane({ title: target.title, sectionId: target.section, para: target.para, pushHistory: true });
+      if ((e.altKey || isSplitChild) && (target.section || target.part)) {
+        openSplitPane(target.section
+          ? { kind: 'section', title: target.title, sectionId: target.section, para: target.para, pushHistory: true }
+          : { kind: 'part', title: target.title, partId: target.part, pushHistory: true });
       } else {
-        if (isSplitChild && !e.altKey) closeSplitPane();
-        window.location.hash = targetHashFor(target);
+        const parsedInstalled = target.section
+          ? { kind: 'section', title: target.title, section: target.section, para: target.para, unit: null }
+          : { kind: 'part', title: target.title, part: target.part };
+        if (parsedInstalled.section) await openSectionHrefPeek(link, root, parsedInstalled, rootTitle, { interactive: true });
+        else if (parsedInstalled.part) openPartHrefPeek(link, root, parsedInstalled, rootTitle, { interactive: true });
+        else window.location.hash = targetHashFor(target);
       }
       return;
     }
     openCfrDownloadCard(link, target, { openInSplit: e.altKey || isSplitChild });
     return;
+  }
+
+  // Plain-click on a referenced CFR section/part inside a reading body (in Main or Side-by-Side)
+  // opens the interactive chooser to launch a Side-by-Side tab or in-app Reader tab.
+  const isDocRef = (root === dom.view || root === dom.splitPane)
+    && !link.classList.contains('xref-local')
+    && link.matches('.reg-body a.xref[href^="#"], .full-section a.xref[href^="#"], .front-matter a.xref[href^="#"]');
+  if (isDocRef && !e.altKey) {
+    const parsed = parseCfrHref(link.getAttribute('href'), rootTitle);
+    if (parsed && parsed.kind === 'section') {
+      e.preventDefault();
+      cancelHoverTimers();
+      openSectionHrefPeek(link, root, parsed, rootTitle, { interactive: true });
+      return;
+    }
+    if (parsed && parsed.kind === 'part') {
+      e.preventDefault();
+      cancelHoverTimers();
+      openPartHrefPeek(link, root, parsed, rootTitle, { interactive: true });
+      return;
+    }
   }
 
   if (!e.altKey) return;
@@ -512,10 +616,20 @@ async function handleCfrLinkClick(e, root) {
     e.preventDefault();
     cancelHoverTimers();
     openSplitPane({
+      kind: 'section',
       title: parsed.title,
       sectionId: parsed.section,
       para: parsed.para,
       unit: parsed.unit,
+      pushHistory: true,
+    });
+  } else if (parsed && parsed.kind === 'part') {
+    e.preventDefault();
+    cancelHoverTimers();
+    openSplitPane({
+      kind: 'part',
+      title: parsed.title,
+      partId: parsed.part,
       pushHistory: true,
     });
   }

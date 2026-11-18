@@ -11,6 +11,7 @@ import { timeAgo } from '../usage';
 import { refreshHomeIfActive } from '../views/home';
 import { SEP, emptyStateHtml, fmtDate, joinSep, shortDate } from '../components/ui';
 import { refTierForCorpus, TIER_META, TIER_ORDER } from '../components/corpora';
+import { buildTabGroupSnapshot, formatTabLabel, restoreTabGroup } from '../components/reader_tabs';
 
 // --- Projects: workspaces of pinned sections (per browser, `localStorage` `framework_projects_v1`) ---
 // A workspace: {id, name, description, tags[], created_at, updated_at, sections[]}, each
@@ -28,6 +29,7 @@ const normalizeWorkspace = (p) => ({
   tags: Array.isArray(p.tags) ? p.tags : [],
   sections: p.sections.map(s => ({ tier: 'federal-reg', jurisdiction: 'US', ...s })),
   projects: Array.isArray(p.projects) ? p.projects : [],
+  tab_groups: Array.isArray(p.tab_groups) ? p.tab_groups : [],
 });
 
 export function loadProjects() {
@@ -56,10 +58,23 @@ export function createProject(name, extra = {}) {
   const p = {
     id: `proj_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     name: (name || '').trim() || 'Untitled workspace', description: '', tags: [],
-    created_at: nowIso(), updated_at: nowIso(), sections: [], projects: [], ...extra,
+    created_at: nowIso(), updated_at: nowIso(), sections: [], projects: [], tab_groups: [], ...extra,
   };
   list.unshift(p);
   saveProjects(list);
+  return p;
+}
+
+export function addTabGroupToWorkspace(workspaceId, groupSnapshot) {
+  if (!groupSnapshot) return null;
+  const p = updateProject(workspaceId, (proj) => {
+    if (!Array.isArray(proj.tab_groups)) proj.tab_groups = [];
+    proj.tab_groups.unshift(groupSnapshot);
+  });
+  if (p) {
+    const count = (groupSnapshot.mainTabs?.length || 0) + (groupSnapshot.splitTabs?.length || 0);
+    showToast(`Saved “${groupSnapshot.name}” (${count} ${count === 1 ? 'tab' : 'tabs'}) to ${p.name}`);
+  }
   return p;
 }
 
@@ -190,7 +205,7 @@ export function onProjectAction(btn) {
   else if (act === 'export-one') {
     const p = loadProjects().find(x => x.id === btn.dataset.id);
     if (p) exportProjects([p], `${p.name.replace(/[^\w-]+/g, '-').toLowerCase() || 'workspace'}.json`);
-  } else if (act === 'delete' || act === 'unpin') {
+  } else if (act === 'delete' || act === 'unpin' || act === 'tabgroup-delete') {
     if (!btn.classList.contains('is-armed')) {
       const label = btn.textContent;
       btn.classList.add('is-armed');
@@ -207,7 +222,22 @@ export function onProjectAction(btn) {
     } else if (act === 'unpin') {
       const [title, ...rest] = btn.dataset.sec.split('|');
       updateProject(projectRouteId(), (p) => { p.sections = p.sections.filter(s => !(s.title === Number(title) && s.id === rest.join('|'))); });
+    } else if (act === 'tabgroup-delete') {
+      const gid = btn.dataset.groupId;
+      updateProject(projectRouteId(), (p) => {
+        p.tab_groups = (p.tab_groups || []).filter(g => g.id !== gid);
+      });
     }
+  } else if (act === 'tabgroup-restore') {
+    const p = loadProjects().find(x => x.id === projectRouteId());
+    const grp = p?.tab_groups?.find(g => g.id === btn.dataset.groupId);
+    if (grp) restoreTabGroup(grp);
+  } else if (act === 'tabgroup-save-active') {
+    if (!state.mainTabs.length && !state.splitTabs.length) {
+      showToast('No open reader tabs to save');
+      return;
+    }
+    addTabGroupToWorkspace(projectRouteId(), buildTabGroupSnapshot());
   } else if (act === 'task-cycle') {
     const taskId = btn.dataset.taskId;
     const order = ['open', 'in_progress', 'done'];
@@ -264,6 +294,41 @@ function renderWorkspaceTasksHtml(p) {
     </div>`;
 }
 
+function renderWorkspaceTabGroupsHtml(p) {
+  const groups = p.tab_groups || [];
+  const activeCount = state.mainTabs.length + state.splitTabs.length;
+  const rows = groups.map(g => {
+    const mainPills = (g.mainTabs || []).map(t => `<span class="proj-tabgroup-pill" data-ref-tier="${t.tier || 'cfr'}"><span class="tier-pip" aria-hidden="true"></span>${escapeHtml(formatTabLabel(t))}</span>`).join('');
+    const splitPills = (g.splitTabs || []).map(s => `<span class="proj-tabgroup-pill is-split" data-ref-tier="${s.title !== (g.mainTabs?.[0]?.title) ? 'cross' : 'cfr'}"><span class="tier-pip" aria-hidden="true"></span>${escapeHtml(s.label || formatTabLabel(s))}</span>`).join('');
+    const total = (g.mainTabs?.length || 0) + (g.splitTabs?.length || 0);
+    return `
+      <article class="proj-tabgroup has-tier-bar" data-ref-tier="cfr">
+        <div class="proj-tabgroup-head">
+          <div class="proj-tabgroup-meta">
+            <h3 class="proj-tabgroup-name">${escapeHtml(g.name)}</h3>
+            <span class="proj-tabgroup-time">${plural(total, 'tab')}${SEP}Saved ${escapeHtml(timeAgo(Date.parse(g.saved_at) || Date.now()))}</span>
+          </div>
+          <div class="proj-tabgroup-acts">
+            <button type="button" class="btn btn-sm btn-accent" data-proj-act="tabgroup-restore" data-group-id="${escapeHtml(g.id)}">Open tabs</button>
+            <button type="button" class="lib-act is-danger" data-proj-act="tabgroup-delete" data-group-id="${escapeHtml(g.id)}">Remove</button>
+          </div>
+        </div>
+        ${mainPills ? `<div class="proj-tabgroup-row"><span class="proj-tabgroup-lane">Main</span><div class="proj-tabgroup-pills">${mainPills}</div></div>` : ''}
+        ${splitPills ? `<div class="proj-tabgroup-row"><span class="proj-tabgroup-lane">Side-by-side</span><div class="proj-tabgroup-pills">${splitPills}</div></div>` : ''}
+      </article>`;
+  }).join('');
+
+  return `
+    <div class="lib-desk proj-tabgroups-sec">
+      <header class="lib-desk-header">
+        <h2 class="lib-desk-name">Saved tab groups</h2>
+        <span class="lib-desk-count">${plural(groups.length, 'group')}</span>
+        ${activeCount > 0 ? `<button type="button" class="btn btn-sm" data-proj-act="tabgroup-save-active">${icon('plus')} Save active (${activeCount})</button>` : ''}
+      </header>
+      ${rows ? `<div class="proj-tabgroup-list">${rows}</div>` : '<p class="proj-task-empty">Open multiple sections in reader tabs or side-by-side panes, then click <strong>Save group</strong> to snapshot your research path here.</p>'}
+    </div>`;
+}
+
 // --- Pages: #/projects and #/projects/{id} ---
 export function titlesOf(p) {
   const ts = [...new Set(p.sections.map(s => s.title))].sort((a, b) => a - b);
@@ -285,12 +350,13 @@ export function renderProjects(id) {
     const cards = list.map(p => {
       const topTier = refTierForCorpus(p.sections[0]?.tier || 'federal-reg');
       const taskCount = (p.projects || []).length;
+      const grpCount = (p.tab_groups || []).length;
       return `<article class="lib-story proj-card has-tier-bar" data-ref-tier="${topTier}">
         <div class="story-top"><span class="story-kicker">${projDot(p)}Workspace${SEP}Updated ${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</span></div>
         <h3 class="story-name"><a href="#/projects/${encodeURIComponent(p.id)}">${escapeHtml(p.name)}</a></h3>
         ${p.description ? `<p class="story-dek">${escapeHtml(p.description)}</p>` : ''}
         ${p.tags && p.tags.length ? `<div class="proj-tags">${p.tags.map(t => `<span class="proj-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
-        <div class="story-foot"><span class="story-date">${joinSep([plural(p.sections.length, 'section'), taskCount ? plural(taskCount, 'project') : '', escapeHtml(titlesOf(p))])}</span></div>
+        <div class="story-foot"><span class="story-date">${joinSep([plural(p.sections.length, 'section'), taskCount ? plural(taskCount, 'project') : '', grpCount ? plural(grpCount, 'tab group') : '', escapeHtml(titlesOf(p))])}</span></div>
       </article>`;
     }).join('');
     const mod = isMac ? '⌘' : 'Ctrl ';
@@ -364,6 +430,7 @@ export function renderProjects(id) {
       <div><dt>Updated</dt><dd data-f="updated">${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</dd></div>
     </dl>
     ${renderWorkspaceTasksHtml(p)}
+    ${renderWorkspaceTabGroupsHtml(p)}
     <div class="lib-desk">
       <header class="lib-desk-header"><h2 class="lib-desk-name">Pinned sections</h2><span class="lib-desk-count">${plural(p.sections.length, 'section')}</span></header>
       ${groupedHtml || `<div class="proj-empty is-inline"><p>Nothing pinned yet. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd> to add it here.</p></div>`}

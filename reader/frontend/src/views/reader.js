@@ -4,6 +4,7 @@ import { updateChatContext } from '../components/chat';
 import { fillNewsActivity, newsActivityButtonHtml } from '../components/news_activity';
 import { pinButtonHtml } from '../components/pin_pop';
 import { adjustFontSize, bindRail, railHtml, sectionHref, unitShort, unitStepHtml, watchRail } from '../components/rail';
+import { openMainReaderTab, syncMainTabFromRoute } from '../components/reader_tabs';
 import { clearTreeSelection, partForSection, plural, selectTreeNode } from '../components/sidebar';
 import { openSplitPane } from '../components/split_pane';
 import { renderNotFound } from '../components/title_switcher';
@@ -148,44 +149,47 @@ dom.view.addEventListener('click', async (e) => {
 
 
 // --- Reverse Citations ("Cited By N") ---
-function renderCitedByListHtml(graphData, filter = '') {
+function renderCitedByListHtml(graphData, targetTitle = state.currentTitle, filter = '') {
   const q = filter.trim().toLowerCase();
   const rows = (graphData.cited_by || []).filter(c => {
     if (!q) return true;
     return `${c.id} ${c.label} ${c.title} ${c.part}`.toLowerCase().includes(q);
   });
   if (!rows.length) return '<p class="peek-text" style="padding:8px 0">No matching citing sections.</p>';
-  return `<div class="cited-list">${rows.slice(0, 50).map(c => `
-    <div class="cited-row">
-      <a class="cited-link" href="#/title/${state.currentTitle}/section/${encodeURIComponent(c.id)}">
-        <span class="cited-num">${escapeHtml(c.label)}</span>
-        <span class="cited-title">${escapeHtml(c.title)}</span>
-      </a>
-      <button type="button" class="lib-act cited-split" data-cited-split="${escapeHtml(c.id)}" title="Open side-by-side">Split</button>
-    </div>
-  `).join('')}</div>`;
+  return `<div class="cited-list">${rows.slice(0, 50).map(c => {
+    const href = `#/title/${targetTitle}/section/${encodeURIComponent(c.id)}`;
+    return `
+      <div class="cited-row">
+        <a class="cited-link" href="${href}">
+          <span class="cited-num">${escapeHtml(c.label)}</span>
+          <span class="cited-title">${escapeHtml(c.title)}</span>
+        </a>
+        <button type="button" class="lib-act cited-split" data-cited-tab="${escapeHtml(c.id)}" data-cited-title="${targetTitle}" title="Open in reader tab">Tab</button>
+        <button type="button" class="lib-act cited-split" data-cited-split="${escapeHtml(c.id)}" data-cited-title="${targetTitle}" title="Open side-by-side">Split</button>
+      </div>`;
+  }).join('')}</div>`;
 }
 
-function openCitedByPopover(btn, graphData) {
+export function openCitedByPopover(btn, graphData, targetTitle = state.currentTitle) {
   const total = graphData.cited_by_count || 0;
   const filterHtml = total >= 6
     ? `<input type="search" class="pop-filter" id="cited-pop-filter" placeholder="Filter ${total} citing sections…" aria-label="Filter citing sections" autocomplete="off">`
     : '';
   citePop.open(btn, `
     <div class="pop-head-row">
-      <div class="pop-kicker">Cited by ${plural(total, 'section')} in Title ${state.currentTitle}</div>
+      <div class="pop-kicker">Cited by ${plural(total, 'section')} in Title ${targetTitle}</div>
       <span class="peek-badge">CITED BY</span>
       <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close citing sections">${icon('close')}</button>
     </div>
     ${filterHtml}
-    <div id="cited-pop-list">${renderCitedByListHtml(graphData)}</div>
+    <div id="cited-pop-list">${renderCitedByListHtml(graphData, targetTitle)}</div>
   `, { interactive: true, returnFocus: btn, focusSelector: '#cited-pop-filter, .cited-link', refTier: 'cfr' });
 
   const filterEl = document.getElementById('cited-pop-filter');
   if (filterEl) {
     filterEl.addEventListener('input', () => {
       const slot = document.getElementById('cited-pop-list');
-      if (slot) slot.innerHTML = renderCitedByListHtml(graphData, filterEl.value);
+      if (slot) slot.innerHTML = renderCitedByListHtml(graphData, targetTitle, filterEl.value);
       citePop.reposition(btn);
     });
   }
@@ -196,16 +200,40 @@ if (dom.citePop) {
     const sp = e.target.closest('[data-cited-split]');
     if (sp) {
       const secId = sp.dataset.citedSplit;
+      const tNum = Number(sp.dataset.citedTitle) || state.currentTitle;
       citePop.close(false);
-      openSplitPane({ title: state.currentTitle, sectionId: secId, pushHistory: true });
+      openSplitPane({ title: tNum, sectionId: secId, pushHistory: true });
+      return;
+    }
+    const ctab = e.target.closest('[data-cited-tab]');
+    if (ctab) {
+      const secId = ctab.dataset.citedTab;
+      const tNum = Number(ctab.dataset.citedTitle) || state.currentTitle;
+      citePop.close(false);
+      openMainReaderTab({ kind: 'section', title: tNum, sectionId: secId });
       return;
     }
     const lsp = e.target.closest('[data-ledger-split]');
     if (lsp) {
-      const parsed = parseCfrHref(lsp.dataset.ledgerSplit || '', state.currentTitle);
+      const baseTitle = Number(lsp.dataset.ledgerTitle) || state.currentTitle;
+      const parsed = parseCfrHref(lsp.dataset.ledgerSplit || '', baseTitle);
       citePop.close(false);
       if (parsed?.kind === 'section') {
         openSplitPane({ title: parsed.title, sectionId: parsed.section, para: parsed.para, unit: parsed.unit, pushHistory: true });
+      } else if (parsed?.kind === 'part') {
+        openSplitPane({ kind: 'part', title: parsed.title, partId: parsed.part, pushHistory: true });
+      }
+      return;
+    }
+    const ltab = e.target.closest('[data-ledger-tab]');
+    if (ltab) {
+      const baseTitle = Number(ltab.dataset.ledgerTitle) || state.currentTitle;
+      const parsed = parseCfrHref(ltab.dataset.ledgerTab || '', baseTitle);
+      citePop.close(false);
+      if (parsed?.kind === 'section') {
+        openMainReaderTab({ kind: 'section', title: parsed.title, sectionId: parsed.section, para: parsed.para, unit: parsed.unit });
+      } else if (parsed?.kind === 'part') {
+        openMainReaderTab({ kind: 'part', title: parsed.title, partId: parsed.part });
       }
       return;
     }
@@ -253,8 +281,8 @@ function classifyDomRef(el) {
   return 'cfr';
 }
 
-export function collectSectionReferences(root = dom.view) {
-  const bodies = [...(root?.querySelectorAll?.('.reg-body, .front-matter') || [])];
+export function collectSectionReferences(root = dom.view, fallbackTitle = state.currentTitle) {
+  const bodies = [...(root?.querySelectorAll?.('.reg-body, .front-matter, .split-body') || [])];
   const scopes = bodies.length ? bodies : (root ? [root] : []);
   if (!scopes.length) return [];
   const seen = new Map();
@@ -279,13 +307,13 @@ export function collectSectionReferences(root = dom.view) {
       else if (tier === 'local') sub = el.classList.contains('ftref') ? 'Footnote in section' : (localPara ? 'Clause in section' : 'Table / Figure / Appendix');
       else if (tier === 'web') sub = href.replace(/^https?:\/\//i, '').split('/')[0];
       else {
-        const parsed = parseCfrHref(href, state.currentTitle);
+        const parsed = parseCfrHref(href, fallbackTitle);
         sub = parsed?.kind === 'section' ? `${parsed.title} CFR § ${parsed.section}${parsed.para || ''}`
           : parsed?.kind === 'part' ? `${parsed.title} CFR Part ${parsed.part}` : 'CFR Reference';
       }
 
-      const parsed = href.startsWith('#') ? parseCfrHref(href, state.currentTitle) : null;
-      const canSplit = Boolean(parsed?.kind === 'section');
+      const parsed = href.startsWith('#') ? parseCfrHref(href, fallbackTitle) : null;
+      const canSplit = Boolean(parsed?.kind === 'section' || parsed?.kind === 'part');
       seen.set(dedupKey, {
         idx: seen.size,
         tier,
@@ -294,6 +322,7 @@ export function collectSectionReferences(root = dom.view) {
         href,
         external: el.getAttribute('target') === '_blank',
         splitHref: canSplit ? href : '',
+        splitTitle: parsed?.title || fallbackTitle,
         el,
       });
     }
@@ -320,15 +349,15 @@ function renderRefsLedgerHtml(items, filter = '') {
             ${item.external && item.href
               ? `<a class="refs-ledger-link" href="${escapeHtml(item.href)}" target="_blank" rel="noopener noreferrer"><span class="refs-ledger-code">${escapeHtml(item.code)}</span><span class="refs-ledger-sub">${escapeHtml(item.sub)}</span></a>`
               : `<button type="button" class="refs-ledger-link" data-ledger-idx="${item.idx}"><span class="refs-ledger-code">${escapeHtml(item.code)}</span><span class="refs-ledger-sub">${escapeHtml(item.sub)}</span></button>`}
-            ${item.splitHref ? `<button type="button" class="lib-act cited-split" data-ledger-split="${escapeHtml(item.splitHref)}" title="Open side-by-side">Split</button>` : ''}
+            ${item.splitHref ? `<button type="button" class="lib-act cited-split" data-ledger-tab="${escapeHtml(item.splitHref)}" data-ledger-title="${item.splitTitle}" title="Open in reader tab">Tab</button><button type="button" class="lib-act cited-split" data-ledger-split="${escapeHtml(item.splitHref)}" data-ledger-title="${item.splitTitle}" title="Open side-by-side">Split</button>` : ''}
           </div>
         `).join('')}
       </div>`;
   }).join('')}</div>`;
 }
 
-export function openRefsLedgerPopover(btn) {
-  activeLedgerItems = collectSectionReferences(dom.view);
+export function openRefsLedgerPopover(btn, root = dom.view, fallbackTitle = state.currentTitle) {
+  activeLedgerItems = collectSectionReferences(root, fallbackTitle);
   const total = activeLedgerItems.length;
   const topTier = activeLedgerItems[0]?.tier || 'cfr';
   const filterHtml = total >= 8
@@ -484,6 +513,16 @@ export async function loadSection(sectionId, params, view) {
 
     enhanceDomAnchors(dom.view);
     updateRefsLedgerButton();
+    syncMainTabFromRoute({
+      kind: 'section',
+      title: state.currentTitle,
+      sectionId: data.id,
+      unit: data.unit || (full ? 'full' : null),
+      para: params?.get('p') || null,
+      label: `${state.currentTitle} CFR ${label}`,
+      heading,
+      href: window.location.hash || sectionHref(data.id, data.unit || (full ? 'full' : null)),
+    });
     enterView();
     bindRail();
     if (reading === 'scroll') watchRail();

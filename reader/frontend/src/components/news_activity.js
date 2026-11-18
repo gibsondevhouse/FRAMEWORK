@@ -19,9 +19,8 @@ export function newsActivityButtonHtml() {
 }
 
 
-export async function fillNewsActivity(kind, id, seq) {
-  state.newsActivityCtx = null;
-  if (state.currentTitle !== 29) return;      // only Title 29 has news while OSHA is the only agency
+export async function fetchNewsActivity(titleNum, kind, id) {
+  if (titleNum !== 29) return null;
   const key = `29|${kind === 'part' ? 'part:' : ''}${id}`;
   let data = newsActivityCache.get(key);
   if (!data) {
@@ -29,10 +28,17 @@ export async function fillNewsActivity(kind, id, seq) {
       data = await getJSON(kind === 'part'
         ? `/api/news/part/${encodeURIComponent(id)}?title=29`
         : `/api/news/section/${encodeURIComponent(id)}?title=29`);
-    } catch (e) { return; }             // silent: the reader works without news
+    } catch (e) { return null; }
     newsActivityCache.set(key, data);
   }
-  if (seq !== state.routeSeq) return;         // the reader moved on
+  return data;
+}
+
+export async function fillNewsActivity(kind, id, seq) {
+  state.newsActivityCtx = null;
+  if (state.currentTitle !== 29) return;      // only Title 29 has news while OSHA is the only agency
+  const data = await fetchNewsActivity(29, kind, id);
+  if (!data || seq !== state.routeSeq) return; // the reader moved on or request failed
   const btn = document.getElementById('btn-news-activity');
   if (!btn || !data.count) return;
   state.newsActivityCtx = { kind, id, data };
@@ -91,18 +97,28 @@ export function newsTimelineHtml(ctx) {
 
 const newsCtrl = createPopover({
   el: newsPop,
-  triggerSelector: '#btn-news-activity',
+  triggerSelector: '#btn-news-activity, #split-btn-news',
 });
 
-export function openNewsActivity() {
-  const btn = document.getElementById('btn-news-activity');
-  if (!btn || !state.newsActivityCtx) return;
+let activeNewsAnchor = null;
+
+export function openNewsActivityFor(btn, ctx) {
+  if (!btn || !ctx) return;
+  if (!newsPop.hidden && activeNewsAnchor === btn) {
+    closeNewsActivity(true);
+    return;
+  }
+  activeNewsAnchor = btn;
   newsPop.setAttribute('aria-label',
-    `Federal Register and OSHA activity for ${state.newsActivityCtx.kind === 'part' ? 'Part ' : '§ '}${state.newsActivityCtx.id}`);
-  newsCtrl.open(btn, newsTimelineHtml(state.newsActivityCtx), {
+    `Federal Register and OSHA activity for ${ctx.kind === 'part' ? 'Part ' : '§ '}${ctx.id}`);
+  newsCtrl.open(btn, newsTimelineHtml(ctx), {
     focusSelector: '#news-pop-filter, a, button',
     returnFocus: btn,
   });
+}
+
+export function openNewsActivity() {
+  openNewsActivityFor(document.getElementById('btn-news-activity'), state.newsActivityCtx);
 }
 
 export function closeNewsActivity(returnFocus = true) {
@@ -121,11 +137,11 @@ newsPop.addEventListener('input', (e) => {
     const hay = li.dataset.hay || '';
     li.hidden = Boolean(q && !hay.includes(q));
   }
-  newsCtrl.reposition(document.getElementById('btn-news-activity'));
+  newsCtrl.reposition(activeNewsAnchor?.isConnected ? activeNewsAnchor : document.getElementById('btn-news-activity'));
 });
 
 dom.view.addEventListener('click', (e) => {
-  if (e.target.closest('#btn-news-activity')) newsPop.hidden ? openNewsActivity() : closeNewsActivity();
+  if (e.target.closest('#btn-news-activity')) openNewsActivity();
 });
 
 newsPop.addEventListener('keydown', (e) => {

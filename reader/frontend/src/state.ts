@@ -236,10 +236,43 @@ export interface JobsSnapshot {
 }
 
 export interface SplitState {
+  id?: string;
+  kind?: 'section' | 'part';
   title: number;
-  sectionId: string;
+  sectionId?: string;
+  partId?: string;
+  full?: boolean;
   para?: string | null;
   unit?: string | null;
+  label?: string;
+  heading?: string;
+  history?: SplitState[];
+}
+
+export interface ReaderTabEntry {
+  id: string;
+  kind: 'section' | 'part';
+  title: number;
+  sectionId?: string;
+  partId?: string;
+  unit?: string | null;
+  full?: boolean;
+  para?: string | null;
+  label: string;
+  heading?: string;
+  tier?: RefTier;
+  href: string;
+}
+
+export interface TabGroupRecord {
+  id: string;
+  name: string;
+  saved_at: string;
+  mainTabs: ReaderTabEntry[];
+  activeMainIdx: number;
+  splitTabs: SplitState[];
+  activeSplitIdx: number;
+  splitWide?: boolean;
 }
 
 export interface PendingDownloadEntry {
@@ -365,6 +398,12 @@ export interface AppState {
   selectedText: string;
   routeAbort: AbortController | null;
   splitState: SplitState | null;
+  mainTabs: ReaderTabEntry[];
+  activeMainTabId: string | null;
+  splitTabs: SplitState[];
+  activeSplitTabId: string | null;
+  splitWide: boolean;
+  pendingNewMainTab: boolean;
   pendingDownloads: Map<number, PendingDownloadEntry>;
   peekCache: Map<string, SectionDocData>;
   graphCache: Map<string, SectionGraphData>;
@@ -424,6 +463,12 @@ export const state: AppState = {
   selectedText: '',
   routeAbort: null,
   splitState: null,
+  mainTabs: [],
+  activeMainTabId: null,
+  splitTabs: [],
+  activeSplitTabId: null,
+  splitWide: false,
+  pendingNewMainTab: false,
   pendingDownloads: new Map(),
   peekCache: new Map(),
   graphCache: new Map(),

@@ -1,14 +1,60 @@
 import { state } from '../state';
-import { cleanInlineLabel, escapeHtml, icon, skeletonHtml } from '../dom';
-import { scrollToAnchor, unitShort } from './rail';
+import { cleanInlineLabel, escapeHtml, icon, showToast, skeletonHtml } from '../dom';
+import { fetchNewsActivity, openNewsActivityFor } from './news_activity';
+import { openSaveTabGroupMenu, pinButtonHtml, toggleSplitPinMenu } from './pin_pop';
+import { adjustFontSize, scrollToAnchor, unitShort } from './rail';
+import {
+  buildReaderHref, formatTabLabel, openMainReaderTab, persistSessionTabs,
+  registerSplitTabHandlers, renderMainTabs, tabIdentityMatch,
+} from './reader_tabs';
 import { dom } from '../state_init';
-import { enhanceDomAnchors, highlightTarget, openFigureModal, parseCfrHref, wrapIbrMentions } from '../views/doc_utils';
+import {
+  enhanceDomAnchors, formatCfrCitation, highlightTarget, openFigureModal,
+  parseCfrHref, resolveParagraphPath, wrapIbrMentions,
+} from '../views/doc_utils';
+import { clipToWorkspace, currentSectionRef } from '../views/projects';
+import { collectSectionReferences, openCitedByPopover, openRefsLedgerPopover } from '../views/reader';
+import { findPartInTree, tocTitle } from '../views/reader_part';
 
-// --- Secondary side-by-side reference pane inside .main-stage ---
+// --- Fully Capable Tabbed Secondary Side-by-Side Reader (#split-pane) ---
 let splitAbort = null;
 let splitSeq = 0;
-let splitHistory = [];
 let activeSplitDoc = null;
+let activeSplitGraph = null;
+let activeSplitNewsCtx = null;
+const splitTreeCache = new Map();
+
+// Hover Paragraph Action Bar ("Cite" + "Clip") inside the secondary pane
+let splitParaBar = null;
+let splitParaTarget = null;
+
+function hideSplitParaBar() {
+  if (splitParaBar) splitParaBar.hidden = true;
+  splitParaTarget = null;
+}
+
+function showSplitParaBar(pEl) {
+  if (!activeSplitDoc || !dom.splitPane?.querySelector('.split-body') || !pEl?.querySelector('.pmark')) {
+    hideSplitParaBar();
+    return;
+  }
+  if (!splitParaBar || !splitParaBar.isConnected) {
+    splitParaBar = document.createElement('div');
+    splitParaBar.className = 'para-tools';
+    splitParaBar.setAttribute('aria-label', 'Paragraph actions');
+    splitParaBar.innerHTML = `
+      <button type="button" class="para-tool-btn" data-split-para-act="copy" title="Copy legal CFR citation">${icon('link')} Cite</button>
+      <button type="button" class="para-tool-btn" data-split-para-act="clip" title="Clip clause to workspace">${icon('bookmark')} Clip</button>
+    `;
+  }
+  splitParaTarget = pEl;
+  splitParaBar.hidden = false;
+  pEl.appendChild(splitParaBar);
+}
+
+function activeSplitTab() {
+  return state.splitTabs.find(t => t.id === state.activeSplitTabId) || state.splitTabs[0] || null;
+}
 
 function unitQueryFor(view, para) {
   if (view === 'full') return '';
@@ -17,67 +63,401 @@ function unitQueryFor(view, para) {
   return '?unit=' + encodeURIComponent(pClause ? pClause[1].toLowerCase() : '');
 }
 
-function buildSectionHash(title, sectionId, para = null, unit = null) {
-  let h = `#/title/${title}/section/${encodeURIComponent(sectionId)}`;
-  if (unit === 'full') h += '/full';
-  else if (unit) h += `/${encodeURIComponent(unit)}`;
-  if (para) h += `?p=${encodeURIComponent(para)}`;
-  return h;
+export function buildSplitHash(entry = state.splitState) {
+  return buildReaderHref(entry);
 }
 
 export function isSplitOpen() {
   return Boolean(dom.splitPane && !dom.splitPane.hidden);
 }
 
+function makeSplitTab(entry) {
+  return {
+    id: entry.id || `stab_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+    kind: entry.kind || (entry.partId && !entry.sectionId ? 'part' : 'section'),
+    title: Number(entry.title) || state.currentTitle || 29,
+    sectionId: entry.sectionId ? String(entry.sectionId) : undefined,
+    partId: entry.partId ? String(entry.partId) : undefined,
+    full: Boolean(entry.full),
+    para: entry.para || null,
+    unit: entry.unit || null,
+    label: entry.label || formatTabLabel(entry),
+    heading: entry.heading || '',
+    history: Array.isArray(entry.history) && entry.history.length ? entry.history : [{ ...entry }],
+  };
+}
+
+function syncSplitTabStripInPlace() {
+  const host = dom.splitPane?.querySelector('#split-tabs');
+  if (host) host.outerHTML = splitTabsBarHtml();
+}
+
+export function splitTabsBarHtml() {
+  if (!state.splitTabs.length) return '';
+  const pills = state.splitTabs.map(tab => {
+    const active = tab.id === state.activeSplitTabId;
+    const tier = Number(tab.title) !== Number(state.currentTitle) ? 'cross' : 'cfr';
+    const label = tab.label || formatTabLabel(tab);
+    const titleAttr = `${label}${tab.heading ? ` — ${tab.heading}` : ''}`;
+    return `
+      <div class="reader-tab${active ? ' is-active' : ''}" data-ref-tier="${tier}" role="presentation">
+        <button type="button" class="reader-tab-btn" role="tab" aria-selected="${active ? 'true' : 'false'}" data-split-tab="${escapeHtml(tab.id)}" title="${escapeHtml(titleAttr)}">
+          <span class="tier-pip" aria-hidden="true"></span>
+          <span class="reader-tab-label">${escapeHtml(label)}</span>
+        </button>
+        <button type="button" class="reader-tab-close" data-split-tab-close="${escapeHtml(tab.id)}" aria-label="Close ${escapeHtml(label)}" title="Close tab">${icon('close')}</button>
+      </div>`;
+  }).join('');
+  return `
+    <div id="split-tabs" class="reader-tabs is-split-tabs" role="tablist" aria-label="Side-by-side reader tabs">
+      <div class="reader-tabs-strip">${pills}</div>
+      <div class="reader-tabs-acts">
+        <button type="button" class="btn btn-small reader-tabs-save" data-split-tabs-act="save-group" title="Save current main & side-by-side tabs as a workspace tab group">${icon('folder')} <span>Save group</span></button>
+      </div>
+    </div>`;
+}
+
+function splitHeaderHtml({ splitTier = 'cfr', kickerHtml, titleText, hasBack = false, isLoading = false } = {}) {
+  const acts = isLoading
+    ? `<button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon('close')}</button>`
+    : `<button type="button" class="icon-btn" data-split-act="swap" title="Swap with main reader" aria-label="Swap panes">${icon('stack')}</button>
+       <button type="button" class="icon-btn${state.splitWide ? ' is-active' : ''}" data-split-act="wide" title="Toggle split width" aria-label="Toggle width">${icon('expand')}</button>
+       <button type="button" class="btn btn-small" data-split-act="to-main-tab" title="Move into a main reader tab">${icon('plus')} Main tab</button>
+       <button type="button" class="btn btn-small" data-split-act="promote" title="Open in main reading pane">Open</button>
+       <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon('close')}</button>`;
+  return `
+    <header class="split-head" data-ref-tier="${splitTier}">
+      ${hasBack ? `<button type="button" class="icon-btn" data-split-act="back" title="Back in split pane" aria-label="Back">${icon('chevronLeft')}</button>` : ''}
+      <div class="split-head-meta">
+        <div class="doc-kicker"><span class="tier-pip" aria-hidden="true"></span> ${kickerHtml}</div>
+        <h2 class="split-head-title">${escapeHtml(titleText)}</h2>
+      </div>
+      <div class="split-head-acts">${acts}</div>
+    </header>`;
+}
+
 export function closeSplitPane() {
+  hideSplitParaBar();
   if (splitAbort) {
     try { splitAbort.abort(); } catch (e) { /* ignore */ }
     splitAbort = null;
   }
   splitSeq++;
-  splitHistory = [];
   activeSplitDoc = null;
+  activeSplitGraph = null;
+  activeSplitNewsCtx = null;
   state.splitState = null;
+  state.splitTabs = [];
+  state.activeSplitTabId = null;
+  persistSessionTabs();
+  renderMainTabs();
   if (dom.splitPane) {
     dom.splitPane.hidden = true;
     dom.splitPane.innerHTML = '';
   }
-  if (dom.mainStage) dom.mainStage.classList.remove('is-split');
+  if (dom.mainStage) {
+    dom.mainStage.classList.remove('is-split', 'is-split-wide');
+  }
+}
+
+export function closeSplitTab(tabId) {
+  const idx = state.splitTabs.findIndex(t => t.id === tabId);
+  if (idx < 0) return;
+  if (state.splitTabs.length <= 1) {
+    closeSplitPane();
+    return;
+  }
+  const wasActive = state.splitTabs[idx].id === state.activeSplitTabId;
+  state.splitTabs.splice(idx, 1);
+  if (wasActive) {
+    const next = state.splitTabs[Math.min(idx, state.splitTabs.length - 1)] || state.splitTabs[0];
+    state.activeSplitTabId = next.id;
+    persistSessionTabs();
+    openSplitPane({ ...next, tabId: next.id, newTab: false, pushHistory: false });
+  } else {
+    persistSessionTabs();
+    syncSplitTabStripInPlace();
+  }
 }
 
 export function promoteSplitToMain() {
   if (!state.splitState) return;
-  const { title, sectionId, para, unit } = state.splitState;
-  const target = buildSectionHash(title, sectionId, para, unit);
+  const target = buildSplitHash(state.splitState);
   closeSplitPane();
   window.location.hash = target;
 }
 
-function renderSplitLoading(title, sectionId) {
+export function moveActiveSplitToMainTab() {
+  const active = activeSplitTab() || state.splitState;
+  if (!active) return;
+  const target = {
+    kind: active.kind || (active.partId && !active.sectionId ? 'part' : 'section'),
+    title: active.title,
+    sectionId: active.sectionId,
+    partId: active.partId,
+    unit: active.unit || null,
+    full: Boolean(active.full),
+    para: active.para || null,
+    label: active.label || formatTabLabel(active),
+    heading: active.heading || '',
+    href: buildSplitHash(active),
+  };
+  if (active.id && state.splitTabs.length > 1) {
+    closeSplitTab(active.id);
+  } else {
+    closeSplitPane();
+  }
+  openMainReaderTab(target);
+}
+
+function activeSplitSectionRef() {
+  if (!activeSplitDoc || !state.splitState || state.splitState.kind === 'part') return null;
+  return {
+    title: state.splitState.title,
+    id: activeSplitDoc.id,
+    label: cleanInlineLabel(activeSplitDoc.label) || `§ ${activeSplitDoc.id}`,
+    heading: cleanInlineLabel(activeSplitDoc.section_title || activeSplitDoc.title_label || ''),
+    part: activeSplitDoc.part || '',
+    tier: 'federal-reg',
+    jurisdiction: 'US',
+  };
+}
+
+function swapSplitWithMain() {
+  if (!state.splitState) return;
+  const splitHref = buildSplitHash(state.splitState);
+  const mainSec = currentSectionRef();
+  const mainPart = !mainSec && state.currentPart ? { kind: 'part', title: state.currentTitle, partId: state.currentPart } : null;
+  if (!mainSec && !mainPart) {
+    promoteSplitToMain();
+    return;
+  }
+  const nextSplit = mainSec
+    ? { kind: 'section', title: mainSec.title, sectionId: mainSec.id, unit: state.currentSection?.unit || null, label: `${mainSec.title} CFR ${mainSec.label}`, heading: mainSec.heading }
+    : { kind: 'part', title: mainPart.title, partId: mainPart.partId, label: `${mainPart.title} CFR Part ${mainPart.partId}` };
+  window.location.hash = splitHref;
+  openSplitPane({ ...nextSplit, newTab: false, pushHistory: true });
+}
+
+async function loadTreeForTitle(tNum, signal) {
+  if (tNum === state.currentTitle && state.treeData) return state.treeData;
+  if (splitTreeCache.has(tNum)) return splitTreeCache.get(tNum);
+  const res = await fetch(`/api/${tNum}/tree`, { signal });
+  if (!res.ok) return null;
+  const tree = await res.json();
+  splitTreeCache.set(tNum, tree);
+  return tree;
+}
+
+function renderSplitLoading(tNum, labelText) {
   dom.splitPane.innerHTML = `
-    <div class="split-head">
-      <div class="split-head-meta">
-        <div class="doc-kicker">${title} CFR § ${escapeHtml(sectionId)}</div>
-        <div class="split-head-title">Loading…</div>
-      </div>
-      <div class="split-head-acts">
-        <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon('close')}</button>
-      </div>
-    </div>
-    <div class="split-body">${skeletonHtml('doc', `Loading § ${sectionId}…`)}</div>
+    ${splitTabsBarHtml()}
+    ${splitHeaderHtml({ splitTier: tNum !== state.currentTitle ? 'cross' : 'cfr', kickerHtml: `${tNum} CFR · ${escapeHtml(labelText)}`, titleText: 'Loading…', isLoading: true })}
+    <div class="split-body">${skeletonHtml('doc', `Loading ${labelText}…`)}</div>
   `;
 }
 
-export async function openSplitPane({ title, sectionId, para = null, unit = null, pushHistory = true }) {
-  if (!dom.splitPane || !dom.mainStage || !sectionId) return;
-  const tNum = Number(title) || state.currentTitle || 29;
-  const nextEntry = { title: tNum, sectionId: String(sectionId), para: para || null, unit: unit || null };
+function renderSplitUnavailable(tNum, titleLabel, bodyMsg) {
+  dom.splitPane.innerHTML = `
+    ${splitTabsBarHtml()}
+    ${splitHeaderHtml({ splitTier: 'uninstalled', kickerHtml: `${tNum} CFR`, titleText: titleLabel, hasBack: (activeSplitTab()?.history?.length || 0) > 1 })}
+    <div class="split-body"><p class="muted">${escapeHtml(bodyMsg)}</p></div>
+  `;
+}
 
-  if (pushHistory) {
-    const top = splitHistory[splitHistory.length - 1];
-    if (!top || top.title !== nextEntry.title || top.sectionId !== nextEntry.sectionId || top.unit !== nextEntry.unit || top.para !== nextEntry.para) {
-      splitHistory.push(nextEntry);
+function updateSplitRefsBtn() {
+  const btn = document.getElementById('split-btn-refs');
+  if (!btn || !state.splitState) return;
+  const refs = collectSectionReferences(dom.splitPane, state.splitState.title);
+  const span = btn.querySelector('span');
+  if (span) span.textContent = refs.length ? `Refs ${refs.length}` : 'Refs';
+  btn.hidden = refs.length === 0;
+}
+
+function splitActionsBarHtml({ pinRef = null, partId = null, ecfrUrl = '', partFull = false } = {}) {
+  return `
+    <div class="split-tools">
+      ${partId ? `<button type="button" class="btn btn-small" data-split-part="${escapeHtml(partId)}" data-split-full="${partFull ? '1' : '0'}" title="${partFull ? 'View Full Part text' : `View Part ${escapeHtml(partId)} TOC`}">${icon('list')} ${partFull ? 'Full part' : `Part ${escapeHtml(partId)}`}</button>` : ''}
+      ${pinRef ? pinButtonHtml(pinRef, 'split-btn-pin') : ''}
+      <button type="button" class="btn btn-small" id="split-btn-refs" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('list')} <span>Refs</span></button>
+      <button type="button" class="btn btn-small" id="split-btn-cited" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('link')} <span>Cited by</span></button>
+      <button type="button" class="btn btn-small" id="split-btn-news" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('news')} <span>Activity</span></button>
+      <div class="spacer"></div>
+      <button type="button" class="btn btn-small" data-split-act="copy" title="Copy link">${icon('link')} Copy</button>
+      ${ecfrUrl ? `<a class="btn btn-small" href="${escapeHtml(ecfrUrl)}" target="_blank" rel="noopener noreferrer" title="View on eCFR">${icon('external')} eCFR</a>` : ''}
+      <div class="size-ctl split-size-ctl" role="group" aria-label="Text size">
+        <button type="button" data-split-act="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+        <button type="button" data-split-act="font-inc" title="Larger text" aria-label="Larger text">A+</button>
+      </div>
+    </div>`;
+}
+
+async function openSplitPart(nextEntry, seq, signal) {
+  const tNum = nextEntry.title;
+  const partId = nextEntry.partId;
+  const full = Boolean(nextEntry.full);
+  const tab = activeSplitTab();
+  const hasBack = (tab?.history?.length || 0) > 1;
+
+  if (full) {
+    const [tree, fullRes] = await Promise.all([
+      loadTreeForTitle(tNum, signal),
+      fetch(`/api/${tNum}/part/${encodeURIComponent(partId)}/full`, { signal }),
+    ]);
+    if (seq !== splitSeq) return;
+    if (!fullRes.ok) {
+      renderSplitUnavailable(tNum, `Part ${partId}`, `Couldn’t load full text for Title ${tNum} Part ${partId}.`);
+      return;
     }
+    const data = await fullRes.json();
+    if (seq !== splitSeq) return;
+    const partNode = tree ? findPartInTree(tree, partId) : null;
+    const heading = cleanInlineLabel(partNode?.d || partNode?.l || `Part ${partId}`);
+    const splitTier = tNum !== state.currentTitle ? 'cross' : 'cfr';
+    if (tab) {
+      tab.label = `${tNum} CFR Part ${partId} · Full`;
+      tab.heading = heading;
+      persistSessionTabs();
+    }
+    const sections = data.sections || [];
+    const sectionsHtml = sections.map(s => `
+      <article class="full-section" id="split-sec-${escapeHtml(String(s.id).replace(/[^a-zA-Z0-9.\-]/g, '_'))}">
+        <header class="full-section-head has-tier-bar" data-ref-tier="${splitTier}">
+          <a class="full-section-anchor" href="#/title/${tNum}/section/${encodeURIComponent(s.id)}">
+            <span class="full-section-num">${escapeHtml(s.label)}</span>
+            <span class="full-section-title">${escapeHtml(s.title || '')}</span>
+          </a>
+        </header>
+        ${s.reserved ? '<div class="reserved-note">This section is reserved.</div>' : (s.html || '')}
+      </article>`).join('');
+
+    dom.splitPane.innerHTML = `
+      ${splitTabsBarHtml()}
+      ${splitHeaderHtml({ splitTier, kickerHtml: `${tNum} CFR · Full Part ${escapeHtml(partId)}`, titleText: heading, hasBack })}
+      ${splitActionsBarHtml({ partId, partFull: false })}
+      <div class="split-body">${sectionsHtml || '<p class="muted">No sections in this part.</p>'}</div>
+    `;
+    const bodyEl = dom.splitPane.querySelector('.split-body');
+    if (bodyEl) enhanceDomAnchors(bodyEl);
+    updateSplitRefsBtn();
+    hydrateSplitNews(tNum, 'part', partId, seq);
+    dom.splitPane.scrollTop = 0;
+    return;
+  }
+
+  const [tree, frontRes] = await Promise.all([
+    loadTreeForTitle(tNum, signal),
+    fetch(`/api/${tNum}/part/${encodeURIComponent(partId)}`, { signal }),
+  ]);
+  if (seq !== splitSeq) return;
+  const partNode = tree ? findPartInTree(tree, partId) : null;
+  if (!partNode) {
+    renderSplitUnavailable(tNum, `Part ${partId}`, `Title ${tNum} Part ${partId} isn’t installed yet.`);
+    return;
+  }
+  const front = frontRes.ok ? await frontRes.json() : { part: '', subparts: {} };
+  const splitTier = tNum !== state.currentTitle ? 'cross' : 'cfr';
+  if (tab) {
+    tab.label = `${tNum} CFR Part ${partId}`;
+    tab.heading = cleanInlineLabel(partNode.d || partNode.l);
+    persistSessionTabs();
+  }
+  let groupsHtml = '';
+  const rowHtml = (s) => `
+    <li class="${s.r ? 'reserved' : ''}">
+      <a href="#/title/${tNum}/section/${encodeURIComponent(s.id)}">
+        <span class="toc-num">${escapeHtml(s.l)}</span>
+        <span class="toc-title">${escapeHtml(tocTitle(s))}</span>
+      </a>
+    </li>`;
+  for (const child of partNode.c || []) {
+    if (child.t === 'subpart' || child.t === 'subject_group') {
+      const children = child.c || [];
+      const hTxt = child.d && child.d.trim() !== (child.l || '').trim() ? `${child.l}: ${child.d}` : child.l;
+      groupsHtml += `
+        <div class="toc-group" data-ref-tier="${splitTier}">
+          <h3><span>${escapeHtml(hTxt)}</span><span class="toc-group-count">${children.length}</span></h3>
+          <ul class="toc-list">${children.map(rowHtml).join('')}</ul>
+        </div>`;
+    } else if (child.t === 'section' || child.t === 'appendix') {
+      groupsHtml += `<div class="toc-group is-flat" data-ref-tier="${splitTier}"><ul class="toc-list">${rowHtml(child)}</ul></div>`;
+    }
+  }
+
+  dom.splitPane.innerHTML = `
+    ${splitTabsBarHtml()}
+    ${splitHeaderHtml({ splitTier, kickerHtml: `${tNum} CFR · ${escapeHtml(partNode.l)}`, titleText: partNode.d || partNode.l, hasBack })}
+    ${splitActionsBarHtml({ partId, partFull: true })}
+    <div class="split-body">
+      ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ''}
+      ${groupsHtml || '<p class="muted">No sections listed in this part.</p>'}
+    </div>
+  `;
+  updateSplitRefsBtn();
+  hydrateSplitNews(tNum, 'part', partId, seq);
+  dom.splitPane.scrollTop = 0;
+}
+
+async function hydrateSplitNews(tNum, kind, id, seq) {
+  if (tNum !== 29) return;
+  const data = await fetchNewsActivity(tNum, kind, id);
+  if (!data || !data.count || seq !== splitSeq) return;
+  activeSplitNewsCtx = { kind, id, data };
+  const btn = document.getElementById('split-btn-news');
+  if (btn) {
+    const span = btn.querySelector('span');
+    if (span) span.textContent = `${data.count} ${data.count === 1 ? 'rule' : 'rules'}`;
+    btn.hidden = false;
+  }
+}
+
+export async function openSplitPane({
+  kind = null, title, sectionId = null, partId = null, full = false,
+  para = null, unit = null, label = '', heading = '',
+  pushHistory = true, newTab = true, tabId = null,
+}) {
+  if (!dom.splitPane || !dom.mainStage) return;
+  const resolvedKind = kind || (partId && !sectionId ? 'part' : 'section');
+  if (resolvedKind === 'section' && !sectionId) return;
+  if (resolvedKind === 'part' && !partId) return;
+
+  hideSplitParaBar();
+  activeSplitGraph = null;
+  activeSplitNewsCtx = null;
+
+  const tNum = Number(title) || state.currentTitle || 29;
+  const nextEntry = resolvedKind === 'part'
+    ? { kind: 'part', title: tNum, partId: String(partId), full: Boolean(full), label: label || `${tNum} CFR Part ${partId}${full ? ' · Full' : ''}`, heading }
+    : { kind: 'section', title: tNum, sectionId: String(sectionId), para: para || null, unit: unit || null, label: label || `${tNum} CFR § ${sectionId}`, heading };
+
+  let targetTab = tabId ? state.splitTabs.find(t => t.id === tabId) : null;
+  if (!targetTab && newTab) {
+    targetTab = state.splitTabs.find(t => tabIdentityMatch(t, nextEntry));
+    if (targetTab) {
+      Object.assign(targetTab, { ...nextEntry, id: targetTab.id, history: targetTab.history || [] });
+    } else {
+      targetTab = makeSplitTab(nextEntry);
+      state.splitTabs.push(targetTab);
+    }
+  } else if (!targetTab) {
+    targetTab = activeSplitTab();
+    if (!targetTab) {
+      targetTab = makeSplitTab(nextEntry);
+      state.splitTabs.push(targetTab);
+    } else {
+      Object.assign(targetTab, { ...nextEntry, id: targetTab.id, history: targetTab.history || [] });
+    }
+  }
+
+  state.activeSplitTabId = targetTab.id;
+  if (pushHistory) {
+    const hist = targetTab.history || (targetTab.history = []);
+    const top = hist[hist.length - 1];
+    const same = top && top.kind === nextEntry.kind && top.title === nextEntry.title
+      && top.sectionId === nextEntry.sectionId && top.partId === nextEntry.partId
+      && Boolean(top.full) === Boolean(nextEntry.full)
+      && top.unit === nextEntry.unit && top.para === nextEntry.para;
+    if (!same) hist.push({ ...nextEntry });
   }
 
   if (splitAbort) {
@@ -87,40 +467,41 @@ export async function openSplitPane({ title, sectionId, para = null, unit = null
   const seq = ++splitSeq;
 
   dom.mainStage.classList.add('is-split');
+  dom.mainStage.classList.toggle('is-split-wide', Boolean(state.splitWide));
   dom.splitPane.hidden = false;
   state.splitState = nextEntry;
-  renderSplitLoading(tNum, sectionId);
+  persistSessionTabs();
+  renderMainTabs();
+  renderSplitLoading(tNum, resolvedKind === 'part' ? `Part ${partId}` : `§ ${sectionId}`);
 
   try {
+    if (resolvedKind === 'part') {
+      await openSplitPart(nextEntry, seq, splitAbort?.signal);
+      return;
+    }
+
     const qs = unitQueryFor(unit, para);
     const res = await fetch(`/api/${tNum}/section/${encodeURIComponent(sectionId)}${qs}`, {
       signal: splitAbort?.signal,
     });
     if (seq !== splitSeq) return;
     if (!res.ok) {
-      dom.splitPane.innerHTML = `
-        <div class="split-head">
-          <div class="split-head-meta">
-            <div class="doc-kicker">${tNum} CFR § ${escapeHtml(sectionId)}</div>
-            <div class="split-head-title">Unavailable</div>
-          </div>
-          <div class="split-head-acts">
-            <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon('close')}</button>
-          </div>
-        </div>
-        <div class="split-body"><p class="muted">Couldn’t load § ${escapeHtml(sectionId)} from Title ${tNum}.</p></div>
-      `;
+      renderSplitUnavailable(tNum, `§ ${sectionId}`, `Couldn’t load § ${sectionId} from Title ${tNum}.`);
       return;
     }
 
-    let data = await res.json();
+    const data = await res.json();
     if (seq !== splitSeq) return;
     activeSplitDoc = data;
     state.peekCache.set(`${tNum}|${sectionId}|${data.unit || 'full'}`, data);
 
-    const heading = cleanInlineLabel(data.section_title || data.title_label || '');
-    const label = cleanInlineLabel(data.label);
-    const hasBack = splitHistory.length > 1;
+    const docHeading = cleanInlineLabel(data.section_title || data.title_label || '');
+    const docLabel = cleanInlineLabel(data.label);
+    targetTab.label = `${tNum} CFR ${docLabel}`;
+    targetTab.heading = docHeading;
+    persistSessionTabs();
+
+    const hasBack = (targetTab.history?.length || 0) > 1;
     const outline = data.outline || [];
     const showUnits = data.mode === 'units' && outline.length > 1;
     const unitsHtml = showUnits
@@ -130,21 +511,17 @@ export async function openSplitPane({ title, sectionId, para = null, unit = null
         </div>`
       : '';
 
-    const partLabel = data.part ? ` · Part ${escapeHtml(data.part)}` : '';
+    const partKicker = data.part
+      ? ` · <button type="button" class="split-kicker-link" data-split-part="${escapeHtml(data.part)}" data-split-full="0">Part ${escapeHtml(data.part)}</button>`
+      : '';
     const isCrossTitle = tNum !== state.currentTitle;
     const splitTier = isCrossTitle ? 'cross' : 'cfr';
+    const pinRef = activeSplitSectionRef();
+
     dom.splitPane.innerHTML = `
-      <header class="split-head" data-ref-tier="${splitTier}">
-        ${hasBack ? `<button type="button" class="icon-btn" data-split-act="back" title="Back in split pane" aria-label="Back">${icon('chevronLeft')}</button>` : ''}
-        <div class="split-head-meta">
-          <div class="doc-kicker"><span class="tier-pip" aria-hidden="true"></span> ${tNum} CFR${partLabel}</div>
-          <h2 class="split-head-title">${escapeHtml(label)} ${escapeHtml(heading)}</h2>
-        </div>
-        <div class="split-head-acts">
-          <button type="button" class="btn btn-small" data-split-act="promote" title="Open this section in the main reading pane">Open</button>
-          <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon('close')}</button>
-        </div>
-      </header>
+      ${splitTabsBarHtml()}
+      ${splitHeaderHtml({ splitTier, kickerHtml: `${tNum} CFR${partKicker}`, titleText: `${docLabel} ${docHeading}`, hasBack })}
+      ${splitActionsBarHtml({ pinRef, partId: data.part, ecfrUrl: data.ecfr_url, partFull: false })}
       ${unitsHtml}
       <div class="split-body">
         ${data.reserved ? '<div class="reserved-note">This section is reserved.</div>' : ''}
@@ -155,18 +532,36 @@ export async function openSplitPane({ title, sectionId, para = null, unit = null
     const bodyEl = dom.splitPane.querySelector('.split-body');
     if (bodyEl) {
       enhanceDomAnchors(bodyEl);
+      updateSplitRefsBtn();
+      const applyGraph = (g) => {
+        if (!g || seq !== splitSeq || !bodyEl.isConnected) return;
+        activeSplitGraph = g;
+        if (g.cited_by_count > 0) {
+          const citedBtn = document.getElementById('split-btn-cited');
+          if (citedBtn) {
+            const span = citedBtn.querySelector('span');
+            if (span) span.textContent = `Cited by ${g.cited_by_count}`;
+            citedBtn.hidden = false;
+          }
+        }
+        if (g.ibr?.length) {
+          wrapIbrMentions(bodyEl, g.ibr);
+          updateSplitRefsBtn();
+        }
+      };
       const cachedGraph = state.graphCache.get(`${tNum}|${data.id}`);
-      if (cachedGraph?.ibr?.length) wrapIbrMentions(bodyEl, cachedGraph.ibr);
-      else {
+      if (cachedGraph) {
+        applyGraph(cachedGraph);
+      } else {
         fetch(`/api/${tNum}/citations/${encodeURIComponent(data.id)}`, { signal: splitAbort?.signal })
           .then(r => (r.ok ? r.json() : null))
           .then(g => {
-            if (!g || seq !== splitSeq || !bodyEl.isConnected) return;
-            state.graphCache.set(`${tNum}|${data.id}`, g);
-            if (g.ibr?.length) wrapIbrMentions(bodyEl, g.ibr);
+            if (g) state.graphCache.set(`${tNum}|${data.id}`, g);
+            applyGraph(g);
           })
           .catch(() => {});
       }
+      hydrateSplitNews(tNum, 'section', data.id, seq);
       if (para) {
         highlightTarget(bodyEl, para, 60);
       } else {
@@ -176,36 +571,150 @@ export async function openSplitPane({ title, sectionId, para = null, unit = null
   } catch (err) {
     if (err && err.name === 'AbortError') return;
     if (seq !== splitSeq) return;
-    dom.splitPane.innerHTML = `
-      <div class="split-head">
-        <div class="split-head-meta">
-          <div class="doc-kicker">${tNum} CFR § ${escapeHtml(sectionId)}</div>
-          <div class="split-head-title">Load failed</div>
-        </div>
-        <div class="split-head-acts">
-          <button type="button" class="icon-btn" data-split-act="close" aria-label="Close split view">${icon('close')}</button>
-        </div>
-      </div>
-      <div class="split-body"><div class="msg-error">${escapeHtml(err?.message || 'Error')}</div></div>
-    `;
+    renderSplitUnavailable(tNum, resolvedKind === 'part' ? `Part ${partId}` : `§ ${sectionId}`, err?.message || 'Error');
   }
 }
+
+export function restoreSplitTabs(entries, activeIdx = 0, wide = false) {
+  if (!entries || !entries.length) {
+    closeSplitPane();
+    return;
+  }
+  state.splitWide = Boolean(wide);
+  state.splitTabs = entries.map(e => makeSplitTab(e));
+  const active = state.splitTabs[Math.min(activeIdx, state.splitTabs.length - 1)] || state.splitTabs[0];
+  state.activeSplitTabId = active.id;
+  persistSessionTabs();
+  openSplitPane({ ...active, tabId: active.id, newTab: false, pushHistory: false });
+}
+
+registerSplitTabHandlers({
+  restore: restoreSplitTabs,
+  close: closeSplitPane,
+});
 
 export function getActiveSplitDoc() {
   return activeSplitDoc;
 }
 
 if (dom.splitPane) {
-  dom.splitPane.addEventListener('click', (e) => {
+  dom.splitPane.addEventListener('mouseover', (e) => {
+    if (!activeSplitDoc) return;
+    if (splitParaBar && splitParaBar.contains(e.target)) return;
+    const p = e.target.closest('.split-body .reg-p[id]');
+    if (p && p.querySelector('.pmark')) {
+      if (p !== splitParaTarget) showSplitParaBar(p);
+    } else {
+      hideSplitParaBar();
+    }
+  });
+
+  dom.splitPane.addEventListener('mouseleave', () => hideSplitParaBar());
+
+  dom.splitPane.addEventListener('click', async (e) => {
+    const splitTabClose = e.target.closest('[data-split-tab-close]');
+    if (splitTabClose) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeSplitTab(splitTabClose.dataset.splitTabClose);
+      return;
+    }
+    const splitTabBtn = e.target.closest('[data-split-tab]');
+    if (splitTabBtn) {
+      const t = state.splitTabs.find(x => x.id === splitTabBtn.dataset.splitTab);
+      if (t) openSplitPane({ ...t, tabId: t.id, newTab: false, pushHistory: false });
+      return;
+    }
+    const saveSplitGroupBtn = e.target.closest('[data-split-tabs-act="save-group"]');
+    if (saveSplitGroupBtn) {
+      openSaveTabGroupMenu(saveSplitGroupBtn);
+      return;
+    }
+
+    const paraBtn = e.target.closest('[data-split-para-act]');
+    if (paraBtn && splitParaTarget && activeSplitDoc) {
+      e.preventDefault();
+      e.stopPropagation();
+      const para = resolveParagraphPath(dom.splitPane, splitParaTarget);
+      const tNum = state.splitState?.title || activeSplitDoc.title || state.currentTitle;
+      const label = cleanInlineLabel(activeSplitDoc.label);
+      const cite = formatCfrCitation(tNum, label, para);
+      if (paraBtn.dataset.splitParaAct === 'copy') {
+        try {
+          await navigator.clipboard.writeText(cite);
+          showToast(`Copied ${cite}`);
+        } catch (err) {
+          showToast('Couldn’t copy citation');
+        }
+      } else if (paraBtn.dataset.splitParaAct === 'clip') {
+        const clone = splitParaTarget.cloneNode(true);
+        clone.querySelectorAll('.para-tools').forEach(x => x.remove());
+        const ref = activeSplitSectionRef();
+        if (ref) clipToWorkspace(ref, { para, quote: clone.textContent.trim().slice(0, 320), cite });
+      }
+      return;
+    }
+
+    if (e.target.closest('#split-btn-pin')) {
+      const ref = activeSplitSectionRef();
+      if (ref) toggleSplitPinMenu(e.target.closest('#split-btn-pin'), ref);
+      return;
+    }
+    if (e.target.closest('#split-btn-refs') && state.splitState) {
+      openRefsLedgerPopover(e.target.closest('#split-btn-refs'), dom.splitPane, state.splitState.title);
+      return;
+    }
+    if (e.target.closest('#split-btn-cited') && activeSplitGraph && state.splitState) {
+      openCitedByPopover(e.target.closest('#split-btn-cited'), activeSplitGraph, state.splitState.title);
+      return;
+    }
+    if (e.target.closest('#split-btn-news') && activeSplitNewsCtx) {
+      openNewsActivityFor(e.target.closest('#split-btn-news'), activeSplitNewsCtx);
+      return;
+    }
+
+    const partBtn = e.target.closest('[data-split-part]');
+    if (partBtn && state.splitState) {
+      openSplitPane({
+        kind: 'part',
+        title: state.splitState.title,
+        partId: partBtn.dataset.splitPart,
+        full: partBtn.dataset.splitFull === '1',
+        newTab: false,
+        pushHistory: true,
+      });
+      return;
+    }
+
     const actBtn = e.target.closest('[data-split-act]');
     if (actBtn) {
       const act = actBtn.dataset.splitAct;
       if (act === 'close') closeSplitPane();
       else if (act === 'promote') promoteSplitToMain();
-      else if (act === 'back' && splitHistory.length > 1) {
-        splitHistory.pop();
-        const prev = splitHistory[splitHistory.length - 1];
-        if (prev) openSplitPane({ ...prev, pushHistory: false });
+      else if (act === 'to-main-tab') moveActiveSplitToMainTab();
+      else if (act === 'swap') swapSplitWithMain();
+      else if (act === 'wide') {
+        state.splitWide = !state.splitWide;
+        dom.mainStage?.classList.toggle('is-split-wide', state.splitWide);
+        actBtn.classList.toggle('is-active', state.splitWide);
+        persistSessionTabs();
+      } else if (act === 'copy') {
+        const url = new URL(buildSplitHash(), window.location.href).href;
+        try {
+          await navigator.clipboard.writeText(url);
+          showToast('Link copied');
+        } catch (err) {
+          showToast('Couldn’t copy the link');
+        }
+      } else if (act === 'font-dec') adjustFontSize(-1);
+      else if (act === 'font-inc') adjustFontSize(1);
+      else if (act === 'back') {
+        const tab = activeSplitTab();
+        if (tab && tab.history?.length > 1) {
+          tab.history.pop();
+          const prev = tab.history[tab.history.length - 1];
+          if (prev) openSplitPane({ ...prev, tabId: tab.id, newTab: false, pushHistory: false });
+        }
       }
       return;
     }
@@ -213,10 +722,12 @@ if (dom.splitPane) {
     const unitBtn = e.target.closest('[data-split-unit]');
     if (unitBtn && state.splitState) {
       openSplitPane({
+        kind: 'section',
         title: state.splitState.title,
         sectionId: state.splitState.sectionId,
         para: null,
         unit: unitBtn.dataset.splitUnit,
+        newTab: false,
         pushHistory: false,
       });
       return;
@@ -243,17 +754,33 @@ if (dom.splitPane) {
       return;
     }
 
-    // Navigating section links inside split keeps browsing inside the split pane unless Alt/Cmd pressed.
+    // Internal TOC / full-section navigation stays inside the active split tab;
+    // inline .xref references inside reading bodies are handled by peek.js (chooser).
     const link = e.target.closest('a[href^="#"]');
-    if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+    if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && link.getAttribute('target') !== '_blank') {
+      const isInlineRef = !link.classList.contains('xref-local')
+        && Boolean(link.closest('.reg-body, .full-section .reg-body, .front-matter'))
+        && link.classList.contains('xref');
+      if (isInlineRef) return;
       const parsed = parseCfrHref(link.getAttribute('href'), state.splitState?.title || state.currentTitle);
       if (parsed && parsed.kind === 'section') {
         e.preventDefault();
         openSplitPane({
+          kind: 'section',
           title: parsed.title,
           sectionId: parsed.section,
           para: parsed.para,
           unit: parsed.unit,
+          newTab: false,
+          pushHistory: true,
+        });
+      } else if (parsed && parsed.kind === 'part') {
+        e.preventDefault();
+        openSplitPane({
+          kind: 'part',
+          title: parsed.title,
+          partId: parsed.part,
+          newTab: false,
           pushHistory: true,
         });
       }

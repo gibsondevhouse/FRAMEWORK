@@ -73,6 +73,7 @@ body.resizing .layout { transition: none; }
   grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0;
 }
 .main-stage.is-split { grid-template-columns: minmax(0, 1fr) minmax(320px, 44%); }
+.main-stage.is-split.is-split-wide { grid-template-columns: minmax(0, 1fr) minmax(360px, 52%); }
 .chat { grid-column: 4; grid-row: 1; }
 .nav-backdrop { grid-column: 1 / -1; grid-row: 1; }
 

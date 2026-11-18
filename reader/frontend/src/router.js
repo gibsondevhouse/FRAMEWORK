@@ -3,6 +3,7 @@ import { renderResolverPage } from './components/cfr_resolver';
 import { parseCorpusPath, syncCorporaState } from './components/corpora';
 import { clearTreeSelection, switchTitle } from './components/sidebar';
 import { renderCorpusStaging, renderNotFound } from './components/title_switcher';
+import { hideMainTabs } from './components/reader_tabs';
 import { setViewHead } from './components/view_head';
 import { syncNavToRoute } from './nav';
 import { renderSettingsPage } from './panels/settings_panel';
@@ -107,6 +108,7 @@ export async function handleRoute() {
   }
 
   if (checkPath === '/' || checkPath === '') {
+    hideMainTabs();
     // `#/` is the FRAMEWORK Home screen across every title; `#/title/N/` is that title's start page.
     if (titleMatch) renderHome();
     else renderHomeScreen();
@@ -125,6 +127,7 @@ export async function handleRoute() {
     if (fullMatch) await loadPartFull(fullMatch[1], params);
     else await loadPart(rest);
   } else if (checkPath === '/library' || checkPath.startsWith('/library/')) {
+    hideMainTabs();
     // /library, /library/{title}, /library/{title}/part/{part}
     const m = /^\/library(?:\/(\d+)(?:\/part\/(.+))?)?\/?$/.exec(checkPath);
     if (!m) renderNotFound();
@@ -133,23 +136,30 @@ export async function handleRoute() {
       await loadLibrary(m[1] ? parseInt(m[1], 10) : null, m[2] ? decode(m[2]) : null);
     }
   } else if (!titleMatch && (checkPath === '/projects' || checkPath.startsWith('/projects/'))) {
+    hideMainTabs();
     const id = checkPath.slice('/projects/'.length);
     renderProjects(id ? decodeURIComponent(id) : null);
   } else if (!titleMatch && (checkPath === '/news' || checkPath === '/news/')) {
+    hideMainTabs();
     // Like projects, News is cross-title: #/title/29/news falls through to not-found.
     await loadNews(params);
   } else if (!titleMatch && /^\/news\/inspection\/\d+\/?$/.test(checkPath)) {
+    hideMainTabs();
     const actNr = parseInt(checkPath.split('/')[3], 10);
     await loadInspection(actNr);
   } else if (!titleMatch && (checkPath === '/help' || checkPath === '/help/')) {
+    hideMainTabs();
     await loadHelp(params);
   } else if (!titleMatch && (checkPath === '/settings' || checkPath === '/settings/')) {
+    hideMainTabs();
     renderSettingsPage({ enter: true });
   } else if (checkPath.startsWith('/search')) {
+    hideMainTabs();
     const q = params.get('q') || '';
     dom.search.value = q;
     await loadSearchPage(q, params.get('scope'));
   } else {
+    hideMainTabs();
     renderNotFound();
   }
 }

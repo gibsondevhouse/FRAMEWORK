@@ -33,6 +33,12 @@ state.isGenerating = false;
 state.routeSeq = 0;
 state.routeAbort = null;
 state.splitState = null;
+state.mainTabs = [];
+state.activeMainTabId = null;
+state.splitTabs = [];
+state.activeSplitTabId = null;
+state.splitWide = false;
+state.pendingNewMainTab = false;
 state.pendingDownloads = new Map();
 state.peekCache = new Map();
 state.graphCache = new Map();
@@ -57,6 +63,7 @@ export const dom = {
   tree: document.getElementById('tree'),
   mainStage: document.getElementById('main-stage'),
   main: document.getElementById('main'),
+  mainTabs: document.getElementById('main-tabs'),
   splitPane: document.getElementById('split-pane'),
   view: document.getElementById('view'),
   viewHead: document.getElementById('view-head'),

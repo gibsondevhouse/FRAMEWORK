@@ -3,6 +3,7 @@ import { renderResolverPage } from '../components/cfr_resolver';
 import { updateChatContext } from '../components/chat';
 import { fillNewsActivity, newsActivityButtonHtml } from '../components/news_activity';
 import { adjustFontSize, sectionHref } from '../components/rail';
+import { syncMainTabFromRoute } from '../components/reader_tabs';
 import { clearTreeSelection, ensureTreeLoaded, plural, selectTreeNode } from '../components/sidebar';
 import { openSplitPane } from '../components/split_pane';
 import { renderNotFound } from '../components/title_switcher';
@@ -111,6 +112,15 @@ export async function loadPart(partId) {
       <p class="part-toc-empty muted" id="part-toc-empty" hidden>No matching sections in Part ${escapeHtml(partId)}.</p>
     `;
 
+    syncMainTabFromRoute({
+      kind: 'part',
+      title: state.currentTitle,
+      partId,
+      full: false,
+      label: `${state.currentTitle} CFR Part ${partId}`,
+      heading: partNode.d || partNode.l || '',
+      href: window.location.hash || `#/title/${state.currentTitle}/part/${encodeURIComponent(partId)}`,
+    });
     enterView();
     selectTreeNode('p-' + partId);
     recordPartVisit(partId, partNode.d);
@@ -213,6 +223,15 @@ export async function loadPartFull(partId, params) {
       ${sectionsHtml || '<p class="muted">No sections in this part.</p>'}
     `;
     enhanceDomAnchors(dom.view);
+    syncMainTabFromRoute({
+      kind: 'part',
+      title: state.currentTitle,
+      partId,
+      full: true,
+      label: `${state.currentTitle} CFR Part ${partId} · Full`,
+      heading: partNode.d || partNode.l || '',
+      href: window.location.hash || `#/title/${state.currentTitle}/part/${encodeURIComponent(partId)}/full`,
+    });
     const refs = collectSectionReferences(dom.view);
     const ledgerBtn = document.getElementById('btn-part-refs-ledger');
     if (ledgerBtn && refs.length) {

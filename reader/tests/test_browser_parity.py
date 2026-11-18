@@ -525,6 +525,110 @@ class BehaviorTests(BrowserCase):
         self.assertEqual(page.inner_text(".ts-folio .ref-badge"), "FEDERAL CFR")
         self.assert_no_external_requests()
 
+    def test_secondary_reader_and_ref_launch(self):
+        page = self.open_page("/title/29/section/1910.120", ".reg-body a.xref[href*='1910.134']")
+
+        # 1. Plain-clicking a referenced CFR link keeps the main reader in place
+        #    and prompts to open side-by-side or in an in-app reader tab.
+        page.locator(".reg-body a.xref[href*='1910.134']").first.click()
+        page.wait_for_selector("#cite-pop:not([hidden])", timeout=5000)
+        self.assertIn("#/title/29/section/1910.120", page.url)
+        split_btn = page.locator("#cite-pop [data-peek-split]")
+        tab_btn = page.locator("#cite-pop [data-peek-tab]")
+        self.assertEqual(split_btn.count(), 1)
+        self.assertEqual(tab_btn.count(), 1)
+
+        # Open in an in-app main reader tab (#main-tabs shows both tabs).
+        tab_btn.click()
+        page.wait_for_function("() => location.hash.includes('/title/29/section/1910.134')", timeout=5000)
+        page.wait_for_selector("#main-tabs:not([hidden]) .reader-tab", timeout=5000)
+        self.assertEqual(page.locator("#main-tabs .reader-tab").count(), 2)
+        # Switch back to tab 1 (§ 1910.120).
+        page.locator("#main-tabs [data-tab-switch]").first.click()
+        page.wait_for_function("() => location.hash.includes('/title/29/section/1910.120')", timeout=5000)
+
+        # 2. Clicking a reference -> "Open side-by-side" opens tabbed secondary reader (#split-tabs).
+        page.locator(".reg-body a.xref[href*='1910.134']").first.click()
+        page.wait_for_selector("#cite-pop [data-peek-split]", timeout=5000)
+        page.locator("#cite-pop [data-peek-split]").click()
+        page.wait_for_selector(".main-stage.is-split #split-pane .reg-body", timeout=5000)
+        self.assertIn("1910.134", page.inner_text("#split-pane .split-head-title"))
+        self.assertEqual(page.locator("#split-tabs .reader-tab").count(), 1)
+
+        # Pin & Cited-by from secondary reader (offering in-app Tab + Split).
+        page.locator("#split-btn-pin").click()
+        page.wait_for_selector("#pin-pop:not([hidden]) .pin-new input", timeout=5000)
+        page.fill("#pin-pop .pin-new input", "Split Pin Workspace")
+        page.press("#pin-pop .pin-new input", "Enter")
+        self.assertIn("Pinned", page.inner_text("#split-btn-pin"))
+        page.keyboard.press("Escape")
+
+        page.locator("#split-btn-cited").click()
+        page.wait_for_selector("#cite-pop .cited-row", timeout=5000)
+        self.assertEqual(page.locator("#cite-pop [data-cited-tab]").count(), 1)
+        page.keyboard.press("Escape")
+
+        # Wide (52%) toggle and hover .para-tools on secondary reader.
+        page.locator("[data-split-act='wide']").click()
+        self.assertTrue(page.evaluate(
+            "document.querySelector('.main-stage').classList.contains('is-split-wide')"
+        ))
+        split_para = page.locator("#split-pane .split-body .reg-p[id]").first
+        split_para.hover()
+        self.assertEqual(split_para.locator(".para-tools").count(), 1)
+
+        # 3. Going a second & third step out: open 40 CFR 261.3 as Split Tab 2,
+        #    then from inside 261.3 click "40 CFR part 262" -> Open side-by-side tab -> Split Tab 3!
+        page.locator(".reg-body a.xref[href*='/title/40/section/261.3']").first.click()
+        page.wait_for_selector("#cite-pop [data-peek-split]", timeout=5000)
+        page.locator("#cite-pop [data-peek-split]").click()
+        page.wait_for_selector("#split-pane .split-head-title:has-text('261.3')", timeout=5000)
+        self.assertEqual(page.locator("#split-tabs .reader-tab").count(), 2)
+
+        page.locator("#split-pane .reg-body a.xref[href*='/title/40/part/262']").first.click()
+        page.wait_for_selector("#cite-pop [data-peek-split]", timeout=5000)
+        self.assertEqual(page.locator("#cite-pop [data-peek-tab]").count(), 1)
+        self.assertEqual(page.locator("#cite-pop [data-peek-replace-split]").count(), 1)
+        page.locator("#cite-pop [data-peek-split]").click()
+        page.wait_for_selector("#split-pane .split-head-title:has-text('Part 262')", timeout=5000)
+        self.assertEqual(page.locator("#split-tabs .reader-tab").count(), 3)
+
+        # 4. Save the entire main + side-by-side research tab group to a Workspace, close split,
+        #    and restore it from the Workspace detail page.
+        page.locator("[data-split-tabs-act='save-group']").click()
+        page.wait_for_selector("#pin-pop:not([hidden]) #pin-group-name", timeout=5000)
+        page.fill("#pin-pop #pin-group-name", "HAZMAT + RCRA Multi-Step")
+        page.fill("#pin-pop .pin-new input", "Research Path Workspace")
+        page.press("#pin-pop .pin-new input", "Enter")
+
+        # Close split pane cleanly before restoring from Workspace.
+        page.locator("[data-split-act='close']").click()
+        self.assertTrue(page.locator("#split-pane").is_hidden())
+
+        page.goto(f"{ENV.base_url}/#/projects")
+        page.wait_for_selector(".proj-card a:has-text('Research Path Workspace')", timeout=5000)
+        self.assertIn("tab group", page.inner_text(".proj-card:has-text('Research Path Workspace')"))
+        page.locator(".proj-card a:has-text('Research Path Workspace')").click()
+        page.wait_for_selector(".proj-tabgroup", timeout=5000)
+        self.assertIn("HAZMAT + RCRA Multi-Step", page.inner_text(".proj-tabgroup-name"))
+        page.locator("[data-proj-act='tabgroup-restore']").first.click()
+
+        page.wait_for_selector("#main-tabs:not([hidden]) .reader-tab", timeout=5000)
+        page.wait_for_selector(".main-stage.is-split #split-tabs .reader-tab", timeout=5000)
+        self.assertEqual(page.locator("#main-tabs .reader-tab").count(), 2)
+        self.assertEqual(page.locator("#split-tabs .reader-tab").count(), 3)
+
+        # Switch split back to 261.3, swap with main, open Full Part in split cleanly.
+        page.locator("#split-tabs [data-split-tab]", has_text="261.3").click()
+        page.wait_for_selector("#split-pane .split-head-title:has-text('261.3')", timeout=5000)
+        page.locator("#split-pane .split-kicker-link").click()
+        page.wait_for_selector("#split-pane [data-split-part][data-split-full='1']", timeout=5000)
+        page.locator("#split-pane [data-split-part][data-split-full='1']").click()
+        page.wait_for_selector("#split-pane .full-section", timeout=5000)
+        self.assertGreaterEqual(page.locator("#split-pane .full-section").count(), 1)
+
+        self.assert_no_external_requests()
+
 
 class ScreenshotCase(BrowserCase):
     def assert_baseline(self, page, name: str):
