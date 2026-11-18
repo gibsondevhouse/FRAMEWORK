@@ -14,7 +14,10 @@ import {
 } from '../views/doc_utils';
 import { clipToWorkspace, currentSectionRef } from '../views/projects';
 import { collectSectionReferences, openCitedByPopover, openRefsLedgerPopover } from '../views/reader';
-import { findPartInTree, tocTitle } from '../views/reader_part';
+import {
+  buildPartTocView, findPartInTree, handlePartTocCarouselClick,
+  handlePartTocCarouselKeydown, initPartTocCarousels,
+} from '../views/reader_part';
 
 // --- Fully Capable Tabbed Secondary Side-by-Side Reader (#split-pane) ---
 let splitAbort = null;
@@ -366,27 +369,13 @@ async function openSplitPart(nextEntry, seq, signal, { fromX = 0 } = {}) {
     tab.heading = cleanInlineLabel(partNode.d || partNode.l);
     persistSessionTabs();
   }
-  let groupsHtml = '';
-  const rowHtml = (s) => `
-    <li class="${s.r ? 'reserved' : ''}">
-      <a href="#/title/${tNum}/section/${encodeURIComponent(s.id)}">
-        <span class="toc-num">${escapeHtml(s.l)}</span>
-        <span class="toc-title">${escapeHtml(tocTitle(s))}</span>
-      </a>
-    </li>`;
-  for (const child of partNode.c || []) {
-    if (child.t === 'subpart' || child.t === 'subject_group') {
-      const children = child.c || [];
-      const hTxt = child.d && child.d.trim() !== (child.l || '').trim() ? `${child.l}: ${child.d}` : child.l;
-      groupsHtml += `
-        <div class="toc-group" data-ref-tier="${splitTier}">
-          <h3><span>${escapeHtml(hTxt)}</span><span class="toc-group-count">${children.length}</span></h3>
-          <ul class="toc-list">${children.map(rowHtml).join('')}</ul>
-        </div>`;
-    } else if (child.t === 'section' || child.t === 'appendix') {
-      groupsHtml += `<div class="toc-group is-flat" data-ref-tier="${splitTier}"><ul class="toc-list">${rowHtml(child)}</ul></div>`;
-    }
-  }
+  const toc = buildPartTocView({
+    partNode,
+    front,
+    titleNum: tNum,
+    tier: splitTier,
+    isSplit: true,
+  });
 
   dom.splitPane.innerHTML = `
     ${splitTabsBarHtml()}
@@ -394,10 +383,14 @@ async function openSplitPart(nextEntry, seq, signal, { fromX = 0 } = {}) {
     ${splitActionsBarHtml({ partId, partFull: true })}
     <div class="split-body">
       ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ''}
-      ${groupsHtml || '<p class="muted">No sections listed in this part.</p>'}
+      ${toc.atlasHtml}
+      <div class="toc-groups-wrap">
+        ${toc.groupsHtml || '<p class="muted">No sections listed in this part.</p>'}
+      </div>
     </div>
   `;
   animateCalm(dom.splitPane.querySelector('.split-body'), { fromY: fromX ? 0 : 14, fromX, fromScale: 0.992, duration: 640 });
+  initPartTocCarousels(dom.splitPane, { titleNum: tNum, signal });
   updateSplitRefsBtn();
   hydrateSplitNews(tNum, 'part', partId, seq);
   dom.splitPane.scrollTop = 0;
@@ -754,6 +747,10 @@ if (dom.splitPane) {
       return;
     }
 
+    if (handlePartTocCarouselClick(e, dom.splitPane, { titleNum: state.splitState?.title || state.currentTitle, signal: splitAbort?.signal })) {
+      return;
+    }
+
     const anchorTrigger = e.target.closest('[data-anchor]');
     if (anchorTrigger) {
       e.preventDefault();
@@ -806,6 +803,13 @@ if (dom.splitPane) {
         });
       }
     }
+  });
+
+  dom.splitPane.addEventListener('keydown', (e) => {
+    handlePartTocCarouselKeydown(e, {
+      titleNum: state.splitState?.title || state.currentTitle,
+      signal: splitAbort?.signal,
+    });
   });
 
   dom.splitPane.addEventListener('error', (e) => {

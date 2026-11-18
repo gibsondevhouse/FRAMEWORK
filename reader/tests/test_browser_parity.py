@@ -505,11 +505,75 @@ class BehaviorTests(BrowserCase):
         page.locator(".proj-task-status").click()
         self.assertEqual(page.inner_text(".proj-task-status"), "IN PROGRESS")
 
-        # 6. Part TOC, See Full Part, and Title Start page elevations.
+        # 6. Visual Part TOC Atlas (Vertical-oriented thumbnails, >3 carousel initiation), See Full Part, and Title Start.
         page.goto(f"{ENV.base_url}/#/title/29/part/1910")
-        page.wait_for_selector(".toc-group[data-ref-tier='cfr']", timeout=5000)
+        page.wait_for_selector(".toc-atlas .toc-map-bar", timeout=5000)
+        page.wait_for_selector(".toc-carousel.is-static .toc-card", timeout=5000)
         self.assertEqual(page.inner_text(".doc-kicker .ref-badge"), "FEDERAL REG")
         self.assertGreaterEqual(page.locator(".toc-group-count").count(), 1)
+        self.assertGreaterEqual(page.locator(".toc-card").count(), 4)
+        self.assertGreaterEqual(page.locator(".toc-sub-chip").count(), 2)
+        # All subparts in fake Part 1910 have <= 3 sections, so no carousel is initiated yet.
+        self.assertEqual(page.locator(".toc-carousel.is-carousel").count(), 0)
+        # Cards must be vertically oriented (portrait: height > width) and display hydrated section info.
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('.toc-card-excerpt')].every(el => el.textContent.trim().length > 0)",
+            timeout=5000,
+        )
+        card_box = page.locator(".toc-card").first.bounding_box()
+        self.assertIsNotNone(card_box)
+        self.assertGreater(card_box["height"], card_box["width"])
+        # Toggle between Thumbnails and Compact Index modes cleanly.
+        page.locator("[data-toc-view='compact']").click()
+        self.assertTrue(page.evaluate(
+            "document.querySelector('.toc-groups-wrap').classList.contains('is-compact')"
+        ))
+        page.locator("[data-toc-view='cards']").click()
+        page.locator("[data-toc-split='1910.120']").click()
+        page.wait_for_selector(".main-stage.is-split #split-pane .split-body", timeout=5000)
+        page.locator("[data-split-act='close']").click()
+
+        # Verify >3 cards initiates the carousel while 3 cards stays static.
+        import json as _json
+        def _expand_tree(route):
+            resp = route.fetch()
+            tree = _json.loads(resp.text())
+            subparts = tree["c"][0]["c"][0]["c"][0]["c"]
+            # Subpart H -> 3 sections (must NOT initiate carousel); Subpart I -> 5 sections (MUST initiate carousel).
+            subparts[0]["c"] = [
+                {"t": "section", "id": "1910.120", "l": "§ 1910.120", "d": "HAZWOPER"},
+                {"t": "section", "id": "1910.134", "l": "§ 1910.134", "d": "Respiratory protection."},
+                {"t": "section", "id": "1910.135", "l": "§ 1910.135", "d": "Head protection."},
+            ]
+            subparts[1]["c"] = [
+                {"t": "section", "id": "1910.134", "l": "§ 1910.134", "d": "Respiratory protection."},
+                {"t": "section", "id": "1910.135", "l": "§ 1910.135", "d": "Head protection."},
+                {"t": "section", "id": "1910.120", "l": "§ 1910.120", "d": "HAZWOPER"},
+                {"t": "section", "id": "1910.1200", "l": "§ 1910.1200", "d": "Hazard communication."},
+                {"t": "section", "id": "1910.134", "l": "§ 1910.134", "d": "Respiratory follow-up."},
+            ]
+            route.fulfill(status=200, content_type="application/json", body=_json.dumps(tree))
+
+        car_page = self.context.new_page()
+        car_page.clock.set_fixed_time(FROZEN)
+        car_page.route("**/api/29/tree", _expand_tree)
+        car_page.goto(f"{ENV.base_url}/#/title/29/part/1910")
+        car_page.wait_for_selector(".toc-carousel.is-carousel .toc-slide", timeout=5000)
+        # Only the 5-card subpart initiates a carousel; the 3-card and 1-card subparts remain static.
+        self.assertEqual(car_page.locator(".toc-carousel.is-carousel").count(), 1)
+        self.assertEqual(car_page.locator(".toc-carousel.is-static").count(), 2)
+        grp = car_page.locator(".toc-group").nth(1)
+        car = grp.locator(".toc-carousel.is-carousel")
+        self.assertIn("01–03 / 05", grp.locator(".toc-ccnt").inner_text())
+        grp.locator("[data-car-dir='1']").click()
+        self.assertEqual(car.get_attribute("data-active-idx"), "2")
+        self.assertIn("03–05 / 05", grp.locator(".toc-ccnt").inner_text())
+        grp.locator("[data-car-dir='-1']").click()
+        self.assertEqual(car.get_attribute("data-active-idx"), "0")
+        car_box = car.locator(".toc-card").first.bounding_box()
+        self.assertIsNotNone(car_box)
+        self.assertGreater(car_box["height"], car_box["width"])
+        car_page.close()
 
         page.goto(f"{ENV.base_url}/#/title/40/part/261/full")
         page.wait_for_selector("#btn-part-refs-ledger:not([hidden])", timeout=10000)
