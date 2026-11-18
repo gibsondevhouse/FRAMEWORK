@@ -10,9 +10,14 @@
   <script>
     // Apply saved reading font size and drawer geometry before first paint to avoid a flash.
     (function () {
-      var root = document.documentElement, size = null;
+      var root = document.documentElement, size = null, motion = null;
       try { size = localStorage.getItem("fontSize"); } catch (e) {}
       root.style.setProperty("--reader-size", (parseInt(size, 10) || 16) + "px");
+      try { motion = localStorage.getItem("motionLevel"); } catch (e) {}
+      if (motion !== "none" && motion !== "less" && motion !== "full") {
+        motion = (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) ? "none" : "full";
+      }
+      root.dataset.motion = motion;
       // The drawer's width, collapsed state and mode (app.js "Navigation"), so the first paint
       // has the right layout. Older keys (sidebarW, sidebarHidden) are read once as a fallback.
       try {

@@ -1,4 +1,4 @@
-import { escapeHtml, icon, reduceMotion } from '../dom';
+import { escapeHtml, getMotionLevel, icon, smoothScrollToTarget } from '../dom';
 import { emptyStateHtml } from '../components/ui';
 import { dom } from '../state_init';
 
@@ -162,7 +162,7 @@ export function flashElements(els, scroll = true) {
     el.classList.add('flash');
   }
   if (scroll) {
-    els[0].scrollIntoView({ behavior: reduceMotion.matches ? 'auto' : 'smooth', block: 'center' });
+    smoothScrollToTarget(els[0], { block: 'center' });
   }
 }
 

@@ -1,6 +1,6 @@
 import { state } from '../state';
 import { docStepBtn } from '../components/view_head';
-import { escapeHtml, icon, lsGet, lsSet, reduceMotion } from '../dom';
+import { escapeHtml, getMotionLevel, icon, lsGet, lsSet, smoothScrollToTarget } from '../dom';
 import { dom } from '../state_init';
 
 // --- Units and the rail ---
@@ -197,9 +197,8 @@ export function scrollToAnchor(id, rootOrOpts = {}) {
     target = document.getElementById(id);
   }
   if (!target) return false;
-  target.scrollIntoView({
+  smoothScrollToTarget(target, {
     block: target.matches('.reg-footnote, .reg-p, .reg-figure') ? 'center' : 'start',
-    behavior: reduceMotion.matches ? 'auto' : 'smooth',
   });
   if (flash && (target.matches('.reg-footnote, .reg-p, .table-wrap, .reg-appendix, .reg-figure'))) {
     target.classList.remove('flash');

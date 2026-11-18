@@ -32,6 +32,9 @@ state.isGenerating = false;
 // so a slow page can't land on top of the one the reader has since moved to.
 state.routeSeq = 0;
 state.routeAbort = null;
+state.motionLevel = (document.documentElement.dataset.motion === 'none' || document.documentElement.dataset.motion === 'less')
+  ? document.documentElement.dataset.motion
+  : 'full';
 state.splitState = null;
 state.mainTabs = [];
 state.activeMainTabId = null;
@@ -39,6 +42,7 @@ state.splitTabs = [];
 state.activeSplitTabId = null;
 state.splitWide = false;
 state.pendingNewMainTab = false;
+state.swapMotionX = 0;
 state.pendingDownloads = new Map();
 state.peekCache = new Map();
 state.graphCache = new Map();

@@ -62,6 +62,22 @@
   .wire-pending, .skel, .loading:not(.is-skel)::before { animation: none; }
 }
 
+html[data-motion="none"] *, html[data-motion="none"] *::before, html[data-motion="none"] *::after {
+  animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; scroll-behavior: auto !important;
+}
+html[data-motion="none"] .dock-fill.is-indeterminate { animation: none; left: 0; width: 100% !important; opacity: .45; }
+html[data-motion="none"] .stat-dot.is-busy::after, html[data-motion="none"] .wire-badge::before { animation: none; }
+html[data-motion="none"] .stat-dot.is-busy::after, html[data-motion="none"] .ar-badge.is-busy::after { display: none; }
+html[data-motion="none"] .wire-pending, html[data-motion="none"] .skel, html[data-motion="none"] .loading:not(.is-skel)::before { animation: none; }
+
+/* Less motion keeps gentle opacity fades while quieting ambient pulses and shimmer loops */
+html[data-motion="less"] .stat-dot.is-busy::after,
+html[data-motion="less"] .ar-badge.is-busy::after { display: none; }
+html[data-motion="less"] .wire-pending,
+html[data-motion="less"] .skel,
+html[data-motion="less"] .loading:not(.is-skel)::before,
+html[data-motion="less"] .dock-fill.is-indeterminate { animation: none; }
+
 @media print {
   .topbar, .sidebar, .activity-rail, .chat, .nav-backdrop, .ask-float, .toast, .doc-actions, .view-head, .transfer-dock, .pin-pop, .news-pop, .cite-pop, .split-pane, .modal-backdrop { display: none !important; }
   html, body, .layout { height: auto; }

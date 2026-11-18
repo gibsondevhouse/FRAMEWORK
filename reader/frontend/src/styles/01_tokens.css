@@ -70,13 +70,20 @@
   --chat-w: 420px;
   --gutter: 8px;
 
-  /* Motion */
-  --ease: cubic-bezier(.25, .46, .45, .94);
-  --ease-out: cubic-bezier(.165, .84, .44, 1);
-  --t-quick: .15s;
-  --t-base: .22s;
-  --t-slow: .3s;
-  --t-ui: .3s;
+  /* Motion — Full uses cinematic, unhurried momentum; Less uses calm opacity dissolves */
+  --ease: cubic-bezier(.32, .72, 0, 1);
+  --ease-out: cubic-bezier(.25, .65, .15, 1);
+  --ease-calm: cubic-bezier(.32, .72, 0, 1);
+  --ease-tactile: cubic-bezier(.28, .85, .32, 1.06);
+  --t-quick: .30s;
+  --t-base: .46s;
+  --t-slow: .68s;
+  --t-ui: .34s;
+  --t-pane: .56s;
+  --t-split: .80s;
+  --motion-y: 16px;
+  --motion-x: 34px;
+  --motion-scale: .965;
 
   /* Yakuza Editorial Obsidian Surface & Ink Hierarchy */
   --bg: #070708;            /* Deep canvas void */
@@ -136,4 +143,18 @@
   --ref-ibr: #C084FC;           /* 7. IBR Consensus Standard (ANSI, NFPA, ASTM...) */
   --ref-state: #34D399;         /* 8. State statute / admin code */
   --ref-county: #2DD4BF;        /* 9. County / municipal ordinance */
+}
+
+/* Reduced / calm opacity-only motion preset */
+html[data-motion="less"] {
+  --t-quick: .12s;
+  --t-base: .18s;
+  --t-slow: .22s;
+  --t-ui: .16s;
+  --t-pane: .18s;
+  --t-split: .22s;
+  --ease-tactile: ease-out;
+  --motion-y: 0px;
+  --motion-x: 0px;
+  --motion-scale: 1;
 }

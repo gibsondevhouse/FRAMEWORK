@@ -627,6 +627,17 @@ class BehaviorTests(BrowserCase):
         page.wait_for_selector("#split-pane .full-section", timeout=5000)
         self.assertGreaterEqual(page.locator("#split-pane .full-section").count(), 1)
 
+        # 5. Motion setting ("No" / "Less" / "Full") persists to html[data-motion] & localStorage.
+        page.goto(f"{ENV.base_url}/#/settings")
+        page.wait_for_selector("[data-set='motion'][data-value='less']", timeout=5000)
+        page.locator("[data-set='motion'][data-value='less']").click()
+        self.assertEqual(page.evaluate("document.documentElement.dataset.motion"), "less")
+        self.assertEqual(page.evaluate("localStorage.getItem('motionLevel')"), "less")
+        page.locator("[data-set='motion'][data-value='none']").click()
+        self.assertEqual(page.evaluate("document.documentElement.dataset.motion"), "none")
+        page.locator("[data-set='motion'][data-value='full']").click()
+        self.assertEqual(page.evaluate("document.documentElement.dataset.motion"), "full")
+
         self.assert_no_external_requests()
 
 

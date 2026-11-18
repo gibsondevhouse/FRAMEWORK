@@ -58,6 +58,7 @@ var state = {
 	envModalReturnFocus: void 0,
 	envModalSnapshot: void 0,
 	selectedText: "",
+	motionLevel: "full",
 	routeAbort: null,
 	splitState: null,
 	mainTabs: [],
@@ -66,6 +67,7 @@ var state = {
 	activeSplitTabId: null,
 	splitWide: false,
 	pendingNewMainTab: false,
+	swapMotionX: 0,
 	pendingDownloads: /* @__PURE__ */ new Map(),
 	peekCache: /* @__PURE__ */ new Map(),
 	graphCache: /* @__PURE__ */ new Map(),
@@ -93,6 +95,7 @@ state.chatHistory = [];
 state.isGenerating = false;
 state.routeSeq = 0;
 state.routeAbort = null;
+state.motionLevel = document.documentElement.dataset.motion === "none" || document.documentElement.dataset.motion === "less" ? document.documentElement.dataset.motion : "full";
 state.splitState = null;
 state.mainTabs = [];
 state.activeMainTabId = null;
@@ -100,6 +103,7 @@ state.splitTabs = [];
 state.activeSplitTabId = null;
 state.splitWide = false;
 state.pendingNewMainTab = false;
+state.swapMotionX = 0;
 state.pendingDownloads = /* @__PURE__ */ new Map();
 state.peekCache = /* @__PURE__ */ new Map();
 state.graphCache = /* @__PURE__ */ new Map();
@@ -4621,20 +4625,141 @@ function skeletonHtml(kind = "doc", label = "Loading…") {
 	} else body = `<div class="skel-stack" style="gap:16px">${line("24%", "is-sm")}${line("62%", "is-xl")}<div class="skel-stack" style="gap:10px;margin-top:8px">${line("94%")}${line("88%")}${line("91%")}${line("76%")}${line("84%")}</div></div>`;
 	return `<div class="loading is-skel" role="status" aria-busy="true" aria-label="${escapeHtml(label)}">${body}</div>`;
 }
+var MOTION_KEY = "motionLevel";
 var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-function enterView() {
-	dom.main.scrollTop = 0;
-	if (reduceMotion.matches || !dom.view.animate) return;
-	dom.view.animate([{
+function getMotionLevel() {
+	const stored = lsGet(MOTION_KEY);
+	if (stored === "none" || stored === "less" || stored === "full") return stored;
+	return reduceMotion.matches ? "none" : "full";
+}
+function applyMotionLevel(level) {
+	const next = level === "none" || level === "less" || level === "full" ? level : getMotionLevel();
+	lsSet(MOTION_KEY, next);
+	document.documentElement.dataset.motion = next;
+	state.motionLevel = next;
+	return next;
+}
+if (!document.documentElement.dataset.motion) document.documentElement.dataset.motion = getMotionLevel();
+state.motionLevel = getMotionLevel();
+function animateCalm(el, { fromY = 16, fromX = 0, fromScale = .99, duration = 640, delay = 0 } = {}) {
+	const level = getMotionLevel();
+	if (level === "none" || !el || !el.animate) return;
+	try {
+		el._calmAnim?.cancel();
+	} catch (e) {}
+	const keyframes = level === "less" ? [{ opacity: 0 }, { opacity: 1 }] : [{
 		opacity: 0,
-		transform: "translateY(4px)"
+		transform: `translate3d(${fromX}px, ${fromY}px, 0) scale(${fromScale})`
 	}, {
 		opacity: 1,
 		transform: "none"
-	}], {
-		duration: 180,
-		easing: "cubic-bezier(.25, .46, .45, .94)"
+	}];
+	el._calmAnim = el.animate(keyframes, {
+		duration: level === "less" ? Math.min(180, Math.round(duration * .3)) : duration,
+		delay: level === "less" ? 0 : delay,
+		easing: level === "less" ? "ease-out" : "cubic-bezier(0.32, 0.72, 0, 1)",
+		fill: delay > 0 ? "backwards" : "none"
 	});
+}
+function enterView({ subtle = false, fromX = 0 } = {}) {
+	dom.main.scrollTop = 0;
+	const level = getMotionLevel();
+	if (level === "none") return;
+	if (subtle && !fromX) {
+		const targets = dom.view.querySelectorAll(".unit-context, .reg-body, .reg-footnotes");
+		if (targets.length) {
+			for (const t of targets) animateCalm(t, {
+				fromY: 14,
+				fromScale: 1,
+				duration: 540
+			});
+			return;
+		}
+	}
+	if (level === "full" && !fromX) {
+		const head = dom.view.querySelector(".doc-kicker, .help-head, .home-head, .lib-head");
+		const body = dom.view.querySelector(".reg-body, .part-toc-tools, .toc-group, .full-section, .settings-grid, .lib-stories");
+		if (head && body) {
+			animateCalm(dom.view, {
+				fromY: 14,
+				fromScale: .992,
+				duration: 640
+			});
+			animateCalm(body, {
+				fromY: 18,
+				fromScale: 1,
+				duration: 740,
+				delay: 90
+			});
+			return;
+		}
+	}
+	animateCalm(dom.view, {
+		fromY: fromX ? 0 : 16,
+		fromX,
+		fromScale: .99,
+		duration: 720
+	});
+}
+function smoothScrollToTarget(el, { block = "center", duration = 820 } = {}) {
+	if (!el) return;
+	if (getMotionLevel() !== "full") {
+		el.scrollIntoView({
+			behavior: "auto",
+			block
+		});
+		return;
+	}
+	const scroller = el.closest(".main, .split-pane");
+	if (!scroller) {
+		el.scrollIntoView({
+			behavior: "smooth",
+			block
+		});
+		return;
+	}
+	try {
+		if (scroller._scrollRaf) cancelAnimationFrame(scroller._scrollRaf);
+	} catch (e) {}
+	const sRect = scroller.getBoundingClientRect();
+	const eRect = el.getBoundingClientRect();
+	const offsetTop = eRect.top - sRect.top + scroller.scrollTop;
+	const target = block === "center" ? offsetTop - Math.max(80, (scroller.clientHeight - eRect.height) / 2) : offsetTop - 76;
+	const clamped = Math.max(0, Math.min(target, scroller.scrollHeight - scroller.clientHeight));
+	const start = scroller.scrollTop;
+	const dist = clamped - start;
+	if (Math.abs(dist) < 2) {
+		scroller.scrollTop = clamped;
+		return;
+	}
+	const t0 = performance.now();
+	let canceled = false;
+	const cancel = () => {
+		canceled = true;
+		scroller.removeEventListener("wheel", cancel);
+		scroller.removeEventListener("touchstart", cancel);
+	};
+	scroller.addEventListener("wheel", cancel, {
+		passive: true,
+		once: true
+	});
+	scroller.addEventListener("touchstart", cancel, {
+		passive: true,
+		once: true
+	});
+	const step = (now) => {
+		if (canceled) return;
+		const p = Math.min(1, (now - t0) / duration);
+		const eased = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+		scroller.scrollTop = start + dist * eased;
+		if (p < 1) scroller._scrollRaf = requestAnimationFrame(step);
+		else {
+			scroller._scrollRaf = 0;
+			scroller.removeEventListener("wheel", cancel);
+			scroller.removeEventListener("touchstart", cancel);
+		}
+	};
+	scroller._scrollRaf = requestAnimationFrame(step);
 }
 var isMac = /Mac|iPhone|iPad/.test(navigator.platform || "");
 // src/components/corpora.js
@@ -6651,10 +6776,7 @@ function scrollToAnchor(id, rootOrOpts = {}) {
 		target = document.getElementById(id);
 	}
 	if (!target) return false;
-	target.scrollIntoView({
-		block: target.matches(".reg-footnote, .reg-p, .reg-figure") ? "center" : "start",
-		behavior: reduceMotion.matches ? "auto" : "smooth"
-	});
+	smoothScrollToTarget(target, { block: target.matches(".reg-footnote, .reg-p, .reg-figure") ? "center" : "start" });
 	if (flash && target.matches(".reg-footnote, .reg-p, .table-wrap, .reg-appendix, .reg-figure")) {
 		target.classList.remove("flash");
 		target.offsetWidth;
@@ -8501,10 +8623,7 @@ function flashElements(els, scroll = true) {
 		el.offsetWidth;
 		el.classList.add("flash");
 	}
-	if (scroll) els[0].scrollIntoView({
-		behavior: reduceMotion.matches ? "auto" : "smooth",
-		block: "center"
-	});
+	if (scroll) smoothScrollToTarget(els[0], { block: "center" });
 }
 function highlightTarget(root, target, delay = 120) {
 	setTimeout(() => {
@@ -8934,11 +9053,13 @@ function swapSplitWithMain() {
 		partId: mainPart.partId,
 		label: `${mainPart.title} CFR Part ${mainPart.partId}`
 	};
+	state.swapMotionX = 36;
 	window.location.hash = splitHref;
 	openSplitPane({
 		...nextSplit,
 		newTab: false,
-		pushHistory: true
+		pushHistory: true,
+		fromX: -36
 	});
 }
 async function loadTreeForTitle(tNum, signal) {
@@ -8999,7 +9120,7 @@ function splitActionsBarHtml({ pinRef = null, partId = null, ecfrUrl = "", partF
       </div>
     </div>`;
 }
-async function openSplitPart(nextEntry, seq, signal) {
+async function openSplitPart(nextEntry, seq, signal, { fromX = 0 } = {}) {
 	const tNum = nextEntry.title;
 	const partId = nextEntry.partId;
 	const full = Boolean(nextEntry.full);
@@ -9047,7 +9168,15 @@ async function openSplitPart(nextEntry, seq, signal) {
       <div class="split-body">${sectionsHtml || "<p class=\"muted\">No sections in this part.</p>"}</div>
     `;
 		const bodyEl = dom.splitPane.querySelector(".split-body");
-		if (bodyEl) enhanceDomAnchors(bodyEl);
+		if (bodyEl) {
+			enhanceDomAnchors(bodyEl);
+			animateCalm(bodyEl, {
+				fromY: fromX ? 0 : 14,
+				fromX,
+				fromScale: .992,
+				duration: 640
+			});
+		}
 		updateSplitRefsBtn();
 		hydrateSplitNews(tNum, "part", partId, seq);
 		dom.splitPane.scrollTop = 0;
@@ -9104,6 +9233,12 @@ async function openSplitPart(nextEntry, seq, signal) {
       ${groupsHtml || "<p class=\"muted\">No sections listed in this part.</p>"}
     </div>
   `;
+	animateCalm(dom.splitPane.querySelector(".split-body"), {
+		fromY: fromX ? 0 : 14,
+		fromX,
+		fromScale: .992,
+		duration: 640
+	});
 	updateSplitRefsBtn();
 	hydrateSplitNews(tNum, "part", partId, seq);
 	dom.splitPane.scrollTop = 0;
@@ -9124,7 +9259,7 @@ async function hydrateSplitNews(tNum, kind, id, seq) {
 		btn.hidden = false;
 	}
 }
-async function openSplitPane({ kind = null, title, sectionId = null, partId = null, full = false, para = null, unit = null, label = "", heading = "", pushHistory = true, newTab = true, tabId = null }) {
+async function openSplitPane({ kind = null, title, sectionId = null, partId = null, full = false, para = null, unit = null, label = "", heading = "", pushHistory = true, newTab = true, tabId = null, fromX = 0 }) {
 	if (!dom.splitPane || !dom.mainStage) return;
 	const resolvedKind = kind || (partId && !sectionId ? "part" : "section");
 	if (resolvedKind === "section" && !sectionId) return;
@@ -9183,16 +9318,36 @@ async function openSplitPane({ kind = null, title, sectionId = null, partId = nu
 	} catch (e) {}
 	splitAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
 	const seq = ++splitSeq;
+	const wasClosed = dom.splitPane.hidden;
+	dom.splitPane.hidden = false;
+	if (wasClosed) {
+		dom.mainStage.classList.remove("is-split");
+		dom.mainStage.offsetWidth;
+	}
 	dom.mainStage.classList.add("is-split");
 	dom.mainStage.classList.toggle("is-split-wide", Boolean(state.splitWide));
-	dom.splitPane.hidden = false;
 	state.splitState = nextEntry;
 	persistSessionTabs();
 	renderMainTabs();
-	renderSplitLoading(tNum, resolvedKind === "part" ? `Part ${partId}` : `§ ${sectionId}`);
+	if (wasClosed) {
+		renderSplitLoading(tNum, resolvedKind === "part" ? `Part ${partId}` : `§ ${sectionId}`);
+		animateCalm(dom.splitPane, {
+			fromX: 34,
+			fromY: 0,
+			fromScale: .985,
+			duration: 740
+		});
+	} else {
+		syncSplitTabStripInPlace();
+		const prevBody = dom.splitPane.querySelector(".split-body");
+		if (prevBody) {
+			prevBody.style.transition = "opacity var(--t-quick) var(--ease-calm)";
+			prevBody.style.opacity = "0.35";
+		}
+	}
 	try {
 		if (resolvedKind === "part") {
-			await openSplitPart(nextEntry, seq, splitAbort?.signal);
+			await openSplitPart(nextEntry, seq, splitAbort?.signal, { fromX });
 			return;
 		}
 		const qs = unitQueryFor(unit, para);
@@ -9243,6 +9398,13 @@ async function openSplitPane({ kind = null, title, sectionId = null, partId = nu
 		const bodyEl = dom.splitPane.querySelector(".split-body");
 		if (bodyEl) {
 			enhanceDomAnchors(bodyEl);
+			animateCalm(bodyEl, {
+				fromY: fromX ? 0 : 14,
+				fromX,
+				fromScale: .992,
+				duration: wasClosed ? 680 : 600,
+				delay: wasClosed ? 110 : 0
+			});
 			updateSplitRefsBtn();
 			const applyGraph = (g) => {
 				if (!g || seq !== splitSeq || !bodyEl.isConnected) return;
@@ -9991,7 +10153,12 @@ async function loadSection(sectionId, params, view) {
 			heading,
 			href: window.location.hash || sectionHref(data.id, data.unit || (full ? "full" : null))
 		});
-		enterView();
+		const swapX = state.swapMotionX || 0;
+		state.swapMotionX = 0;
+		enterView({
+			subtle: Boolean(sameSection) && !swapX,
+			fromX: swapX
+		});
 		bindRail();
 		if (reading === "scroll") watchRail();
 		else if (state.railObserver) {
@@ -11811,6 +11978,11 @@ function renderSettingsPanel() {
           <button type="button" data-set-act="font-inc" aria-label="Larger text">A+</button>
         </span></div>
       <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? "<span class=\"set-sub\">Overlay on narrow screens</span>" : ""}</span>${settingSeg("mode", mqMobile.matches ? "flyout" : navState.mode, [["pinned", "Pinned"], ["flyout", "Overlay"]], mqMobile.matches)}</div>
+      <div class="set-row"><span class="set-name">Motion</span>${settingSeg("motion", getMotionLevel(), [
+		["none", "No"],
+		["less", "Less"],
+		["full", "Full"]
+	])}</div>
     </section>
     <section class="dr-sec">${drLabel("Quick actions")}
       <div class="set-quick-acts">
@@ -11854,6 +12026,12 @@ function renderSettingsPage(opts = {}) {
           </div>
           <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? "<span class=\"set-sub\">Overlay on narrow screens</span>" : ""}</span>${settingSeg("mode", mqMobile.matches ? "flyout" : navState.mode, [["pinned", "Pinned"], ["flyout", "Overlay"]], mqMobile.matches)}</div>
           <p class="dr-note">Pinned sits beside the page. Overlay slides over it and closes once you pick something.</p>
+          <div class="set-row"><span class="set-name">Motion</span>${settingSeg("motion", getMotionLevel(), [
+		["none", "No"],
+		["less", "Less"],
+		["full", "Full"]
+	])}</div>
+          <p class="dr-note">Full uses slow, soothing glides and tactile settling. Less keeps quiet fades without movement. No turns motion off.</p>
         </section>
         <section class="set-card">
           <h2 class="set-card-label">Claude</h2>
@@ -11884,6 +12062,10 @@ function refreshSettingsViews() {
 	if (navState.panel === "settings") renderSettingsPanel();
 	if (onSettingsPage()) renderSettingsPage();
 }
+function setMotionSetting(level) {
+	applyMotionLevel(level);
+	refreshSettingsViews();
+}
 async function runSettingsAction(btn) {
 	const act = btn.dataset.setAct;
 	if (act === "font-dec") adjustFontSize(-1);
@@ -11905,6 +12087,7 @@ dom.view.addEventListener("click", (e) => {
 	const set = e.target.closest("[data-set]");
 	if (set) {
 		if (set.dataset.set === "mode") setNavMode(set.dataset.value);
+		else if (set.dataset.set === "motion") setMotionSetting(set.dataset.value);
 		return;
 	}
 	const setAct = e.target.closest("[data-set-act]");
@@ -13452,6 +13635,7 @@ dom.sidebar.addEventListener("click", async (e) => {
 	const set = e.target.closest("[data-set]");
 	if (set) {
 		if (set.dataset.set === "mode") setNavMode(set.dataset.value);
+		else if (set.dataset.set === "motion") setMotionSetting(set.dataset.value);
 		return;
 	}
 	const navAct = e.target.closest("[data-nav-act]");
@@ -14995,7 +15179,9 @@ async function loadPart(partId) {
 			heading: partNode.d || partNode.l || "",
 			href: window.location.hash || `#/title/${state.currentTitle}/part/${encodeURIComponent(partId)}`
 		});
-		enterView();
+		const swapX = state.swapMotionX || 0;
+		state.swapMotionX = 0;
+		enterView({ fromX: swapX });
 		selectTreeNode("p-" + partId);
 		recordPartVisit(partId, partNode.d);
 		fillNewsActivity("part", partId, seq);

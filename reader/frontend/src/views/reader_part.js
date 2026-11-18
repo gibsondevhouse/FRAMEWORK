@@ -121,7 +121,9 @@ export async function loadPart(partId) {
       heading: partNode.d || partNode.l || '',
       href: window.location.hash || `#/title/${state.currentTitle}/part/${encodeURIComponent(partId)}`,
     });
-    enterView();
+    const swapX = state.swapMotionX || 0;
+    state.swapMotionX = 0;
+    enterView({ fromX: swapX });
     selectTreeNode('p-' + partId);
     recordPartVisit(partId, partNode.d);
     fillNewsActivity('part', partId, seq);

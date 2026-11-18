@@ -1,5 +1,5 @@
 import { state } from '../state';
-import { cleanInlineLabel, escapeHtml, icon, showToast, skeletonHtml } from '../dom';
+import { animateCalm, cleanInlineLabel, escapeHtml, icon, showToast, skeletonHtml } from '../dom';
 import { fetchNewsActivity, openNewsActivityFor } from './news_activity';
 import { openSaveTabGroupMenu, pinButtonHtml, toggleSplitPinMenu } from './pin_pop';
 import { adjustFontSize, scrollToAnchor, unitShort } from './rail';
@@ -235,8 +235,9 @@ function swapSplitWithMain() {
   const nextSplit = mainSec
     ? { kind: 'section', title: mainSec.title, sectionId: mainSec.id, unit: state.currentSection?.unit || null, label: `${mainSec.title} CFR ${mainSec.label}`, heading: mainSec.heading }
     : { kind: 'part', title: mainPart.title, partId: mainPart.partId, label: `${mainPart.title} CFR Part ${mainPart.partId}` };
+  state.swapMotionX = 36;
   window.location.hash = splitHref;
-  openSplitPane({ ...nextSplit, newTab: false, pushHistory: true });
+  openSplitPane({ ...nextSplit, newTab: false, pushHistory: true, fromX: -36 });
 }
 
 async function loadTreeForTitle(tNum, signal) {
@@ -292,7 +293,7 @@ function splitActionsBarHtml({ pinRef = null, partId = null, ecfrUrl = '', partF
     </div>`;
 }
 
-async function openSplitPart(nextEntry, seq, signal) {
+async function openSplitPart(nextEntry, seq, signal, { fromX = 0 } = {}) {
   const tNum = nextEntry.title;
   const partId = nextEntry.partId;
   const full = Boolean(nextEntry.full);
@@ -338,7 +339,10 @@ async function openSplitPart(nextEntry, seq, signal) {
       <div class="split-body">${sectionsHtml || '<p class="muted">No sections in this part.</p>'}</div>
     `;
     const bodyEl = dom.splitPane.querySelector('.split-body');
-    if (bodyEl) enhanceDomAnchors(bodyEl);
+    if (bodyEl) {
+      enhanceDomAnchors(bodyEl);
+      animateCalm(bodyEl, { fromY: fromX ? 0 : 14, fromX, fromScale: 0.992, duration: 640 });
+    }
     updateSplitRefsBtn();
     hydrateSplitNews(tNum, 'part', partId, seq);
     dom.splitPane.scrollTop = 0;
@@ -393,6 +397,7 @@ async function openSplitPart(nextEntry, seq, signal) {
       ${groupsHtml || '<p class="muted">No sections listed in this part.</p>'}
     </div>
   `;
+  animateCalm(dom.splitPane.querySelector('.split-body'), { fromY: fromX ? 0 : 14, fromX, fromScale: 0.992, duration: 640 });
   updateSplitRefsBtn();
   hydrateSplitNews(tNum, 'part', partId, seq);
   dom.splitPane.scrollTop = 0;
@@ -414,7 +419,7 @@ async function hydrateSplitNews(tNum, kind, id, seq) {
 export async function openSplitPane({
   kind = null, title, sectionId = null, partId = null, full = false,
   para = null, unit = null, label = '', heading = '',
-  pushHistory = true, newTab = true, tabId = null,
+  pushHistory = true, newTab = true, tabId = null, fromX = 0,
 }) {
   if (!dom.splitPane || !dom.mainStage) return;
   const resolvedKind = kind || (partId && !sectionId ? 'part' : 'section');
@@ -466,17 +471,32 @@ export async function openSplitPane({
   splitAbort = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const seq = ++splitSeq;
 
+  const wasClosed = dom.splitPane.hidden;
+  dom.splitPane.hidden = false;
+  if (wasClosed) {
+    dom.mainStage.classList.remove('is-split');
+    void dom.mainStage.offsetWidth;
+  }
   dom.mainStage.classList.add('is-split');
   dom.mainStage.classList.toggle('is-split-wide', Boolean(state.splitWide));
-  dom.splitPane.hidden = false;
   state.splitState = nextEntry;
   persistSessionTabs();
   renderMainTabs();
-  renderSplitLoading(tNum, resolvedKind === 'part' ? `Part ${partId}` : `§ ${sectionId}`);
+  if (wasClosed) {
+    renderSplitLoading(tNum, resolvedKind === 'part' ? `Part ${partId}` : `§ ${sectionId}`);
+    animateCalm(dom.splitPane, { fromX: 34, fromY: 0, fromScale: 0.985, duration: 740 });
+  } else {
+    syncSplitTabStripInPlace();
+    const prevBody = dom.splitPane.querySelector('.split-body');
+    if (prevBody) {
+      prevBody.style.transition = 'opacity var(--t-quick) var(--ease-calm)';
+      prevBody.style.opacity = '0.35';
+    }
+  }
 
   try {
     if (resolvedKind === 'part') {
-      await openSplitPart(nextEntry, seq, splitAbort?.signal);
+      await openSplitPart(nextEntry, seq, splitAbort?.signal, { fromX });
       return;
     }
 
@@ -532,6 +552,7 @@ export async function openSplitPane({
     const bodyEl = dom.splitPane.querySelector('.split-body');
     if (bodyEl) {
       enhanceDomAnchors(bodyEl);
+      animateCalm(bodyEl, { fromY: fromX ? 0 : 14, fromX, fromScale: 0.992, duration: wasClosed ? 680 : 600, delay: wasClosed ? 110 : 0 });
       updateSplitRefsBtn();
       const applyGraph = (g) => {
         if (!g || seq !== splitSeq || !bodyEl.isConnected) return;

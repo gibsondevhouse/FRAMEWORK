@@ -1,5 +1,6 @@
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { state } from './state';
 import { dom } from './state_init';
 
 // --- Helpers ---
@@ -110,16 +111,114 @@ export function skeletonHtml(kind = 'doc', label = 'Loading…') {
 }
 
 
-// A short fade-and-rise each time the main view is replaced.
+// Easy-on-the-eye motion system: respects OS prefers-reduced-motion AND explicit user setting ('none' | 'less' | 'full').
+export const MOTION_KEY = 'motionLevel';
 export const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-export function enterView() {
+export function getMotionLevel() {
+  const stored = lsGet(MOTION_KEY);
+  if (stored === 'none' || stored === 'less' || stored === 'full') return stored;
+  return reduceMotion.matches ? 'none' : 'full';
+}
+
+export function applyMotionLevel(level) {
+  const next = level === 'none' || level === 'less' || level === 'full' ? level : getMotionLevel();
+  lsSet(MOTION_KEY, next);
+  document.documentElement.dataset.motion = next;
+  state.motionLevel = next;
+  return next;
+}
+
+if (!document.documentElement.dataset.motion) {
+  document.documentElement.dataset.motion = getMotionLevel();
+}
+state.motionLevel = getMotionLevel();
+
+export function animateCalm(el, { fromY = 16, fromX = 0, fromScale = 0.99, duration = 640, delay = 0 } = {}) {
+  const level = getMotionLevel();
+  if (level === 'none' || !el || !el.animate) return;
+  try { el._calmAnim?.cancel(); } catch (e) { /* ignore */ }
+  const keyframes = level === 'less'
+    ? [{ opacity: 0 }, { opacity: 1 }]
+    : [{ opacity: 0, transform: `translate3d(${fromX}px, ${fromY}px, 0) scale(${fromScale})` }, { opacity: 1, transform: 'none' }];
+  el._calmAnim = el.animate(keyframes, {
+    duration: level === 'less' ? Math.min(180, Math.round(duration * 0.3)) : duration,
+    delay: level === 'less' ? 0 : delay,
+    easing: level === 'less' ? 'ease-out' : 'cubic-bezier(0.32, 0.72, 0, 1)',
+    fill: delay > 0 ? 'backwards' : 'none',
+  });
+}
+
+export function enterView({ subtle = false, fromX = 0 } = {}) {
   dom.main.scrollTop = 0;
-  if (reduceMotion.matches || !dom.view.animate) return;
-  dom.view.animate(
-    [{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }],
-    { duration: 180, easing: 'cubic-bezier(.25, .46, .45, .94)' }
-  );
+  const level = getMotionLevel();
+  if (level === 'none') return;
+  if (subtle && !fromX) {
+    const targets = dom.view.querySelectorAll('.unit-context, .reg-body, .reg-footnotes');
+    if (targets.length) {
+      for (const t of targets) animateCalm(t, { fromY: 14, fromScale: 1, duration: 540 });
+      return;
+    }
+  }
+  if (level === 'full' && !fromX) {
+    const head = dom.view.querySelector('.doc-kicker, .help-head, .home-head, .lib-head');
+    const body = dom.view.querySelector('.reg-body, .part-toc-tools, .toc-group, .full-section, .settings-grid, .lib-stories');
+    if (head && body) {
+      animateCalm(dom.view, { fromY: 14, fromScale: 0.992, duration: 640 });
+      animateCalm(body, { fromY: 18, fromScale: 1, duration: 740, delay: 90 });
+      return;
+    }
+  }
+  animateCalm(dom.view, { fromY: fromX ? 0 : 16, fromX, fromScale: 0.99, duration: 720 });
+}
+
+export function smoothScrollToTarget(el, { block = 'center', duration = 820 } = {}) {
+  if (!el) return;
+  if (getMotionLevel() !== 'full') {
+    el.scrollIntoView({ behavior: 'auto', block });
+    return;
+  }
+  const scroller = el.closest('.main, .split-pane');
+  if (!scroller) {
+    el.scrollIntoView({ behavior: 'smooth', block });
+    return;
+  }
+  try { if (scroller._scrollRaf) cancelAnimationFrame(scroller._scrollRaf); } catch (e) { /* ignore */ }
+  const sRect = scroller.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+  const offsetTop = eRect.top - sRect.top + scroller.scrollTop;
+  const target = block === 'center'
+    ? offsetTop - Math.max(80, (scroller.clientHeight - eRect.height) / 2)
+    : offsetTop - 76;
+  const clamped = Math.max(0, Math.min(target, scroller.scrollHeight - scroller.clientHeight));
+  const start = scroller.scrollTop;
+  const dist = clamped - start;
+  if (Math.abs(dist) < 2) { scroller.scrollTop = clamped; return; }
+
+  const t0 = performance.now();
+  let canceled = false;
+  const cancel = () => {
+    canceled = true;
+    scroller.removeEventListener('wheel', cancel);
+    scroller.removeEventListener('touchstart', cancel);
+  };
+  scroller.addEventListener('wheel', cancel, { passive: true, once: true });
+  scroller.addEventListener('touchstart', cancel, { passive: true, once: true });
+
+  const step = (now) => {
+    if (canceled) return;
+    const p = Math.min(1, (now - t0) / duration);
+    const eased = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; // Silky ease-in-out glide
+    scroller.scrollTop = start + dist * eased;
+    if (p < 1) {
+      scroller._scrollRaf = requestAnimationFrame(step);
+    } else {
+      scroller._scrollRaf = 0;
+      scroller.removeEventListener('wheel', cancel);
+      scroller.removeEventListener('touchstart', cancel);
+    }
+  };
+  scroller._scrollRaf = requestAnimationFrame(step);
 }
 
 

@@ -4,7 +4,7 @@ import { loadStorage } from '../components/env_modal';
 import { adjustFontSize, applyFontSize } from '../components/rail';
 import { clearTreeSelection, plural } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon, isMac, lsGet, lsSet, showToast } from '../dom';
+import { enterView, escapeHtml, getMotionLevel, applyMotionLevel, icon, isMac, lsGet, lsSet, showToast } from '../dom';
 import { mqMobile, navState, setNavMode } from '../nav';
 import { drLabel, setPanel } from '../panels/shared';
 import { dom } from '../state_init';
@@ -131,6 +131,7 @@ export function renderSettingsPanel() {
           <button type="button" data-set-act="font-inc" aria-label="Larger text">A+</button>
         </span></div>
       <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? '<span class="set-sub">Overlay on narrow screens</span>' : ''}</span>${settingSeg('mode', mqMobile.matches ? 'flyout' : navState.mode, [['pinned', 'Pinned'], ['flyout', 'Overlay']], mqMobile.matches)}</div>
+      <div class="set-row"><span class="set-name">Motion</span>${settingSeg('motion', getMotionLevel(), [['none', 'No'], ['less', 'Less'], ['full', 'Full']])}</div>
     </section>
     <section class="dr-sec">${drLabel('Quick actions')}
       <div class="set-quick-acts">
@@ -177,6 +178,8 @@ export function renderSettingsPage(opts = {}) {
           </div>
           <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? '<span class="set-sub">Overlay on narrow screens</span>' : ''}</span>${settingSeg('mode', mqMobile.matches ? 'flyout' : navState.mode, [['pinned', 'Pinned'], ['flyout', 'Overlay']], mqMobile.matches)}</div>
           <p class="dr-note">Pinned sits beside the page. Overlay slides over it and closes once you pick something.</p>
+          <div class="set-row"><span class="set-name">Motion</span>${settingSeg('motion', getMotionLevel(), [['none', 'No'], ['less', 'Less'], ['full', 'Full']])}</div>
+          <p class="dr-note">Full uses slow, soothing glides and tactile settling. Less keeps quiet fades without movement. No turns motion off.</p>
         </section>
         <section class="set-card">
           <h2 class="set-card-label">Claude</h2>
@@ -215,6 +218,11 @@ export function refreshSettingsViews() {
 }
 
 
+export function setMotionSetting(level) {
+  applyMotionLevel(level);
+  refreshSettingsViews();
+}
+
 // One dispatcher for [data-set-act] buttons, wherever they render (drawer or page).
 export async function runSettingsAction(btn) {
   const act = btn.dataset.setAct;
@@ -238,6 +246,7 @@ dom.view.addEventListener('click', (e) => {
   const set = e.target.closest('[data-set]');
   if (set) {
     if (set.dataset.set === 'mode') setNavMode(set.dataset.value);
+    else if (set.dataset.set === 'motion') setMotionSetting(set.dataset.value);
     return;
   }
   const setAct = e.target.closest('[data-set-act]');

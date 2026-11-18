@@ -68,8 +68,8 @@ kbd {
 }
 
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
-@keyframes rise-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(calc(var(--motion-y) * -1)) scale(var(--motion-scale)); } to { opacity: 1; transform: none; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(var(--motion-y)); } to { opacity: 1; transform: none; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 @keyframes skel-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
@@ -80,12 +80,12 @@ kbd {
   height: 28px; padding: 0 11px; border-radius: var(--r-6);
   font: var(--w-medium) 13px/1 var(--sans); white-space: nowrap; cursor: pointer;
   color: var(--fg); background: var(--hover); border: 1px solid var(--line-strong);
-  transition: all var(--t-ui) var(--ease-out);
+  transition: background-color var(--t-ui) var(--ease-calm), border-color var(--t-ui) var(--ease-calm), color var(--t-ui) var(--ease-calm), box-shadow var(--t-ui) var(--ease-calm), transform var(--t-quick) var(--ease-tactile);
 }
 .btn:hover { background: var(--active); border-color: var(--line-strong); color: var(--fg-strong); text-decoration: none; }
-.btn:active { transform: scale(.98); }
+.btn:active { transform: scale(.965); }
 .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-.btn .icon { color: var(--fg-3); transition: color var(--t-ui) var(--ease-out); }
+.btn .icon { color: var(--fg-3); transition: color var(--t-ui) var(--ease-calm), transform var(--t-quick) var(--ease-tactile); }
 .btn:hover .icon { color: var(--fg-strong); }
 .btn .icon-accent, .btn:hover .icon-accent { color: var(--fg); }
 .btn kbd { margin-right: -4px; }
@@ -97,10 +97,10 @@ kbd {
 .icon-btn {
   display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; flex: 0 0 auto;
   border: 0; border-radius: var(--r-6); background: transparent; color: var(--fg-3); cursor: pointer;
-  transition: all var(--t-ui) var(--ease-out);
+  transition: background-color var(--t-ui) var(--ease-calm), color var(--t-ui) var(--ease-calm), transform var(--t-quick) var(--ease-tactile);
 }
 .icon-btn:hover { background: var(--hover); color: var(--fg-strong); }
-.icon-btn:active { transform: scale(.98); background: var(--active); }
+.icon-btn:active { transform: scale(.94); background: var(--active); }
 .link-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--fg-3); cursor: pointer; transition: color var(--t-ui) var(--ease-out); }
 .link-btn:hover { color: var(--fg-strong); }
 

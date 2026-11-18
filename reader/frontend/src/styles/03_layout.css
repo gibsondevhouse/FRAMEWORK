@@ -69,11 +69,12 @@ body.resizing .layout { transition: none; }
 .activity-rail { grid-column: 1; grid-row: 1; }
 .sidebar { grid-column: 2; grid-row: 1; }
 .main-stage {
-  grid-column: 3; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr);
+  grid-column: 3; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr) 0%;
   grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0;
+  transition: grid-template-columns var(--t-split) var(--ease-calm);
 }
-.main-stage.is-split { grid-template-columns: minmax(0, 1fr) minmax(320px, 44%); }
-.main-stage.is-split.is-split-wide { grid-template-columns: minmax(0, 1fr) minmax(360px, 52%); }
+.main-stage.is-split { grid-template-columns: minmax(0, 1fr) 44%; }
+.main-stage.is-split.is-split-wide { grid-template-columns: minmax(0, 1fr) 52%; }
 .chat { grid-column: 4; grid-row: 1; }
 .nav-backdrop { grid-column: 1 / -1; grid-row: 1; }
 
@@ -170,8 +171,9 @@ html.drawer-fly body.nav-open .nav-backdrop { opacity: 1; pointer-events: auto; 
 .main, .chat, .split-pane {
   margin: 0 var(--gutter) var(--gutter) 0; background: var(--panel);
   border: 1px solid var(--line); border-radius: var(--r-12); box-shadow: var(--shadow-card);
+  transition: border-color var(--t-base) var(--ease-calm), box-shadow var(--t-base) var(--ease-calm);
 }
 .main { overflow-y: auto; outline: none; container: main / inline-size; min-width: 0; min-height: 0; }
-.split-pane { overflow-y: auto; outline: none; min-width: 0; min-height: 0; container: split / inline-size; animation: fade-in var(--t-base) var(--ease); }
+.split-pane { overflow-y: auto; outline: none; min-width: 0; min-height: 0; container: split / inline-size; }
 .split-pane[hidden] { display: none; }
 .view { max-width: 820px; margin: 0 auto; padding: 44px 48px 120px; }

@@ -523,7 +523,9 @@ export async function loadSection(sectionId, params, view) {
       heading,
       href: window.location.hash || sectionHref(data.id, data.unit || (full ? 'full' : null)),
     });
-    enterView();
+    const swapX = state.swapMotionX || 0;
+    state.swapMotionX = 0;
+    enterView({ subtle: Boolean(sameSection) && !swapX, fromX: swapX });
     bindRail();
     if (reading === 'scroll') watchRail();
     else if (state.railObserver) { state.railObserver.disconnect(); state.railObserver = null; }

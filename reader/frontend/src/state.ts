@@ -19,6 +19,8 @@ export type RefTier =
   | 'state'
   | 'county';
 
+export type MotionLevel = 'none' | 'less' | 'full';
+
 export type DeskId =
   | 'all'
   | 'ehs'
@@ -396,6 +398,7 @@ export interface AppState {
   envModalReturnFocus: Element | null | undefined;
   envModalSnapshot: unknown;
   selectedText: string;
+  motionLevel: MotionLevel;
   routeAbort: AbortController | null;
   splitState: SplitState | null;
   mainTabs: ReaderTabEntry[];
@@ -404,6 +407,7 @@ export interface AppState {
   activeSplitTabId: string | null;
   splitWide: boolean;
   pendingNewMainTab: boolean;
+  swapMotionX: number;
   pendingDownloads: Map<number, PendingDownloadEntry>;
   peekCache: Map<string, SectionDocData>;
   graphCache: Map<string, SectionGraphData>;
@@ -461,6 +465,7 @@ export const state: AppState = {
   envModalReturnFocus: undefined,
   envModalSnapshot: undefined,
   selectedText: '',
+  motionLevel: 'full',
   routeAbort: null,
   splitState: null,
   mainTabs: [],
@@ -469,6 +474,7 @@ export const state: AppState = {
   activeSplitTabId: null,
   splitWide: false,
   pendingNewMainTab: false,
+  swapMotionX: 0,
   pendingDownloads: new Map(),
   peekCache: new Map(),
   graphCache: new Map(),
