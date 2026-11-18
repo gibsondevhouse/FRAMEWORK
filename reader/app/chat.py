@@ -1,7 +1,10 @@
 """Claude-powered chat grounded in the federated CFR databases."""
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
+import sqlite3
 import time
 from typing import AsyncIterator
 
@@ -80,8 +83,21 @@ TOOLS = [
 _models_cache: tuple[float, list[dict]] | None = None
 
 
+def clear_models_cache() -> None:
+    global _models_cache
+    _models_cache = None
+
+
 def client() -> anthropic.AsyncAnthropic:
     return anthropic.AsyncAnthropic(api_key=config.anthropic_key())
+
+
+async def _close_client(api) -> None:
+    close = getattr(api, "close", None)
+    if callable(close):
+        res = close()
+        if inspect.isawaitable(res):
+            await res
 
 
 async def list_models() -> list[dict]:
@@ -90,8 +106,12 @@ async def list_models() -> list[dict]:
     if _models_cache and time.time() - _models_cache[0] < 600:
         return _models_cache[1]
     models = []
-    async for m in client().models.list(limit=100):
-        models.append({"id": m.id, "name": getattr(m, "display_name", None) or m.id})
+    api = client()
+    try:
+        async for m in api.models.list(limit=100):
+            models.append({"id": m.id, "name": getattr(m, "display_name", None) or m.id})
+    finally:
+        await _close_client(api)
     _models_cache = (time.time(), models)
     return models
 
@@ -138,6 +158,16 @@ def _api_message(exc: anthropic.APIStatusError) -> str:
 # Tools
 # ---------------------------------------------------------------------------
 
+def _parse_tool_title(raw, default_title: int) -> int | None:
+    if raw is None or raw == "":
+        return default_title
+    try:
+        val = int(raw)
+    except (ValueError, TypeError):
+        return None
+    return val if 1 <= val <= 50 else None
+
+
 def run_tool(name: str, args: dict, default_title: int = config.DEFAULT_TITLE) -> tuple[str, str]:
     """Returns (result text for Claude, short human-readable summary for the UI)."""
     if name == "search_regulations":
@@ -150,17 +180,18 @@ def run_tool(name: str, args: dict, default_title: int = config.DEFAULT_TITLE) -
         elif str(t_arg).lower() == "all":
             target_title = "all"
         else:
-            try:
-                target_title = int(t_arg)
-            except (ValueError, TypeError):
-                target_title = default_title
+            parsed = _parse_tool_title(t_arg, default_title)
+            target_title = parsed if parsed is not None else default_title
 
-        found = store.search(
-            query,
-            part=(str(args["part"]) if args.get("part") else None),
-            limit=limit,
-            title=target_title,
-        )
+        try:
+            found = store.search(
+                query,
+                part=(str(args["part"]) if args.get("part") else None),
+                limit=limit,
+                title=target_title,
+            )
+        except FileNotFoundError:
+            return f"CFR Title {target_title} is not installed.", f"Title {target_title} not installed"
         if not found["results"]:
             scope = f"in Title {target_title}" if target_title != "all" else "across installed titles"
             return f"No sections matched {query!r} {scope}. Try different or fewer keywords.", f"No results for “{query}”"
@@ -168,13 +199,19 @@ def run_tool(name: str, args: dict, default_title: int = config.DEFAULT_TITLE) -
         for r in found["results"]:
             snippet = (r.get("snippet") or "").replace("\x02", "**").replace("\x03", "**")
             t_num = r.get("title", target_title)
-            lines.append(f"- Title {t_num} {r['label']} {r['title']} (part {r['part']})" + (f"\n  …{snippet}…" if snippet else ""))
+            heading = r.get("title_label") or ""
+            lines.append(f"- Title {t_num} {r['label']} {heading} (part {r['part']})" + (f"\n  …{snippet}…" if snippet else ""))
         scope_lbl = f"Title {target_title}" if target_title != "all" else "all titles"
         return "\n".join(lines), f"Searched {scope_lbl} for “{query}” · {found['total']} matches"
 
     if name == "read_section":
-        t_num = int(args.get("title") or default_title)
-        sec = store.section_text(str(args.get("section_id", "")), title=t_num)
+        t_num = _parse_tool_title(args.get("title"), default_title)
+        if t_num is None:
+            return f"Invalid CFR title {args.get('title')!r}; use a number 1-50.", "Invalid title"
+        try:
+            sec = store.section_text(str(args.get("section_id", "")), title=t_num)
+        except (FileNotFoundError, sqlite3.Error):
+            return f"CFR Title {t_num} is not installed.", f"Title {t_num} not installed"
         if not sec:
             return f"No section {args.get('section_id')!r} exists in Title {t_num}.", f"Couldn't find {args.get('section_id')}"
         offset = max(0, int(args.get("offset") or 0))
@@ -188,9 +225,14 @@ def run_tool(name: str, args: dict, default_title: int = config.DEFAULT_TITLE) -
         return f"{header}\n\n{chunk}", f"Read Title {t_num} {sec['label']}"
 
     if name == "list_part":
-        t_num = int(args.get("title") or default_title)
+        t_num = _parse_tool_title(args.get("title"), default_title)
+        if t_num is None:
+            return f"Invalid CFR title {args.get('title')!r}; use a number 1-50.", "Invalid title"
         part = str(args.get("part", "")).strip()
-        rows = store.part_sections(part, title=t_num)
+        try:
+            rows = store.part_sections(part, title=t_num)
+        except (FileNotFoundError, sqlite3.Error):
+            return f"CFR Title {t_num} is not installed.", f"Title {t_num} not installed"
         if not rows:
             return f"Part {part!r} has no sections in Title {t_num}.", f"Part {part} not found in Title {t_num}"
         lines, last_group = [f"Title {t_num} Part {part} contents:"], None
@@ -244,9 +286,10 @@ async def stream_chat(
     title: int = config.DEFAULT_TITLE,
 ) -> AsyncIterator[str]:
     convo = [{"role": m["role"], "content": m["content"]} for m in messages if m.get("content")]
-    system = build_system(section_id, title=title)
-    api = client()
+    api = None
     try:
+        system = await asyncio.to_thread(build_system, section_id, title=title)
+        api = client()
         for _ in range(MAX_TOOL_ROUNDS):
             async with api.messages.stream(
                 model=model, max_tokens=8000, system=system, messages=convo, tools=TOOLS,
@@ -269,7 +312,9 @@ async def stream_chat(
                     continue
                 yield sse({"type": "tool", "name": block.name, "input": block.input})
                 try:
-                    output, summary = run_tool(block.name, dict(block.input), default_title=title)
+                    output, summary = await asyncio.to_thread(
+                        run_tool, block.name, dict(block.input), default_title=title
+                    )
                 except Exception as exc:
                     output, summary = f"Tool error: {exc}", f"{block.name} failed"
                 yield sse({"type": "tool_result", "name": block.name, "summary": summary})
@@ -280,5 +325,8 @@ async def stream_chat(
         yield sse({"type": "error", "message": "Stopped after too many research steps. Try a narrower question."})
     except Exception as exc:
         yield sse({"type": "error", "message": friendly_error(exc)})
+    finally:
+        if api is not None:
+            await _close_client(api)
 
 

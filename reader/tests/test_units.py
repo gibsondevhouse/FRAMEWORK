@@ -151,6 +151,22 @@ class AnchorAndFootnoteTests(HermeticTestCase):
         self.assertIn('class="ftref"', rendered)
         self.assertIn('class="fn-back"', rendered)
 
+    def test_double_letter_clauses_and_extract_self_para_suppression(self):
+        filler = " word" * 700
+        d = section_doc(
+            '<DIV8 N="1.3" TYPE="SECTION"><HEAD>§ 1.3 Long.</HEAD>'
+            f'<P>(z) <I>Zed.</I>{filler}</P>'
+            f'<P>(aa) <I>Extra.</I>{filler}</P>'
+            '<EXTRACT><HD1>Appendix A to § 1.3—App</HD1>'
+            '<P>See paragraph (a) of this section.</P></EXTRACT></DIV8>',
+            known=lambda s: s == "1.3",
+            title=29,
+        )
+        keys = [u["key"] for u in d.units]
+        self.assertIn("z", keys)
+        self.assertIn("aa", keys)
+        self.assertNotIn("xref-local", d.unit_html("appendix-a"))
+
 
 if __name__ == "__main__":
     unittest.main()

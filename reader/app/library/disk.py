@@ -8,15 +8,25 @@ from .. import config, store
 from .. import library as lib
 
 def installed(title: int) -> dict | None:
-    """None if not installed, else {edition, section_count, scope} (scope None = whole title)."""
+    """None if not installed or unreadable, else {edition, section_count, scope} (scope None = whole title)."""
     if title not in config.installed_titles():
         return None
-    m = store.meta(title)
+    m, unreadable = store.safe_meta(title)
+    if unreadable:
+        return None
+    try:
+        section_count = int(m.get("section_count", 0))
+    except (TypeError, ValueError):
+        section_count = 0
     raw = m.get("scope")
+    try:
+        scope = json.loads(raw) if raw else None
+    except (TypeError, ValueError):
+        scope = None
     return {
         "edition": m.get("edition"),
-        "section_count": int(m.get("section_count", 0)),
-        "scope": json.loads(raw) if raw else None,
+        "section_count": section_count,
+        "scope": scope,
     }
 
 
@@ -44,8 +54,6 @@ def _install_summary(inst: dict | None, title: int | None = None) -> dict | None
 def _remove_partial_files(title: int) -> None:
     """Delete what a cancelled build left behind: its downloaded XML and unfinished database.
     The live title's files are untouched (a build only replaces them after "Installing")."""
-    import gc
-    gc.collect()  # the abandoned build's SQLite connection is only closed once collected
     patterns = [f"title-{title}.tmp", f"title-{title}.xml.tmp*", f"title-{title}.piece*.xml.tmp*", f"tree-{title}.json.tmp"]
     for pattern in patterns:
         for f in config.DATA_DIR.glob(pattern):
@@ -95,21 +103,22 @@ def storage() -> dict:
 def prune_temp() -> dict:
     """Delete leftover temporary build files. Refused while a download is queued or running,
     since those files may be in use."""
-    snap = lib.queue.snapshot()
-    if snap["current"] or snap["queued"]:
-        raise RuntimeError("A download is in progress. Clean up once it has finished.")
-    freed, removed = 0, 0
-    if config.DATA_DIR.exists():
-        for f in config.DATA_DIR.glob("*"):
-            if f.is_file() and _is_temp(f.name):
-                try:
-                    size = f.stat().st_size
-                    f.unlink()
-                    freed += size
-                    removed += 1
-                except OSError:
-                    pass
-    return {"removed": removed, "freed_bytes": freed}
+    with lib.queue.operation_lock():
+        snap = lib.queue.snapshot()
+        if snap["current"] or snap["queued"]:
+            raise RuntimeError("A download is in progress. Clean up once it has finished.")
+        freed, removed = 0, 0
+        if config.DATA_DIR.exists():
+            for f in config.DATA_DIR.glob("*"):
+                if f.is_file() and _is_temp(f.name):
+                    try:
+                        size = f.stat().st_size
+                        f.unlink()
+                        freed += size
+                        removed += 1
+                    except OSError:
+                        pass
+        return {"removed": removed, "freed_bytes": freed}
 
 
 def remove(title: int) -> None:
@@ -117,14 +126,17 @@ def remove(title: int) -> None:
     files = [config.DATA_DIR / f"title-{title}.sqlite3", config.DATA_DIR / f"tree-{title}.json"]
     if title == 29:
         files += [config.DATA_DIR / "title29.sqlite3", config.DATA_DIR / "tree.json"]
-    for f in files:
-        for attempt in range(40):
-            store.release_title(title)
-            try:
-                f.unlink(missing_ok=True)
-                break
-            except PermissionError:
-                if attempt == 39:
-                    raise
-                time.sleep(0.25)
-    store.release_title(title)
+    store.begin_swap(title)
+    try:
+        for f in files:
+            for attempt in range(40):
+                try:
+                    f.unlink(missing_ok=True)
+                    break
+                except PermissionError:
+                    if attempt == 39:
+                        raise
+                    store.release_title(title)
+                    time.sleep(0.25)
+    finally:
+        store.end_swap(title)

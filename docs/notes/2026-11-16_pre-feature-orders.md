@@ -36,14 +36,12 @@ Lightweight dev log tracking the three pre-feature cleanup orders so future work
 
 ---
 
-## Order 3 — Frontend Refactor Cleanup & Browser Test Gaps (Pending)
+## Order 3 — Frontend Refactor Cleanup & Browser Test Gaps (Completed via Plan 13)
 
 - **Observed state (2026-11-16):**
-  - **TypeScript (Stage 5D) incomplete:** 2 of 34 frontend source files are `.ts` (`state.ts` with all `any`s; 3-line `citations.ts`); `tsconfig.json` has `checkJs: false` (enabling `--checkJs` yields **1,231 errors**); `src/api/` and `src/types/` do not exist; `.github/workflows/ci.yml` does not run `tsc --noEmit`.
-  - **ES module coupling:** Automated `acorn` split left **18 mutual 2-way / 68 directed import cycles** across `nav.js`, `router.js`, `views/`, `components/`, `panels/`, and three large files (`components/sidebar.js` 789 lines, `views/library.js` 745 lines, `views/news.js` 646 lines).
-  - **Brittle JS slice tests:** `test_settings_env.py`, `test_news_frontend.py`, and `test_sidebar_rail.py` still slice `tests/frontend_sources.app_js()` by function/comment boundaries.
-  - **Browser test & warning gaps:** `test_browser_parity.py` does not yet cover active Transfer Dock progress/cancel, Library download actions, News search/tabs/facets/in-reader popover, Settings controls, or full-part scroll anchoring; `mask.getdata()` at `test_browser_parity.py` emits 6 Pillow `DeprecationWarning`s (`get_flattened_data()`).
-- **Lightweight next steps (can be tackled as small independent PRs):**
-  1. Replace JS slice assertions in `test_settings_env.py`, `test_news_frontend.py`, and `test_sidebar_rail.py` with Playwright checks in `test_browser_parity.py`, and switch `mask.getdata()` -> `get_flattened_data()`.
-  2. Extract a shared `src/api/` client module and break the `nav.js` / `router.js` / `views/` circular imports (e.g., lightweight callbacks/bridge) before adding Phase 2 HSE UI tools.
-  3. Incrementally type `AppState` and convert modules `.js` -> `.ts` (optionally add `npx tsc --noEmit` to `.github/workflows/ci.yml`).
+  - TypeScript was incomplete (`checkJs: false`, 1,231+ diagnostics), 18 mutual 2-way / 68 directed import cycles spanned `nav.js`/`router.js`/`views/`/`components/`/`panels/`, raw `fetch()` calls lived across views, and Python tests sliced `app_js()` source strings.
+- **What shipped (2026-11-18 — [`docs/plans/10_platform_and_architecture/13_frontend_architecture_and_hardening/`](../plans/10_platform_and_architecture/13_frontend_architecture_and_hardening/MASTER_PLAN.md)):**
+  - **Architecture & Decoupling:** Created `src/api/client.ts`, `src/api/jobs.ts`, `src/core/events.ts`, `src/core/view_dispatch.ts` (`onView`), `src/core/library_meta.ts`, `src/core/news_format.ts`, and `src/core/projects_store.ts`; decomposed `news_case.ts`, `ref_almanac.ts`, `data/home_content.ts`, and `components/part_toc.ts`; consolidated shared reader/`#split-pane` interactions (`createParaToolsController`, `bindBrokenImageFallback`, `hydrateSectionGraph`, `updateRefsBadge`) in `views/doc_utils.ts`. Import graph now has **0 mutual 2-cycles** and **0 multi-file SCCs**.
+  - **Strict TypeScript:** Eliminated `unknown` fields in `state.ts`, enabled `"checkJs": true` + `"strict": true` in `tsconfig.json`, and converted all 51 submodules under `reader/frontend/src/` to `.ts` (keeping `main.js` checked via `checkJs: true`); `npx tsc --noEmit` exits `0`.
+  - **Hardening & Testing:** Added `AbortController` cancellation + `rAF` batching in `chat.ts`/`search_bar.ts`, `IntersectionObserver` + bounded queue (`4`) in `part_toc.ts`, scroll-sync `ResizeObserver` replacement in `reader_part.ts`, `DOMPurify` + `safeHttpUrl` hardening, modal focus traps + `inert` + ARIA live announcements, and `NEWS_SCOPES` parameterization in `news.ts`.
+  - **Tests & CI:** Added `reader/frontend/tests/unit.test.ts` (`npm test` via `rolldown` + `node --test`), retired brittle JS slice assertions in `test_sidebar_rail.py`/`test_news_frontend.py`/`test_settings_env.py` in favor of Playwright behavioral tests in `test_browser_parity.py`, switched `mask.getdata()` -> `get_flattened_data()`, and added Node `npx tsc --noEmit` + `npm test` steps to `.github/workflows/ci.yml`.

@@ -34,7 +34,7 @@ class InitTests(StoreTestCase):
         news_store.init_db()
         self.assertTrue((self.tmp / "osha_news.sqlite3").exists())
         with closing(news_store.connect()) as con:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 2)
             self.assertEqual(con.execute("PRAGMA foreign_keys").fetchone()[0], 1)
 
     def test_version_mismatch_recreates(self):
@@ -45,7 +45,23 @@ class InitTests(StoreTestCase):
             con.commit()
         with closing(news_store.connect()) as con:
             self.assertEqual(self.counts(con), (0, 0, 0))
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 2)
+
+    def test_v1_migrates_fts_without_losing_articles(self):
+        news_store.init_db()
+        with closing(news_store.connect()) as con:
+            news_store.upsert_article(con, news.enrich_item(news.fr_document_item(FR_DOC_RULE, AGENCY)))
+            con.executescript(
+                "DROP TABLE articles_fts;"
+                "CREATE VIRTUAL TABLE articles_fts USING fts5(guid UNINDEXED, title, description, company);"
+                "PRAGMA user_version = 1;"
+            )
+            con.commit()
+        with closing(news_store.connect()) as con:
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(self.counts(con), (1, 1, 1))
+            res = news_store.query_articles(con, q="Rescission")
+            self.assertEqual(res["total"], 1)
 
 
 class UpsertTests(StoreTestCase):
@@ -134,6 +150,20 @@ class PruneTests(StoreTestCase):
             self.assertEqual(self.counts(con)[0], 1)                 # 6 days past: kept
             news_store.prune(con, today=date(2026, 11, 18))
             self.assertEqual(self.counts(con), (0, 0, 0))            # 8 days past: gone
+
+    def test_prune_preserves_enriched_historical_cases(self):
+        art = news.enrich_item(news.build_enforcement_article(
+            DOL_INSPECTIONS[0], news.group_violations(DOL_VIOLATIONS, 50)[306953084]))
+        art["published_at"] = "2020-01-01"
+        with closing(news_store.connect()) as con:
+            news_store.upsert_article(con, art)
+            news_store.save_enforcement_case(
+                con, 306953084, details=art["inspection_detail"],
+                violations=art["violations_list"], events=[], enriched_at="2026-11-18T00:00:00+00:00",
+            )
+            news_store.prune(con, today=date(2026, 11, 18))
+            con.commit()
+            self.assertIsNotNone(news_store.get_enforcement_case(con, 306953084))
 
 
 class SyncStatusTests(StoreTestCase):

@@ -184,8 +184,12 @@
   white-space: nowrap; font-variant-numeric: tabular-nums;
 }
 
-/* Yakuza 3px Left-Edge Chapter / Authority Bar */
-.has-tier-bar { position: relative; border-left: 3px solid var(--tier-hue, var(--line-strong)); }
+/* Yakuza 3px Left-Edge Chapter / Authority Bar (clipped cleanly against rounded card corners) */
+.has-tier-bar { position: relative; overflow: hidden; }
+.has-tier-bar::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; pointer-events: none;
+  background: var(--tier-hue, var(--line-strong));
+}
 
 /* Desk filter ribbon shared by Home Launchpad & Regulatory Catalog */
 .desk-ribbon { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; }

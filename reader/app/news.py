@@ -13,14 +13,21 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
 
 from . import config
-# Reuse the reader's CFR citation grammar instead of writing a new loose regex
-# (lists, ranges and paragraph suffixes are already handled there).
-from .render import _CROSS_TITLE, _NUM_IN_LIST, _XREF
+# Reuse the canonical CFR citation grammar instead of duplicating regexes.
+from .citations.parser import (
+    CROSS_TITLE_EXT_RE,
+    CROSS_TITLE_PARTS_RE,
+    CROSS_TITLE_RE,
+    PART_NUM,
+    SECTION_ITEM_RE,
+    XREF_RE,
+)
 
 USER_AGENT = "FRAMEWORK-ComplianceReader/1.0 (local-reader)"
 FR_BASE = "https://www.federalregister.gov/api/v1"
@@ -158,16 +165,30 @@ def pi_item(doc: dict, agency: str) -> dict:
 # DOL Open Data API v4: violations first, then their inspections
 # ---------------------------------------------------------------------------
 
-def fetch_enforcement(c: httpx.Client, key: str, days: int, limit: int, max_inspections: int) -> list[dict]:
+def fetch_enforcement(
+    c: httpx.Client,
+    key: str,
+    days: int,
+    limit: int,
+    max_inspections: int,
+    today: date | None = None,
+) -> list[dict]:
     """Recent violations -> group_violations -> one inspection request -> one item per
     inspection. The window arguments come from news_schedule.dol_window()."""
-    groups = group_violations(fetch_dol_recent_violations(c, key, days, limit), max_inspections)
+    groups = group_violations(fetch_dol_recent_violations(c, key, days, limit, today=today), max_inspections)
     inspections = {int(i["activity_nr"]): i for i in fetch_dol_inspections(c, key, list(groups))}
     return [build_enforcement_article(inspections[a], v) for a, v in groups.items() if a in inspections]
 
 
-def fetch_dol_recent_violations(c: httpx.Client, key: str, days: int, limit: int) -> list[dict]:
-    since = (date.today() - timedelta(days=days)).isoformat()
+def fetch_dol_recent_violations(
+    c: httpx.Client,
+    key: str,
+    days: int,
+    limit: int,
+    today: date | None = None,
+) -> list[dict]:
+    ref_day = today or datetime.now(ZoneInfo("America/New_York")).date()
+    since = (ref_day - timedelta(days=days)).isoformat()
     params = {
         "limit": limit, "sort": "desc", "sort_by": "issuance_date",
         "fields": "activity_nr,citation_id,delete_flag,standard,viol_type,issuance_date,"
@@ -372,7 +393,7 @@ def build_enforcement_article(insp: dict, violations: list[dict]) -> dict:
         "title": f"{company} cited after {label.lower()}" + (f" in {loc}" if loc else ""),
         # The user's browser opens this; FRAMEWORK never fetches osha.gov.
         "link": f"https://www.osha.gov/ords/imis/establishment.inspection_detail?id={act_nr}",
-        "published_at": issued or str(insp.get("open_date") or "")[:10],
+        "published_at": issued or str(insp.get("open_date") or "")[:10] or date.today().isoformat(),
         "description": "",  # the takeaways carry the substance; FTS indexes company + title
         "company": company, "city": city, "state": state, "naics": insp.get("naics_code"),
         "penalty_usd": round(total, 2) if total > 0 else None,
@@ -408,14 +429,22 @@ def fetch_inspection_case(c: httpx.Client, key: str, activity_nr: int) -> dict |
     if not insp_rows:
         return None
     insp = insp_rows[0]
-    viol_rows = _dol_get(c, key, "violation", {
-        "limit": 200,
-        "fields": "activity_nr,citation_id,delete_flag,standard,viol_type,issuance_date,"
-                  "abate_date,abate_complete,initial_penalty,current_penalty,"
-                  "contest_date,final_order_date,nr_instances,nr_exposed,gravity,emphasis,hazcat,"
-                  "fta_insp_nr,fta_issuance_date,fta_penalty,hazsub1,hazsub2,hazsub3",
-        "filter_object": json.dumps({"field": "activity_nr", "operator": "eq", "value": activity_nr}),
-    })
+    viol_rows: list[dict] = []
+    viol_offset = 0
+    while True:
+        page = _dol_get(c, key, "violation", {
+            "limit": 200,
+            "offset": viol_offset,
+            "fields": "activity_nr,citation_id,delete_flag,standard,viol_type,issuance_date,"
+                      "abate_date,abate_complete,initial_penalty,current_penalty,"
+                      "contest_date,final_order_date,nr_instances,nr_exposed,gravity,emphasis,hazcat,"
+                      "fta_insp_nr,fta_issuance_date,fta_penalty,hazsub1,hazsub2,hazsub3",
+            "filter_object": json.dumps({"field": "activity_nr", "operator": "eq", "value": activity_nr}),
+        })
+        viol_rows.extend(page)
+        if len(page) < 200 or viol_offset >= 1800:
+            break
+        viol_offset += 200
     active_viols = [v for v in viol_rows if not v.get("delete_flag")]
     article = enrich_item(build_enforcement_article(insp, active_viols))
 
@@ -512,14 +541,6 @@ DOL_STANDARD_RE = re.compile(r"^(19\d{2})(\d{4})(?=\s|$|[A-Z])")
 _DOL_CLAUSE_RE = re.compile(r"^([A-Z])(\d{1,2})?$")
 _DOL_ROMAN_LETTER_RE = re.compile(r"^(X{0,3}(?:IX|IV|V?I{1,3}|V))([A-Z])?$")
 
-# "29 CFR parts 1910 and 1926" — _CROSS_TITLE only handles the singular "part N".
-_CFR_PARTS = re.compile(
-    r"\b(\d{1,2})\s*C\.?F\.?R\.?\s*[Pp]arts?\s+"
-    r"(\d{1,4}(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or|through|to)\s+)\d{1,4})*)",
-    re.IGNORECASE,
-)
-_PART_NUM = re.compile(r"\d{1,4}")
-
 
 def parse_dol_standard(raw: str | None) -> dict:
     """Parse a DOL IMIS standard code like '19101030 G02   IIA' or '19100028 B03 IV'
@@ -598,20 +619,42 @@ def extract_citations(text: str) -> tuple[list[str], list[dict]]:
     t = text or ""
     sections: set[str] = set()
     parts: set[str] = set()
-    for m in _CROSS_TITLE.finditer(t):
+    masked = list(t)
+
+    def _mask(start: int, end: int) -> None:
+        for idx in range(start, end):
+            masked[idx] = " "
+
+    for m in CROSS_TITLE_PARTS_RE.finditer(t):
+        _mask(m.start(), m.end())
+        if int(m.group(1)) == 29:
+            for pm in re.finditer(PART_NUM, m.group(3)):
+                tok = pm.group(0)
+                if tok.isdigit():
+                    parts.add(tok)
+
+    for m in CROSS_TITLE_EXT_RE.finditer(t):
+        _mask(m.start(), m.end())
+        if int(m.group(1)) != 29:
+            continue
+        src = m.group(3) or m.group(4) or ""
+        for im in SECTION_ITEM_RE.finditer(src):
+            sections.add(im.group(1))
+
+    for m in CROSS_TITLE_RE.finditer(t):
+        _mask(m.start(), m.end())
         if int(m.group(1)) != 29:
             continue
         if m.group(2):  # "part 1904"
             parts.add(re.sub(r"\D", "", m.group(2)))
-        for src in (m.group(4), m.group(5)):  # "§§ a and b" list, or a bare "1910.1200(a)"
+        for src in (m.group(4), m.group(5)):
             if src:
-                for im in _NUM_IN_LIST.finditer(src):
+                for im in SECTION_ITEM_RE.finditer(src):
                     sections.add(im.group(1))
-    for m in _CFR_PARTS.finditer(t):
-        if int(m.group(1)) == 29:
-            parts.update(_PART_NUM.findall(m.group(2)))
-    for m in _XREF.finditer(t):  # bare § citations: OSHA's 1900-1999 range only
-        for im in _NUM_IN_LIST.finditer(m.group(2)):
+
+    unclaimed = "".join(masked)
+    for m in XREF_RE.finditer(unclaimed):  # bare § citations: OSHA's 1900-1999 range only
+        for im in SECTION_ITEM_RE.finditer(m.group(2)):
             part = im.group(1).split(".", 1)[0]
             if part.isdigit() and 1900 <= int(part) <= 1999:
                 sections.add(im.group(1))

@@ -28,6 +28,7 @@ SOURCE_LABELS = {
 
 _thread: threading.Thread | None = None
 _stop = threading.Event()
+_lifecycle_lock = threading.Lock()
 _wake = threading.Event()
 _running = threading.Lock()                  # held while any sync runs
 _forced: set[str] = set()                    # sources a manual refresh asked for
@@ -35,24 +36,31 @@ _forced_lock = threading.Lock()
 
 
 def enabled_sources() -> list[str]:
-    return ["federal_register", "federal_register_pi"] + (["dol_osha"] if config.dol_api_key() else [])
+    fr = ["federal_register", "federal_register_pi"] if config.news_agencies() else []
+    return fr + (["dol_osha"] if config.dol_api_key() else [])
 
 
 def start() -> None:
-    global _thread
-    if _thread is not None and _thread.is_alive():
-        return
-    _stop.clear()
-    _wake.clear()
-    _thread = threading.Thread(target=_loop, name="news-worker", daemon=True)
-    _thread.start()
+    global _thread, _stop
+    with _lifecycle_lock:
+        if _thread is not None and _thread.is_alive() and not _stop.is_set():
+            return
+        stop_event = threading.Event()
+        _stop = stop_event
+        _wake.clear()
+        _thread = threading.Thread(target=_loop, args=(stop_event,), name="news-worker", daemon=True)
+        _thread.start()
 
 
 def stop() -> None:
-    _stop.set()
+    global _thread
+    with _lifecycle_lock:
+        t = _thread
+        _stop.set()
+        _thread = None
     _wake.set()
-    if _thread is not None and _thread.is_alive():
-        _thread.join(timeout=5)
+    if t is not None and t.is_alive():
+        t.join(timeout=5)
 
 
 def is_syncing() -> bool:
@@ -81,12 +89,13 @@ def trigger_sync() -> None:
     _wake.set()
 
 
-def _loop() -> None:
+def _loop(stop_event: threading.Event | None = None) -> None:
+    stop_flag = stop_event or _stop
     delay = FIRST_CHECK_DELAY_SEC
-    while not _stop.is_set():
+    while not stop_flag.is_set():
         _wake.wait(delay)
         _wake.clear()
-        if _stop.is_set():
+        if stop_flag.is_set():
             break
         with _forced_lock:
             forced = set(_forced)
@@ -105,24 +114,37 @@ def sync_sources(sources: list[str], now: datetime | None = None) -> dict[str, i
     """Each source is fetched, stored and recorded independently: one failing never blocks
     another. Returns {source: stored count, or the error message}."""
     now = now or datetime.now(timezone.utc)
+    today_et = now.astimezone(sched.ET).date()
     rows = news_store.sync_rows()
     results: dict[str, int | str] = {}
-    agency = config.news_agencies()[0]       # OSHA only (decision 1)
+    agencies = config.news_agencies()
+    agency = agencies[0] if agencies else None  # OSHA only (decision 1)
     with news.client() as c:
         for s in sources:
             last_ok = rows.get(s, {}).get("last_ok_at")
             if s == "federal_register":
+                if not agency:
+                    results[s] = "No news agencies configured"
+                    continue
                 since = sched.fr_since(last_ok, now, news_store.retention_days())
-                fetch = lambda: news.fetch_federal_register_documents(c, agency, since)
+                fetch = lambda a=agency, sc=since: news.fetch_federal_register_documents(c, a, sc)
             elif s == "federal_register_pi":
-                fetch = lambda: news.fetch_public_inspection(c, agency)
+                if not agency:
+                    results[s] = "No news agencies configured"
+                    continue
+                fetch = lambda a=agency: news.fetch_public_inspection(c, a)
             else:
+                key = config.dol_api_key()
+                if not key:
+                    results[s] = "DOL_API_KEY is not configured"
+                    continue
                 days, limit, cap = sched.dol_window(last_ok, now)
-                fetch = lambda: news.fetch_enforcement(c, config.dol_api_key(), days=days,
-                                                       limit=limit, max_inspections=cap)
+                fetch = lambda k=key, d=days, l=limit, cp=cap: news.fetch_enforcement(
+                    c, k, days=d, limit=l, max_inspections=cp, today=today_et
+                )
             results[s] = _run(s, fetch, now)
     with closing(news_store.connect()) as con:
-        news_store.prune(con)
+        news_store.prune(con, today=today_et)
         con.commit()
     return results
 
@@ -131,6 +153,8 @@ def _run(source: str, fetch, now: datetime | None = None) -> int | str:
     """Fetch one source, enrich and upsert its items, and record the outcome."""
     try:
         items = fetch()
+        for item in items:
+            news.enrich_item(item)
     except news.SourceUnavailable as e:
         detail = str(e).split(": ", 1)[-1] if ": " in str(e) else ""
         label = SOURCE_LABELS.get(source, source)
@@ -140,8 +164,14 @@ def _run(source: str, fetch, now: datetime | None = None) -> int | str:
             news_store.record_error(con, source, message, now)
             con.commit()
         return message
-    for item in items:
-        news.enrich_item(item)
+    except (KeyError, TypeError, ValueError) as e:
+        label = SOURCE_LABELS.get(source, source)
+        message = f"{label} unavailable (unexpected response)"
+        build.log(f"News sync: {source}: malformed payload ({type(e).__name__}: {e})")
+        with closing(news_store.connect()) as con:
+            news_store.record_error(con, source, message, now)
+            con.commit()
+        return message
     with closing(news_store.connect()) as con:
         for item in items:
             news_store.upsert_article(con, item, now)

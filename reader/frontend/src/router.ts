@@ -1,0 +1,161 @@
+import { CorpusSummary, state } from './state';
+import { on } from './core/events';
+import { renderResolverPage } from './components/cfr_resolver';
+import { parseCorpusPath, syncCorporaState } from './components/corpora';
+import { clearTreeSelection, switchTitle } from './components/sidebar';
+import { renderCorpusStaging, renderNotFound } from './components/title_switcher';
+import { hideMainTabs } from './components/reader_tabs';
+import { setViewHead } from './components/view_head';
+import { syncNavToRoute } from './nav';
+import { renderSettingsPage } from './panels/settings_panel';
+import { dom } from './state_init';
+import { renderHome } from './views/core';
+import { renderHomeScreen } from './views/home';
+import { loadHelp } from './views/help';
+import { loadLibrary } from './views/library';
+import { loadInspection, loadNews } from './views/news';
+import { renderProjects } from './views/projects';
+import { loadSection } from './views/reader';
+import { loadPart, loadPartFull } from './views/reader_part';
+import { loadSearchPage } from './views/search';
+import { renderWelcome } from './views/welcome';
+
+// --- Router ---
+export function parseHash(): { path: string; params: URLSearchParams } {
+  const hash = window.location.hash || '#/';
+  const [pathPart, queryPart] = hash.slice(1).split('?');
+  const params = new URLSearchParams(queryPart || '');
+  return { path: pathPart || '/', params };
+}
+
+export async function handleRoute(): Promise<void> {
+  const { path, params } = parseHash();
+  state.activeRoute = path;
+  const seq = ++state.routeSeq;
+  if (state.routeAbort) { try { state.routeAbort.abort(); } catch { /* ignore */ } }
+  state.routeAbort = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+  syncNavToRoute(path);
+
+  if (state.noTitles && !/^\/(library|news|projects|settings|help)(\/|$)/.test(path)) {
+    await renderWelcome();
+    return;
+  }
+
+  let checkPath = path;
+  let titleMatch: RegExpMatchArray | [string, string, string] | null = path.match(/^\/title\/(\d+)(\/.*)?$/);
+  const corpusMatch = !titleMatch ? parseCorpusPath(path) : null;
+  if (corpusMatch) {
+    syncCorporaState();
+    const isCfr = corpusMatch.tier === 'federal-reg' || corpusMatch.tier === 'cfr';
+    const cfrTitleNum = isCfr ? parseInt(corpusMatch.code, 10) : NaN;
+    if (isCfr && Number.isFinite(cfrTitleNum)) {
+      titleMatch = [path, String(cfrTitleNum), corpusMatch.subPath];
+    } else {
+      const matchedCorpus = state.corpora.find(c =>
+        c.tier === corpusMatch.tier
+        && c.jurisdiction.toLowerCase() === corpusMatch.jurisdiction.toLowerCase()
+        && String(c.code).toLowerCase() === String(corpusMatch.code).toLowerCase(),
+      );
+      clearTreeSelection();
+      setViewHead('');
+      const fallbackCorpus: CorpusSummary = matchedCorpus || {
+        corpus_id: `${corpusMatch.jurisdiction}:${corpusMatch.tier}:${corpusMatch.code}`,
+        tier: corpusMatch.tier as CorpusSummary['tier'],
+        jurisdiction: corpusMatch.jurisdiction,
+        jurisdiction_label: corpusMatch.jurisdiction,
+        code: corpusMatch.code,
+        name: `${corpusMatch.jurisdiction} ${corpusMatch.code}`,
+        desk: 'ehs',
+        agencies: [],
+        installed: false,
+      };
+      renderCorpusStaging(fallbackCorpus);
+      return;
+    }
+  }
+  if (titleMatch) {
+    const targetTitle = parseInt(titleMatch[1], 10);
+    const subPath = titleMatch[2] || '/';
+    const installed = state.installedTitles.some(t => t.title === targetTitle);
+    if (!installed && targetTitle >= 1 && targetTitle <= 50) {
+      let section: string | null = null;
+      let part: string | null = null;
+      if (subPath.startsWith('/section/')) {
+        const rest = subPath.slice('/section/'.length);
+        const slash = rest.indexOf('/');
+        try { section = decodeURIComponent(slash < 0 ? rest : rest.slice(0, slash)); } catch { section = rest; }
+      } else if (subPath.startsWith('/part/')) {
+        part = subPath.slice('/part/'.length).replace(/\/full$/, '');
+        try { part = decodeURIComponent(part); } catch { /* keep raw */ }
+      }
+      clearTreeSelection();
+      setViewHead('');
+      await renderResolverPage(dom.view, { title: targetTitle, section, part, para: params.get('p') });
+      return;
+    }
+    if (!installed) {
+      renderNotFound();
+      return;
+    }
+    if (targetTitle && targetTitle !== state.currentTitle) {
+      await switchTitle(targetTitle);
+      if (seq !== state.routeSeq) return;
+    }
+    checkPath = subPath;
+  }
+
+  const decode = (s: string): string => { try { return decodeURIComponent(s); } catch { return s; } };
+
+  if (checkPath === '/' || checkPath === '') {
+    hideMainTabs();
+    if (titleMatch) renderHome();
+    else renderHomeScreen();
+  } else if (checkPath.startsWith('/section/')) {
+    const rest = checkPath.slice('/section/'.length);
+    const slash = rest.indexOf('/');
+    const sectionId = decode(slash < 0 ? rest : rest.slice(0, slash));
+    const view = slash < 0 ? null : decode(rest.slice(slash + 1)) || null;
+    await loadSection(sectionId, params, view);
+  } else if (checkPath.startsWith('/part/')) {
+    const rest = checkPath.replace('/part/', '');
+    const fullMatch = rest.match(/^(.+?)\/full$/);
+    if (fullMatch) await loadPartFull(fullMatch[1], params);
+    else await loadPart(rest);
+  } else if (checkPath === '/library' || checkPath.startsWith('/library/')) {
+    hideMainTabs();
+    const m = /^\/library(?:\/(\d+)(?:\/part\/(.+))?)?\/?$/.exec(checkPath);
+    if (!m) renderNotFound();
+    else {
+      await loadLibrary(m[1] ? parseInt(m[1], 10) : null, m[2] ? decode(m[2]) : null);
+    }
+  } else if (!titleMatch && (checkPath === '/projects' || checkPath.startsWith('/projects/'))) {
+    hideMainTabs();
+    const id = checkPath.slice('/projects/'.length);
+    renderProjects(id ? decodeURIComponent(id) : null);
+  } else if (!titleMatch && (checkPath === '/news' || checkPath === '/news/')) {
+    hideMainTabs();
+    await loadNews(params);
+  } else if (!titleMatch && /^\/news\/inspection\/\d+\/?$/.test(checkPath)) {
+    hideMainTabs();
+    const actNr = parseInt(checkPath.split('/')[3], 10);
+    await loadInspection(actNr);
+  } else if (!titleMatch && (checkPath === '/help' || checkPath === '/help/')) {
+    hideMainTabs();
+    await loadHelp();
+  } else if (!titleMatch && (checkPath === '/settings' || checkPath === '/settings/')) {
+    hideMainTabs();
+    renderSettingsPage({ enter: true });
+  } else if (checkPath.startsWith('/search')) {
+    hideMainTabs();
+    const q = params.get('q') || '';
+    dom.search.value = q;
+    await loadSearchPage(q, params.get('scope'));
+  } else {
+    hideMainTabs();
+    renderNotFound();
+  }
+}
+
+if (typeof window !== 'undefined') window.addEventListener('hashchange', () => { handleRoute(); });
+on('route:refresh', () => { handleRoute(); });

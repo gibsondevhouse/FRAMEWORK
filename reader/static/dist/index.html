@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>FRAMEWORK</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23070708'/><text x='16' y='23' text-anchor='middle' font-family='Inter,Segoe UI,Arial,sans-serif' font-weight='600' font-size='20' fill='%23ededed'>E</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23070708' stroke='%23ffffff' stroke-opacity='.16' stroke-width='1.5'/><path d='M9.5 10h13' stroke='%23E5B84B' stroke-width='2.6' stroke-linecap='round'/><path d='M10.5 10v12.5M10.5 16.5h8.5' stroke='%23FAFAFC' stroke-width='2.4' stroke-linecap='round'/></svg>">
   <script>
     // Apply saved reading font size and drawer geometry before first paint to avoid a flash.
     (function () {
@@ -38,10 +38,10 @@
 </head>
 <body>
   <header class="topbar">
-    <button class="icon-btn" id="nav-toggle" title="Show or hide the drawer (⌘B)" aria-label="Show or hide the drawer" aria-controls="sidebar">
+    <button type="button" class="icon-btn" id="nav-toggle" title="Show or hide the drawer (⌘B)" aria-label="Show or hide the drawer" aria-controls="sidebar">
       <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M6 3v10"/></svg>
     </button>
-    <a class="brand" href="#/" aria-label="FRAMEWORK home" title="Home"><span class="brand-text" aria-hidden="true"><span class="brand-rest">FRAM</span><span class="brand-e">E</span><span class="brand-rest">WORK</span></span></a>
+    <a class="brand" href="#/" aria-label="FRAMEWORK home" title="Home"><svg class="brand-mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="3" stroke="currentColor" stroke-opacity=".28" stroke-width="1.1" fill="none"/><path class="brand-mark-bar" d="M4.75 5h6.5" stroke-width="1.6" stroke-linecap="round"/><path d="M5.25 5v6.25M5.25 8.25h4.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="brand-text" aria-hidden="true">FRAMEWORK</span></a>
     <span class="topbar-sep" aria-hidden="true">/</span>
     <div class="title-menu" id="title-menu">
       <button type="button" id="title-select" class="title-select" aria-haspopup="menu" aria-expanded="false" aria-controls="title-pop" title="Switch CFR title">
@@ -52,12 +52,12 @@
     </div>
     <div class="search-wrap">
       <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3"/></svg>
-      <input id="search" type="search" placeholder="Search regulations or jump to a section…" aria-label="Search regulations" autocomplete="off" spellcheck="false">
+      <input id="search" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-dropdown" placeholder="Search regulations or jump to a section…" aria-label="Search regulations" autocomplete="off" spellcheck="false">
       <kbd class="search-kbd" aria-hidden="true">⌘K</kbd>
-      <div id="search-dropdown" class="search-dropdown" hidden></div>
+      <div id="search-dropdown" class="search-dropdown" role="listbox" hidden></div>
     </div>
     <span class="edition" id="edition" title="eCFR edition loaded in this app"></span>
-    <button class="btn" id="chat-toggle" title="Ask Claude" aria-controls="chat" aria-expanded="false">
+    <button type="button" class="btn" id="chat-toggle" title="Ask Claude" aria-controls="chat" aria-expanded="false">
       <svg class="icon icon-accent" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.25 9.35 6.65 13.75 8 9.35 9.35 8 13.75 6.65 9.35 2.25 8 6.65 6.65Z"/></svg>
       <span class="btn-label">Ask Claude</span>
       <kbd id="chat-kbd" aria-hidden="true">Ctrl K</kbd>
@@ -146,10 +146,10 @@
       <div class="chat-head">
         <strong>Ask Claude</strong>
         <select id="model-select" title="Claude model" aria-label="Claude model" hidden></select>
-        <button class="icon-btn" id="chat-new" title="New conversation" aria-label="New conversation">
+        <button type="button" class="icon-btn" id="chat-new" title="New conversation" aria-label="New conversation">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8.75V12a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 12V5a1.5 1.5 0 0 1 1.5-1.5h3.25"/><path d="M11.55 2.7a1.24 1.24 0 0 1 1.75 1.75L8.6 9.15l-2.3.55.55-2.3Z"/></svg>
         </button>
-        <button class="icon-btn" id="chat-close" title="Close" aria-label="Close chat">
+        <button type="button" class="icon-btn" id="chat-close" title="Close" aria-label="Close chat">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>
         </button>
       </div>

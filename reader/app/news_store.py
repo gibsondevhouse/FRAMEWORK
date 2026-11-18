@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import Iterator
 
 from . import config, store
+from .citations.parser import FR_RE as _FR_CITATION, SEC_NUM
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SOURCES = ("federal_register", "federal_register_pi", "dol_osha")
 CATEGORIES = ("rules", "rulemaking", "notices", "public_inspection", "enforcement")
@@ -68,7 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_citations_sec  ON article_citations(title_num, se
 CREATE INDEX IF NOT EXISTS idx_citations_part ON article_citations(title_num, part_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
-    guid UNINDEXED, title, description, company,
+    title, description, company,
     tokenize = 'porter unicode61'
 );
 
@@ -151,7 +152,19 @@ def connect(readonly: bool = False) -> sqlite3.Connection | None:
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA busy_timeout=5000")
     version = con.execute("PRAGMA user_version").fetchone()[0]
-    if version != SCHEMA_VERSION:
+    if version == 1:
+        con.execute(_ENFORCEMENT_CASE_DDL)
+        con.executescript(
+            "DROP TABLE IF EXISTS articles_fts;"
+            "CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5("
+            "  title, description, company, tokenize = 'porter unicode61'"
+            ");"
+            "INSERT INTO articles_fts (rowid, title, description, company) "
+            "SELECT rowid, title, description, company FROM articles;"
+        )
+        con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        con.commit()
+    elif version != SCHEMA_VERSION:
         if version:
             # The store is a cache of public data: on a schema mismatch, drop and let the
             # next sync refill it.
@@ -162,10 +175,6 @@ def connect(readonly: bool = False) -> sqlite3.Connection | None:
                               "DROP TABLE IF EXISTS sync_status;")
         con.executescript(SCHEMA)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        con.commit()
-    else:
-        # Additive table upgrade without wiping existing cached articles.
-        con.execute(_ENFORCEMENT_CASE_DDL)
         con.commit()
     return con
 
@@ -223,9 +232,12 @@ def upsert_article(con: sqlite3.Connection, item: dict, now: datetime | None = N
         "INSERT OR IGNORE INTO article_citations VALUES (?, 29, ?, ?)",
         [(guid, s.split(".", 1)[0], s) for s in item.get("sections") or []],
     )
-    con.execute("DELETE FROM articles_fts WHERE guid = ?", (guid,))
-    con.execute("INSERT INTO articles_fts (guid, title, description, company) VALUES (?, ?, ?, ?)",
-                (guid, item["title"], item.get("description") or "", item.get("company") or ""))
+    rid = con.execute("SELECT rowid FROM articles WHERE guid = ?", (guid,)).fetchone()[0]
+    con.execute("DELETE FROM articles_fts WHERE rowid = ?", (rid,))
+    con.execute(
+        "INSERT INTO articles_fts (rowid, title, description, company) VALUES (?, ?, ?, ?)",
+        (rid, item["title"], item.get("description") or "", item.get("company") or ""),
+    )
     if item.get("source") == "dol_osha" and item.get("inspection_detail") is not None:
         save_enforcement_case(
             con,
@@ -361,16 +373,20 @@ def summary_for_title(title: int = 29) -> dict:
 
 def prune(con: sqlite3.Connection, today: date | None = None) -> None:
     """365-day retention, plus a 7-day cleanup of Public Inspection filings that were
-    withdrawn or never matched a published document."""
+    withdrawn or never matched a published document. Enriched inspection case files are
+    retained across retention sweeps."""
     today = today or date.today()
-    con.execute("DELETE FROM articles WHERE published_at < ?",
-                ((today - timedelta(days=retention_days())).isoformat(),))
+    con.execute(
+        "DELETE FROM articles WHERE published_at < ? "
+        "AND guid NOT IN (SELECT 'dol-insp:' || activity_nr FROM enforcement_cases WHERE enriched_at IS NOT NULL)",
+        ((today - timedelta(days=retention_days())).isoformat(),),
+    )
     con.execute(
         "DELETE FROM articles WHERE category = 'public_inspection' "
         "AND COALESCE(scheduled_on, published_at) < ?",
         ((today - timedelta(days=7)).isoformat(),))
     # FTS5 has no foreign keys; article_citations goes by cascade.
-    con.execute("DELETE FROM articles_fts WHERE guid NOT IN (SELECT guid FROM articles)")
+    con.execute("DELETE FROM articles_fts WHERE rowid NOT IN (SELECT rowid FROM articles)")
     con.execute("DELETE FROM enforcement_cases WHERE 'dol-insp:' || activity_nr NOT IN (SELECT guid FROM articles)")
 
 
@@ -379,8 +395,7 @@ def prune(con: sqlite3.Connection, today: date | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 SNIPPET_OPEN, SNIPPET_CLOSE = "\x02", "\x03"   # the app's existing highlight sentinels
-_SECTION_ID = re.compile(r"\d{1,4}\.\d+(?:-\d+)?[a-z]?")
-_FR_CITATION = re.compile(r"(\d{1,3})\s*FR\s*([0-9]+)", re.IGNORECASE)
+_SECTION_ID = re.compile(SEC_NUM)
 
 
 def _article(row: sqlite3.Row) -> dict:
@@ -437,7 +452,7 @@ def query_articles(con: sqlite3.Connection, *, category: str = "all", q: str | N
         sec_id = store.normalize_id(raw)
         fr_m = _FR_CITATION.fullmatch(raw)
         if _SECTION_ID.fullmatch(sec_id):
-            sql, p = _citation_filter(sec_id, None, 29)
+            sql, p = _citation_filter(sec_id, None, title)
             filters.append(sql)
             params += p
         elif fr_m:
@@ -450,13 +465,13 @@ def query_articles(con: sqlite3.Connection, *, category: str = "all", q: str | N
 
     where = (" WHERE " + " AND ".join(filters)) if filters else ""
     if fts:
-        base = ("FROM articles_fts JOIN articles a ON a.guid = articles_fts.guid "
+        base = ("FROM articles_fts JOIN articles a ON a.rowid = articles_fts.rowid "
                 f"WHERE articles_fts MATCH ?{' AND ' + ' AND '.join(filters) if filters else ''}")
         try:
             total = con.execute(f"SELECT count(*) {base}", [fts, *params]).fetchone()[0]
             rows = con.execute(
-                f"SELECT a.*, snippet(articles_fts, 2, ?, ?, '…', 24) AS snippet {base} "
-                "ORDER BY bm25(articles_fts, 0.0, 2.0, 1.0, 1.5), a.published_at DESC LIMIT ? OFFSET ?",
+                f"SELECT a.*, snippet(articles_fts, 1, ?, ?, '…', 24) AS snippet {base} "
+                "ORDER BY bm25(articles_fts, 2.0, 1.0, 1.5), a.published_at DESC LIMIT ? OFFSET ?",
                 [SNIPPET_OPEN, SNIPPET_CLOSE, fts, *params, limit, offset]).fetchall()
         except sqlite3.OperationalError:
             total, rows = 0, []
@@ -528,11 +543,15 @@ def get_enforcement_case(con: sqlite3.Connection, activity_nr: int) -> dict | No
 
 def enforcement_summary(con: sqlite3.Connection) -> dict:
     """Aggregate local enforcement telemetry over cached DOL OSHA inspections."""
-    rows = con.execute(
-        "SELECT guid, company, state, penalty_usd, violation_types, published_at "
-        "FROM articles WHERE category = 'enforcement'"
-    ).fetchall()
-    if not rows:
+    agg = con.execute(
+        """SELECT count(*) AS total_cases,
+                  COALESCE(sum(CASE WHEN penalty_usd > 0 THEN penalty_usd ELSE 0 END), 0.0) AS total_pen,
+                  sum(CASE WHEN penalty_usd > 0 THEN 1 ELSE 0 END) AS penalized,
+                  COALESCE(max(CASE WHEN penalty_usd > 0 THEN penalty_usd ELSE 0 END), 0.0) AS max_pen
+           FROM articles WHERE category = 'enforcement'"""
+    ).fetchone()
+    total_cases = int(agg["total_cases"] or 0)
+    if not total_cases:
         return {
             "total_cases": 0,
             "total_penalty_usd": 0.0,
@@ -544,30 +563,39 @@ def enforcement_summary(con: sqlite3.Connection) -> dict:
             "largest_case": None,
         }
 
-    total_penalty = 0.0
-    penalized = 0
-    max_penalty = 0.0
-    largest_row = None
-    gravity_counts = {"W": 0, "R": 0, "S": 0, "O": 0}
-    state_totals: dict[str, dict] = {}
+    total_penalty = float(agg["total_pen"] or 0.0)
+    penalized = int(agg["penalized"] or 0)
+    max_penalty = float(agg["max_pen"] or 0.0)
 
-    for r in rows:
-        p = float(r["penalty_usd"] or 0.0)
-        if p > 0:
-            total_penalty += p
-            penalized += 1
-            if p >= max_penalty:
-                max_penalty = p
-                largest_row = r
-        vtypes = _json_load(r["violation_types"], [])
-        for vt in vtypes:
-            if vt in gravity_counts:
-                gravity_counts[vt] += 1
-        st = (r["state"] or "").strip().upper()
-        if st:
-            entry = state_totals.setdefault(st, {"code": st, "count": 0, "total_penalty_usd": 0.0})
-            entry["count"] += 1
-            entry["total_penalty_usd"] += p
+    gravity_counts = {"W": 0, "R": 0, "S": 0, "O": 0}
+    for vt, cnt in con.execute(
+        """SELECT j.value, count(*) FROM articles a, json_each(a.violation_types) j
+           WHERE a.category = 'enforcement' AND j.value IN ('W', 'R', 'S', 'O')
+           GROUP BY j.value"""
+    ):
+        gravity_counts[vt] = int(cnt)
+
+    top_state_rows = con.execute(
+        """SELECT upper(trim(state)) AS st, count(*) AS cnt,
+                  COALESCE(sum(CASE WHEN penalty_usd > 0 THEN penalty_usd ELSE 0 END), 0.0) AS pen
+           FROM articles
+           WHERE category = 'enforcement' AND state IS NOT NULL AND trim(state) != ''
+           GROUP BY upper(trim(state))
+           ORDER BY pen DESC, cnt DESC, st
+           LIMIT 6"""
+    ).fetchall()
+    top_states = [
+        {"code": r["st"], "count": int(r["cnt"]), "total_penalty_usd": round(float(r["pen"]), 2)}
+        for r in top_state_rows
+    ]
+
+    largest_row = con.execute(
+        """SELECT guid, company, state, penalty_usd, published_at
+           FROM articles
+           WHERE category = 'enforcement' AND penalty_usd > 0
+           ORDER BY penalty_usd DESC, rowid DESC
+           LIMIT 1"""
+    ).fetchone()
 
     sec_rows = con.execute(
         """SELECT c.section_id, count(*) AS cnt, COALESCE(sum(a.penalty_usd), 0) AS pen
@@ -583,11 +611,6 @@ def enforcement_summary(con: sqlite3.Connection) -> dict:
         {"section_id": r["section_id"], "count": int(r["cnt"]), "total_penalty_usd": round(float(r["pen"]), 2)}
         for r in sec_rows
     ]
-    top_states = sorted(
-        ({**v, "total_penalty_usd": round(v["total_penalty_usd"], 2)} for v in state_totals.values()),
-        key=lambda x: (-x["total_penalty_usd"], -x["count"], x["code"]),
-    )[:6]
-
     largest_case = None
     if largest_row is not None:
         guid = largest_row["guid"] or ""
@@ -599,9 +622,8 @@ def enforcement_summary(con: sqlite3.Connection) -> dict:
             "penalty_usd": round(float(largest_row["penalty_usd"] or 0.0), 2),
             "published_at": largest_row["published_at"],
         }
-
     return {
-        "total_cases": len(rows),
+        "total_cases": total_cases,
         "total_penalty_usd": round(total_penalty, 2),
         "avg_penalty_usd": round(total_penalty / penalized, 2) if penalized else 0.0,
         "max_penalty_usd": round(max_penalty, 2),

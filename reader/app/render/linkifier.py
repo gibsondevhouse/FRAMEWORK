@@ -16,6 +16,7 @@ from ..citations.parser import (
     PARA_OF_SEC_RE,
     PARA_SELF_RE,
     PART_NUM,
+    SEC_TOKEN,
     SECTION_ITEM_RE,
     USC_RE,
     WEB_URL_RE,
@@ -130,11 +131,14 @@ def make_linkifier(
         return (f'<a class="xref xref-external" data-cfr-title="{t_num}" data-cfr-section="{sec_esc}"{part_attr}{para_attr}'
                 f' target="_blank" rel="noopener noreferrer" title="{escape(title_attr, quote=True)}" href="{href}">{display}</a>')
 
+    _RANGE_PAIR_RE = re.compile(rf"({SEC_TOKEN})-({SEC_TOKEN})")
+
     def link_section_item(t_num: int, raw_id: str, para: str, display_prefix: str = "") -> str:
-        """Link a single section item or a hyphenated range like '4.7-4.9'."""
+        """Link a single section item or a hyphenated range like '4.7-4.9' or '50-201.1-50-201.5'."""
         if "-" in raw_id and not (is_title_installed(t_num) and is_section_known(t_num, raw_id)):
-            left, right = raw_id.split("-", 1)
-            if "." in right:
+            rm = _RANGE_PAIR_RE.fullmatch(raw_id)
+            if rm:
+                left, right = rm.group(1), rm.group(2)
                 a_left = cfr_section_anchor(t_num, left, "", f"{display_prefix}{left}")
                 a_right = cfr_section_anchor(t_num, right, para, f"{right}{para}")
                 if a_left or a_right:
@@ -217,13 +221,14 @@ def make_linkifier(
                 return m.group(0)
         return prefix + re.sub(rf"({PART_NUM})", repl_part, body)
 
-    def transform_text_chunk(text: str) -> str:
+    def transform_text_chunk(text: str, allow_self_para: bool = True) -> str:
         """Run all link transformations sequentially outside existing <a>...</a> tags."""
         if not text:
             return ""
+        low = text.lower()
 
         # A. Web URLs: https://... or www.... (trimming trailing punctuation cleanly)
-        if "http" in text or "www." in text:
+        if "http" in low or "www." in low:
             def replace_url(m: re.Match) -> str:
                 clean, tail = clean_url_tail(m.group(1))
                 if not clean:
@@ -231,9 +236,10 @@ def make_linkifier(
                 href = f"https://{clean}" if clean.lower().startswith("www.") else clean
                 return f'<a class="xref xref-web" target="_blank" rel="noopener noreferrer" href="{href}">{clean}</a>{tail}'
             text = _outside_anchors(text, lambda t: WEB_URL_RE.sub(replace_url, t))
+            low = text.lower()
 
         # B. U.S. Code: e.g. 29 U.S.C. 653, 42 U.S.C. 2000ff(4), 29 U.S.C. §§ 655, 657
-        if "U.S.C" in text or "USC" in text:
+        if "u.s.c" in low or "usc" in low:
             def replace_usc(m: re.Match) -> str:
                 u_title, opt_kw, expr = m.group(1), m.group(2) or "", m.group(3)
                 targets = parse_usc_targets(expr)
@@ -259,19 +265,22 @@ def make_linkifier(
                 linked = re.sub(r"[0-9]+[a-z]*(?:-[0-9]+[a-z]*)*(?:\([a-zA-Z0-9]{1,4}\))*", repl_usc_item, expr)
                 return f"{prefix}{linked}"
             text = _outside_anchors(text, lambda t: USC_RE.sub(replace_usc, t))
+            low = text.lower()
 
         # C. Federal Register: e.g. 39 FR 23502
-        if " FR " in text:
+        if " fr " in low:
             def replace_fr(m: re.Match) -> str:
                 vol, page = m.group(1), m.group(2)
                 href = f"https://www.federalregister.gov/citation/{vol}-FR-{page}"
                 return f'<a class="xref xref-fr" target="_blank" rel="noopener noreferrer" title="View Federal Register citation {vol} FR {page}" href="{href}">{m.group(0)}</a>'
             text = _outside_anchors(text, lambda t: FR_RE.sub(replace_fr, t))
+            low = text.lower()
 
         # D. Cross-Title CFR Parts & Sections (plural chains + bare lists + hyphenated parts)
-        if "CFR" in text or "C.F.R" in text:
+        if "cfr" in low or "c.f.r" in low:
             text = _outside_anchors(text, lambda t: CROSS_TITLE_PARTS_RE.sub(link_cross_parts, t))
             text = _outside_anchors(text, lambda t: CROSS_TITLE_EXT_RE.sub(link_cross_sections, t))
+            low = text.lower()
 
         def _map_tuples(p_expr: str, anchor_fn: Callable[[str, str], str | None]) -> str:
             items = expand_paragraph_list(p_expr)
@@ -286,7 +295,7 @@ def make_linkifier(
             return "".join(out)
 
         # D2. Paragraph-of-Section references: e.g. "paragraph (a)(3) of § 1910.401"
-        if "paragraph" in text.lower():
+        if "paragraph" in low:
             def replace_para_of_sec(m: re.Match) -> str:
                 pfx, p_expr, connector, sec_id = m.group(1), m.group(2), m.group(3), m.group(4)
                 if not known(sec_id):
@@ -300,7 +309,7 @@ def make_linkifier(
             text = _outside_anchors(text, lambda t: XREF_EXT_RE.sub(link_internal_list, t))
 
         # F. Word-based section citations: e.g. "section 1910.120"
-        if "section" in text.lower():
+        if "section" in low:
             text = _outside_anchors(text, lambda t: WORD_SEC_EXT_RE.sub(link_internal_list, t))
 
         # F2. Contextual un-prefixed section citations: e.g. "comply with 1910.134"
@@ -312,11 +321,11 @@ def make_linkifier(
             text = _outside_anchors(text, lambda t: CONTEXT_BARE_SEC_RE.sub(replace_bare_sec, t))
 
         # G. Validated Internal Part citations: e.g. "Part 1910", "Parts 1910 and 1926"
-        if "part" in text.lower():
+        if "part" in low:
             text = _outside_anchors(text, lambda t: WORD_PART_RE.sub(link_internal_parts, t))
 
         # H. Self-referential paragraphs: e.g. "paragraph (c)(1) of this section"
-        if section_id and known(section_id) and "paragraph" in text.lower():
+        if allow_self_para and section_id and known(section_id) and "paragraph" in low:
             def replace_para_self(m: re.Match) -> str:
                 pfx, p_expr, sfx = m.group(1), m.group(2), m.group(3)
                 def _local_anchor(raw_tok: str, full_tok: str) -> str:
@@ -327,7 +336,7 @@ def make_linkifier(
 
         return text
 
-    def linkify(escaped: str) -> str:
+    def _run_linkify(escaped: str, allow_self_para: bool = True) -> str:
         if not escaped:
             return escaped
 
@@ -349,8 +358,12 @@ def make_linkifier(
                 if in_anchor:
                     out.append(piece)
                 else:
-                    out.append(transform_text_chunk(piece))
+                    out.append(transform_text_chunk(piece, allow_self_para=allow_self_para))
 
         return "".join(out)
 
+    def linkify(escaped: str) -> str:
+        return _run_linkify(escaped, allow_self_para=True)
+
+    linkify.without_self = lambda escaped: _run_linkify(escaped, allow_self_para=False)  # type: ignore[attr-defined]
     return linkify

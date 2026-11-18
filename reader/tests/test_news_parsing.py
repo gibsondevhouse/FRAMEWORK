@@ -74,6 +74,13 @@ class ExtractCitationsTests(HermeticTestCase):
         self.assertEqual(news.extract_citations(""), ([], []))
         self.assertEqual(news.extract_citations(None), ([], []))
 
+    def test_cross_title_19xx_does_not_leak_and_unsymboled_list_parses(self):
+        secs, parts = news.extract_citations(
+            "See 40 CFR § 1910.1 and 29 CFR 1910.120 and 1910.134 for rules."
+        )
+        self.assertEqual(secs, ["1910.120", "1910.134"])
+        self.assertEqual(parts, [])
+
 
 class GroupViolationsTests(HermeticTestCase):
     def test_drops_deleted_and_groups(self):

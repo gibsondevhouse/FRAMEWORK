@@ -165,6 +165,66 @@ class PartialBuildTests(HermeticTestCase):
         self.assertFalse((self.tmp / "title-99.sqlite3").exists())
         self.assertFalse((self.tmp / "tree-99.json").exists())
 
+    def test_corrupt_db_does_not_crash_installed(self):
+        (self.tmp / "title-99.sqlite3").write_bytes(b"not a sqlite database")
+        self.assertIsNone(library.installed(99))
+
+    def test_duplicate_appendix_ids_across_parts_disambiguate_and_build(self):
+        dup_struct = {
+            "type": "title", "identifier": "14", "label": "Title 14", "label_description": "Test", "children": [
+                {"type": "chapter", "identifier": "I", "label": "Chapter I", "label_description": "FAA", "children": [
+                    {"type": "part", "identifier": "71", "label": "Part 71", "label_description": "Airspace", "children": [
+                        {"type": "appendix", "identifier": "SFAR No. 97", "label": "SFAR No. 97", "label_description": "Ops A"},
+                    ]},
+                    {"type": "part", "identifier": "91", "label": "Part 91", "label_description": "Flight", "children": [
+                        {"type": "appendix", "identifier": "SFAR No. 97", "label": "SFAR No. 97", "label_description": "Ops B"},
+                    ]},
+                ]},
+            ],
+        }
+        dup_xml = (
+            '<DIV1 N="14">'
+            '<DIV5 N="71" TYPE="PART"><HEAD>PART 71</HEAD>'
+            '<DIV9 N="SFAR No. 97" TYPE="APPENDIX"><HEAD>SFAR 97</HEAD><P>Part 71 rules.</P></DIV9></DIV5>'
+            '<DIV5 N="91" TYPE="PART"><HEAD>PART 91</HEAD>'
+            '<DIV9 N="SFAR No. 97" TYPE="APPENDIX"><HEAD>SFAR 97</HEAD><P>Part 91 rules.</P></DIV9></DIV5>'
+            '</DIV1>'
+        )
+
+        def dup_fetch(_c, url):
+            if url.endswith("/titles.json"):
+                return {"titles": [{"number": 14, "name": "Aeronautics", "up_to_date_as_of": "2026-01-02", "reserved": False}]}
+            return dup_struct
+
+        def dup_dl(_c, url, dest, on_bytes=None):
+            if "part=71" in url:
+                dest.write_text('<DIV5 N="71"><DIV9 N="SFAR No. 97"><P>Part 71 rules.</P></DIV9></DIV5>', encoding="utf-8")
+            else:
+                dest.write_text(dup_xml, encoding="utf-8")
+
+        with mock.patch.object(build, "fetch_json", dup_fetch), \
+             mock.patch.object(build, "download_stream", dup_dl), \
+             mock.patch.object(library, "ecfr_titles", lambda refresh=False: dup_fetch(None, "/titles.json")["titles"]):
+            library._structures.clear()
+            build.build(14, force=True)
+            self.assertEqual(store.known_ids(14), frozenset({"71:SFAR No. 97", "91:SFAR No. 97"}))
+            self.assertIn("Part 71</a> rules.", store.get_section("71:SFAR No. 97", title=14)["html"])
+            self.assertIn("Part 91</a> rules.", store.get_section("91:SFAR No. 97", title=14)["html"])
+
+            # Partial install of 71:SFAR No. 97 must not mark Part 91's SFAR as installed.
+            build.build(14, force=True, scope=build.normalize_scope({
+                "parts": [], "sections": [{"t": "appendix", "id": "71:SFAR No. 97", "part": "71"}],
+            }))
+            self.assertEqual(library.part_view(14, "71")["installed"], "all")
+            self.assertIsNone(library.part_view(14, "91")["installed"])
+            store.release_title(14)
+
+    def test_invalid_partial_addition_does_not_corrupt_scope(self):
+        build.build(99, force=True, scope={"parts": ["2"], "sections": []})
+        with self.assertRaises(ValueError):
+            library.run_job({"title": 99, "kind": "part", "target": {"part": "9999"}}, lambda *a, **k: None)
+        self.assertEqual(library.installed(99)["scope"], {"parts": ["2"], "sections": []})
+
 
 class LibraryApiGuardTests(HermeticTestCase):
     def setUp(self):

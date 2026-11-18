@@ -88,6 +88,8 @@ def library_wire() -> list[dict]:
 
 @router.post("/batch-download")
 def library_batch_download(req: BatchDownloadRequest) -> dict:
+    if req.suite and req.titles:
+        raise HTTPException(400, "Specify either a suite or a list of titles, not both.")
     if req.suite:
         suite = library.COMPLIANCE_SUITES.get(req.suite)
         if not suite:
@@ -119,17 +121,22 @@ def library_part(part: str, title: int = Path(ge=1, le=50)) -> dict:
 
 @router.post("/download")
 def library_download(req: DownloadRequest) -> dict:
+    part = (req.part or "").strip() or None
+    section = (req.section or "").strip() or None
     info = _library_call(library.ecfr_title, req.title)
     if info.get("reserved"):
         raise HTTPException(400, f"Title {req.title} is reserved and has no text.")
-    if req.section:
-        if req.kind == "appendix" and not req.part:
+    if section:
+        if req.kind == "appendix" and not part:
             raise HTTPException(400, "An appendix download needs its part.")
-        target = {"t": req.kind, "id": req.section, "part": req.part or req.section.split(".")[0]}
-        label = (req.section if req.kind == "appendix" else f"§ {req.section}") + f" · Title {req.title}"
+        inferred_part = part or (section.split(".", 1)[0] if "." in section else "")
+        if not inferred_part:
+            raise HTTPException(400, "Could not determine part for section download.")
+        target = {"t": req.kind, "id": section, "part": inferred_part}
+        label = (section if req.kind == "appendix" else f"§ {section}") + f" · Title {req.title}"
         return library.queue.submit(req.title, "section", target, label)
-    if req.part:
-        return library.queue.submit(req.title, "part", {"part": req.part}, f"Part {req.part} · Title {req.title}")
+    if part:
+        return library.queue.submit(req.title, "part", {"part": part}, f"Part {part} · Title {req.title}")
     return library.queue.submit(req.title, "title", None, f"Title {req.title}")
 
 
@@ -142,12 +149,13 @@ def library_update(title: int = Path(ge=1, le=50)) -> dict:
 
 @router.delete("/{title}")
 def library_remove(title: int = Path(ge=1, le=50)) -> dict:
-    installed = config.installed_titles()
-    if title not in installed:
-        raise HTTPException(404, f"Title {title} is not installed.")
-    if len(installed) == 1:
-        raise HTTPException(409, "This is the only title in the reader. Download another before removing it.")
-    if library.queue.busy_with(title):
-        raise HTTPException(409, f"Title {title} has a download in progress.")
-    library.remove(title)
-    return {"removed": title, "installed": config.installed_titles()}
+    with library.queue.operation_lock():
+        installed = config.installed_titles()
+        if title not in installed:
+            raise HTTPException(404, f"Title {title} is not installed.")
+        if len(installed) == 1:
+            raise HTTPException(409, "This is the only title in the reader. Download another before removing it.")
+        if library.queue.busy_with(title):
+            raise HTTPException(409, f"Title {title} has a download in progress.")
+        library.remove(title)
+        return {"removed": title, "installed": config.installed_titles()}

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -93,6 +94,7 @@ ENV_DEFAULTS = {
 }
 ENV_ALLOWED_KEYS = set(ENV_SECRET_KEYS) | set(ENV_DEFAULTS)
 _ENV_LINE_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
+_env_write_lock = threading.Lock()
 
 
 def env_path() -> Path:
@@ -179,46 +181,47 @@ def write_env_updates(updates: dict[str, str | None]) -> dict:
             _format_env_value(s)
             cleaned[key] = s if s else None
 
-    target = env_path()
-    seed = target if target.exists() else env_example_path()
-    lines = seed.read_text(encoding="utf-8").splitlines() if seed.exists() else []
+    with _env_write_lock:
+        target = env_path()
+        seed = target if target.exists() else env_example_path()
+        lines = seed.read_text(encoding="utf-8").splitlines() if seed.exists() else []
 
-    seen: set[str] = set()
-    out_lines: list[str] = []
-    for line in lines:
-        m = _ENV_LINE_RE.match(line)
-        if m and m.group(1) in cleaned:
-            k = m.group(1)
-            seen.add(k)
-            v = cleaned[k]
-            out_lines.append(f"{k}={_format_env_value(v or '')}")
-        else:
-            out_lines.append(line)
+        seen: set[str] = set()
+        out_lines: list[str] = []
+        for line in lines:
+            m = _ENV_LINE_RE.match(line)
+            if m and m.group(1) in cleaned:
+                k = m.group(1)
+                seen.add(k)
+                v = cleaned[k]
+                out_lines.append(f"{k}={_format_env_value(v or '')}")
+            else:
+                out_lines.append(line)
 
-    for k, v in cleaned.items():
-        if k not in seen:
-            out_lines.append(f"{k}={_format_env_value(v or '')}")
+        for k, v in cleaned.items():
+            if k not in seen:
+                out_lines.append(f"{k}={_format_env_value(v or '')}")
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload = "\n".join(out_lines).rstrip("\n") + "\n"
-    fd, tmp_name = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=target.parent)
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(payload)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = "\n".join(out_lines).rstrip("\n") + "\n"
+        fd, tmp_name = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=target.parent)
+        tmp_path = Path(tmp_name)
         try:
-            os.chmod(tmp_path, 0o600)
-        except OSError:
-            pass
-        os.replace(tmp_path, target)
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            try:
+                os.chmod(tmp_path, 0o600)
+            except OSError:
+                pass
+            os.replace(tmp_path, target)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
-    for k, v in cleaned.items():
-        if v is None:
-            os.environ.pop(k, None)
-        else:
-            os.environ[k] = v
+        for k, v in cleaned.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
-    return env_status()
+        return env_status()

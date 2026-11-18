@@ -104,6 +104,13 @@ class GraphAndReferencesTests(HermeticTestCase):
         res_404 = self.client.get("/api/29/citations/9999.99")
         self.assertEqual(res_404.status_code, 404)
 
+    def test_plural_ibr_title_and_precomputed_table(self):
+        self.assertTrue(graph._is_ibr_catalog_section("Incorporations by reference.", "60.17"))
+        self.assertTrue(graph._is_ibr_catalog_section("Reference material.", "171.7"))
+        with store.read_db(29) as con:
+            row = con.execute("SELECT payload FROM title_graph WHERE key = 'index'").fetchone()
+        self.assertIsNotNone(row)
+
 
 if __name__ == "__main__":
     unittest.main()

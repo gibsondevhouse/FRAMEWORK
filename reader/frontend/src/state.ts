@@ -17,7 +17,8 @@ export type RefTier =
   | 'fr'
   | 'ibr'
   | 'state'
-  | 'county';
+  | 'county'
+  | 'web';
 
 export type MotionLevel = 'none' | 'less' | 'full';
 
@@ -109,6 +110,11 @@ export interface TreeNode {
   l?: string;
   d?: string;
   r?: boolean;
+  range?: string;
+  k?: number;
+  n?: number;
+  partCount?: number;
+  hay?: string;
   c?: TreeNode[];
 }
 
@@ -150,11 +156,17 @@ export interface SectionDocData {
   next?: SectionNeighbor | null;
 }
 
+export interface ChatModelOption {
+  id: string;
+  name: string;
+}
+
 export interface ChatConfig {
   configured: boolean;
-  models: string[];
+  models: ChatModelOption[];
   default: string | null;
   selected?: string | null;
+  error?: string;
 }
 
 export interface ChatMessage {
@@ -202,6 +214,9 @@ export interface NewsArticle {
   title: string;
   link: string;
   published_at: string;
+  source?: string;
+  pdf_url?: string;
+  doc_type?: string;
   citation?: string;
   comments_close_on?: string;
   scheduled_on?: string;
@@ -209,6 +224,11 @@ export interface NewsArticle {
   company?: string;
   city?: string;
   state?: string;
+  snippet?: string;
+  takeaways?: Array<{ label: string; text: string }>;
+  cfr_parts?: Array<{ title: number; part: string | number }>;
+  sections?: string[];
+  title_num?: number;
 }
 
 export interface NewsActivityCtx {
@@ -347,6 +367,56 @@ export interface SectionGraphData {
   ibr: IbrMatch[];
 }
 
+export interface TreeFilterState {
+  q: string;
+  re: RegExp;
+  results: number[];
+}
+
+export interface StorageSnapshot {
+  titles: Array<{ title: number; bytes: number }>;
+  legacy_bytes: number;
+  temp_files: number;
+  temp_bytes: number;
+  total_bytes: number;
+}
+
+export interface NewsSourceStatus {
+  enabled: boolean;
+  last_ok_at?: string | null;
+  next_due_at?: string | null;
+  retry_after?: string | null;
+  last_error?: string | null;
+}
+
+export interface NewsStatusSnapshot {
+  sync_enabled: boolean;
+  sources: Record<string, NewsSourceStatus>;
+  dol_configured: boolean;
+  articles?: number;
+  last_ok_at?: string | null;
+}
+
+export interface EnvKeyEntry {
+  configured?: boolean;
+  masked?: string;
+  value?: string | number | boolean;
+  default?: string;
+}
+
+export interface EnvStatusSnapshot {
+  env_exists: boolean;
+  env_file: string;
+  keys: {
+    DOL_API_KEY?: EnvKeyEntry;
+    ANTHROPIC_API_KEY?: EnvKeyEntry;
+    ANTHROPIC_MODEL?: EnvKeyEntry;
+    NEWS_SYNC?: EnvKeyEntry;
+    NEWS_RETENTION_DAYS?: EnvKeyEntry;
+    [k: string]: EnvKeyEntry | undefined;
+  };
+}
+
 export interface AppState {
   currentTitle: number;
   activeCorpusId: string;
@@ -380,8 +450,8 @@ export interface AppState {
   currentPartKey: number | null | undefined;
   currentAgencyKey: number | null | undefined;
   rootViewMode: 'agencies' | 'all-parts' | undefined;
-  sideView: 'agencies' | 'all-parts' | 'agency' | 'part' | undefined;
-  treeFilterState: unknown;
+  sideView: 'agencies' | 'all-parts' | number | undefined;
+  treeFilterState: TreeFilterState | null | undefined;
   foldedGroups: Set<string> | undefined;
   filterTimer: ReturnType<typeof setTimeout> | null | undefined;
   newProjectOpen: boolean | undefined;
@@ -390,13 +460,14 @@ export interface AppState {
   newsActivityCtx: NewsActivityCtx | null;
   navRetracted: boolean | undefined;
   historyFor: string | undefined;
-  goPending: boolean | undefined;
+  goPending: number;
   navTransferKey: string | undefined;
-  navStorage: unknown;
-  navNewsStatus: unknown;
-  navEnvStatus: unknown;
+  navStorage: StorageSnapshot | null | undefined;
+  navNewsStatus: NewsStatusSnapshot | null | undefined;
+  navEnvStatus: EnvStatusSnapshot | null | undefined;
+  navLibData: { titles?: Array<{ title: number; name?: string; reserved?: boolean; latest?: string | null; amended?: string | null; installed?: { whole?: boolean; edition?: string | null } | null }> } | null;
   envModalReturnFocus: Element | null | undefined;
-  envModalSnapshot: unknown;
+  envModalSnapshot: EnvStatusSnapshot | null | undefined;
   selectedText: string;
   motionLevel: MotionLevel;
   routeAbort: AbortController | null;
@@ -457,11 +528,12 @@ export const state: AppState = {
   newsActivityCtx: null,
   navRetracted: undefined,
   historyFor: undefined,
-  goPending: undefined,
+  goPending: 0,
   navTransferKey: undefined,
   navStorage: undefined,
   navNewsStatus: undefined,
   navEnvStatus: undefined,
+  navLibData: null,
   envModalReturnFocus: undefined,
   envModalSnapshot: undefined,
   selectedText: '',

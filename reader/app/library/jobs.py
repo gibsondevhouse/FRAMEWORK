@@ -22,6 +22,7 @@ class Queue:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._op_lock = threading.Lock()
         self._wake = threading.Condition(self._lock)
         self._pending: deque[dict] = deque()
         self._recent: deque[dict] = deque(maxlen=10)
@@ -29,10 +30,13 @@ class Queue:
         self._ids = itertools.count(1)
         self._thread: threading.Thread | None = None
 
+    def operation_lock(self) -> threading.Lock:
+        return self._op_lock
+
     # -- public --
     def submit(self, title: int, kind: str, target: dict | None, label: str) -> dict:
         """kind: 'title' | 'part' | 'section' | 'update'. target: the part/section asked for."""
-        with self._lock:
+        with self._op_lock, self._lock:
             for j in [*self._pending, *( [self._current] if self._current else [])]:
                 if j["title"] == title and j["kind"] == kind and j["target"] == target:
                     return dict(j)  # already queued or running
@@ -157,7 +161,7 @@ def queue_titles(titles: list[int]) -> dict:
             continue
         latest = info.get("up_to_date_as_of")
         if inst and inst["scope"] is None:
-            if inst["edition"] and latest and latest > inst["edition"]:
+            if latest and (not inst["edition"] or latest > inst["edition"]):
                 queued.append(lib.queue.submit(n, "update", None, f"Update Title {n}"))
             else:
                 skipped.append({"title": n, "reason": "current"})
@@ -172,7 +176,7 @@ def outdated() -> list[int]:
     out = []
     for n in config.installed_titles():
         inst = lib.installed(n)
-        if inst and inst["edition"] and latest.get(n) and latest[n] > inst["edition"]:
+        if inst and latest.get(n) and (not inst["edition"] or latest[n] > inst["edition"]):
             out.append(n)
     return out
 
@@ -202,6 +206,10 @@ def run_job(job: dict, report) -> None:
         scope = inst["scope"]
     else:
         add = requested_scope(job["kind"], job["target"])
+        if inst is not None and add is not None:
+            pruned_add = build.prune_tree(lib.structure(title), add)
+            if not build.count_leaves(pruned_add):
+                raise ValueError("None of the selected parts or sections exist in the current edition")
         scope = add if inst is None else build.merge_scope(inst["scope"], add)
         if inst is not None and scope == inst["scope"] and inst["edition"] == lib.ecfr_title(title)["up_to_date_as_of"]:
             report("Already installed", 1, 1)

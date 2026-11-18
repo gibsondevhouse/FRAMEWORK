@@ -50,11 +50,12 @@ var state = {
 	newsActivityCtx: null,
 	navRetracted: void 0,
 	historyFor: void 0,
-	goPending: void 0,
+	goPending: 0,
 	navTransferKey: void 0,
 	navStorage: void 0,
 	navNewsStatus: void 0,
 	navEnvStatus: void 0,
+	navLibData: null,
 	envModalReturnFocus: void 0,
 	envModalSnapshot: void 0,
 	selectedText: "",
@@ -73,14 +74,14 @@ var state = {
 	graphCache: /* @__PURE__ */ new Map(),
 	refsCache: /* @__PURE__ */ new Map()
 };
-// src/state_init.js
+// src/state_init.ts
 state.currentTitle = 29;
 state.activeCorpusId = "us:cfr:29";
 state.corpora = [];
 state.extraCorpora = [];
 state.installedTitles = [];
 state.noTitles = false;
-state.profilesData = null;
+state.profilesData = void 0;
 state.treeData = null;
 state.currentSection = null;
 state.currentPart = null;
@@ -95,7 +96,8 @@ state.chatHistory = [];
 state.isGenerating = false;
 state.routeSeq = 0;
 state.routeAbort = null;
-state.motionLevel = document.documentElement.dataset.motion === "none" || document.documentElement.dataset.motion === "less" ? document.documentElement.dataset.motion : "full";
+var docMotion = typeof document !== "undefined" ? document.documentElement.dataset.motion : void 0;
+state.motionLevel = docMotion === "none" || docMotion === "less" ? docMotion : "full";
 state.splitState = null;
 state.mainTabs = [];
 state.activeMainTabId = null;
@@ -108,41 +110,225 @@ state.pendingDownloads = /* @__PURE__ */ new Map();
 state.peekCache = /* @__PURE__ */ new Map();
 state.graphCache = /* @__PURE__ */ new Map();
 state.refsCache = /* @__PURE__ */ new Map();
+function byId(id) {
+	return typeof document !== "undefined" ? document.getElementById(id) : null;
+}
+function queryEl(sel) {
+	return typeof document !== "undefined" ? document.querySelector(sel) : null;
+}
 var dom = {
-	topbar: document.querySelector(".topbar"),
-	titleSelect: document.getElementById("title-select"),
-	titlePop: document.getElementById("title-pop"),
-	navToggle: document.getElementById("nav-toggle"),
-	search: document.getElementById("search"),
-	searchDropdown: document.getElementById("search-dropdown"),
-	edition: document.getElementById("edition"),
-	chatToggle: document.getElementById("chat-toggle"),
-	layout: document.getElementById("layout"),
-	sidebar: document.getElementById("sidebar"),
-	sidebarResizer: document.getElementById("sidebar-resizer"),
-	navBackdrop: document.getElementById("nav-backdrop"),
-	treeFilter: document.getElementById("tree-filter"),
-	tree: document.getElementById("tree"),
-	mainStage: document.getElementById("main-stage"),
-	main: document.getElementById("main"),
-	mainTabs: document.getElementById("main-tabs"),
-	splitPane: document.getElementById("split-pane"),
-	view: document.getElementById("view"),
-	viewHead: document.getElementById("view-head"),
-	citePop: document.getElementById("cite-pop"),
-	chat: document.getElementById("chat"),
-	modelSelect: document.getElementById("model-select"),
-	chatNew: document.getElementById("chat-new"),
-	chatClose: document.getElementById("chat-close"),
-	chatContext: document.getElementById("chat-context"),
-	contextToggle: document.getElementById("context-toggle"),
-	contextLabel: document.getElementById("context-label"),
-	chatMessages: document.getElementById("chat-messages"),
-	chatForm: document.getElementById("chat-form"),
-	chatText: document.getElementById("chat-text"),
-	chatSend: document.getElementById("chat-send"),
-	askFloat: document.getElementById("ask-float"),
-	toast: document.getElementById("toast")
+	topbar: queryEl(".topbar"),
+	titleSelect: byId("title-select"),
+	titlePop: byId("title-pop"),
+	navToggle: byId("nav-toggle"),
+	search: byId("search"),
+	searchDropdown: byId("search-dropdown"),
+	edition: byId("edition"),
+	chatToggle: byId("chat-toggle"),
+	layout: byId("layout"),
+	sidebar: byId("sidebar"),
+	sidebarResizer: byId("sidebar-resizer"),
+	navBackdrop: byId("nav-backdrop"),
+	treeFilter: byId("tree-filter"),
+	tree: byId("tree"),
+	mainStage: byId("main-stage"),
+	main: byId("main"),
+	mainTabs: byId("main-tabs"),
+	splitPane: byId("split-pane"),
+	view: byId("view"),
+	viewHead: byId("view-head"),
+	citePop: byId("cite-pop"),
+	chat: byId("chat"),
+	modelSelect: byId("model-select"),
+	chatNew: byId("chat-new"),
+	chatClose: byId("chat-close"),
+	chatContext: byId("chat-context"),
+	contextToggle: byId("context-toggle"),
+	contextLabel: byId("context-label"),
+	chatMessages: byId("chat-messages"),
+	chatForm: byId("chat-form"),
+	chatText: byId("chat-text"),
+	chatSend: byId("chat-send"),
+	askFloat: byId("ask-float"),
+	toast: byId("toast")
+};
+// src/core/events.ts
+var listeners = /* @__PURE__ */ new Map();
+function on(event, handler) {
+	let set = listeners.get(event);
+	if (!set) {
+		set = /* @__PURE__ */ new Set();
+		listeners.set(event, set);
+	}
+	set.add(handler);
+	return () => {
+		set?.delete(handler);
+	};
+}
+function emit(event, ...args) {
+	const set = listeners.get(event);
+	if (!set || set.size === 0) return;
+	const payload = args[0];
+	for (const fn of [...set]) try {
+		fn(payload);
+	} catch (err) {
+		console.error(`[events:${String(event)}]`, err);
+	}
+}
+// src/core/view_dispatch.ts
+var handlers = {
+	click: [],
+	input: [],
+	change: [],
+	keydown: []
+};
+var initialized = false;
+function ensureBound() {
+	if (initialized || typeof document === "undefined" || !dom.view) return;
+	initialized = true;
+	Object.keys(handlers).forEach((type) => {
+		dom.view.addEventListener(type, (e) => {
+			for (const fn of handlers[type]) fn(e);
+		});
+	});
+}
+/**
+* Register a delegated handler on `#view` backed by one shared root listener per event type.
+*/
+function onView(type, handler) {
+	ensureBound();
+	const list = handlers[type];
+	list.push(handler);
+	return () => {
+		const idx = list.indexOf(handler);
+		if (idx !== -1) list.splice(idx, 1);
+	};
+}
+// src/data/home_content.ts
+var HOME_CONTENT = {
+	29: {
+		tagline: "Federal labor regulations — workplace safety, wages and hours, leave, and employee benefits — with local search and Claude.",
+		cards: [
+			{
+				part: "1910",
+				kicker: "OSHA Safety",
+				title: "Part 1910 — General Industry",
+				desc: "PPE, hazard communication, walking-working surfaces, fire protection, and machinery."
+			},
+			{
+				part: "1926",
+				kicker: "OSHA Safety",
+				title: "Part 1926 — Construction",
+				desc: "Scaffolds, fall protection, cranes, excavations, and electrical safety on sites."
+			},
+			{
+				part: "541",
+				kicker: "Wage & Hour",
+				title: "Part 541 — Overtime Exemptions",
+				desc: "Executive, administrative, professional, computer, and outside sales exemptions (FLSA)."
+			},
+			{
+				part: "825",
+				kicker: "Leave & Family",
+				title: "Part 825 — Family & Medical Leave",
+				desc: "FMLA employee eligibility, employer notice obligations, leave duration, and certification."
+			},
+			{
+				part: "1904",
+				kicker: "Recordkeeping",
+				title: "Part 1904 — Injury Recording",
+				desc: "Recording and reporting occupational injuries, illnesses, and severe incidents."
+			},
+			{
+				part: "2560",
+				kicker: "Employee Benefits",
+				title: "Part 2560 — ERISA Administration",
+				desc: "Claims procedures, participant remedies, and retirement plan fiduciaries."
+			}
+		]
+	},
+	40: {
+		tagline: "EPA regulations — air and water quality, hazardous waste, permits, and chemical releases — with local search and Claude.",
+		cards: [
+			{
+				part: "50",
+				kicker: "Air",
+				title: "Part 50 — Air Quality Standards",
+				desc: "National ambient air quality standards (NAAQS) for ozone, particulates, lead, and more."
+			},
+			{
+				part: "70",
+				kicker: "Air Permits",
+				title: "Part 70 — Operating Permits",
+				desc: "State operating permit programs for major stationary sources (Title V)."
+			},
+			{
+				part: "122",
+				kicker: "Water",
+				title: "Part 122 — NPDES Permits",
+				desc: "The discharge permit program for point sources under the Clean Water Act."
+			},
+			{
+				part: "136",
+				kicker: "Water",
+				title: "Part 136 — Test Procedures",
+				desc: "Approved analytical methods for pollutant monitoring and compliance."
+			},
+			{
+				part: "261",
+				kicker: "Hazardous Waste",
+				title: "Part 261 — Waste Identification",
+				desc: "What counts as a solid and hazardous waste under RCRA: listings and characteristics."
+			},
+			{
+				part: "302",
+				kicker: "Emergencies",
+				title: "Part 302 — Reportable Quantities",
+				desc: "CERCLA hazardous substance designations and release notification thresholds."
+			}
+		]
+	},
+	49: {
+		tagline: "DOT regulations — hazardous materials, motor carriers, drivers, and vehicle safety — with local search and Claude.",
+		cards: [
+			{
+				part: "172",
+				kicker: "Hazmat",
+				title: "Part 172 — Hazmat Table & Communication",
+				desc: "The hazardous materials table, shipping papers, marking, labeling, and placarding."
+			},
+			{
+				part: "173",
+				kicker: "Hazmat",
+				title: "Part 173 — Packaging Requirements",
+				desc: "General shipment and packaging requirements by hazard class."
+			},
+			{
+				part: "390",
+				kicker: "Motor Carriers",
+				title: "Part 390 — FMCSA General",
+				desc: "Who the federal motor carrier safety regulations apply to, and general duties."
+			},
+			{
+				part: "391",
+				kicker: "Drivers",
+				title: "Part 391 — Driver Qualifications",
+				desc: "Qualification files, medical certification, and disqualifying offenses."
+			},
+			{
+				part: "383",
+				kicker: "Drivers",
+				title: "Part 383 — Commercial Driver’s License",
+				desc: "CDL standards: who needs one, testing, endorsements, and disqualifications."
+			},
+			{
+				part: "571",
+				kicker: "Vehicles",
+				title: "Part 571 — Vehicle Safety Standards",
+				desc: "Federal motor vehicle safety standards (FMVSS) for cars, trucks, and buses."
+			}
+		]
+	}
 };
 // node_modules/marked/lib/marked.esm.js
 /**
@@ -4522,17 +4708,37 @@ function createDOMPurify() {
 	return DOMPurify;
 }
 var purify_default = createDOMPurify();
-// src/dom.js
+// src/dom.ts
+var toastTimer;
 function showToast(msg, duration = 3e3) {
+	if (!dom.toast) return;
 	dom.toast.textContent = msg;
 	dom.toast.hidden = false;
-	clearTimeout(dom.toast._t);
-	dom.toast._t = setTimeout(() => {
+	if (toastTimer !== void 0) clearTimeout(toastTimer);
+	toastTimer = setTimeout(() => {
 		dom.toast.hidden = true;
 	}, duration);
 }
+var purifyHookInstalled = false;
+function ensurePurifyHook() {
+	if (purifyHookInstalled || typeof purify_default === "undefined" || !purify_default.addHook) return;
+	purifyHookInstalled = true;
+	purify_default.addHook("afterSanitizeAttributes", (node) => {
+		if (node instanceof Element && node.tagName === "A") {
+			const href = node.getAttribute("href") || "";
+			if (href && !href.startsWith("#") && !safeHttpUrl(href)) node.removeAttribute("href");
+			else if (/^https?:/i.test(href)) {
+				node.setAttribute("target", "_blank");
+				node.setAttribute("rel", "noopener noreferrer");
+			}
+		}
+	});
+}
 function renderMarkdown(md) {
-	if (typeof marked !== "undefined" && typeof purify_default !== "undefined") return purify_default.sanitize(marked.parse(md));
+	if (typeof marked !== "undefined" && typeof purify_default !== "undefined") {
+		ensurePurifyHook();
+		return purify_default.sanitize(marked.parse(md, { async: false }));
+	}
 	return escapeHtml(md);
 }
 var HTML_ESCAPES = {
@@ -4547,19 +4753,96 @@ function cleanInlineLabel(str) {
 	return String(str ?? "").replace(INLINE_MARKUP_RE, "").replace(/\s+/g, " ").trim();
 }
 function escapeHtml(str) {
-	return String(str ?? "").replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+	return String(str ?? "").replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch] || ch);
+}
+function plural(n, word) {
+	return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 function lsGet(key) {
 	try {
 		return localStorage.getItem(key);
-	} catch (e) {
+	} catch {
 		return null;
 	}
 }
 function lsSet(key, value) {
 	try {
 		localStorage.setItem(key, value);
-	} catch (e) {}
+	} catch {}
+}
+function lsGetJSON(key, fallback = null) {
+	try {
+		const v = lsGet(key);
+		return v ? JSON.parse(v) : fallback;
+	} catch {
+		return fallback;
+	}
+}
+function lsSetJSON(key, value) {
+	lsSet(key, JSON.stringify(value));
+}
+function safeHttpUrl(u) {
+	if (!u || typeof u !== "string") return "";
+	try {
+		const base = typeof window !== "undefined" ? window.location.href : "https://example.invalid/";
+		const p = new URL(u, base).protocol;
+		return p === "http:" || p === "https:" ? u : "";
+	} catch {
+		return "";
+	}
+}
+async function copyText(text, okMsg = "Copied", errMsg = "Couldn’t copy") {
+	try {
+		await navigator.clipboard.writeText(text);
+		if (okMsg) showToast(okMsg);
+		return true;
+	} catch {
+		if (errMsg) showToast(errMsg);
+		return false;
+	}
+}
+function tocTitle(node) {
+	const l = cleanInlineLabel(node.l || "");
+	const d = cleanInlineLabel(node.d || "");
+	return l && d.startsWith(l) && d.length > l.length ? d.slice(l.length).trim() : d;
+}
+function findPartInTree(node, partId) {
+	if (!node) return null;
+	if (node.t === "part" && String(node.id) === String(partId)) return node;
+	if (node.c) for (const ch of node.c) {
+		const found = findPartInTree(ch, partId);
+		if (found) return found;
+	}
+	return null;
+}
+function extractDocExcerpt(html, { maxChars = 240, maxParas = 3 } = {}) {
+	const doc = new DOMParser().parseFromString(html || "", "text/html");
+	const raw = [...doc.body.querySelectorAll(".reg-p, .reg-callout")].slice(0, maxParas).map((p) => p.textContent || "").join(" ").replace(/\s+/g, " ").trim();
+	return {
+		doc,
+		excerpt: raw.length > maxChars ? raw.slice(0, maxChars - 1).trimEnd() + "…" : raw,
+		refCount: doc.body.querySelectorAll("a.xref, a.xref-cross, a.xref-external, a.xref-usc").length,
+		docLen: (doc.body.textContent || "").replace(/\s+/g, " ").trim().length
+	};
+}
+function setModalBackgroundInert(on) {
+	const val = Boolean(on);
+	if (dom.layout) dom.layout.inert = val;
+	if (dom.topbar) dom.topbar.inert = val;
+}
+function trapFocusKeydown(container, e) {
+	if (e.key !== "Tab" || !container) return;
+	const focusable = [...container.querySelectorAll("a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex=\"-1\"])")].filter((el) => el.offsetParent !== null || el === document.activeElement);
+	if (!focusable.length) return;
+	const first = focusable[0];
+	const last = focusable[focusable.length - 1];
+	if (e.shiftKey && (document.activeElement === first || !container.contains(document.activeElement))) {
+		e.preventDefault();
+		last.focus();
+	} else if (!e.shiftKey && document.activeElement === last) {
+		e.preventDefault();
+		first.focus();
+	}
 }
 var ICON_PATHS = {
 	sparkle: "<path d=\"M8 2.25 9.35 6.65 13.75 8 9.35 9.35 8 13.75 6.65 9.35 2.25 8 6.65 6.65Z\"/>",
@@ -4626,7 +4909,7 @@ function skeletonHtml(kind = "doc", label = "Loading…") {
 	return `<div class="loading is-skel" role="status" aria-busy="true" aria-label="${escapeHtml(label)}">${body}</div>`;
 }
 var MOTION_KEY = "motionLevel";
-var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+var reduceMotion = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
 function getMotionLevel() {
 	const stored = lsGet(MOTION_KEY);
 	if (stored === "none" || stored === "less" || stored === "full") return stored;
@@ -4635,18 +4918,20 @@ function getMotionLevel() {
 function applyMotionLevel(level) {
 	const next = level === "none" || level === "less" || level === "full" ? level : getMotionLevel();
 	lsSet(MOTION_KEY, next);
-	document.documentElement.dataset.motion = next;
+	if (typeof document !== "undefined") document.documentElement.dataset.motion = next;
 	state.motionLevel = next;
 	return next;
 }
-if (!document.documentElement.dataset.motion) document.documentElement.dataset.motion = getMotionLevel();
+if (typeof document !== "undefined" && !document.documentElement.dataset.motion) document.documentElement.dataset.motion = getMotionLevel();
 state.motionLevel = getMotionLevel();
+var calmAnims = /* @__PURE__ */ new WeakMap();
+var scrollRafs = /* @__PURE__ */ new WeakMap();
 function animateCalm(el, { fromY = 16, fromX = 0, fromScale = .99, duration = 640, delay = 0 } = {}) {
 	const level = getMotionLevel();
 	if (level === "none" || !el || !el.animate) return;
 	try {
-		el._calmAnim?.cancel();
-	} catch (e) {}
+		calmAnims.get(el)?.cancel();
+	} catch {}
 	const keyframes = level === "less" ? [{ opacity: 0 }, { opacity: 1 }] : [{
 		opacity: 0,
 		transform: `translate3d(${fromX}px, ${fromY}px, 0) scale(${fromScale})`
@@ -4654,17 +4939,17 @@ function animateCalm(el, { fromY = 16, fromX = 0, fromScale = .99, duration = 64
 		opacity: 1,
 		transform: "none"
 	}];
-	el._calmAnim = el.animate(keyframes, {
+	calmAnims.set(el, el.animate(keyframes, {
 		duration: level === "less" ? Math.min(180, Math.round(duration * .3)) : duration,
 		delay: level === "less" ? 0 : delay,
 		easing: level === "less" ? "ease-out" : "cubic-bezier(0.32, 0.72, 0, 1)",
 		fill: delay > 0 ? "backwards" : "none"
-	});
+	}));
 }
 function enterView({ subtle = false, fromX = 0 } = {}) {
-	dom.main.scrollTop = 0;
+	if (dom.main) dom.main.scrollTop = 0;
 	const level = getMotionLevel();
-	if (level === "none") return;
+	if (level === "none" || !dom.view) return;
 	if (subtle && !fromX) {
 		const targets = dom.view.querySelectorAll(".unit-context, .reg-body, .reg-footnotes");
 		if (targets.length) {
@@ -4719,8 +5004,9 @@ function smoothScrollToTarget(el, { block = "center", duration = 820 } = {}) {
 		return;
 	}
 	try {
-		if (scroller._scrollRaf) cancelAnimationFrame(scroller._scrollRaf);
-	} catch (e) {}
+		const prevRaf = scrollRafs.get(scroller);
+		if (prevRaf) cancelAnimationFrame(prevRaf);
+	} catch {}
 	const sRect = scroller.getBoundingClientRect();
 	const eRect = el.getBoundingClientRect();
 	const offsetTop = eRect.top - sRect.top + scroller.scrollTop;
@@ -4752,17 +5038,706 @@ function smoothScrollToTarget(el, { block = "center", duration = 820 } = {}) {
 		const p = Math.min(1, (now - t0) / duration);
 		const eased = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
 		scroller.scrollTop = start + dist * eased;
-		if (p < 1) scroller._scrollRaf = requestAnimationFrame(step);
+		if (p < 1) scrollRafs.set(scroller, requestAnimationFrame(step));
 		else {
-			scroller._scrollRaf = 0;
+			scrollRafs.set(scroller, 0);
 			scroller.removeEventListener("wheel", cancel);
 			scroller.removeEventListener("touchstart", cancel);
 		}
 	};
-	scroller._scrollRaf = requestAnimationFrame(step);
+	scrollRafs.set(scroller, requestAnimationFrame(step));
 }
-var isMac = /Mac|iPhone|iPad/.test(navigator.platform || "");
-// src/components/corpora.js
+var isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "");
+// src/api/client.ts
+var MAX_PEEK_CACHE = 40;
+var MAX_GRAPH_CACHE = 80;
+var MAX_REFS_CACHE = 24;
+var MAX_TREE_CACHE = 16;
+var titleTreeCache = /* @__PURE__ */ new Map();
+function setBoundedCache(cache, key, val, max) {
+	if (cache.has(key)) cache.delete(key);
+	cache.set(key, val);
+	while (cache.size > max) {
+		const oldest = cache.keys().next().value;
+		if (oldest === void 0) break;
+		cache.delete(oldest);
+	}
+	return val;
+}
+function cachePeekSection(key, data) {
+	return setBoundedCache(state.peekCache, key, data, MAX_PEEK_CACHE);
+}
+function cacheSectionGraph(key, data) {
+	return setBoundedCache(state.graphCache, key, data, MAX_GRAPH_CACHE);
+}
+function cacheTitleRefs(titleNum, data) {
+	return setBoundedCache(state.refsCache, titleNum, data, MAX_REFS_CACHE);
+}
+function cacheTitleTree(titleNum, tree) {
+	return setBoundedCache(titleTreeCache, titleNum, tree, MAX_TREE_CACHE);
+}
+function invalidateTitleCaches(titles) {
+	if (!titles) {
+		state.peekCache.clear();
+		state.graphCache.clear();
+		state.refsCache.clear();
+		titleTreeCache.clear();
+		return;
+	}
+	const set = /* @__PURE__ */ new Set();
+	for (const t of titles) {
+		const n = Number(t);
+		if (Number.isFinite(n) && n > 0) set.add(n);
+	}
+	if (!set.size) return;
+	for (const key of [...state.peekCache.keys()]) if (set.has(Number(key.split("|", 1)[0]))) state.peekCache.delete(key);
+	for (const key of [...state.graphCache.keys()]) if (set.has(Number(key.split("|", 1)[0]))) state.graphCache.delete(key);
+	for (const t of set) {
+		state.refsCache.delete(t);
+		titleTreeCache.delete(t);
+	}
+}
+async function getJSON(url, opts) {
+	const res = await fetch(url, opts);
+	let body = null;
+	try {
+		body = await res.json();
+	} catch {}
+	if (!res.ok) throw new Error(body && body.detail || `Request failed (${res.status})`);
+	return body;
+}
+async function tryGetJSON(url, opts) {
+	try {
+		const res = await fetch(url, opts);
+		if (!res.ok) return null;
+		return await res.json();
+	} catch {
+		return null;
+	}
+}
+function fetchInstalledTitles(opts) {
+	return getJSON("/api/titles", opts);
+}
+function fetchTitlesSnapshot(opts) {
+	return tryGetJSON("/api/titles/snapshot", opts);
+}
+function fetchTitleMeta(titleNum, opts) {
+	return getJSON(`/api/${titleNum}/meta`, opts);
+}
+async function fetchTitleTree(titleNum, opts) {
+	const res = await fetch(`/api/${titleNum}/tree`, opts);
+	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	const tree = await res.json();
+	cacheTitleTree(titleNum, tree);
+	return tree;
+}
+function fetchSectionRaw(titleNum, sectionId, unitQs = "", opts) {
+	return fetch(`/api/${titleNum}/section/${encodeURIComponent(sectionId)}${unitQs}`, opts);
+}
+async function fetchSectionCached(titleNum, sectionId, unitQs = "?unit=", cacheKey, opts) {
+	const key = cacheKey ?? `${titleNum}|${sectionId}|${unitQs === "" ? "full" : unitQs.replace(/^\?unit=/, "")}`;
+	const hit = state.peekCache.get(key);
+	if (hit) return hit;
+	const res = await fetchSectionRaw(titleNum, sectionId, unitQs, opts);
+	if (!res.ok) return null;
+	const data = await res.json();
+	cachePeekSection(key, data);
+	return data;
+}
+async function fetchSectionGraph(titleNum, sectionId, opts) {
+	const key = `${titleNum}|${sectionId}`;
+	const hit = state.graphCache.get(key);
+	if (hit) return hit;
+	const data = await tryGetJSON(`/api/${titleNum}/citations/${encodeURIComponent(sectionId)}`, opts);
+	if (data) cacheSectionGraph(key, data);
+	return data;
+}
+async function fetchTitleReferences(titleNum, opts) {
+	const hit = state.refsCache.get(titleNum);
+	if (hit) return hit;
+	const data = await tryGetJSON(`/api/${titleNum}/references`, opts);
+	if (data) cacheTitleRefs(titleNum, data);
+	return data;
+}
+function fetchPartFront(titleNum, partId, opts) {
+	return fetch(`/api/${titleNum}/part/${encodeURIComponent(partId)}`, opts);
+}
+function fetchPartFull(titleNum, partId, opts) {
+	return fetch(`/api/${titleNum}/part/${encodeURIComponent(partId)}/full`, opts);
+}
+function fetchSearchResults(titleNum, query, limit = 100, opts) {
+	return getJSON(titleNum === "all" ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=${limit}` : `/api/${titleNum}/search?q=${encodeURIComponent(query)}&limit=${limit}`, opts);
+}
+function fetchLibraryJobs(opts) {
+	return getJSON("/api/library/jobs", opts);
+}
+function fetchTitleModels(titleNum, opts) {
+	return tryGetJSON(`/api/${titleNum}/models`, opts);
+}
+function fetchNewsPreview(limit = 3, opts) {
+	return tryGetJSON(`/api/news?limit=${limit}`, opts);
+}
+// src/usage.ts
+var USAGE_KEY = "usage";
+function loadUsage() {
+	try {
+		const u = JSON.parse(lsGet("usage") || "null");
+		if (u && u.v === 1 && u.s && u.p) return u;
+	} catch {}
+	return {
+		v: 1,
+		since: Date.now(),
+		s: {},
+		p: {}
+	};
+}
+function bumpPart(u, title, part, heading, now) {
+	if (!part) return;
+	const key = title + "|" + part;
+	const e = u.p[key] || (u.p[key] = { n: 0 });
+	e.n += 1;
+	e.t = now;
+	if (heading) e.h = String(heading).trim();
+}
+function recordSectionVisit(data, unitInfo = null) {
+	if (!data || !data.id) return;
+	const u = loadUsage();
+	const now = Date.now();
+	const key = state.currentTitle + "|" + data.id;
+	const e = u.s[key] || (u.s[key] = { n: 0 });
+	e.n += 1;
+	e.t = now;
+	e.l = data.label || data.id;
+	e.h = data.section_title || data.title_label || "";
+	e.p = data.part || "";
+	if (unitInfo && unitInfo.key) {
+		e.u = unitInfo.key;
+		e.ul = unitInfo.label || unitInfo.key;
+	} else {
+		delete e.u;
+		delete e.ul;
+	}
+	const partNode = data.part && state.treeData ? findPartInTree(state.treeData, data.part) : null;
+	bumpPart(u, state.currentTitle, data.part, partNode && partNode.d, now);
+	lsSet(USAGE_KEY, JSON.stringify(u));
+}
+function recordSectionUnit(sectionId, unitInfo = null) {
+	if (!sectionId) return;
+	const u = loadUsage();
+	const key = state.currentTitle + "|" + sectionId;
+	const e = u.s[key];
+	if (!e) return;
+	e.t = Date.now();
+	if (unitInfo && unitInfo.key) {
+		e.u = unitInfo.key;
+		e.ul = unitInfo.label || unitInfo.key;
+	} else {
+		delete e.u;
+		delete e.ul;
+	}
+	lsSet(USAGE_KEY, JSON.stringify(u));
+}
+function recordPartVisit(partId, heading) {
+	const u = loadUsage();
+	bumpPart(u, state.currentTitle, partId, heading, Date.now());
+	lsSet(USAGE_KEY, JSON.stringify(u));
+}
+function visitedCountFor(title) {
+	try {
+		const raw = lsGet(title === 29 ? "visited" : "visited-" + title);
+		return raw ? JSON.parse(raw).length : 0;
+	} catch {
+		return 0;
+	}
+}
+function timeAgo(ms) {
+	const s = Math.max(0, (Date.now() - ms) / 1e3);
+	if (s < 60) return "just now";
+	if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+	if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+	const d = Math.floor(s / 86400);
+	if (d === 1) return "yesterday";
+	if (d < 30) return `${d}d ago`;
+	return new Date(ms).toLocaleDateString(void 0, {
+		month: "short",
+		day: "numeric",
+		year: "numeric"
+	});
+}
+var fmt = (n) => Number(n || 0).toLocaleString();
+var titleHref = (t, rest) => `#/title/${t}/${rest || ""}`;
+// src/components/ui.ts
+var SEP = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
+var joinSep = (xs) => xs.filter(Boolean).join(SEP);
+var fmtDate = (iso) => {
+	if (!iso) return "";
+	const d = /* @__PURE__ */ new Date(iso + "T00:00:00");
+	return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(void 0, {
+		month: "short",
+		day: "numeric",
+		year: "numeric"
+	});
+};
+var shortDate = (iso) => {
+	if (!iso) return "";
+	const d = /* @__PURE__ */ new Date(iso + "T00:00:00");
+	if (Number.isNaN(d.getTime())) return iso;
+	const opts = d.getFullYear() === (/* @__PURE__ */ new Date()).getFullYear() ? {
+		month: "short",
+		day: "numeric"
+	} : {
+		month: "short",
+		day: "numeric",
+		year: "numeric"
+	};
+	return d.toLocaleDateString(void 0, opts);
+};
+var fmtBytes = (bytes) => {
+	if (!bytes || bytes <= 0) return "";
+	if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+	const mb = bytes / 1048576;
+	if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+	return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`;
+};
+var fmtMB = (mb) => mb ? fmtBytes(mb * 1048576) : "";
+var fmtSections = (n) => n ? `${fmt(n)} ${n === 1 ? "section" : "sections"}` : "";
+function statPill(stateName, text, { bare = false, title = "" } = {}) {
+	return `<span class="stat-pill is-${stateName}${bare ? " is-bare" : ""}"${title ? ` title="${escapeHtml(title)}"` : ""}><span class="stat-dot is-${stateName}" aria-hidden="true"></span>${escapeHtml(text)}</span>`;
+}
+function metricCardHtml({ label, value, of = "", sub = "", alert = false }) {
+	return `<div class="metric-card${alert ? " is-alert" : ""}"><div class="metric-label">${label}</div><div class="metric-val">${value}${of ? `<span class="metric-of">${escapeHtml(of)}</span>` : ""}</div><div class="metric-sub">${sub}</div></div>`;
+}
+function emptyStateHtml({ title = "", body = "", actionsHtml = "", cls = "" } = {}) {
+	return `<div class="empty-state${cls ? " " + cls : ""}"><h2>${escapeHtml(title)}</h2>` + (body ? `<p>${body}</p>` : "") + (actionsHtml || "") + "</div>";
+}
+function segmentedHtml({ label, items, value, cls = "seg", role = "group", dataAttr = "data-value" }) {
+	return `<div class="${cls}" role="${role}" aria-label="${escapeHtml(label)}">${items.map((it) => {
+		const on = it.value === value;
+		return `<button type="button" ${dataAttr}="${escapeHtml(it.value)}" aria-pressed="${on}"${it.attrs ? " " + it.attrs : ""}>${it.label}</button>`;
+	}).join("")}</div>`;
+}
+function transferTrackHtml(pct, { bindFill = false } = {}) {
+	return `<div class="dock-track"><span class="dock-fill${pct == null ? " is-indeterminate" : ""}"${bindFill ? " data-f=\"fill\"" : ""} style="width:${pct == null ? 35 : pct}%"></span></div>`;
+}
+// src/core/library_meta.ts
+var isStale = (t) => Boolean(t.installed && t.latest && t.installed.edition && t.latest > t.installed.edition);
+function jobFor(title, kind, id) {
+	return [state.jobs.current, ...state.jobs.queued].filter(Boolean).find((j) => j.title === title && (kind === "title" ? j.kind === "title" || j.kind === "update" : kind === "part" ? j.kind === "part" && j.target && j.target.part === id : j.kind === "section" && j.target && j.target.id === id));
+}
+var jobStatus = (j) => j ? statPill("busy", j.state === "running" ? "Downloading" : "Queued", { bare: true }) : "";
+function pluralWord(n, word) {
+	return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+function titleStatus(t) {
+	if (t.reserved) return {
+		state: "uninstalled",
+		text: "Reserved"
+	};
+	const j = jobFor(t.title, "title");
+	if (j) return {
+		state: "busy",
+		text: j.state === "running" ? j.kind === "update" ? "Updating" : "Downloading" : "Queued"
+	};
+	const inst = t.installed;
+	if (!inst) return {
+		state: "uninstalled",
+		text: "Not installed"
+	};
+	if (isStale(t)) return {
+		state: "stale",
+		text: "Update available",
+		title: `eCFR has a newer edition (${fmtDate(t.latest)})`
+	};
+	if (!inst.whole) {
+		const what = [inst.parts ? pluralWord(inst.parts, "part") : "", inst.sections ? pluralWord(inst.sections, "section") : ""].filter(Boolean).join(", ");
+		return {
+			state: "partial",
+			text: "Partial",
+			title: what ? `Installed: ${what}` : ""
+		};
+	}
+	return {
+		state: "synced",
+		text: "Installed",
+		title: `Edition ${fmtDate(inst.edition)}`
+	};
+}
+function amendedWeek(d) {
+	const newest = d.titles.reduce((m, t) => t.latest && t.latest > m ? t.latest : m, "");
+	if (!newest) return {
+		newest: "",
+		cut: "",
+		recent: 0
+	};
+	const [y, m, dd] = newest.split("-").map(Number);
+	const cut = new Date(Date.UTC(y, m - 1, dd - 7)).toISOString().slice(0, 10);
+	return {
+		newest,
+		cut,
+		recent: d.titles.filter((t) => t.amended && t.amended >= cut).length
+	};
+}
+function suiteState(s, d) {
+	const ts = s.titles.map((n) => d.titles.find((t) => t.title === n)).filter((t) => Boolean(t && !t.reserved));
+	const total = ts.length || (s.titles || []).length;
+	const busy = ts.filter((t) => jobFor(t.title, "title"));
+	const whole = ts.filter((t) => t.installed && t.installed.whole);
+	const any = ts.filter((t) => t.installed);
+	const stale = ts.filter(isStale);
+	const needs = ts.filter((t) => !jobFor(t.title, "title") && (!t.installed || !t.installed.whole || isStale(t)));
+	let pill;
+	if (!ts.length) pill = statPill("uninstalled", "Not installed", { bare: true });
+	else if (busy.length) pill = statPill("busy", `${busy.length} of ${ts.length} in progress`);
+	else if (whole.length === ts.length && !stale.length) pill = statPill("synced", "Installed");
+	else if (whole.length === ts.length) pill = statPill("stale", "Update available");
+	else if (any.length) pill = statPill("partial", `${any.length} of ${ts.length} installed`);
+	else pill = statPill("uninstalled", "Not installed", { bare: true });
+	const onlyUpdates = needs.length && needs.every((t) => t.installed && t.installed.whole);
+	const label = !needs.length ? "" : onlyUpdates ? `Update ${needs.length === ts.length ? "suite" : pluralWord(needs.length, "title")}` : needs.length === ts.length ? "Download suite" : `Download ${pluralWord(needs.length, "remaining title")}`;
+	return {
+		ts,
+		total,
+		pill,
+		needs,
+		label,
+		busy
+	};
+}
+// src/core/projects_store.ts
+var PROJECTS_KEY = "framework_projects_v1";
+var PROJECT_HUES = [
+	"--accent",
+	"--ok",
+	"--warn",
+	"--partial",
+	"--blue",
+	"--danger"
+];
+var validProject = (p) => Boolean(p && typeof p === "object" && typeof p.id === "string" && typeof p.name === "string" && Array.isArray(p.sections));
+var normalizeWorkspace = (p) => ({
+	...p,
+	tags: Array.isArray(p.tags) ? p.tags : [],
+	sections: p.sections.map((s) => ({
+		tier: "federal-reg",
+		jurisdiction: "US",
+		...s
+	})),
+	projects: Array.isArray(p.projects) ? p.projects : [],
+	tab_groups: Array.isArray(p.tab_groups) ? p.tab_groups : []
+});
+function loadProjects() {
+	try {
+		const v = JSON.parse(lsGet("framework_projects_v1") || "[]");
+		return Array.isArray(v) ? v.filter(validProject).map(normalizeWorkspace) : [];
+	} catch {
+		return [];
+	}
+}
+function saveProjects(list, { quiet = false } = {}) {
+	lsSet(PROJECTS_KEY, JSON.stringify(list));
+	emit("projects:changed", { quiet });
+}
+var nowIso = () => (/* @__PURE__ */ new Date()).toISOString();
+function createProject(name, extra = {}) {
+	const list = loadProjects();
+	const p = {
+		id: `proj_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+		name: (name || "").trim() || "Untitled workspace",
+		description: "",
+		tags: [],
+		created_at: nowIso(),
+		updated_at: nowIso(),
+		sections: [],
+		projects: [],
+		tab_groups: [],
+		...extra
+	};
+	list.unshift(p);
+	saveProjects(list);
+	return p;
+}
+function updateProject(id, fn, opts) {
+	if (!id) return null;
+	const list = loadProjects();
+	const p = list.find((x) => x.id === id);
+	if (!p) return null;
+	fn(p);
+	p.updated_at = nowIso();
+	saveProjects(list, opts);
+	return p;
+}
+function addTabGroupToWorkspace(workspaceId, groupSnapshot) {
+	if (!groupSnapshot) return null;
+	const p = updateProject(workspaceId, (proj) => {
+		if (!Array.isArray(proj.tab_groups)) proj.tab_groups = [];
+		proj.tab_groups.unshift(groupSnapshot);
+	});
+	if (p) {
+		const count = (groupSnapshot.mainTabs?.length || 0) + (groupSnapshot.splitTabs?.length || 0);
+		showToast(`Saved “${groupSnapshot.name}” (${count} ${count === 1 ? "tab" : "tabs"}) to ${p.name}`);
+	}
+	return p;
+}
+function projectHue(p) {
+	let h = 0;
+	for (const ch of p.id) h = h * 31 + ch.charCodeAt(0) >>> 0;
+	return PROJECT_HUES[h % PROJECT_HUES.length];
+}
+var projDot = (p) => `<span class="proj-dot" style="--hue: var(${projectHue(p)})" aria-hidden="true"></span>`;
+var secKey = (title, id) => `${title}|${id}`;
+var projectsWith = (title, id) => loadProjects().filter((p) => p.sections.some((s) => s.title === title && s.id === id));
+function togglePin(projectId, sec) {
+	let pinned = false;
+	const p = updateProject(projectId, (proj) => {
+		const i = proj.sections.findIndex((s) => s.title === sec.title && s.id === sec.id);
+		if (i >= 0) proj.sections.splice(i, 1);
+		else {
+			proj.sections.push({
+				...sec,
+				pinned_at: nowIso(),
+				note: ""
+			});
+			pinned = true;
+		}
+	});
+	if (p) showToast(pinned ? `Pinned ${sec.label} to ${p.name}` : `Removed ${sec.label} from ${p.name}`);
+	return pinned;
+}
+function currentSectionRef() {
+	if (!state.currentSection) return null;
+	return {
+		title: state.currentTitle,
+		id: state.currentSection.id,
+		label: state.currentSection.label || `§ ${state.currentSection.id}`,
+		heading: state.currentSection.section_title || state.currentSection.title_label || "",
+		part: state.currentSection.part || "",
+		tier: "federal-reg",
+		jurisdiction: "US"
+	};
+}
+function clipToWorkspace(sec, { para = "", quote = "", cite = "", projectId = null } = {}) {
+	if (!sec || !sec.id) return null;
+	let list = loadProjects();
+	let targetProj = projectId ? list.find((x) => x.id === projectId) : list[0];
+	if (!targetProj) {
+		targetProj = createProject("Research clips");
+		list = loadProjects();
+		targetProj = list.find((x) => x.id === targetProj.id) || list[0];
+	}
+	if (!targetProj) return null;
+	const cleanQuote = String(quote || "").replace(/\s+/g, " ").trim();
+	const clippedCite = cite || `${sec.title} C.F.R. ${sec.label || "§ " + sec.id}${para || ""}`;
+	const entryLine = cleanQuote ? `[${clippedCite}] "${cleanQuote}"` : `[${clippedCite}]`;
+	updateProject(targetProj.id, (p) => {
+		let item = p.sections.find((s) => s.title === sec.title && s.id === sec.id);
+		if (!item) {
+			item = {
+				...sec,
+				pinned_at: nowIso(),
+				note: entryLine
+			};
+			p.sections.push(item);
+		} else if (!item.note || !item.note.includes(entryLine)) item.note = item.note ? `${item.note}\n\n${entryLine}` : entryLine;
+	});
+	showToast(`Clipped ${clippedCite} to ${targetProj.name}`);
+	return targetProj;
+}
+function downloadJson(name, data) {
+	const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = name;
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	setTimeout(() => URL.revokeObjectURL(url), 1e3);
+}
+var exportProjects = (list, name = "framework-projects.json") => downloadJson(name, {
+	format: "framework-projects",
+	version: 1,
+	exported_at: nowIso(),
+	projects: list
+});
+// src/citations.ts
+var NEWS_CITE_RE = /\b29\s*C\.?F\.?R\.?\s*(?:§§?\s*)?(\d{1,4}\.\d+)(?:\([a-z0-9]{1,4}\))*|§§?\s*(19\d{2}\.\d+)(?:\([a-z0-9]{1,4}\))*/gi;
+// src/core/news_format.ts
+var NEWS_SOURCE_LABELS = {
+	federal_register: "Federal Register",
+	federal_register_pi: "Federal Register Public Inspection",
+	dol_osha: "DOL enforcement data"
+};
+var US_STATE_NAMES = {
+	AL: "Alabama",
+	AK: "Alaska",
+	AZ: "Arizona",
+	AR: "Arkansas",
+	CA: "California",
+	CO: "Colorado",
+	CT: "Connecticut",
+	DE: "Delaware",
+	DC: "District of Columbia",
+	FL: "Florida",
+	GA: "Georgia",
+	GU: "Guam",
+	HI: "Hawaii",
+	ID: "Idaho",
+	IL: "Illinois",
+	IN: "Indiana",
+	IA: "Iowa",
+	KS: "Kansas",
+	KY: "Kentucky",
+	LA: "Louisiana",
+	ME: "Maine",
+	MD: "Maryland",
+	MA: "Massachusetts",
+	MI: "Michigan",
+	MN: "Minnesota",
+	MS: "Mississippi",
+	MO: "Missouri",
+	MT: "Montana",
+	NE: "Nebraska",
+	NV: "Nevada",
+	NH: "New Hampshire",
+	NJ: "New Jersey",
+	NM: "New Mexico",
+	NY: "New York",
+	NC: "North Carolina",
+	ND: "North Dakota",
+	OH: "Ohio",
+	OK: "Oklahoma",
+	OR: "Oregon",
+	PA: "Pennsylvania",
+	PR: "Puerto Rico",
+	RI: "Rhode Island",
+	SC: "South Carolina",
+	SD: "South Dakota",
+	TN: "Tennessee",
+	TX: "Texas",
+	UT: "Utah",
+	VT: "Vermont",
+	VA: "Virginia",
+	VI: "Virgin Islands",
+	WA: "Washington",
+	WV: "West Virginia",
+	WI: "Wisconsin",
+	WY: "Wyoming"
+};
+var stateName = (code) => US_STATE_NAMES[(code || "").toUpperCase()] || code || "";
+var moneyFmt = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	maximumFractionDigits: 0
+});
+function fmtMoney(n) {
+	return moneyFmt.format(n);
+}
+function extLink(url, html) {
+	const safe = safeHttpUrl(url);
+	return safe ? `<a target="_blank" rel="noopener" href="${escapeHtml(safe)}">${html}</a>` : html;
+}
+function titleInstalled(t) {
+	return state.installedTitles.some((x) => x.title === t);
+}
+function newsSectionHref(t, id) {
+	return titleInstalled(t) ? `#/title/${t}/section/${encodeURIComponent(id)}` : `#/library/${t}`;
+}
+function newsPartHref(t, part) {
+	return titleInstalled(t) ? `#/title/${t}/part/${encodeURIComponent(String(part))}` : `#/library/${t}`;
+}
+function inspectionActivityNr(a) {
+	if (!a || a.category !== "enforcement" || !a.guid) return null;
+	const m = /^dol-insp:(\d+)$/.exec(String(a.guid));
+	return m ? m[1] : null;
+}
+function newsKicker(a) {
+	if (a.category === "enforcement") return ["ENFORCEMENT", a.state].filter(Boolean).join(" · ");
+	if (a.category === "public_inspection") return ["PUBLIC INSPECTION", (a.doc_type || "").toUpperCase()].filter(Boolean).join(" · ");
+	return [a.category === "rules" ? "FINAL RULE" : a.category === "rulemaking" ? "PROPOSED RULE" : "NOTICE", a.citation].filter(Boolean).join(" · ");
+}
+function newsBylineHtml(a) {
+	const src = a.source || "";
+	return `<div class="news-byline">${escapeHtml(fmtDate(a.published_at))}<span class="sep" aria-hidden="true">·</span>${escapeHtml(NEWS_SOURCE_LABELS[src] || src)}</div>`;
+}
+function newsStatusPillHtml(status) {
+	if (!status) return "";
+	if (!status.sync_enabled) return statPill("stale", "News sync is off");
+	if (status.syncing) return statPill("busy", "Checking for news…");
+	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
+	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
+	const failed = enabled.find((s) => s.last_error);
+	if (failed && lastOk) return statPill("stale", `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`, { title: failed.last_error || "" });
+	return lastOk ? statPill("synced", `Updated ${timeAgo(Date.parse(lastOk))}`) : "";
+}
+function linkifyNewsText(text) {
+	return escapeHtml(text || "").replace(NEWS_CITE_RE, (m, a, b) => {
+		return `<a class="citation-link" href="${newsSectionHref(29, a || b)}">${m}</a>`;
+	});
+}
+// src/api/jobs.ts
+var titleRefresher = null;
+function registerTitleRefresher(fn) {
+	titleRefresher = fn;
+}
+function setJobs(snapshot) {
+	if (!snapshot) return;
+	state.jobs = snapshot;
+	for (const j of [state.jobs.current, ...state.jobs.queued]) if (j) state.jobsSeenActive.add(j.id);
+	emit("jobs:updated", snapshot);
+	document.dispatchEvent(new CustomEvent("framework:jobs-updated", { detail: { snap: snapshot } }));
+}
+function pollJobsIfActive() {
+	if ((state.jobs.current || state.jobs.queued.length) && !state.jobsTimer) state.jobsTimer = setTimeout(pollJobs, 700);
+}
+async function pollJobs() {
+	if (state.jobsTimer) {
+		clearTimeout(state.jobsTimer);
+		state.jobsTimer = null;
+	}
+	let snap;
+	try {
+		snap = await fetchLibraryJobs();
+	} catch {
+		state.jobsTimer = setTimeout(pollJobs, 3e3);
+		return;
+	}
+	const before = new Set(state.jobsSeenActive);
+	setJobs(snap);
+	const finished = snap.recent.filter((j) => before.has(j.id));
+	for (const j of finished) {
+		state.jobsSeenActive.delete(j.id);
+		if (j.state === "error") showToast(`${j.label}: ${j.error}`, 6e3);
+		else if (j.state === "cancelled") showToast(`Cancelled ${j.label}`);
+		else showToast(j.phase === "Already installed" ? `${j.label} is already installed` : `Downloaded ${j.label}`);
+	}
+	const doneTitles = finished.filter((j) => j.state === "done").map((j) => j.title);
+	if (doneTitles.length) {
+		invalidateTitleCaches(doneTitles);
+		if (titleRefresher) await titleRefresher(doneTitles);
+	}
+	if (finished.length) {
+		state.navStorage = null;
+		emit("jobs:finished", {
+			finished,
+			snap
+		});
+		document.dispatchEvent(new CustomEvent("framework:jobs-finished", { detail: {
+			finished,
+			snap
+		} }));
+	}
+	pollJobsIfActive();
+}
+async function queueBatch(url, body, emptyMsg) {
+	const res = await getJSON(url, body ? {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body)
+	} : { method: "POST" });
+	for (const j of res.queued || []) state.jobsSeenActive.add(j.id);
+	showToast(res.count ? `Queued ${plural(res.count, "title")}` : emptyMsg);
+	await pollJobs();
+}
+// src/components/corpora.ts
 var ACTIVE_DESK_KEY = "framework_desk_v1";
 var TIER_ORDER = [
 	"federal-statute",
@@ -4907,7 +5882,7 @@ function tierMetaFor(tier) {
 	return TIER_META[tier] || TIER_META["federal-reg"];
 }
 function refTierForCorpus(corpusOrTier) {
-	return tierMetaFor(typeof corpusOrTier === "string" ? corpusOrTier : corpusOrTier?.tier).refTier;
+	return tierMetaFor(typeof corpusOrTier === "string" ? corpusOrTier : corpusOrTier?.tier || "federal-reg").refTier;
 }
 function corpusIdForTitle(titleNum) {
 	return `us:cfr:${Number(titleNum) || 29}`;
@@ -4923,7 +5898,7 @@ function parseCorpusPath(path) {
 	const decode = (s) => {
 		try {
 			return decodeURIComponent(s);
-		} catch (e) {
+		} catch {
 			return s;
 		}
 	};
@@ -4957,19 +5932,20 @@ function normalizeCorporaList(titles = state.installedTitles, snapshotRows = sta
 		};
 	});
 	const byId = new Map(cfr.map((c) => [c.corpus_id, c]));
-	const injected = Array.isArray(extras) && extras.length ? extras : window.__FRAMEWORK_MOCK_CORPORA__ || [];
+	const mockWin = (typeof window !== "undefined" ? window.__FRAMEWORK_MOCK_CORPORA__ : void 0) || [];
+	const injected = Array.isArray(extras) && extras.length ? extras : mockWin;
 	for (const raw of injected) {
 		if (!raw || !raw.corpus_id) continue;
 		byId.set(raw.corpus_id, {
-			tier: "state",
-			jurisdiction: "US",
-			jurisdiction_label: "Jurisdiction",
+			...raw,
+			tier: raw.tier || "state",
+			jurisdiction: raw.jurisdiction || "US",
+			jurisdiction_label: raw.jurisdiction_label || "Jurisdiction",
 			code: raw.code || raw.corpus_id,
 			name: raw.name || raw.corpus_id,
 			desk: mapRawDeskToId(raw.desk),
 			agencies: Array.isArray(raw.agencies) ? raw.agencies : [],
-			installed: raw.installed !== false,
-			...raw
+			installed: raw.installed !== false
 		});
 	}
 	return [...byId.values()];
@@ -5040,7 +6016,7 @@ function deskFilterRibbonHtml(activeDesk = state.activeDesk, corpora = state.cor
     </button>`;
 	}).join("")}</div>`;
 }
-// src/components/popover.js
+// src/components/popover.ts
 var activePopovers = /* @__PURE__ */ new Set();
 var customClosers = /* @__PURE__ */ new Set();
 function registerPopoverCloser(fn) {
@@ -5060,7 +6036,8 @@ function getAnchorRect(anchor) {
 		width: 280,
 		height: 0
 	};
-	return typeof anchor.getBoundingClientRect === "function" ? anchor.getBoundingClientRect() : anchor;
+	if ("getBoundingClientRect" in anchor && typeof anchor.getBoundingClientRect === "function") return anchor.getBoundingClientRect();
+	return anchor;
 }
 function positionPopover(el, anchor, { offset = 6, placement = "auto", padding = 10 } = {}) {
 	if (!el) return;
@@ -5078,7 +6055,7 @@ function positionPopover(el, anchor, { offset = 6, placement = "auto", padding =
 	el.style.left = `${Math.round(left)}px`;
 	el.style.top = `${Math.round(top)}px`;
 }
-function createPopover({ el, triggerSelector = null, placement = "auto", offset = 6, padding = 10, closeOnRoute = true, scrollContainer = null, onOpen = null, onClose = null } = {}) {
+function createPopover({ el = null, triggerSelector = null, placement = "auto", offset = 6, padding = 10, closeOnRoute = true, scrollContainer = null, onOpen = null, onClose = null } = {}) {
 	let currentAnchor = null;
 	let returnFocusEl = null;
 	let interactive = true;
@@ -5089,9 +6066,11 @@ function createPopover({ el, triggerSelector = null, placement = "auto", offset 
 	}
 	function onOutsidePointerDown(e) {
 		if (!el || el.hidden) return;
-		if (el.contains(e.target)) return;
-		if (triggerSelector && e.target.closest?.(triggerSelector)) return;
-		if (currentAnchor instanceof Element && currentAnchor.contains(e.target)) return;
+		const t = e.target;
+		if (!t) return;
+		if (el.contains(t)) return;
+		if (triggerSelector && t instanceof Element && t.closest(triggerSelector)) return;
+		if (currentAnchor instanceof Element && currentAnchor.contains(t)) return;
 		ctrl.close(false);
 	}
 	function onDocumentKeydown(e) {
@@ -5106,7 +6085,7 @@ function createPopover({ el, triggerSelector = null, placement = "auto", offset 
 		if (!interactive) ctrl.close(false);
 	}
 	function cleanupListeners() {
-		clearTimeout(bindTimer);
+		if (bindTimer !== null) clearTimeout(bindTimer);
 		bindTimer = null;
 		if (outsideBound) {
 			document.removeEventListener("pointerdown", onOutsidePointerDown, true);
@@ -5173,606 +6152,328 @@ function createPopover({ el, triggerSelector = null, placement = "auto", offset 
 			returnFocusEl = null;
 			if (prevAnchor instanceof Element) setExpanded(prevAnchor, false);
 			if (onClose) onClose(el, prevAnchor);
-			if (returnFocus && prevReturn && typeof prevReturn.focus === "function") prevReturn.focus({ preventScroll: true });
+			if (returnFocus && prevReturn && "focus" in prevReturn && typeof prevReturn.focus === "function") prevReturn.focus({ preventScroll: true });
 		}
 	};
 	activePopovers.add(ctrl);
-	if (closeOnRoute) window.addEventListener("hashchange", () => ctrl.close(false));
+	if (closeOnRoute && typeof window !== "undefined") window.addEventListener("hashchange", () => ctrl.close(false));
 	return ctrl;
 }
-// src/components/reader_tabs.js
-var SESSION_TABS_KEY = "framework_session_tabs_v1";
-var splitRestorer = null;
-var splitCloser = null;
-function registerSplitTabHandlers({ restore, close } = {}) {
-	if (restore) splitRestorer = restore;
-	if (close) splitCloser = close;
-}
-function buildReaderHref(entry) {
-	if (!entry) return "#/";
-	const t = Number(entry.title) || state.currentTitle || 29;
-	if (entry.kind === "part" && entry.partId) return `#/title/${t}/part/${encodeURIComponent(String(entry.partId))}${entry.full ? "/full" : ""}`;
-	let h = `#/title/${t}/section/${encodeURIComponent(String(entry.sectionId || ""))}`;
-	if (entry.unit === "full") h += "/full";
-	else if (entry.unit) h += `/${encodeURIComponent(String(entry.unit))}`;
-	if (entry.para) h += `?p=${encodeURIComponent(String(entry.para))}`;
-	return h;
-}
-function tabIdentityMatch(a, b) {
-	if (!a || !b) return false;
-	const ka = a.kind || (a.partId && !a.sectionId ? "part" : "section");
-	if (ka !== (b.kind || (b.partId && !b.sectionId ? "part" : "section")) || Number(a.title) !== Number(b.title)) return false;
-	if (ka === "part") return String(a.partId) === String(b.partId) && Boolean(a.full) === Boolean(b.full);
-	return String(a.sectionId) === String(b.sectionId);
-}
-function formatTabLabel(entry) {
-	if (entry.label) return entry.label;
-	const t = Number(entry.title) || state.currentTitle || 29;
-	if (entry.kind === "part" && entry.partId) return `${t} CFR Part ${entry.partId}${entry.full ? " · Full" : ""}`;
-	return `${t} CFR § ${entry.sectionId || ""}`;
-}
-function persistSessionTabs() {
+// src/nav.ts
+var NAV_PANELS = {
+	reader: "Contents",
+	projects: "Workspaces",
+	library: "Library",
+	settings: "Settings",
+	history: "Recent"
+};
+var NAV_TARGETS = [
+	"overview",
+	"home",
+	"reader",
+	"projects",
+	"news",
+	"library",
+	"settings"
+];
+var navState = (() => {
+	let st = {};
 	try {
-		sessionStorage.setItem(SESSION_TABS_KEY, JSON.stringify({
-			mainTabs: state.mainTabs,
-			activeMainTabId: state.activeMainTabId,
-			splitTabs: state.splitTabs,
-			activeSplitTabId: state.activeSplitTabId,
-			splitWide: state.splitWide
-		}));
-	} catch (e) {}
-}
-function restoreSessionTabsSnapshot() {
-	try {
-		const raw = sessionStorage.getItem(SESSION_TABS_KEY);
-		if (!raw) return null;
-		const data = JSON.parse(raw);
-		if (data && Array.isArray(data.mainTabs)) {
-			state.mainTabs = data.mainTabs;
-			state.activeMainTabId = data.activeMainTabId || data.mainTabs[0]?.id || null;
-		}
-		return data;
-	} catch (e) {
-		return null;
+		st = JSON.parse(lsGet("railState") || "{}") || {};
+	} catch {
+		st = {};
 	}
-}
-function makeMainTabEntry(meta) {
-	const kind = meta.kind || (meta.partId && !meta.sectionId ? "part" : "section");
-	const title = Number(meta.title) || state.currentTitle || 29;
+	const w = Number(st.width) || parseInt(lsGet("sidebarW") || "", 10) || 0;
 	return {
-		id: meta.id || `mtab_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
-		kind,
-		title,
-		sectionId: meta.sectionId ? String(meta.sectionId) : void 0,
-		partId: meta.partId ? String(meta.partId) : void 0,
-		unit: meta.unit || null,
-		full: Boolean(meta.full),
-		para: meta.para || null,
-		label: cleanInlineLabel(meta.label || "") || formatTabLabel({
-			kind,
-			title,
-			sectionId: meta.sectionId,
-			partId: meta.partId,
-			full: meta.full
-		}),
-		heading: cleanInlineLabel(meta.heading || ""),
-		tier: meta.tier || "cfr",
-		href: meta.href || buildReaderHref({
-			kind,
-			title,
-			sectionId: meta.sectionId,
-			partId: meta.partId,
-			unit: meta.unit,
-			full: meta.full,
-			para: meta.para
-		})
+		panel: st.panel && st.panel in NAV_PANELS && st.panel !== "history" ? st.panel : "reader",
+		collapsed: st.collapsed != null ? Boolean(st.collapsed) : lsGet("sidebarHidden") === "1",
+		mode: st.mode === "flyout" ? "flyout" : "pinned",
+		width: w >= 220 && w <= 560 ? w : null
 	};
+})();
+var HAS_DOC = typeof document !== "undefined";
+state.navRetracted = HAS_DOC ? document.documentElement.classList.contains("drawer-retracted") : false;
+state.historyFor = "overview";
+var mqMobile = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 900px)") : {
+	matches: false,
+	media: "(max-width: 900px)",
+	addEventListener() {},
+	removeEventListener() {}
+};
+var mqNarrow = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 1200px)") : {
+	matches: false,
+	media: "(max-width: 1200px)",
+	addEventListener() {},
+	removeEventListener() {}
+};
+var railEl = HAS_DOC ? document.getElementById("activity-rail") : null;
+var drawerEl = {
+	title: HAS_DOC ? document.getElementById("drawer-title") : null,
+	meta: HAS_DOC ? document.getElementById("drawer-meta") : null,
+	acts: HAS_DOC ? document.getElementById("drawer-acts") : null,
+	mode: HAS_DOC ? document.getElementById("drawer-mode") : null,
+	close: HAS_DOC ? document.getElementById("drawer-close") : null
+};
+function saveNav() {
+	lsSet("railState", JSON.stringify(navState));
 }
-function syncMainTabFromRoute(meta) {
-	const next = makeMainTabEntry(meta);
-	const openAsNew = state.pendingNewMainTab;
-	state.pendingNewMainTab = false;
-	if (openAsNew) {
-		const existing = state.mainTabs.find((t) => tabIdentityMatch(t, next));
-		if (existing) {
-			Object.assign(existing, {
-				...next,
-				id: existing.id
-			});
-			state.activeMainTabId = existing.id;
-		} else {
-			state.mainTabs.push(next);
-			state.activeMainTabId = next.id;
-		}
-	} else {
-		const active = state.mainTabs.find((t) => t.id === state.activeMainTabId);
-		if (active) Object.assign(active, {
-			...next,
-			id: active.id
-		});
-		else {
-			const same = state.mainTabs.find((t) => tabIdentityMatch(t, next));
-			if (same) {
-				Object.assign(same, {
-					...next,
-					id: same.id
-				});
-				state.activeMainTabId = same.id;
-			} else {
-				state.mainTabs.push(next);
-				state.activeMainTabId = next.id;
-			}
-		}
+var isFly = () => navState.mode === "flyout" || mqMobile.matches || mqNarrow.matches && dom.layout.classList.contains("chat-open");
+var flyOpen = () => document.body.classList.contains("nav-open");
+var drawerShown = () => isFly() ? flyOpen() : !navState.collapsed && !state.navRetracted;
+function routeTarget(path = state.activeRoute) {
+	const p = path || "/";
+	if (p === "/") return "overview";
+	if (/^\/title\/\d+\/?$/.test(p)) return "home";
+	const rest = p.replace(/^\/title\/\d+/, "");
+	if (rest.startsWith("/library")) return "library";
+	if (rest.startsWith("/projects")) return "projects";
+	if (rest.startsWith("/news")) return "news";
+	if (rest.startsWith("/help") || rest.startsWith("/settings")) return "settings";
+	return "reader";
+}
+function announce(text) {
+	const live = document.getElementById("nav-live");
+	if (live) live.textContent = text;
+}
+function applyNav() {
+	const root = document.documentElement;
+	const fly = isFly();
+	if (!fly && flyOpen()) document.body.classList.remove("nav-open");
+	root.classList.toggle("drawer-fly", fly);
+	root.classList.toggle("drawer-collapsed", !fly && navState.collapsed);
+	root.classList.toggle("drawer-retracted", !fly && !navState.collapsed && Boolean(state.navRetracted));
+	const shown = drawerShown();
+	dom.sidebar.inert = !shown;
+	for (const el of dom.sidebar.querySelectorAll(".drawer-panel")) el.hidden = el.dataset.panel !== navState.panel;
+	drawerEl.title.textContent = NAV_PANELS[navState.panel];
+	drawerEl.meta.textContent = panelMeta(navState.panel);
+	drawerEl.acts.innerHTML = panelActions(navState.panel);
+	const pinned = navState.mode === "pinned";
+	drawerEl.mode.setAttribute("aria-pressed", String(pinned));
+	drawerEl.mode.title = pinned ? "Float the drawer over the page" : "Pin the drawer beside the page";
+	drawerEl.mode.setAttribute("aria-label", drawerEl.mode.title);
+	drawerEl.mode.innerHTML = icon(pinned ? "pin" : "pinOff");
+	drawerEl.mode.hidden = mqMobile.matches;
+	const route = routeTarget();
+	const lit = shown ? navState.panel === "history" ? state.historyFor : navState.panel : route;
+	for (const b of railEl.querySelectorAll(".ar-btn")) {
+		const t = b.dataset.target;
+		b.classList.toggle("is-active", t === lit);
+		if (b.tagName === "A") {
+			if (t === route) b.setAttribute("aria-current", "page");
+			else b.removeAttribute("aria-current");
+		} else b.setAttribute("aria-expanded", String(shown && navState.panel === t));
 	}
-	persistSessionTabs();
-	renderMainTabs();
+	document.body.classList.toggle("drawer-library", shown && navState.panel === "library");
 }
-function hideMainTabs() {
-	if (dom.mainTabs) dom.mainTabs.hidden = true;
+function panelMeta(panel) {
+	if (panel === "reader") return state.noTitles ? "No titles installed" : `Title ${state.currentTitle}`;
+	if (panel === "projects") {
+		const n = loadProjects().length;
+		return n ? plural(n, "workspace") : "";
+	}
+	if (panel === "library") return state.installedTitles.length ? `${state.installedTitles.length} installed` : "";
+	if (panel === "history") return "Reading history";
+	return "";
 }
-function renderMainTabs() {
-	if (!dom.mainTabs) return;
-	const show = Boolean(state.currentSection || state.currentPart) && (state.mainTabs.length > 1 || state.mainTabs.length >= 1 && state.splitTabs.length > 0);
-	dom.mainTabs.hidden = !show;
-	if (!show) {
-		dom.mainTabs.innerHTML = "";
+function panelActions(panel) {
+	if (panel === "projects") return `<button type="button" class="icon-btn drawer-icon" data-nav-act="new-project" title="New workspace" aria-label="New workspace">${icon("plus")}</button>`;
+	if (panel === "library") return `<a class="icon-btn drawer-icon" href="#/library" title="Open the library" aria-label="Open the library">${icon("external")}</a>`;
+	return "";
+}
+var panelRenderers = /* @__PURE__ */ new Map();
+function registerDrawerPanel(panel, renderFn) {
+	if (panel && typeof renderFn === "function") panelRenderers.set(panel, renderFn);
+}
+function renderPanel(panel) {
+	const fn = panelRenderers.get(panel);
+	if (fn) fn();
+}
+function focusPanel(panel) {
+	const el = document.getElementById(`panel-${panel}`);
+	if (!el) return;
+	const first = panel === "reader" ? dom.treeFilter : el.querySelector("input, button, a[href], select, textarea");
+	if (first) requestAnimationFrame(() => first.focus({ preventScroll: true }));
+}
+function openPanel(panel, { focus = false, toggle = false } = {}) {
+	if (toggle && drawerShown() && navState.panel === panel) {
+		closeDrawer();
 		return;
 	}
-	const canClose = state.mainTabs.length > 1;
-	const pillsHtml = state.mainTabs.map((t) => {
-		const active = t.id === state.activeMainTabId;
-		const tier = Number(t.title) !== Number(state.currentTitle) ? "cross" : t.tier || "cfr";
-		const titleAttr = `${formatTabLabel(t)}${t.heading ? ` — ${t.heading}` : ""}`;
-		return `
-      <div class="reader-tab${active ? " is-active" : ""}" data-ref-tier="${tier}" role="presentation">
-        <button type="button" class="reader-tab-btn" role="tab" aria-selected="${active ? "true" : "false"}" data-tab-switch="${escapeHtml(t.id)}" title="${escapeHtml(titleAttr)}">
-          <span class="tier-pip" aria-hidden="true"></span>
-          <span class="reader-tab-label">${escapeHtml(formatTabLabel(t))}</span>
-        </button>
-        ${canClose ? `<button type="button" class="reader-tab-close" data-tab-close="${escapeHtml(t.id)}" aria-label="Close ${escapeHtml(formatTabLabel(t))}" title="Close tab">${icon("close")}</button>` : ""}
-      </div>`;
-	}).join("");
-	dom.mainTabs.innerHTML = `
-    <div class="reader-tabs-strip">${pillsHtml}</div>
-    <div class="reader-tabs-acts">
-      <button type="button" class="btn btn-small reader-tabs-save" data-tabs-act="save-group" title="Save current main & side-by-side tabs as a workspace tab group">${icon("folder")} <span>Save group</span></button>
-    </div>`;
-}
-function openMainReaderTab(opts = {}) {
-	const kind = opts.kind || (opts.partId && !opts.sectionId ? "part" : "section");
-	const title = Number(opts.title) || state.currentTitle || 29;
-	const target = {
-		kind,
-		title,
-		sectionId: opts.sectionId || opts.section || void 0,
-		partId: opts.partId || opts.part || void 0,
-		unit: opts.unit || null,
-		full: Boolean(opts.full),
-		para: opts.para || null,
-		label: opts.label || formatTabLabel({
-			kind,
-			title,
-			sectionId: opts.sectionId || opts.section,
-			partId: opts.partId || opts.part,
-			full: opts.full
-		}),
-		heading: opts.heading || "",
-		tier: opts.tier || (title !== state.currentTitle ? "cross" : "cfr")
-	};
-	const href = opts.href || buildReaderHref(target);
-	target.href = href;
-	if (state.mainTabs.length === 0 && (state.currentSection || state.currentPart)) syncMainTabFromRoute(state.currentSection ? {
-		kind: "section",
-		title: state.currentTitle,
-		sectionId: state.currentSection.id,
-		unit: state.currentSection.unit,
-		label: `${state.currentTitle} CFR ${cleanInlineLabel(state.currentSection.label)}`,
-		heading: state.currentSection.section_title || "",
-		href: window.location.hash || buildReaderHref({
-			kind: "section",
-			title: state.currentTitle,
-			sectionId: state.currentSection.id,
-			unit: state.currentSection.unit
-		})
-	} : {
-		kind: "part",
-		title: state.currentTitle,
-		partId: state.currentPart,
-		full: state.activeRoute.endsWith("/full"),
-		label: `${state.currentTitle} CFR Part ${state.currentPart}`,
-		href: window.location.hash || buildReaderHref({
-			kind: "part",
-			title: state.currentTitle,
-			partId: state.currentPart,
-			full: state.activeRoute.endsWith("/full")
-		})
-	});
-	const existing = state.mainTabs.find((t) => tabIdentityMatch(t, target));
-	if (existing) {
-		existing.href = href;
-		existing.para = target.para;
-		existing.unit = target.unit;
-		state.activeMainTabId = existing.id;
-		persistSessionTabs();
-		renderMainTabs();
-		if (window.location.hash !== href) window.location.hash = href;
-		else showToast(`${formatTabLabel(existing)} focused`);
-		return existing;
+	navState.panel = panel;
+	if (isFly()) document.body.classList.add("nav-open");
+	else {
+		navState.collapsed = false;
+		state.navRetracted = false;
 	}
-	state.pendingNewMainTab = true;
-	if (window.location.hash === href) {
-		syncMainTabFromRoute(target);
-		return state.mainTabs.find((t) => t.id === state.activeMainTabId) || null;
-	}
-	window.location.hash = href;
-	return null;
+	if (panel !== "history") saveNav();
+	renderPanel(panel);
+	applyNav();
+	emit("nav:panel-opened", { panel });
+	if (focus) focusPanel(panel);
+	announce(`${NAV_PANELS[panel]} drawer open`);
 }
-function switchMainTab(tabId) {
-	const tab = state.mainTabs.find((t) => t.id === tabId);
-	if (!tab) return;
-	state.activeMainTabId = tab.id;
-	persistSessionTabs();
-	renderMainTabs();
-	if (window.location.hash !== tab.href) window.location.hash = tab.href;
+function closeDrawer() {
+	const hadFocus = dom.sidebar.contains(document.activeElement);
+	if (isFly()) document.body.classList.remove("nav-open");
+	else navState.collapsed = true;
+	saveNav();
+	applyNav();
+	if (hadFocus) railEl.querySelector(".ar-btn.is-active, .ar-btn[aria-current]")?.focus();
+	announce("Drawer closed");
 }
-function closeMainTab(tabId) {
-	if (state.mainTabs.length <= 1) return;
-	const idx = state.mainTabs.findIndex((t) => t.id === tabId);
-	if (idx < 0) return;
-	const wasActive = state.mainTabs[idx].id === state.activeMainTabId;
-	state.mainTabs.splice(idx, 1);
-	if (wasActive) {
-		const next = state.mainTabs[Math.min(idx, state.mainTabs.length - 1)] || state.mainTabs[0];
-		state.activeMainTabId = next?.id || null;
-		persistSessionTabs();
-		if (next && window.location.hash !== next.href) window.location.hash = next.href;
-		else renderMainTabs();
-	} else {
-		persistSessionTabs();
-		renderMainTabs();
-	}
+function toggleDrawer(focus = true) {
+	if (drawerShown()) closeDrawer();
+	else openPanel(navState.panel === "history" ? "reader" : navState.panel, { focus });
 }
-function suggestTabGroupName() {
-	const m = state.mainTabs.find((t) => t.id === state.activeMainTabId) || state.mainTabs[0];
-	const s = state.splitTabs.find((t) => t.id === state.activeSplitTabId) || state.splitTabs[0];
-	const mLabel = m ? formatTabLabel(m) : "";
-	const sLabel = s ? formatTabLabel(s) : "";
-	if (mLabel && sLabel) return `${mLabel} + ${sLabel}`;
-	const total = state.mainTabs.length + state.splitTabs.length;
-	return mLabel ? `${mLabel}${total > 1 ? ` (${total} tabs)` : ""}` : `Research tabs (${total})`;
+function goTarget(t) {
+	if (t === "overview") window.location.hash = "#/";
+	else if (t === "home") window.location.hash = `#/title/${state.currentTitle}/`;
+	else if (t === "news") {
+		if (routeTarget() === "news") dom.main.scrollTop = 0;
+		else window.location.hash = "#/news";
+	} else openPanel(t, { focus: true });
 }
-function buildTabGroupSnapshot(customName = "") {
-	const activeMainIdx = Math.max(0, state.mainTabs.findIndex((t) => t.id === state.activeMainTabId));
-	const activeSplitIdx = Math.max(0, state.splitTabs.findIndex((t) => t.id === state.activeSplitTabId));
-	return {
-		id: `grp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
-		name: (customName || "").trim() || suggestTabGroupName(),
-		saved_at: (/* @__PURE__ */ new Date()).toISOString(),
-		mainTabs: state.mainTabs.map((t) => ({
-			id: t.id,
-			kind: t.kind,
-			title: Number(t.title),
-			sectionId: t.sectionId,
-			partId: t.partId,
-			unit: t.unit || null,
-			full: Boolean(t.full),
-			para: t.para || null,
-			label: formatTabLabel(t),
-			heading: t.heading || "",
-			tier: t.tier || "cfr",
-			href: t.href || buildReaderHref(t)
-		})),
-		activeMainIdx,
-		splitTabs: state.splitTabs.map((s) => ({
-			id: s.id,
-			kind: s.kind || (s.partId && !s.sectionId ? "part" : "section"),
-			title: Number(s.title),
-			sectionId: s.sectionId,
-			partId: s.partId,
-			unit: s.unit || null,
-			full: Boolean(s.full),
-			para: s.para || null,
-			label: s.label || formatTabLabel(s),
-			heading: s.heading || ""
-		})),
-		activeSplitIdx,
-		splitWide: Boolean(state.splitWide)
-	};
+function setNavMode(mode) {
+	navState.mode = mode === "flyout" ? "flyout" : "pinned";
+	if (navState.mode === "pinned") navState.collapsed = false;
+	saveNav();
+	applyNav();
+	emit("nav:mode-changed");
 }
-function restoreTabGroup(group) {
-	if (!group) return;
-	const restoredMain = (group.mainTabs || []).map((t) => makeMainTabEntry(t));
-	state.mainTabs = restoredMain;
-	const activeMain = restoredMain[Math.min(group.activeMainIdx || 0, Math.max(0, restoredMain.length - 1))] || null;
-	state.activeMainTabId = activeMain?.id || null;
-	state.splitWide = Boolean(group.splitWide);
-	const restoredSplit = Array.isArray(group.splitTabs) ? group.splitTabs : [];
-	if (restoredSplit.length > 0 && splitRestorer) splitRestorer(restoredSplit, group.activeSplitIdx || 0, group.splitWide);
-	else if (splitCloser) splitCloser();
-	persistSessionTabs();
-	renderMainTabs();
-	const total = restoredMain.length + restoredSplit.length;
-	showToast(`Restored “${group.name}” (${total} ${total === 1 ? "tab" : "tabs"})`);
-	if (activeMain?.href && window.location.hash !== activeMain.href) window.location.hash = activeMain.href;
+function syncNavToRoute(path) {
+	const t = routeTarget(path);
+	document.body.classList.remove("nav-open");
+	state.navRetracted = t === "overview" || t === "home" || t === "news" || t === "settings" || state.noTitles && t === "reader";
+	if (t === "library" && navState.panel !== "library") navState.panel = "library";
+	else if (t === "projects") navState.panel = "projects";
+	else if (t === "reader" && (navState.panel === "history" || navState.panel === "library")) navState.panel = "reader";
+	if (navState.panel !== "history") saveNav();
+	renderPanel(navState.panel);
+	applyNav();
 }
-if (dom.mainTabs) dom.mainTabs.addEventListener("click", (e) => {
-	const closeBtn = e.target.closest("[data-tab-close]");
-	if (closeBtn) {
-		e.preventDefault();
-		e.stopPropagation();
-		closeMainTab(closeBtn.dataset.tabClose);
+function updateRailHome() {
+	const home = document.getElementById("ar-home");
+	if (!home) return;
+	if (state.noTitles) {
+		home.href = "#/";
+		home.dataset.tip = "Pick a profile";
+		home.setAttribute("aria-label", "Pick a profile");
 		return;
 	}
-	const switchBtn = e.target.closest("[data-tab-switch]");
-	if (switchBtn) {
-		switchMainTab(switchBtn.dataset.tabSwitch);
-		return;
-	}
-	const saveBtn = e.target.closest("[data-tabs-act=\"save-group\"]");
-	if (saveBtn) openSaveTabGroupMenu(saveBtn);
-});
-// src/components/view_head.js
-function setViewHead(html) {
-	const head = dom.viewHead;
-	if (!head) return;
-	const step = head.contains(document.activeElement) ? document.activeElement.dataset.step : null;
-	if (state.railObserver) {
-		state.railObserver.disconnect();
-		state.railObserver = null;
-	}
-	head.innerHTML = html || "";
-	head.hidden = !html;
-	if (step) (head.querySelector(`[data-step="${step}"]`) || head.querySelector("a"))?.focus({ preventScroll: true });
+	home.href = `#/title/${state.currentTitle}/`;
+	const t = state.installedTitles.find((x) => x.title === state.currentTitle);
+	home.dataset.tip = `Title ${state.currentTitle} start`;
+	home.setAttribute("aria-label", `Title ${state.currentTitle}${t ? " " + t.name : ""} start`);
 }
-function firstSectionOf(partId) {
-	const k = treeIdx.parts.get(String(partId));
-	if (k === void 0) return null;
-	const find = (node) => {
-		for (const c of node.c || []) {
-			if (LEAF_TYPES.has(c.t)) return c;
-			const hit = find(c);
-			if (hit) return hit;
-		}
-		return null;
-	};
-	const leaf = find(treeIdx.nodes[k]);
-	return leaf ? {
-		id: leaf.id,
-		label: (leaf.l || "").trim(),
-		title: tocTitle(leaf)
-	} : null;
+function updateRailBadge() {
+	const badge = document.getElementById("ar-library-badge");
+	if (!badge) return;
+	const busy = Boolean(state.jobs.current || state.jobs.queued.length);
+	const libData = state.navLibData;
+	const stale = libData?.titles ? libData.titles.filter(isStale).length : 0;
+	badge.hidden = !busy && !stale;
+	badge.className = `ar-badge${busy ? " is-busy" : stale ? " is-stale" : ""}`;
+	const btn = badge.closest(".ar-btn");
+	if (btn) btn.dataset.tip = busy ? "Library · downloading" : stale ? `Library · ${plural(stale, "update")}` : "Library";
 }
-function docStepBtn(kind, dir, href, label, name, labelHtml) {
-	const prev = dir < 0;
-	const what = `${prev ? "Previous" : "Next"} ${kind}`;
-	const chevron = icon(prev ? "chevronLeft" : "chevronRight");
-	const title = (name || "").trim();
-	return `<a class="doc-step-btn is-${prev ? "prev" : "next"}" href="${href}" data-step="${kind}-${prev ? "prev" : "next"}" aria-label="${escapeHtml(`${what}: ${label}${title ? " " + title : ""}`)}">${prev ? chevron : ""}<span class="step-label">${labelHtml || escapeHtml(label)}</span>${prev ? "" : chevron}<span class="tip" aria-hidden="true"><span class="tip-kind">${what} · ${escapeHtml(label)}</span>${escapeHtml(title)}</span></a>`;
-}
-function partNeighbors(partId) {
-	const list = treeIdx.partList;
-	const k = treeIdx.parts.get(String(partId));
-	const i = k === void 0 ? -1 : list.indexOf(k);
-	if (i < 0) return [null, null];
-	return [treeIdx.nodes[list[i - 1]] || null, treeIdx.nodes[list[i + 1]] || null];
-}
-function docStepHtml(partId, prevSection, nextSection) {
-	const [prevPart, nextPart] = partNeighbors(partId);
-	const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(node.id)}`, `Part ${node.id}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
-	const sectionBtn = (s, dir) => s ? docStepBtn("section", dir, `#/section/${encodeURIComponent(s.id)}`, s.label, s.title) : "";
-	const sep = "<span class=\"doc-step-sep\" aria-hidden=\"true\"></span>";
-	const left = [partBtn(prevPart, -1), sectionBtn(prevSection, -1)].filter(Boolean).join(sep);
-	const right = [sectionBtn(nextSection, 1), partBtn(nextPart, 1)].filter(Boolean).join(sep);
-	if (!left && !right) return "";
-	return `<nav class="doc-step" aria-label="Previous and next">${left}<span class="spacer"></span>${right}</nav>`;
-}
-// src/components/title_switcher.js
-var switcherDeskFilter = "all";
-function searchPlaceholderFor(on) {
-	if (!on) return "Download a title to search";
-	if (window.matchMedia("(max-width: 600px)").matches) return "Search…";
-	return `Search Title ${state.currentTitle} or jump to a section…`;
-}
-function setReaderEnabled(on) {
-	dom.search.disabled = !on;
-	dom.search.placeholder = searchPlaceholderFor(on);
-	dom.chatToggle.disabled = !on;
-	if (!on) {
-		dom.edition.textContent = "";
-		dom.tree.innerHTML = "<div class=\"side-empty\">No titles installed yet. <a href=\"#/\">Pick a profile</a> or open the <a href=\"#/library\">library</a>.</div>";
-	}
-}
-window.matchMedia("(max-width: 600px)").addEventListener?.("change", () => {
-	if (dom.search) dom.search.placeholder = searchPlaceholderFor(!state.noTitles);
-});
-function switcherGroupsHtml(query = "", desk = switcherDeskFilter) {
-	const corpora = syncCorporaState();
-	const q = query.trim().toLowerCase();
-	const filtered = corpora.filter((c) => {
-		if (desk !== "all" && c.desk !== desk) return false;
-		if (!q) return true;
-		return `${c.code} ${c.name} ${c.jurisdiction_label} ${(c.agencies || []).join(" ")} ${deskLabel(c.desk)}`.toLowerCase().includes(q);
-	});
-	if (!filtered.length) return "<div class=\"tm-empty\">No matching frameworks installed.</div>";
-	return TIER_ORDER.map((tier) => {
-		const items = filtered.filter((c) => c.tier === tier);
-		if (!items.length) return "";
-		const meta = TIER_META[tier];
-		return `
-      <div class="tm-group" data-ref-tier="${meta.refTier}">
-        <div class="tm-group-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(meta.label)}</span><span class="tm-group-count">${items.length}</span></div>
-        ${items.map((c) => {
-			const isCurrent = c.tier === "federal-reg" ? c.title_num === state.currentTitle : c.corpus_id === state.activeCorpusId;
-			const numText = c.tier === "federal-reg" ? `${c.code} CFR` : c.code;
-			const tag = c.partial ? "Partial" : c.jurisdiction !== "US" ? c.jurisdiction_label : c.agencies?.[0] || "";
-			return `<button type="button" class="tm-item${isCurrent ? " is-current" : ""}" role="menuitemradio" aria-checked="${isCurrent}" data-ref-tier="${meta.refTier}" ${c.tier === "federal-reg" ? `data-title="${c.title_num}"` : `data-corpus-hash="${escapeHtml(corpusHashFor(c))}"`} tabindex="-1">
-            <span class="tier-pip" aria-hidden="true"></span>
-            <span class="tm-num">${escapeHtml(numText)}</span><span class="tm-name">${escapeHtml(c.name)}</span>
-            ${tag ? `<span class="tm-meta">${escapeHtml(tag)}</span>` : ""}
-            ${isCurrent ? icon("check", "tm-check") : "<span class=\"tm-check\" aria-hidden=\"true\"></span>"}
-          </button>`;
-		}).join("")}
-      </div>
-    `;
-	}).join("");
-}
-function fillTitleSelect() {
-	if (!dom.titleSelect) return;
-	const corpora = syncCorporaState();
-	const cur = state.installedTitles.find((t) => t.title === state.currentTitle);
-	const name = state.noTitles ? "" : cur ? cur.name : state.metaInfo.name || "";
-	const numEl = document.getElementById("title-select-num");
-	if (numEl) numEl.textContent = state.noTitles ? "No titles" : `${state.currentTitle} CFR`;
-	document.getElementById("title-select-name").textContent = name;
-	dom.titleSelect.dataset.refTier = state.noTitles ? "uninstalled" : "cfr";
-	dom.titleSelect.title = state.noTitles ? "Nothing installed yet. Download titles" : `Title ${state.currentTitle}${name ? ": " + name : ""}. Switch framework or jurisdiction`;
-	const desks = [...new Set(corpora.map((c) => c.desk).filter(Boolean))];
-	const showDesks = corpora.length > 6 || desks.length > 1;
-	const showSearch = corpora.length >= 3;
-	const deskPillsHtml = showDesks ? `
-    <div class="tm-desks" role="group" aria-label="Filter frameworks by desk">
-      <button type="button" class="tm-desk-pill${switcherDeskFilter === "all" ? " is-on" : ""}" data-tm-desk="all">All</button>
-      ${desks.map((d) => `<button type="button" class="tm-desk-pill${switcherDeskFilter === d ? " is-on" : ""}" data-tm-desk="${escapeHtml(d)}">${escapeHtml(deskLabel(d).split(" ")[0])}</button>`).join("")}
-    </div>` : "";
-	dom.titlePop.innerHTML = `
-    <div class="tm-head">
-      ${showSearch ? "<input type=\"search\" class=\"tm-search\" id=\"title-pop-q\" placeholder=\"Filter frameworks, states, or U.S.C.…\" aria-label=\"Filter installed frameworks\" autocomplete=\"off\" spellcheck=\"false\">" : ""}
-      ${deskPillsHtml}
-    </div>
-    <div id="tm-groups">${switcherGroupsHtml()}</div>
-    <div class="tm-sep" role="separator"></div>
-    <a class="tm-item tm-download" role="menuitem" href="#/library" tabindex="-1">${icon("download")}<span class="tm-name">Browse Catalog &amp; Downloads…</span></a>`;
-}
-var titleMenuItems = () => [...dom.titlePop.querySelectorAll(".tm-item")];
-function openTitleMenu(focusWhich = "current") {
-	if (!dom.titlePop.hidden) return;
-	closeAllPopovers(closeTitleMenu, false);
-	fillTitleSelect();
-	dom.titlePop.hidden = false;
-	dom.titleSelect.setAttribute("aria-expanded", "true");
-	const searchEl = document.getElementById("title-pop-q");
-	const items = titleMenuItems();
-	(focusWhich === "first" ? items[0] : focusWhich === "last" ? items[items.length - 1] : searchEl || dom.titlePop.querySelector(".is-current") || items[0])?.focus({ preventScroll: true });
-	document.addEventListener("pointerdown", onTitleMenuOutside, true);
-}
-function closeTitleMenu(returnFocus = false) {
-	if (dom.titlePop.hidden) return;
-	dom.titlePop.hidden = true;
-	dom.titleSelect.setAttribute("aria-expanded", "false");
-	document.removeEventListener("pointerdown", onTitleMenuOutside, true);
-	if (returnFocus) dom.titleSelect.focus();
-}
-registerPopoverCloser(closeTitleMenu);
-function onTitleMenuOutside(e) {
-	if (!document.getElementById("title-menu").contains(e.target)) closeTitleMenu(false);
-}
-dom.titleSelect.addEventListener("click", () => {
-	if (dom.titlePop.hidden) openTitleMenu();
-	else closeTitleMenu(false);
-});
-dom.titleSelect.addEventListener("keydown", (e) => {
-	if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-		e.preventDefault();
-		openTitleMenu(e.key === "ArrowUp" ? "last" : "current");
-	}
-});
-dom.titlePop.addEventListener("input", (e) => {
-	if (e.target.id !== "title-pop-q") return;
-	const groups = document.getElementById("tm-groups");
-	if (groups) groups.innerHTML = switcherGroupsHtml(e.target.value, switcherDeskFilter);
-});
-dom.titlePop.addEventListener("keydown", (e) => {
-	if (e.target.id === "title-pop-q") {
-		if (e.key === "ArrowDown") {
-			e.preventDefault();
-			titleMenuItems()[0]?.focus();
-		} else if (e.key === "Escape") {
-			e.preventDefault();
-			e.stopPropagation();
-			closeTitleMenu(true);
-		}
-		return;
-	}
-	const items = titleMenuItems();
-	const i = items.indexOf(document.activeElement);
-	const go = (n) => {
-		e.preventDefault();
-		items[(n + items.length) % items.length]?.focus();
-	};
-	if (e.key === "ArrowDown") go(i + 1);
-	else if (e.key === "ArrowUp") {
-		if (i <= 0) {
-			const qEl = document.getElementById("title-pop-q");
-			if (qEl) {
+if (railEl) {
+	railEl.addEventListener("click", (e) => {
+		const btn = e.target?.closest(".ar-btn");
+		if (!btn) return;
+		const t = btn.dataset.target;
+		if (!t) return;
+		if (btn.tagName === "A") {
+			if (routeTarget() === t) {
 				e.preventDefault();
-				qEl.focus();
-				return;
+				if (t === "news") {
+					dom.main.scrollTop = 0;
+					return;
+				}
+				state.historyFor = t;
+				openPanel("history", {
+					toggle: true,
+					focus: e.detail === 0
+				});
 			}
+			return;
 		}
-		go(i - 1);
-	} else if (e.key === "Home") go(0);
-	else if (e.key === "End") go(items.length - 1);
-	else if (e.key === "Escape") {
+		if (t in NAV_PANELS) openPanel(t, {
+			toggle: true,
+			focus: e.detail === 0
+		});
+	});
+	railEl.addEventListener("keydown", (e) => {
+		const i = (mqMobile.matches ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"]).indexOf(e.key);
+		if (i < 0 && e.key !== "Home" && e.key !== "End") return;
+		const items = [...railEl.querySelectorAll(".ar-btn")];
+		const at = items.indexOf(document.activeElement);
+		if (at < 0) return;
 		e.preventDefault();
-		e.stopPropagation();
-		closeTitleMenu(true);
-	} else if (e.key === "Tab") closeTitleMenu(false);
-});
-dom.titlePop.addEventListener("click", async (e) => {
-	const deskBtn = e.target.closest("[data-tm-desk]");
-	if (deskBtn) {
-		switcherDeskFilter = deskBtn.dataset.tmDesk || "all";
-		dom.titlePop.querySelectorAll("[data-tm-desk]").forEach((b) => b.classList.toggle("is-on", b === deskBtn));
-		const qVal = document.getElementById("title-pop-q")?.value || "";
-		const groups = document.getElementById("tm-groups");
-		if (groups) groups.innerHTML = switcherGroupsHtml(qVal, switcherDeskFilter);
+		items[e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (at + (i ? 1 : -1) + items.length) % items.length].focus();
+	});
+}
+drawerEl.close?.addEventListener("click", () => closeDrawer());
+drawerEl.mode?.addEventListener("click", () => setNavMode(navState.mode === "pinned" ? "flyout" : "pinned"));
+dom.navBackdrop?.addEventListener("click", () => closeDrawer());
+dom.navToggle?.addEventListener("click", (e) => toggleDrawer(e.detail === 0));
+for (const mq of [mqMobile, mqNarrow]) mq.addEventListener?.("change", () => applyNav());
+state.goPending = 0;
+var GO_KEYS = {
+	h: "overview",
+	o: "overview",
+	t: "home",
+	c: "reader",
+	p: "projects",
+	n: "news",
+	l: "library",
+	s: "settings"
+};
+if (HAS_DOC) document.addEventListener("keydown", (e) => {
+	const active = document.activeElement;
+	const typing = active && (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
+	const mod = e.metaKey || e.ctrlKey;
+	if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") {
+		e.preventDefault();
+		toggleDrawer();
 		return;
 	}
-	const item = e.target.closest(".tm-item");
-	if (!item) return;
-	closeTitleMenu(false);
-	if (item.classList.contains("tm-download")) return;
-	if (item.dataset.corpusHash) {
-		window.location.hash = item.dataset.corpusHash;
+	if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d" && state.currentSection && routeTarget() === "reader") {
+		e.preventDefault();
+		emit("pin:open");
 		return;
 	}
-	const newTitle = parseInt(item.dataset.title, 10);
-	if (newTitle && newTitle !== state.currentTitle) {
-		await switchTitle(newTitle);
-		window.location.hash = `#/title/${newTitle}/`;
-	} else dom.titleSelect.focus();
+	if (e.altKey && !mod && /^Digit[1-7]$/.test(e.code)) {
+		e.preventDefault();
+		goTarget(NAV_TARGETS[Number(e.code.slice(5)) - 1]);
+		return;
+	}
+	if (e.key === "Escape" && isFly() && flyOpen() && !e.defaultPrevented) {
+		closeDrawer();
+		return;
+	}
+	if (typing || mod || e.altKey) return;
+	const k = e.key.toLowerCase();
+	if (state.goPending && Date.now() - state.goPending < 1200 && GO_KEYS[k]) {
+		e.preventDefault();
+		state.goPending = 0;
+		goTarget(GO_KEYS[k]);
+		return;
+	}
+	state.goPending = k === "g" ? Date.now() : 0;
 });
-function renderCorpusStaging(corpus) {
-	const meta = TIER_META[corpus.tier] || TIER_META["state"];
-	const refTier = refTierForCorpus(corpus);
-	document.title = `${corpus.code} · ${corpus.jurisdiction_label} · FRAMEWORK`;
-	dom.view.innerHTML = `
-    <div class="resolver-card has-tier-bar" data-ref-tier="${refTier}">
-      <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span> <span class="sep" aria-hidden="true">·</span> ${escapeHtml(corpus.jurisdiction_label || corpus.jurisdiction)}</div>
-      <h1 class="doc-title">${escapeHtml(corpus.code)} — ${escapeHtml(corpus.name)}</h1>
-      <p class="resolver-msg">${escapeHtml(corpus.summary || `This ${meta.label.toLowerCase()} corpus is pre-wired in FRAMEWORK’s multi-jurisdiction UI router and awaiting its backend ingestion pack.`)}</p>
-      <div class="resolver-acts">
-        <a class="btn btn-accent" href="#/library">Browse Catalog</a>
-        <a class="btn" href="#/title/${state.currentTitle}/">Back to ${state.currentTitle} CFR</a>
-      </div>
-    </div>
-  `;
-	enterView();
-}
-function renderNotFound() {
-	clearTreeSelection();
-	document.title = "Not found · FRAMEWORK";
-	setViewHead("");
-	dom.view.innerHTML = `
-    <div class="empty-state">
-      <h2>Page not found</h2>
-      <p>That section or part isn’t in Title ${state.currentTitle}.</p>
-      <a href="#/title/${state.currentTitle}/" class="btn">Back to Title ${state.currentTitle}</a>
-    </div>
-  `;
-	enterView();
-}
-// src/components/sidebar.js
+on("projects:changed", () => {
+	if (navState.panel === "projects" || navState.panel === "history") renderPanel(navState.panel);
+	if (navState.panel === "projects") drawerEl.meta.textContent = panelMeta("projects");
+});
+on("title:switched", () => {
+	updateRailHome();
+	applyNav();
+});
+on("titles:refreshed", () => {
+	updateRailHome();
+});
+// src/components/sidebar.ts
 var LEAF_TYPES = /* @__PURE__ */ new Set(["section", "appendix"]);
 var AGENCY_META = {
 	29: {
@@ -5940,23 +6641,20 @@ function visitedKey() {
 function loadVisited() {
 	try {
 		return new Set(JSON.parse(lsGet(visitedKey()) || "[]"));
-	} catch (e) {
+	} catch {
 		return /* @__PURE__ */ new Set();
 	}
 }
 async function switchTitle(newTitle) {
 	if (newTitle === state.currentTitle && state.treeData) return;
 	state.currentTitle = newTitle;
-	fillTitleSelect();
 	const titleMeta = state.installedTitles.find((t) => t.title === newTitle);
 	if (titleMeta) {
 		state.metaInfo = titleMeta;
 		dom.edition.textContent = `eCFR ${titleMeta.edition || ""}`;
 	}
-	dom.search.placeholder = searchPlaceholderFor(true);
 	dom.chatText.placeholder = `Ask about this section, or anything in Title ${newTitle}…`;
-	updateRailHome();
-	applyNav();
+	emit("title:switched", { title: newTitle });
 	state.treePromise = null;
 	state.treeData = null;
 	treeIdx.nodes = [];
@@ -5976,31 +6674,26 @@ async function switchTitle(newTitle) {
 	await ensureTreeLoaded();
 }
 function ensureTreeLoaded() {
-	if (!state.treePromise) state.treePromise = fetch("/api/" + state.currentTitle + "/tree").then((res) => {
-		if (!res.ok) throw new Error("HTTP " + res.status);
-		return res.json();
-	}).then((data) => {
+	if (!state.treePromise) state.treePromise = fetchTitleTree(state.currentTitle).then((data) => {
 		state.treeData = data;
 		indexTree(data);
 		renderSidebar();
 	}).catch((err) => {
 		state.treePromise = null;
-		dom.tree.innerHTML = `<div class="side-empty">Couldn't load the contents (${escapeHtml(err.message)}).</div>`;
+		const msg = err instanceof Error ? err.message : "Load failed";
+		dom.tree.innerHTML = `<div class="side-empty">Couldn't load the contents (${escapeHtml(msg)}).</div>`;
 		throw err;
 	});
 	return state.treePromise;
 }
 function normalizeForMatch(s) {
-	return " " + String(s).toLowerCase().replace(/[§,;:()[\]"'\/–—]/g, " ").replace(/\s+/g, " ").trim() + " ";
-}
-function plural(n, word) {
-	return `${n} ${word}${n === 1 ? "" : "s"}`;
+	return " " + String(s ?? "").toLowerCase().replace(/[§,;:()[\]"'\/–—]/g, " ").replace(/\s+/g, " ").trim() + " ";
 }
 function formatRange(range) {
 	return String(range || "").trim().replace(/\s*[–-]\s*/g, "–");
 }
 function isAgencyNode(node) {
-	return !!node && (node.t === "chapter" || node.t === "subtitle" && String(node.id) === "A");
+	return Boolean(node && (node.t === "chapter" || node.t === "subtitle" && String(node.id) === "A"));
 }
 function agencyKeyForNode(node) {
 	if (!node) return "";
@@ -6014,11 +6707,11 @@ function agencyInfo(node) {
 		name: "",
 		range: ""
 	};
-	const meta = agencyMeta(node) || {};
+	const meta = agencyMeta(node);
 	const roman = /^[IVXLC]+$/.test(String(node.id)) ? node.id : "";
 	return {
-		code: meta.code || (node.t === "subtitle" ? `Sub. ${node.id}` : roman ? `Ch. ${roman}` : "Ch."),
-		name: meta.name || (node.d || node.l || "").trim().replace(/^Chapter\s+[IVXLC]+\s*[—–-]\s*/i, "").replace(/,\s*Department of [A-Z][A-Za-z ]+$/, ""),
+		code: meta?.code || (node.t === "subtitle" ? `Sub. ${node.id}` : roman ? `Ch. ${roman}` : "Ch."),
+		name: meta?.name || (node.d || node.l || "").trim().replace(/^Chapter\s+[IVXLC]+\s*[—–-]\s*/i, "").replace(/,\s*Department of [A-Z][A-Za-z ]+$/, ""),
 		range: formatRange(node.range)
 	};
 }
@@ -6049,7 +6742,7 @@ function indexTree(root) {
 			if (meta) hayText += ` ${meta.code} ${meta.name}`;
 		}
 		node.hay = normalizeForMatch(hayText);
-		if (LEAF_TYPES.has(node.t)) {
+		if (node.t && LEAF_TYPES.has(node.t)) {
 			treeIdx.sections.set(String(node.id), k);
 			node.n = node.r ? 0 : 1;
 			return;
@@ -6061,7 +6754,7 @@ function indexTree(root) {
 		node.n = 0;
 		for (const child of node.c || []) {
 			walk(child, k);
-			node.n += child.n;
+			node.n += child.n || 0;
 			if (child.t === "part" && !child.r) node.partCount += 1;
 			else if (child.partCount) node.partCount += child.partCount;
 		}
@@ -6073,7 +6766,7 @@ function isWithin(k, ancestorK) {
 	return false;
 }
 function partOf(k) {
-	for (let p = k; p >= 0; p = treeIdx.parent[p]) if (treeIdx.nodes[p].t === "part") return p;
+	for (let p = k; p >= 0; p = treeIdx.parent[p]) if (treeIdx.nodes[p]?.t === "part") return p;
 	return null;
 }
 function rowParts(node) {
@@ -6084,7 +6777,7 @@ function rowParts(node) {
 		const m = /^Appendix\s+(?!to\b)(\S+)/i.exec(l);
 		return [m ? `App. ${m[1]}` : "App.", d || l];
 	}
-	return [String(node.id), d];
+	return [String(node.id || ""), d];
 }
 function tooltipFor(node) {
 	const l = (node.l || "").trim();
@@ -6098,16 +6791,16 @@ function hl(str) {
 	let out = "";
 	let last = 0;
 	for (const m of text.matchAll(re)) {
-		const start = m.index + m[1].length;
+		const start = (m.index ?? 0) + m[1].length;
 		out += escapeHtml(text.slice(last, start)) + "<mark>" + escapeHtml(m[2]) + "</mark>";
 		last = start + m[2].length;
 	}
 	return out + escapeHtml(text.slice(last));
 }
 function itemHtml(node) {
-	const leaf = LEAF_TYPES.has(node.t);
+	const leaf = Boolean(node.t && LEAF_TYPES.has(node.t));
 	const [num, text] = rowParts(node);
-	const href = `#/${leaf ? "section" : "part"}/${encodeURIComponent(node.id)}`;
+	const href = `#/${leaf ? "section" : "part"}/${encodeURIComponent(String(node.id || ""))}`;
 	const isPage = node.k === state.currentTreeKey;
 	const isAncestor = !isPage && !leaf && node.k === state.currentPartKey;
 	const cls = ["side-item", leaf ? "is-section" : "is-part"];
@@ -6182,7 +6875,7 @@ function partsListHtml() {
 state.foldedGroups = (() => {
 	try {
 		return new Set(JSON.parse(lsGet("sideFolded") || "[]"));
-	} catch (e) {
+	} catch {
 		return /* @__PURE__ */ new Set();
 	}
 })();
@@ -6190,12 +6883,12 @@ function groupKey(part, sub) {
 	return `${state.currentTitle}|${part.id}|${sub.id}`;
 }
 function saveFolded() {
-	lsSet("sideFolded", JSON.stringify([...state.foldedGroups]));
+	if (state.foldedGroups) lsSet("sideFolded", JSON.stringify([...state.foldedGroups]));
 }
 function setGroupOpen(group, open, save = true) {
 	group.classList.toggle("is-folded", !open);
 	group.querySelector(".side-group-toggle")?.setAttribute("aria-expanded", String(open));
-	if (group.dataset.group) {
+	if (group.dataset.group && state.foldedGroups) {
 		if (open) state.foldedGroups.delete(group.dataset.group);
 		else state.foldedGroups.add(group.dataset.group);
 		if (save) saveFolded();
@@ -6206,13 +6899,13 @@ function partViewHtml(part) {
 		let out = "";
 		for (const c of node.c || []) {
 			if (c.r) continue;
-			if (LEAF_TYPES.has(c.t)) out += itemHtml(c);
+			if (c.t && LEAF_TYPES.has(c.t)) out += itemHtml(c);
 			else if (c.n) {
 				const l = (c.l || "").trim();
 				const d = (c.d || "").trim();
 				if (c.t === "subpart") {
 					const key = groupKey(part, c);
-					const folded = state.foldedGroups.has(key) && !(state.currentTreeKey != null && isWithin(state.currentTreeKey, c.k));
+					const folded = Boolean(state.foldedGroups?.has(key) && !(state.currentTreeKey != null && c.k != null && isWithin(state.currentTreeKey, c.k)));
 					out += `<div class="side-group${folded ? " is-folded" : ""}" data-group="${escapeHtml(key)}"><button type="button" class="side-label side-group-toggle" data-action="toggle-group" aria-expanded="${!folded}"><span class="side-group-name">${escapeHtml(d ? `${l} — ${d}` : l)}</span>${icon("chevronDown", "side-group-caret")}</button><div class="side-group-body"><div class="side-group-inner">${walk(c)}</div></div></div>`;
 				} else out += `<div class="side-label minor">${escapeHtml(d || l)}</div>` + walk(c);
 			}
@@ -6220,7 +6913,7 @@ function partViewHtml(part) {
 		return out;
 	};
 	const body = walk(part);
-	const agencyKey = agencyOf(part.k);
+	const agencyKey = part.k != null ? agencyOf(part.k) : null;
 	const crumbs = state.rootViewMode === "agencies" && agencyKey != null ? [{
 		label: "Agencies",
 		action: "agencies"
@@ -6233,10 +6926,11 @@ function partViewHtml(part) {
 		action: "parts"
 	}];
 	crumbs.push({ label: `Part ${part.id}` });
-	return `<div class="side-head">` + crumbsHtml(crumbs) + `<a class="side-part-title${part.k === state.currentTreeKey ? " current" : ""}" href="#/part/${encodeURIComponent(part.id)}"${part.k === state.currentTreeKey ? " aria-current=\"page\"" : ""}>${escapeHtml((part.d || "").trim())}</a></div><div class="side-list">${body}</div>`;
+	return `<div class="side-head">` + crumbsHtml(crumbs) + `<a class="side-part-title${part.k === state.currentTreeKey ? " current" : ""}" href="#/part/${encodeURIComponent(String(part.id || ""))}"${part.k === state.currentTreeKey ? " aria-current=\"page\"" : ""}>${escapeHtml((part.d || "").trim())}</a></div><div class="side-list">${body}</div>`;
 }
 function filterResultsHtml() {
 	const f = state.treeFilterState;
+	if (!f) return "";
 	const q = f.q.trim();
 	const fullText = `<a class="side-fulltext" href="#/search?q=${encodeURIComponent(q)}">Search the full text for “${escapeHtml(q)}”</a>`;
 	if (!f.results.length) return `<div class="side-empty">Nothing matches.</div>${fullText}`;
@@ -6245,7 +6939,7 @@ function filterResultsHtml() {
 function updateNavTabsUI() {
 	const tabs = document.getElementById("side-nav-tabs");
 	if (!tabs) return;
-	tabs.hidden = !!state.treeFilterState;
+	tabs.hidden = Boolean(state.treeFilterState);
 	const isAllParts = state.rootViewMode === "all-parts";
 	const tabAgencies = document.getElementById("tab-agencies");
 	const tabParts = document.getElementById("tab-parts");
@@ -6271,7 +6965,7 @@ function renderSidebar() {
 }
 function clearFilterQuietly() {
 	if (!state.treeFilterState && !dom.treeFilter.value) return;
-	clearTimeout(state.filterTimer);
+	if (state.filterTimer) clearTimeout(state.filterTimer);
 	dom.treeFilter.value = "";
 	state.treeFilterState = null;
 }
@@ -6307,7 +7001,7 @@ function selectTreeNode(elementId) {
 	state.currentAgencyKey = agencyOf(k);
 	if (m[1] === "s") markVisited(m[2]);
 	const switchPart = state.currentPartKey != null && state.sideView !== state.currentPartKey;
-	if (switchPart) state.sideView = state.currentPartKey;
+	if (switchPart && state.currentPartKey != null) state.sideView = state.currentPartKey;
 	if (state.treeFilterState) {
 		refreshCurrent();
 		return;
@@ -6339,7 +7033,7 @@ function refreshCurrent() {
 	};
 	const page = dom.tree.querySelector(`.side-item[data-k="${state.currentTreeKey}"]`);
 	markPage(page);
-	const folded = page && page.closest(".side-group.is-folded");
+	const folded = page?.closest(".side-group.is-folded");
 	if (folded) setGroupOpen(folded, true);
 	if (state.currentTreeKey === state.currentPartKey) {
 		if (state.sideView === state.currentPartKey) markPage(dom.tree.querySelector(".side-part-title"));
@@ -6388,16 +7082,17 @@ function computeFilter(q) {
 	const ancFull = new Uint8Array(total);
 	const results = [];
 	for (const node of treeIdx.nodes) {
-		const k = node.k;
+		const k = node.k ?? 0;
 		const p = treeIdx.parent[k];
 		let m = 0;
-		for (let i = 0; i < tokens.length; i++) if (node.hay.includes(" " + tokens[i])) m |= 1 << i;
+		const hay = node.hay || "";
+		for (let i = 0; i < tokens.length; i++) if (hay.includes(" " + tokens[i])) m |= 1 << i;
 		own[k] = m;
 		if (p >= 0) {
 			anc[k] = anc[p] | own[p];
 			ancFull[k] = ancFull[p] || own[p] === ALL ? 1 : 0;
 		}
-		if (node.r || !(node.t === "part" || LEAF_TYPES.has(node.t) || isAgencyNode(node))) continue;
+		if (node.r || !(node.t === "part" || node.t && LEAF_TYPES.has(node.t) || isAgencyNode(node))) continue;
 		if (m === ALL || m !== 0 && (m | anc[k]) === ALL && !ancFull[k]) {
 			results.push(k);
 			if (results.length >= 100) break;
@@ -6416,12 +7111,12 @@ function applyTreeFilter() {
 	renderSidebar();
 	if (!state.treeFilterState) revealCurrent(false);
 }
-state.filterTimer = 0;
-dom.treeFilter.addEventListener("input", () => {
-	clearTimeout(state.filterTimer);
+state.filterTimer = null;
+dom.treeFilter?.addEventListener("input", () => {
+	if (state.filterTimer) clearTimeout(state.filterTimer);
 	state.filterTimer = setTimeout(applyTreeFilter, 120);
 });
-dom.treeFilter.addEventListener("keydown", (e) => {
+dom.treeFilter?.addEventListener("keydown", (e) => {
 	if (e.key === "Escape") {
 		e.preventDefault();
 		if (dom.treeFilter.value) {
@@ -6436,20 +7131,24 @@ dom.treeFilter.addEventListener("keydown", (e) => {
 		}
 	} else if (e.key === "Enter") {
 		e.preventDefault();
-		clearTimeout(state.filterTimer);
+		if (state.filterTimer) clearTimeout(state.filterTimer);
 		applyTreeFilter();
 		const q = dom.treeFilter.value.trim();
 		const first = dom.tree.querySelector(".side-item, .side-agency");
 		if (first) {
-			if (first.tagName === "A") window.location.hash = first.getAttribute("href");
-			else first.click();
+			if (first.tagName === "A") {
+				const href = first.getAttribute("href");
+				if (href) window.location.hash = href;
+			} else first.click();
 		} else if (q) window.location.hash = `#/search?q=${encodeURIComponent(q)}`;
 	}
 });
-dom.tree.addEventListener("click", (e) => {
-	const toggle = e.target.closest("[data-action=\"toggle-group\"]");
+dom.tree?.addEventListener("click", (e) => {
+	const t = e.target;
+	const toggle = t?.closest("[data-action=\"toggle-group\"]");
 	if (toggle) {
 		const group = toggle.closest(".side-group");
+		if (!group) return;
 		const open = group.classList.contains("is-folded");
 		if (e.altKey) {
 			dom.tree.querySelectorAll(".side-group").forEach((g) => setGroupOpen(g, open, false));
@@ -6457,29 +7156,29 @@ dom.tree.addEventListener("click", (e) => {
 		} else setGroupOpen(group, open);
 		return;
 	}
-	const action = e.target.closest("[data-action]");
+	const action = t?.closest("[data-action]");
 	if (action) {
 		const kind = action.dataset.action;
-		const k = parseInt(action.dataset.k, 10);
+		const k = parseInt(action.dataset.k || "", 10);
 		clearFilterQuietly();
 		if (kind === "agencies") showAgenciesList();
 		else if (kind === "parts") showPartsList();
-		else if (kind === "agency" && !isNaN(k)) showAgencyView(k);
+		else if (kind === "agency" && !Number.isNaN(k)) showAgencyView(k);
 		else return;
 		if (e.detail === 0) (dom.tree.querySelector(".current, .ancestor-current") || dom.tree.querySelector("a, button"))?.focus({ preventScroll: true });
 		return;
 	}
-	const link = e.target.closest("a");
+	const link = t?.closest("a");
 	if (link && link.getAttribute("href") === window.location.hash && isFly() && flyOpen()) closeDrawer();
 });
-var sideNavTabs = document.getElementById("side-nav-tabs");
+var sideNavTabs = typeof document !== "undefined" ? document.getElementById("side-nav-tabs") : null;
 if (sideNavTabs) sideNavTabs.addEventListener("click", (e) => {
-	const btn = e.target.closest(".side-nav-tab");
+	const btn = e.target?.closest(".side-nav-tab");
 	if (!btn) return;
 	if (btn.dataset.mode === "agencies") showAgenciesList();
 	else showPartsList();
 });
-dom.tree.addEventListener("keydown", (e) => {
+dom.tree?.addEventListener("keydown", (e) => {
 	if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
 	const items = [...dom.tree.querySelectorAll("a, button")].filter((el) => !el.closest(".side-group.is-folded .side-group-body"));
 	const i = items.indexOf(document.activeElement);
@@ -6491,126 +7190,2234 @@ dom.tree.addEventListener("keydown", (e) => {
 		scrollIntoTree(next, false);
 	} else if (e.key === "ArrowUp") dom.treeFilter.focus();
 });
-// src/panels/shared.js
-var drLabel = (text, extra = "") => `<h3 class="dr-label"><span>${text}</span>${extra}</h3>`;
-var drEmpty = (title, body) => `<div class="dr-empty"><div class="dr-empty-title">${title}</div><p>${body}</p></div>`;
-function setPanel(panel, html) {
-	const el = document.getElementById(`panel-${panel}`);
-	if (!el) return;
-	const scroller = el.querySelector(".dr-scroll");
-	const top = scroller ? scroller.scrollTop : 0;
-	el.innerHTML = `<div class="dr-scroll">${html}</div>`;
-	const next = el.querySelector(".dr-scroll");
-	if (next) next.scrollTop = top;
-	if (navState.panel === panel) drawerEl.meta.textContent = panelMeta(panel);
-}
-// src/panels/library_panel.js
-var navLib = {
-	data: null,
-	at: 0,
-	loading: null
+on("nav:panel-opened", ({ panel }) => {
+	if (panel === "reader") requestAnimationFrame(() => revealCurrent(false));
+});
+// src/components/transfer_dock.ts
+var DOCK_STEPS = [
+	["Checking eCFR", "Connecting to eCFR"],
+	["Downloading contents", "Reading the table of contents"],
+	["Downloading text", "Streaming the regulation text"],
+	["Reading text", "Extracting sections and appendices"],
+	["Indexing", "Building the search index"],
+	["Installing", "Swapping in the new edition"]
+];
+var dock = {
+	el: typeof document !== "undefined" ? document.getElementById("transfer-dock") : null,
+	min: lsGet("dockMinimized") === "1",
+	key: "",
+	hideT: null,
+	srText: ""
 };
-async function ensureNavLibrary(force = false) {
-	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
-	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
-		navLib.data = d;
-		navLib.at = Date.now();
-		return d;
-	}).finally(() => {
-		navLib.loading = null;
-	});
-	return navLib.loading;
+var rate = {
+	id: null,
+	t: 0,
+	done: 0,
+	bps: 0
+};
+function recordJobProgress(j) {
+	const streaming = Boolean(j && j.phase === "Downloading text" && (j.done || 0) > 0 && (j.total == null || j.total > 1e5));
+	if (!streaming || !j || j.id !== rate.id) {
+		Object.assign(rate, {
+			id: streaming && j ? j.id : null,
+			t: streaming ? performance.now() : 0,
+			done: streaming && j ? j.done || 0 : 0,
+			bps: 0
+		});
+		return;
+	}
+	const now = performance.now();
+	const dt = (now - rate.t) / 1e3;
+	if (dt < .5) return;
+	const delta = (j.done || 0) - rate.done;
+	if (delta > 0) rate.bps = rate.bps ? rate.bps * .7 + delta / dt * .3 : delta / dt;
+	rate.t = now;
+	rate.done = j.done || 0;
 }
-function transferHtml() {
-	const j = state.jobs.current;
-	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
-	const m = dockModel(j);
-	return (!j ? "" : `<div class="dr-job">
-      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
-      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
-      ${transferTrackHtml(m.pct, { bindFill: true })}
-      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
-      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
-    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
+function fmtEta(seconds) {
+	if (!Number.isFinite(seconds) || seconds <= 0) return "";
+	if (seconds < 60) return `${Math.ceil(seconds)}s left`;
+	const m = Math.floor(seconds / 60);
+	return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m}m ${Math.round(seconds % 60)}s left`;
 }
-state.navTransferKey = "";
-function updateNavTransfers() {
-	updateRailBadge();
-	if (navState.panel !== "library" || !drawerShown()) return;
-	const box = document.getElementById("dr-transfers");
-	if (!box) return;
+function dockModel(j) {
+	if (!j) return {
+		step: -1,
+		label: "Starting…",
+		pct: null,
+		left: "",
+		right: ""
+	};
+	const step = DOCK_STEPS.findIndex(([phase]) => phase === j.phase);
+	const label = step >= 0 ? DOCK_STEPS[step][1] : j.phase === "Waiting" ? "Starting…" : j.phase || "";
+	const has = j.total != null && j.total > 0 && j.done != null;
+	const pct = has ? Math.min(99, Math.floor((j.done || 0) / (j.total || 1) * 100)) : null;
+	let left = "";
+	let right = "";
+	if (j.phase === "Downloading text" && (j.total == null || j.total > 1e5) && j.done) {
+		left = j.total ? `${fmtBytes(Math.min(j.done, j.total))} of ${fmtBytes(j.total)}` : fmtBytes(j.done);
+		const speed = rate.id === j.id && rate.bps > 51200 ? `${fmtBytes(rate.bps)}/s` : "";
+		right = [speed, speed && j.total ? fmtEta((j.total - j.done) / rate.bps) : ""].filter(Boolean).join(" · ");
+	} else if (j.phase === "Downloading text" && has) left = `${Number(j.done).toLocaleString()} of ${plural(j.total || 0, "file")}`;
+	else if ((j.phase === "Reading text" || j.phase === "Indexing") && has) left = `${Number(j.done).toLocaleString()} of ${fmtSections(j.total)}`;
+	return {
+		step,
+		label,
+		pct,
+		left,
+		right
+	};
+}
+function dockHtml(j, m) {
+	const pctText = m.pct == null ? "" : `${m.pct}%`;
+	const title = j ? escapeHtml(j.label) : "Preparing download";
+	if (dock.min) return `<button type="button" class="dock-mini" data-dock="expand" aria-label="Show download progress: ${title}">
+      <span class="stat-dot is-busy" aria-hidden="true"></span><span class="dock-mini-text">${title}</span>
+      <span class="dock-mini-pct" data-f="pct">${pctText}</span>${icon("chevronUp")}</button>`;
+	const cancelling = Boolean(j && j.cancelling);
+	const locked = Boolean(j && j.phase === "Installing");
+	const steps = DOCK_STEPS.map((_, i) => `<span class="${i < m.step ? "is-done" : i === m.step ? "is-now" : ""}"></span>`).join("");
+	const queued = state.jobs.queued;
+	return `<section class="dock-card" aria-label="Downloads">
+    <div class="dock-head">
+      <span class="stat-dot is-busy" aria-hidden="true"></span>
+      <span class="dock-title">${title}</span>
+      <span class="dock-pct" data-f="pct">${pctText}</span>
+      <button type="button" class="dock-icon" data-dock="minimize" title="Minimize" aria-label="Minimize downloads">${icon("chevronDown")}</button>
+    </div>
+    <div class="dock-phase">
+      <span class="dock-phase-text">${escapeHtml(cancelling ? "Cancelling…" : m.label)}</span>
+      ${m.step >= 0 ? `<span class="dock-steps" role="img" aria-label="Step ${m.step + 1} of ${DOCK_STEPS.length}">${steps}</span>` : ""}
+    </div>
+    ${transferTrackHtml(m.pct, { bindFill: true })}
+    <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+    <div class="dock-foot">
+      <span class="dock-queue">${queued.length ? `<span class="dock-queue-count">+${queued.length} queued</span>${escapeHtml(queued.map((q) => q.label).join(", "))}` : "Nothing queued"}</span>
+      <span class="dock-acts">
+        ${queued.length ? "<button type=\"button\" class=\"lib-act\" data-dock=\"clear\">Clear queue</button>" : ""}
+        ${j ? `<button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${cancelling || locked ? " disabled" : ""}${locked ? " title=\"Installing: almost done\"" : ""}>${cancelling ? "Cancelling" : "Cancel"}</button>` : ""}
+      </span>
+    </div>
+  </section>`;
+}
+function updateDock() {
+	const el = dock.el;
+	if (!el) return;
 	const j = state.jobs.current;
+	if (!Boolean(j || state.jobs.queued.length)) {
+		if (!el.hidden && !dock.hideT) {
+			el.classList.remove("is-visible");
+			dock.hideT = setTimeout(() => {
+				dock.hideT = null;
+				if (!state.jobs.current && !state.jobs.queued.length) {
+					el.hidden = true;
+					el.innerHTML = "";
+					dock.key = "";
+				}
+			}, 260);
+		}
+		return;
+	}
+	if (dock.hideT !== null) clearTimeout(dock.hideT);
+	dock.hideT = null;
+	recordJobProgress(j);
 	const m = dockModel(j);
 	const key = [
+		dock.min,
 		j && j.id,
 		j && j.cancelling,
 		j && j.phase === "Installing",
+		m.step,
 		m.pct == null,
 		state.jobs.queued.map((q) => q.id).join(".")
 	].join("|");
-	if (key !== state.navTransferKey) {
-		state.navTransferKey = key;
-		box.innerHTML = transferHtml();
-		const count = document.getElementById("dr-transfers-count");
-		const n = (j ? 1 : 0) + state.jobs.queued.length;
-		if (count) count.textContent = n ? String(n) : "";
-		const sec = document.getElementById("dr-transfers-sec");
-		if (sec) sec.hidden = !n;
+	if (key !== dock.key) {
+		const activeEl = document.activeElement;
+		const focused = activeEl && el.contains(activeEl) ? activeEl.dataset.dock : null;
+		el.innerHTML = dockHtml(j, m);
+		dock.key = key;
+		if (focused) (el.querySelector(`[data-dock="${focused}"]`) || el.querySelector("[data-dock]"))?.focus();
+	} else {
+		const set = (f, v) => {
+			const n = el.querySelector(`[data-f="${f}"]`);
+			if (n && n.textContent !== v) n.textContent = v;
+		};
+		set("pct", m.pct == null ? "" : `${m.pct}%`);
+		set("left", m.left);
+		set("right", m.right);
+		const fill = el.querySelector("[data-f=\"fill\"]");
+		if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+	}
+	const sr = `${j ? j.label : "Download"}: ${m.label}`;
+	if (sr !== dock.srText) {
+		dock.srText = sr;
+		const live = document.getElementById("transfer-dock-live");
+		if (live) live.textContent = sr;
+	}
+	if (el.hidden) {
+		el.hidden = false;
+		requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("is-visible")));
+	} else el.classList.add("is-visible");
+	el.classList.toggle("is-min", dock.min);
+}
+if (dock.el) dock.el.addEventListener("click", (e) => {
+	const btn = e.target?.closest("[data-dock]");
+	if (btn) onDockAction(btn);
+});
+async function onDockAction(btn) {
+	const act = btn.dataset.dock;
+	if (act === "minimize" || act === "expand") {
+		dock.min = act === "minimize";
+		lsSet("dockMinimized", dock.min ? "1" : "0");
+		dock.key = "";
+		updateDock();
+		dock.el?.querySelector("[data-dock]")?.focus();
 		return;
 	}
-	const set = (f, v) => {
-		const n = box.querySelector(`[data-f="${f}"]`);
-		if (n && n.textContent !== v) n.textContent = v;
+	btn.disabled = true;
+	try {
+		if (act === "cancel") await getJSON(`/api/library/jobs/${btn.dataset.id}/cancel`, { method: "POST" });
+		else if (act === "clear") {
+			const res = await getJSON("/api/library/jobs/clear", { method: "POST" });
+			for (const j of res.cancelled || []) state.jobsSeenActive.delete(j.id);
+			if (res.count) showToast(`Cleared ${plural(res.count, "queued download")}`);
+		}
+		await pollJobs();
+	} catch (err) {
+		showToast(err instanceof Error ? err.message : "Action failed", 5e3);
+		btn.disabled = false;
+	}
+}
+async function refreshTitles(changed = []) {
+	let list;
+	try {
+		list = await fetchInstalledTitles();
+	} catch {
+		return;
+	}
+	const hadNone = state.noTitles;
+	state.installedTitles = list;
+	state.noTitles = list.length === 0;
+	emit("titles:refreshed", {
+		hadNone,
+		changed,
+		list
+	});
+	if (hadNone && list.length) {
+		await switchTitle(list[0].title);
+		if (Boolean(document.getElementById("welcome-list"))) {
+			const target = titleHref(list[0].title);
+			if (window.location.hash === target) emit("route:refresh");
+			else window.location.hash = target;
+		}
+		return;
+	}
+	if (!list.some((t) => t.title === state.currentTitle) && list.length) await switchTitle(list[0].title);
+	else if (changed.includes(state.currentTitle)) {
+		state.treeData = null;
+		const meta = list.find((t) => t.title === state.currentTitle);
+		if (meta) state.metaInfo = meta;
+		await switchTitle(state.currentTitle);
+	}
+}
+registerTitleRefresher(refreshTitles);
+on("jobs:updated", () => updateDock());
+// src/components/cfr_resolver.ts
+var titleInfoCache = /* @__PURE__ */ new Map();
+var INFO_TTL_MS = 3e5;
+var citePopEl = dom.citePop;
+var citePop = createPopover({
+	el: dom.citePop,
+	scrollContainer: dom.main,
+	padding: 12
+});
+function normalizeCfrTarget(raw = {}) {
+	const title = Number(raw.title || raw.cfrTitle) || 0;
+	const section = raw.section ? String(raw.section).trim() : null;
+	const part = raw.part ? String(raw.part).trim() : section && section.includes(".") ? section.split(".", 1)[0] : null;
+	return {
+		title,
+		part,
+		section,
+		para: raw.para ? String(raw.para).trim() : null,
+		kind: raw.kind === "appendix" ? "appendix" : section ? "section" : "part",
+		ecfrUrl: raw.ecfrUrl || (section ? `https://www.ecfr.gov/current/title-${title}/section-${encodeURIComponent(section)}` : part ? `https://www.ecfr.gov/current/title-${title}/part-${encodeURIComponent(part)}` : `https://www.ecfr.gov/current/title-${title}`)
 	};
-	set("pct", m.pct == null ? "" : `${m.pct}%`);
-	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
-	set("left", m.left);
-	set("right", m.right);
-	const fill = box.querySelector("[data-f=\"fill\"]");
-	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
 }
-function renderLibraryPanel() {
-	const d = navLib.data;
-	state.navTransferKey = "";
-	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
-	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
-	if (!d) {
-		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
-		ensureNavLibrary().then(() => {
-			if (navState.panel === "library") renderLibraryPanel();
-			updateRailBadge();
-		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
+async function fetchTitleInfo(title) {
+	const cached = titleInfoCache.get(title);
+	if (cached && Date.now() - cached.at < INFO_TTL_MS) return cached.info;
+	const info = await getJSON(`/api/library/${title}`);
+	titleInfoCache.set(title, {
+		info,
+		at: Date.now()
+	});
+	return info;
+}
+async function checkLocalCfrTarget(target) {
+	const meta = state.installedTitles.find((t) => t.title === target.title) || null;
+	if (!meta) return {
+		installed: false,
+		meta: null
+	};
+	if (target.section) try {
+		if ((await fetchSectionRaw(target.title, target.section, "?unit=")).ok) return {
+			installed: true,
+			meta,
+			kind: "section"
+		};
+		return {
+			installed: false,
+			meta,
+			partialMissing: true
+		};
+	} catch {
+		return {
+			installed: false,
+			meta,
+			partialMissing: true
+		};
+	}
+	if (target.part) try {
+		if ((await fetchPartFull(target.title, target.part)).ok) return {
+			installed: true,
+			meta,
+			kind: "part"
+		};
+		return {
+			installed: false,
+			meta,
+			partialMissing: true
+		};
+	} catch {
+		return {
+			installed: false,
+			meta,
+			partialMissing: true
+		};
+	}
+	return {
+		installed: true,
+		meta,
+		kind: "title"
+	};
+}
+function activeJobForTarget(target) {
+	if (target.section) return jobFor(target.title, "section", target.section) || (target.part ? jobFor(target.title, "part", target.part) : null) || jobFor(target.title, "title") || null;
+	if (target.part) return jobFor(target.title, "part", target.part) || jobFor(target.title, "title") || null;
+	return jobFor(target.title, "title") || null;
+}
+function targetDisplayTitle(target) {
+	if (target.section) return `${target.title} CFR § ${target.section}`;
+	if (target.part) return `${target.title} CFR Part ${target.part}`;
+	return `Title ${target.title}`;
+}
+function targetHashFor(target) {
+	if (target.section) return `#/title/${target.title}/section/${encodeURIComponent(target.section)}` + (target.para ? `?p=${encodeURIComponent(target.para)}` : "");
+	if (target.part) return `#/title/${target.title}/part/${encodeURIComponent(target.part)}`;
+	return `#/title/${target.title}/`;
+}
+function resolverBodyHtml(target, { info = null, error = null, loading = false, openInSplit = false, isPage = false } = {}) {
+	const titleNum = target.title;
+	const installedMeta = state.installedTitles.find((t) => t.title === titleNum);
+	const job = activeJobForTarget(target);
+	const reserved = Boolean(info && info.reserved);
+	const titleName = info && info.name || installedMeta && installedMeta.name || `Title ${titleNum}`;
+	const edition = info && info.latest ? ` · Edition ${fmtDate(info.latest)}` : "";
+	const statusMsg = reserved ? `Title ${titleNum} is reserved on eCFR and contains no regulatory text.` : installedMeta?.partial ? `Title ${titleNum} is partially installed — this ${target.section ? "section" : "part"} hasn’t been downloaded yet.` : `Title ${titleNum} is not installed in the local reader.`;
+	let jobHtml = "";
+	if (job) {
+		const m = dockModel(job);
+		const pctText = m.pct == null ? "" : ` · ${m.pct}%`;
+		const isQueued = job.state === "queued";
+		const note = openInSplit ? "Downloading in background — will open side-by-side when ready." : "Downloading in background — will open automatically when ready.";
+		jobHtml = `
+      <div class="resolver-progress" data-res-job="${job.id}">
+        <div class="resolver-progress-head">
+          <span class="stat-dot is-busy" aria-hidden="true"></span>
+          <span>${escapeHtml(isQueued ? `Queued · ${job.label}` : `${m.label}${pctText}`)}</span>
+        </div>
+        ${transferTrackHtml(m.pct)}
+        <p class="resolver-note">${escapeHtml(note)}</p>
+      </div>
+    `;
+	}
+	let actionsHtml = "";
+	if (!reserved && !job) {
+		const primaryCls = isPage ? "btn btn-accent" : "btn btn-small btn-accent";
+		const secCls = isPage ? "btn" : "btn btn-small";
+		const btns = [];
+		if (target.section) {
+			btns.push(`<button type="button" class="${primaryCls}" data-res-dl="section">${icon("download")} Download § ${escapeHtml(target.section)}</button>`);
+			if (target.part) btns.push(`<button type="button" class="${secCls}" data-res-dl="part">Download Part ${escapeHtml(target.part)}</button>`);
+		} else if (target.part) {
+			btns.push(`<button type="button" class="${primaryCls}" data-res-dl="part">${icon("download")} Download Part ${escapeHtml(target.part)}</button>`);
+			btns.push(`<button type="button" class="${secCls}" data-res-dl="title">Download Title ${titleNum}</button>`);
+		} else btns.push(`<button type="button" class="${primaryCls}" data-res-dl="title">${icon("download")} Download Title ${titleNum}</button>`);
+		actionsHtml = `<div class="resolver-acts">
+      ${btns.join("")}
+      <a class="${secCls}" href="${escapeHtml(target.ecfrUrl)}" target="_blank" rel="noopener noreferrer">${icon("external")} View on eCFR</a>
+    </div>`;
+	} else actionsHtml = `<div class="resolver-acts">
+      <a class="${isPage ? "btn" : "btn btn-small"}" href="${escapeHtml(target.ecfrUrl)}" target="_blank" rel="noopener noreferrer">${icon("external")} View on eCFR</a>
+      ${isPage ? `<a class="btn" href="#/library/${titleNum}">Open in Library</a>` : ""}
+    </div>`;
+	return `
+    <div class="resolver-meta">${escapeHtml(titleName)}${escapeHtml(edition)}${loading ? " · Checking eCFR…" : ""}</div>
+    <p class="resolver-msg">${escapeHtml(error || statusMsg)}</p>
+    ${jobHtml}
+    ${actionsHtml}
+  `;
+}
+var activeModalCtx = null;
+var activePageCtx = null;
+async function submitCfrDownload(scopeKind, target, openInSplit = false) {
+	const body = {
+		title: target.title,
+		part: scopeKind === "section" || scopeKind === "part" ? target.part : null,
+		section: scopeKind === "section" ? target.section : null,
+		kind: target.kind === "appendix" ? "appendix" : "section"
+	};
+	const job = await getJSON("/api/library/download", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body)
+	});
+	state.jobsSeenActive.add(job.id);
+	state.pendingDownloads.set(job.id, {
+		title: target.title,
+		part: body.part,
+		section: body.section,
+		kind: body.section ? body.kind : body.part ? "part" : "title",
+		para: target.para || null,
+		openInSplit: Boolean(openInSplit && target.section),
+		fromHash: window.location.hash || "#/"
+	});
+	await pollJobs();
+	return job;
+}
+function renderPopResolver(ctx) {
+	if (!citePopEl || !citePop.isOpen() || !citePop.isInteractive()) return;
+	const { target, info, loading, error, openInSplit } = ctx;
+	citePopEl.innerHTML = `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${escapeHtml(targetDisplayTitle(target))}</div>
+      <span class="peek-badge">UNINSTALLED</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close download prompt">${icon("close")}</button>
+    </div>
+    ${resolverBodyHtml(target, {
+		info,
+		loading,
+		error,
+		openInSplit,
+		isPage: false
+	})}
+  `;
+	citePop.reposition();
+}
+async function openCfrDownloadCard(anchorEl, rawTarget, { openInSplit = false } = {}) {
+	const target = normalizeCfrTarget(rawTarget);
+	const ctx = {
+		target,
+		info: null,
+		loading: true,
+		error: null,
+		openInSplit
+	};
+	activeModalCtx = ctx;
+	citePop.open(anchorEl, "", {
+		interactive: true,
+		returnFocus: anchorEl,
+		refTier: "uninstalled"
+	});
+	renderPopResolver(ctx);
+	try {
+		const info = await fetchTitleInfo(target.title);
+		if (activeModalCtx !== ctx || !citePop.isOpen()) return;
+		ctx.info = info;
+		ctx.loading = false;
+		renderPopResolver(ctx);
+	} catch (err) {
+		if (activeModalCtx !== ctx || !citePop.isOpen()) return;
+		ctx.loading = false;
+		ctx.error = err instanceof Error ? err.message : null;
+		renderPopResolver(ctx);
+	}
+}
+async function renderResolverPage(container, rawTarget) {
+	if (!container) return;
+	const target = normalizeCfrTarget(rawTarget);
+	const ctx = {
+		target,
+		info: null,
+		loading: true,
+		error: null,
+		container
+	};
+	activePageCtx = ctx;
+	const draw = () => {
+		if (activePageCtx !== ctx || !container.contains(container.querySelector(".resolver-card") || container)) return;
+		container.innerHTML = `
+      <div class="resolver-card">
+        <div class="doc-kicker">External Regulatory Reference</div>
+        <h1 class="doc-title">${escapeHtml(targetDisplayTitle(target))}</h1>
+        ${resolverBodyHtml(target, {
+			info: ctx.info,
+			loading: ctx.loading,
+			error: ctx.error,
+			isPage: true
+		})}
+      </div>
+    `;
+	};
+	document.title = `${targetDisplayTitle(target)} · FRAMEWORK`;
+	container.innerHTML = `<div class="resolver-card">
+    <div class="doc-kicker">External Regulatory Reference</div>
+    <h1 class="doc-title">${escapeHtml(targetDisplayTitle(target))}</h1>
+    ${resolverBodyHtml(target, {
+		loading: true,
+		isPage: true
+	})}
+  </div>`;
+	enterView();
+	try {
+		ctx.info = await fetchTitleInfo(target.title);
+		ctx.loading = false;
+	} catch (err) {
+		ctx.loading = false;
+		ctx.error = err instanceof Error ? err.message : null;
+	}
+	if (activePageCtx === ctx && container.querySelector(".resolver-card")) draw();
+}
+async function handleResolverActionClick(btn, ctx, redraw) {
+	if (!btn || !ctx) return;
+	const scope = btn.dataset.resDl;
+	if (!scope) return;
+	btn.disabled = true;
+	try {
+		await submitCfrDownload(scope, ctx.target, Boolean(ctx.openInSplit));
+		ctx.error = null;
+		redraw();
+	} catch (err) {
+		btn.disabled = false;
+		ctx.error = err instanceof Error ? err.message : "Download failed";
+		showToast(ctx.error, 5e3);
+		redraw();
+	}
+}
+if (dom.citePop) dom.citePop.addEventListener("click", (e) => {
+	const t = e.target;
+	if (t?.closest("[data-pop-close]")) {
+		activeModalCtx = null;
+		citePop.close(true);
 		return;
 	}
-	const live = d.titles.filter((t) => !t.reserved);
-	const installed = live.filter((t) => t.installed);
-	const stale = installed.filter(isStale);
-	const rows = installed.map((t) => {
-		const st = titleStatus(t);
-		return `<a class="dr-row" href="#/title/${t.title}/">
-      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
-      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
-	}).join("");
-	const suites = Object.values(d.suites || {}).map((s) => {
-		const st = suiteState(s, d);
-		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
-		return `<div class="dr-suite">
-      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
-        <span class="dr-suite-meta">${joinSep([`${have} of ${st.ts.length} installed`, fmtMB(s.size_mb)])}</span></div>
-      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : st.ts.length ? "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-uninstalled\" title=\"Not installed\" aria-hidden=\"true\"></span>"}
-    </div>`;
-	}).join("");
-	setPanel("library", `
-    <a class="dr-cta" href="#/library">
-      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
-    </a>
-    ${transfers}
-    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
-      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
-    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
-	updateRailBadge();
+	const dlBtn = t?.closest("[data-res-dl]");
+	if (dlBtn && activeModalCtx) handleResolverActionClick(dlBtn, activeModalCtx, () => {
+		if (activeModalCtx) renderPopResolver(activeModalCtx);
+	});
+});
+onView("click", (e) => {
+	const dlBtn = e.target?.closest(".resolver-card [data-res-dl]");
+	if (dlBtn && activePageCtx && dom.view.contains(dlBtn)) handleResolverActionClick(dlBtn, activePageCtx, () => {
+		const card = dom.view.querySelector(".resolver-card");
+		if (activePageCtx && card) card.innerHTML = `
+          <div class="doc-kicker">External Regulatory Reference</div>
+          <h1 class="doc-title">${escapeHtml(targetDisplayTitle(activePageCtx.target))}</h1>
+          ${resolverBodyHtml(activePageCtx.target, {
+			info: activePageCtx.info,
+			loading: activePageCtx.loading,
+			error: activePageCtx.error,
+			isPage: true
+		})}
+        `;
+	});
+});
+on("jobs:updated", () => {
+	if (activeModalCtx && citePop.isOpen() && citePop.isInteractive() && citePopEl?.querySelector("[data-res-dl], [data-res-job]")) renderPopResolver(activeModalCtx);
+	const card = dom.view?.querySelector(".resolver-card");
+	if (activePageCtx && card) card.innerHTML = `
+      <div class="doc-kicker">External Regulatory Reference</div>
+      <h1 class="doc-title">${escapeHtml(targetDisplayTitle(activePageCtx.target))}</h1>
+      ${resolverBodyHtml(activePageCtx.target, {
+		info: activePageCtx.info,
+		loading: activePageCtx.loading,
+		error: activePageCtx.error,
+		isPage: true
+	})}
+    `;
+});
+async function upgradeDomExternalLinks(finishedTitles) {
+	if (!finishedTitles.size) return;
+	for (const key of [...state.peekCache.keys()]) {
+		const tNum = Number(key.split("|", 1)[0]);
+		if (finishedTitles.has(tNum)) state.peekCache.delete(key);
+	}
+	for (const tNum of finishedTitles) state.refsCache.delete(tNum);
+	for (const key of [...state.graphCache.keys()]) {
+		const tNum = Number(key.split("|", 1)[0]);
+		if (finishedTitles.has(tNum)) state.graphCache.delete(key);
+	}
+	for (const root of [dom.view, dom.splitPane].filter(Boolean)) for (const a of root.querySelectorAll("a.xref-external[data-cfr-title]")) {
+		const t = Number(a.dataset.cfrTitle);
+		if (!finishedTitles.has(t)) continue;
+		const target = normalizeCfrTarget({
+			title: t,
+			part: a.dataset.cfrPart,
+			section: a.dataset.cfrSection,
+			para: a.dataset.cfrPara
+		});
+		if (!(await checkLocalCfrTarget(target)).installed || !a.isConnected) continue;
+		a.href = targetHashFor(target);
+		a.className = "xref xref-cross";
+		a.removeAttribute("target");
+		a.removeAttribute("rel");
+		a.removeAttribute("title");
+		delete a.dataset.cfrTitle;
+		delete a.dataset.cfrPart;
+		delete a.dataset.cfrSection;
+		delete a.dataset.cfrPara;
+	}
 }
-// src/components/rail.js
+on("jobs:finished", async ({ finished }) => {
+	if (!finished.length) return;
+	const doneJobs = finished.filter((j) => j.state === "done");
+	await upgradeDomExternalLinks(new Set(doneJobs.map((j) => j.title).filter((t) => typeof t === "number")));
+	for (const j of finished) {
+		const entry = state.pendingDownloads.get(j.id);
+		if (!entry) continue;
+		state.pendingDownloads.delete(j.id);
+		if (j.state !== "done") continue;
+		const target = normalizeCfrTarget(entry);
+		const label = targetDisplayTitle(target);
+		if (entry.openInSplit && target.section) {
+			if (activeModalCtx && citePop.isOpen()) {
+				activeModalCtx = null;
+				citePop.close(false);
+			}
+			emit("split:open", {
+				title: target.title,
+				sectionId: target.section,
+				para: target.para,
+				pushHistory: true
+			});
+			showToast(`Ready — opened ${label} side-by-side`);
+			continue;
+		}
+		const onResolverPage = Boolean(dom.view.querySelector(".resolver-card"));
+		if (window.location.hash === entry.fromHash || onResolverPage) {
+			if (activeModalCtx && citePop.isOpen()) {
+				activeModalCtx = null;
+				citePop.close(false);
+			}
+			if (activePageCtx) activePageCtx = null;
+			window.location.hash = targetHashFor(target);
+			showToast(`Ready — opened ${label}`);
+		} else showToast(`${label} ready in library`);
+	}
+});
+if (typeof window !== "undefined") window.addEventListener("hashchange", () => {
+	activeModalCtx = null;
+	if (!dom.view?.querySelector(".resolver-card")) activePageCtx = null;
+});
+// src/components/view_head.ts
+function setViewHead(html) {
+	const head = dom.viewHead;
+	if (!head) return;
+	const activeEl = document.activeElement;
+	const step = activeEl && head.contains(activeEl) ? activeEl.dataset.step : null;
+	if (state.railObserver) {
+		state.railObserver.disconnect();
+		state.railObserver = null;
+	}
+	head.innerHTML = html || "";
+	head.hidden = !html;
+	if (step) (head.querySelector(`[data-step="${step}"]`) || head.querySelector("a"))?.focus({ preventScroll: true });
+}
+function firstSectionOf(partId) {
+	const k = treeIdx.parts.get(String(partId));
+	if (k === void 0) return null;
+	const find = (node) => {
+		for (const c of node.c || []) {
+			if (c.t && LEAF_TYPES.has(c.t)) return c;
+			const hit = find(c);
+			if (hit) return hit;
+		}
+		return null;
+	};
+	const leaf = find(treeIdx.nodes[k]);
+	return leaf ? {
+		id: String(leaf.id),
+		label: (leaf.l || "").trim(),
+		title: tocTitle(leaf)
+	} : null;
+}
+function docStepBtn(kind, dir, href, label, name, labelHtml) {
+	const prev = dir < 0;
+	const what = `${prev ? "Previous" : "Next"} ${kind}`;
+	const chevron = icon(prev ? "chevronLeft" : "chevronRight");
+	const title = (name || "").trim();
+	return `<a class="doc-step-btn is-${prev ? "prev" : "next"}" href="${href}" data-step="${kind}-${prev ? "prev" : "next"}" aria-label="${escapeHtml(`${what}: ${label}${title ? " " + title : ""}`)}">${prev ? chevron : ""}<span class="step-label">${labelHtml || escapeHtml(label)}</span>${prev ? "" : chevron}<span class="tip" aria-hidden="true"><span class="tip-kind">${what} · ${escapeHtml(label)}</span>${escapeHtml(title)}</span></a>`;
+}
+function partNeighbors(partId) {
+	const list = treeIdx.partList;
+	const k = treeIdx.parts.get(String(partId));
+	const i = k === void 0 ? -1 : list.indexOf(k);
+	if (i < 0) return [null, null];
+	return [treeIdx.nodes[list[i - 1]] || null, treeIdx.nodes[list[i + 1]] || null];
+}
+function docStepHtml(partId, prevSection, nextSection) {
+	const [prevPart, nextPart] = partNeighbors(partId);
+	const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(String(node.id || ""))}`, `Part ${node.id || ""}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
+	const sectionBtn = (s, dir) => s ? docStepBtn("section", dir, `#/section/${encodeURIComponent(s.id)}`, s.label || s.id, s.title) : "";
+	const sep = "<span class=\"doc-step-sep\" aria-hidden=\"true\"></span>";
+	const left = [partBtn(prevPart, -1), sectionBtn(prevSection, -1)].filter(Boolean).join(sep);
+	const right = [sectionBtn(nextSection, 1), partBtn(nextPart, 1)].filter(Boolean).join(sep);
+	if (!left && !right) return "";
+	return `<nav class="doc-step" aria-label="Previous and next">${left}<span class="spacer"></span>${right}</nav>`;
+}
+// src/components/title_switcher.ts
+var switcherDeskFilter = "all";
+function searchPlaceholderFor(on) {
+	if (!on) return "Download a title to search";
+	if (window.matchMedia("(max-width: 600px)").matches) return "Search…";
+	return `Search Title ${state.currentTitle} or jump to a section…`;
+}
+function setReaderEnabled(on) {
+	dom.search.disabled = !on;
+	dom.search.placeholder = searchPlaceholderFor(on);
+	dom.chatToggle.disabled = !on;
+	if (!on) {
+		dom.edition.textContent = "";
+		dom.tree.innerHTML = "<div class=\"side-empty\">No titles installed yet. <a href=\"#/\">Pick a profile</a> or open the <a href=\"#/library\">library</a>.</div>";
+	}
+}
+window.matchMedia("(max-width: 600px)").addEventListener?.("change", () => {
+	if (dom.search) dom.search.placeholder = searchPlaceholderFor(!state.noTitles);
+});
+on("title:switched", () => {
+	fillTitleSelect();
+	if (dom.search) dom.search.placeholder = searchPlaceholderFor(true);
+});
+on("titles:refreshed", ({ hadNone, list }) => {
+	fillTitleSelect();
+	if (hadNone && list.length) setReaderEnabled(true);
+});
+function switcherGroupsHtml(query = "", desk = switcherDeskFilter) {
+	const corpora = syncCorporaState();
+	const q = query.trim().toLowerCase();
+	const filtered = corpora.filter((c) => {
+		if (desk !== "all" && c.desk !== desk) return false;
+		if (!q) return true;
+		return `${c.code} ${c.name} ${c.jurisdiction_label || ""} ${(c.agencies || []).join(" ")} ${deskLabel(c.desk || "ehs")}`.toLowerCase().includes(q);
+	});
+	if (!filtered.length) return "<div class=\"tm-empty\">No matching frameworks installed.</div>";
+	return TIER_ORDER.map((tier) => {
+		const items = filtered.filter((c) => c.tier === tier);
+		if (!items.length) return "";
+		const meta = TIER_META[tier];
+		return `
+      <div class="tm-group" data-ref-tier="${meta.refTier}">
+        <div class="tm-group-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(meta.label)}</span><span class="tm-group-count">${items.length}</span></div>
+        ${items.map((c) => {
+			const isCurrent = c.tier === "federal-reg" ? c.title_num === state.currentTitle : c.corpus_id === state.activeCorpusId;
+			const numText = c.tier === "federal-reg" ? `${c.code} CFR` : c.code;
+			const tag = c.partial ? "Partial" : c.jurisdiction !== "US" ? c.jurisdiction_label || c.jurisdiction : c.agencies?.[0] || "";
+			return `<button type="button" class="tm-item${isCurrent ? " is-current" : ""}" role="menuitemradio" aria-checked="${isCurrent}" data-ref-tier="${meta.refTier}" ${c.tier === "federal-reg" ? `data-title="${c.title_num}"` : `data-corpus-hash="${escapeHtml(corpusHashFor(c))}"`} tabindex="-1">
+            <span class="tier-pip" aria-hidden="true"></span>
+            <span class="tm-num">${escapeHtml(numText)}</span><span class="tm-name">${escapeHtml(c.name)}</span>
+            ${tag ? `<span class="tm-meta">${escapeHtml(tag)}</span>` : ""}
+            ${isCurrent ? icon("check", "tm-check") : "<span class=\"tm-check\" aria-hidden=\"true\"></span>"}
+          </button>`;
+		}).join("")}
+      </div>
+    `;
+	}).join("");
+}
+function fillTitleSelect() {
+	if (!dom.titleSelect) return;
+	const corpora = syncCorporaState();
+	const cur = state.installedTitles.find((t) => t.title === state.currentTitle);
+	const name = state.noTitles ? "" : cur ? cur.name : state.metaInfo.name || "";
+	const numEl = document.getElementById("title-select-num");
+	if (numEl) numEl.textContent = state.noTitles ? "No titles" : `${state.currentTitle} CFR`;
+	const nameEl = document.getElementById("title-select-name");
+	if (nameEl) nameEl.textContent = name;
+	dom.titleSelect.dataset.refTier = state.noTitles ? "uninstalled" : "cfr";
+	dom.titleSelect.title = state.noTitles ? "Nothing installed yet. Download titles" : `Title ${state.currentTitle}${name ? ": " + name : ""}. Switch framework or jurisdiction`;
+	const desks = [...new Set(corpora.map((c) => c.desk).filter((d) => Boolean(d)))];
+	const showDesks = corpora.length > 6 || desks.length > 1;
+	const showSearch = corpora.length >= 3;
+	const deskPillsHtml = showDesks ? `
+    <div class="tm-desks" role="group" aria-label="Filter frameworks by desk">
+      <button type="button" class="tm-desk-pill${switcherDeskFilter === "all" ? " is-on" : ""}" data-tm-desk="all">All</button>
+      ${desks.map((d) => `<button type="button" class="tm-desk-pill${switcherDeskFilter === d ? " is-on" : ""}" data-tm-desk="${escapeHtml(d)}">${escapeHtml(deskLabel(d).split(" ")[0])}</button>`).join("")}
+    </div>` : "";
+	dom.titlePop.innerHTML = `
+    <div class="tm-head">
+      ${showSearch ? "<input type=\"search\" class=\"tm-search\" id=\"title-pop-q\" placeholder=\"Filter frameworks, states, or U.S.C.…\" aria-label=\"Filter installed frameworks\" autocomplete=\"off\" spellcheck=\"false\">" : ""}
+      ${deskPillsHtml}
+    </div>
+    <div id="tm-groups">${switcherGroupsHtml()}</div>
+    <div class="tm-sep" role="separator"></div>
+    <a class="tm-item tm-download" role="menuitem" href="#/library" tabindex="-1">${icon("download")}<span class="tm-name">Browse Catalog &amp; Downloads…</span></a>`;
+}
+var titleMenuItems = () => [...dom.titlePop.querySelectorAll(".tm-item")];
+function openTitleMenu(focusWhich = "current") {
+	if (!dom.titlePop.hidden) return;
+	closeAllPopovers(closeTitleMenu, false);
+	fillTitleSelect();
+	dom.titlePop.hidden = false;
+	dom.titleSelect.setAttribute("aria-expanded", "true");
+	const searchEl = document.getElementById("title-pop-q");
+	const items = titleMenuItems();
+	(focusWhich === "first" ? items[0] : focusWhich === "last" ? items[items.length - 1] : searchEl || dom.titlePop.querySelector(".is-current") || items[0])?.focus({ preventScroll: true });
+	document.addEventListener("pointerdown", onTitleMenuOutside, true);
+}
+function closeTitleMenu(returnFocus = false) {
+	if (dom.titlePop.hidden) return;
+	dom.titlePop.hidden = true;
+	dom.titleSelect.setAttribute("aria-expanded", "false");
+	document.removeEventListener("pointerdown", onTitleMenuOutside, true);
+	if (returnFocus) dom.titleSelect.focus();
+}
+registerPopoverCloser(closeTitleMenu);
+function onTitleMenuOutside(e) {
+	const menu = document.getElementById("title-menu");
+	if (menu && !menu.contains(e.target)) closeTitleMenu(false);
+}
+dom.titleSelect.addEventListener("click", () => {
+	if (dom.titlePop.hidden) openTitleMenu();
+	else closeTitleMenu(false);
+});
+dom.titleSelect.addEventListener("keydown", (e) => {
+	if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+		e.preventDefault();
+		openTitleMenu(e.key === "ArrowUp" ? "last" : "current");
+	}
+});
+dom.titlePop.addEventListener("input", (e) => {
+	const target = e.target;
+	if (!target || target.id !== "title-pop-q") return;
+	const groups = document.getElementById("tm-groups");
+	if (groups) groups.innerHTML = switcherGroupsHtml(target.value, switcherDeskFilter);
+});
+dom.titlePop.addEventListener("keydown", (e) => {
+	if (e.target?.id === "title-pop-q") {
+		if (e.key === "ArrowDown") {
+			e.preventDefault();
+			titleMenuItems()[0]?.focus();
+		} else if (e.key === "Escape") {
+			e.preventDefault();
+			e.stopPropagation();
+			closeTitleMenu(true);
+		}
+		return;
+	}
+	const items = titleMenuItems();
+	const i = items.indexOf(document.activeElement);
+	const go = (n) => {
+		e.preventDefault();
+		items[(n + items.length) % items.length]?.focus();
+	};
+	if (e.key === "ArrowDown") go(i + 1);
+	else if (e.key === "ArrowUp") {
+		if (i <= 0) {
+			const qEl = document.getElementById("title-pop-q");
+			if (qEl) {
+				e.preventDefault();
+				qEl.focus();
+				return;
+			}
+		}
+		go(i - 1);
+	} else if (e.key === "Home") go(0);
+	else if (e.key === "End") go(items.length - 1);
+	else if (e.key === "Escape") {
+		e.preventDefault();
+		e.stopPropagation();
+		closeTitleMenu(true);
+	} else if (e.key === "Tab") closeTitleMenu(false);
+});
+dom.titlePop.addEventListener("click", async (e) => {
+	const t = e.target;
+	const deskBtn = t?.closest("[data-tm-desk]");
+	if (deskBtn) {
+		switcherDeskFilter = deskBtn.dataset.tmDesk || "all";
+		dom.titlePop.querySelectorAll("[data-tm-desk]").forEach((b) => b.classList.toggle("is-on", b === deskBtn));
+		const qVal = document.getElementById("title-pop-q")?.value || "";
+		const groups = document.getElementById("tm-groups");
+		if (groups) groups.innerHTML = switcherGroupsHtml(qVal, switcherDeskFilter);
+		return;
+	}
+	const item = t?.closest(".tm-item");
+	if (!item) return;
+	closeTitleMenu(false);
+	if (item.classList.contains("tm-download")) return;
+	if (item.dataset.corpusHash) {
+		window.location.hash = item.dataset.corpusHash;
+		return;
+	}
+	const newTitle = parseInt(item.dataset.title || "", 10);
+	if (newTitle && newTitle !== state.currentTitle) {
+		await switchTitle(newTitle);
+		window.location.hash = `#/title/${newTitle}/`;
+	} else dom.titleSelect.focus();
+});
+function renderCorpusStaging(corpus) {
+	const meta = TIER_META[corpus.tier] || TIER_META["state"];
+	const refTier = refTierForCorpus(corpus);
+	document.title = `${corpus.code} · ${corpus.jurisdiction_label || corpus.jurisdiction} · FRAMEWORK`;
+	dom.view.innerHTML = `
+    <div class="resolver-card has-tier-bar" data-ref-tier="${refTier}">
+      <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span> <span class="sep" aria-hidden="true">·</span> ${escapeHtml(corpus.jurisdiction_label || corpus.jurisdiction)}</div>
+      <h1 class="doc-title">${escapeHtml(corpus.code)} — ${escapeHtml(corpus.name)}</h1>
+      <p class="resolver-msg">${escapeHtml(corpus.summary || `This ${meta.label.toLowerCase()} corpus is pre-wired in FRAMEWORK’s multi-jurisdiction UI router and awaiting its backend ingestion pack.`)}</p>
+      <div class="resolver-acts">
+        <a class="btn btn-accent" href="#/library">Browse Catalog</a>
+        <a class="btn" href="#/title/${state.currentTitle}/">Back to ${state.currentTitle} CFR</a>
+      </div>
+    </div>
+  `;
+	enterView();
+}
+function renderNotFound() {
+	clearTreeSelection();
+	document.title = "Not found · FRAMEWORK";
+	setViewHead("");
+	dom.view.innerHTML = `
+    <div class="empty-state">
+      <h2>Page not found</h2>
+      <p>That section or part isn’t in Title ${state.currentTitle}.</p>
+      <a href="#/title/${state.currentTitle}/" class="btn">Back to Title ${state.currentTitle}</a>
+    </div>
+  `;
+	enterView();
+}
+// src/components/reader_tabs.ts
+var SESSION_TABS_KEY = "framework_session_tabs_v1";
+var splitRestorer = null;
+var splitCloser = null;
+function registerSplitTabHandlers({ restore, close } = {}) {
+	if (restore) splitRestorer = restore;
+	if (close) splitCloser = close;
+}
+function buildReaderHref(entry) {
+	if (!entry) return "#/";
+	const t = Number(entry.title) || state.currentTitle || 29;
+	if (entry.kind === "part" && entry.partId) return `#/title/${t}/part/${encodeURIComponent(String(entry.partId))}${entry.full ? "/full" : ""}`;
+	let h = `#/title/${t}/section/${encodeURIComponent(String(entry.sectionId || ""))}`;
+	if (entry.unit === "full") h += "/full";
+	else if (entry.unit) h += `/${encodeURIComponent(String(entry.unit))}`;
+	if (entry.para) h += `?p=${encodeURIComponent(String(entry.para))}`;
+	return h;
+}
+function tabIdentityMatch(a, b) {
+	if (!a || !b) return false;
+	const ka = a.kind || (a.partId && !a.sectionId ? "part" : "section");
+	if (ka !== (b.kind || (b.partId && !b.sectionId ? "part" : "section")) || Number(a.title) !== Number(b.title)) return false;
+	if (ka === "part") return String(a.partId) === String(b.partId) && Boolean(a.full) === Boolean(b.full);
+	return String(a.sectionId) === String(b.sectionId);
+}
+function formatTabLabel(entry) {
+	if (entry.label) return entry.label;
+	const t = Number(entry.title) || state.currentTitle || 29;
+	if (entry.kind === "part" && entry.partId) return `${t} CFR Part ${entry.partId}${entry.full ? " · Full" : ""}`;
+	return `${t} CFR § ${entry.sectionId || ""}`;
+}
+function persistSessionTabs() {
+	try {
+		sessionStorage.setItem(SESSION_TABS_KEY, JSON.stringify({
+			mainTabs: state.mainTabs,
+			activeMainTabId: state.activeMainTabId,
+			splitTabs: state.splitTabs,
+			activeSplitTabId: state.activeSplitTabId,
+			splitWide: state.splitWide
+		}));
+	} catch {}
+}
+function restoreSessionTabsSnapshot() {
+	try {
+		const raw = sessionStorage.getItem(SESSION_TABS_KEY);
+		if (!raw) return null;
+		const data = JSON.parse(raw);
+		if (data && Array.isArray(data.mainTabs)) {
+			state.mainTabs = data.mainTabs;
+			state.activeMainTabId = data.activeMainTabId || data.mainTabs[0]?.id || null;
+		}
+		return data;
+	} catch {
+		return null;
+	}
+}
+function makeMainTabEntry(meta) {
+	const kind = meta.kind || (meta.partId && !meta.sectionId ? "part" : "section");
+	const title = Number(meta.title) || state.currentTitle || 29;
+	return {
+		id: meta.id || `mtab_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+		kind,
+		title,
+		sectionId: meta.sectionId ? String(meta.sectionId) : void 0,
+		partId: meta.partId ? String(meta.partId) : void 0,
+		unit: meta.unit || null,
+		full: Boolean(meta.full),
+		para: meta.para || null,
+		label: cleanInlineLabel(meta.label || "") || formatTabLabel({
+			kind,
+			title,
+			sectionId: meta.sectionId,
+			partId: meta.partId,
+			full: meta.full
+		}),
+		heading: cleanInlineLabel(meta.heading || ""),
+		tier: meta.tier || "cfr",
+		href: meta.href || buildReaderHref({
+			kind,
+			title,
+			sectionId: meta.sectionId,
+			partId: meta.partId,
+			unit: meta.unit,
+			full: meta.full,
+			para: meta.para
+		})
+	};
+}
+function syncMainTabFromRoute(meta) {
+	const next = makeMainTabEntry(meta);
+	const openAsNew = state.pendingNewMainTab;
+	state.pendingNewMainTab = false;
+	if (openAsNew) {
+		const existing = state.mainTabs.find((t) => tabIdentityMatch(t, next));
+		if (existing) {
+			Object.assign(existing, {
+				...next,
+				id: existing.id
+			});
+			state.activeMainTabId = existing.id;
+		} else {
+			state.mainTabs.push(next);
+			state.activeMainTabId = next.id;
+		}
+	} else {
+		const active = state.mainTabs.find((t) => t.id === state.activeMainTabId);
+		if (active) Object.assign(active, {
+			...next,
+			id: active.id
+		});
+		else {
+			const same = state.mainTabs.find((t) => tabIdentityMatch(t, next));
+			if (same) {
+				Object.assign(same, {
+					...next,
+					id: same.id
+				});
+				state.activeMainTabId = same.id;
+			} else {
+				state.mainTabs.push(next);
+				state.activeMainTabId = next.id;
+			}
+		}
+	}
+	persistSessionTabs();
+	renderMainTabs();
+}
+function hideMainTabs() {
+	if (dom.mainTabs) dom.mainTabs.hidden = true;
+}
+function renderMainTabs() {
+	if (!dom.mainTabs) return;
+	const show = Boolean(state.currentSection || state.currentPart) && (state.mainTabs.length > 1 || state.mainTabs.length >= 1 && state.splitTabs.length > 0);
+	dom.mainTabs.hidden = !show;
+	if (!show) {
+		dom.mainTabs.innerHTML = "";
+		return;
+	}
+	const canClose = state.mainTabs.length > 1;
+	const pillsHtml = state.mainTabs.map((t) => {
+		const active = t.id === state.activeMainTabId;
+		const tier = Number(t.title) !== Number(state.currentTitle) ? "cross" : t.tier || "cfr";
+		const titleAttr = `${formatTabLabel(t)}${t.heading ? ` — ${t.heading}` : ""}`;
+		return `
+      <div class="reader-tab${active ? " is-active" : ""}" data-ref-tier="${tier}" role="presentation">
+        <button type="button" class="reader-tab-btn" role="tab" aria-selected="${active ? "true" : "false"}" data-tab-switch="${escapeHtml(t.id)}" title="${escapeHtml(titleAttr)}">
+          <span class="tier-pip" aria-hidden="true"></span>
+          <span class="reader-tab-label">${escapeHtml(formatTabLabel(t))}</span>
+        </button>
+        ${canClose ? `<button type="button" class="reader-tab-close" data-tab-close="${escapeHtml(t.id)}" aria-label="Close ${escapeHtml(formatTabLabel(t))}" title="Close tab">${icon("close")}</button>` : ""}
+      </div>`;
+	}).join("");
+	dom.mainTabs.innerHTML = `
+    <div class="reader-tabs-strip">${pillsHtml}</div>
+    <div class="reader-tabs-acts">
+      <button type="button" class="btn btn-small reader-tabs-save" data-tabs-act="save-group" title="Save current main & side-by-side tabs as a workspace tab group">${icon("folder")} <span>Save group</span></button>
+    </div>`;
+}
+function openMainReaderTab(opts = {}) {
+	const kind = opts.kind || (opts.partId && !opts.sectionId ? "part" : "section");
+	const title = Number(opts.title) || state.currentTitle || 29;
+	const target = {
+		kind,
+		title,
+		sectionId: opts.sectionId || opts.section || void 0,
+		partId: opts.partId || opts.part || void 0,
+		unit: opts.unit || null,
+		full: Boolean(opts.full),
+		para: opts.para || null,
+		label: opts.label || formatTabLabel({
+			kind,
+			title,
+			sectionId: opts.sectionId || opts.section,
+			partId: opts.partId || opts.part,
+			full: opts.full
+		}),
+		heading: opts.heading || "",
+		tier: opts.tier || (title !== state.currentTitle ? "cross" : "cfr")
+	};
+	const href = opts.href || buildReaderHref(target);
+	target.href = href;
+	if (state.mainTabs.length === 0 && (state.currentSection || state.currentPart)) syncMainTabFromRoute(state.currentSection ? {
+		kind: "section",
+		title: state.currentTitle,
+		sectionId: state.currentSection.id,
+		unit: state.currentSection.unit,
+		label: `${state.currentTitle} CFR ${cleanInlineLabel(state.currentSection.label)}`,
+		heading: state.currentSection.section_title || "",
+		href: window.location.hash || buildReaderHref({
+			kind: "section",
+			title: state.currentTitle,
+			sectionId: state.currentSection.id,
+			unit: state.currentSection.unit
+		})
+	} : {
+		kind: "part",
+		title: state.currentTitle,
+		partId: state.currentPart || void 0,
+		full: state.activeRoute.endsWith("/full"),
+		label: `${state.currentTitle} CFR Part ${state.currentPart}`,
+		href: window.location.hash || buildReaderHref({
+			kind: "part",
+			title: state.currentTitle,
+			partId: state.currentPart || void 0,
+			full: state.activeRoute.endsWith("/full")
+		})
+	});
+	const existing = state.mainTabs.find((t) => tabIdentityMatch(t, target));
+	if (existing) {
+		existing.href = href;
+		existing.para = target.para || null;
+		existing.unit = target.unit || null;
+		state.activeMainTabId = existing.id;
+		persistSessionTabs();
+		renderMainTabs();
+		if (window.location.hash !== href) window.location.hash = href;
+		else showToast(`${formatTabLabel(existing)} focused`);
+		return existing;
+	}
+	state.pendingNewMainTab = true;
+	if (window.location.hash === href) {
+		syncMainTabFromRoute(target);
+		return state.mainTabs.find((t) => t.id === state.activeMainTabId) || null;
+	}
+	window.location.hash = href;
+	return null;
+}
+function switchMainTab(tabId) {
+	const tab = state.mainTabs.find((t) => t.id === tabId);
+	if (!tab) return;
+	state.activeMainTabId = tab.id;
+	persistSessionTabs();
+	renderMainTabs();
+	if (tab.href && window.location.hash !== tab.href) window.location.hash = tab.href;
+}
+function closeMainTab(tabId) {
+	if (state.mainTabs.length <= 1) return;
+	const idx = state.mainTabs.findIndex((t) => t.id === tabId);
+	if (idx < 0) return;
+	const wasActive = state.mainTabs[idx].id === state.activeMainTabId;
+	state.mainTabs.splice(idx, 1);
+	if (wasActive) {
+		const next = state.mainTabs[Math.min(idx, state.mainTabs.length - 1)] || state.mainTabs[0];
+		state.activeMainTabId = next?.id || null;
+		persistSessionTabs();
+		if (next?.href && window.location.hash !== next.href) window.location.hash = next.href;
+		else renderMainTabs();
+	} else {
+		persistSessionTabs();
+		renderMainTabs();
+	}
+}
+function suggestTabGroupName() {
+	const m = state.mainTabs.find((t) => t.id === state.activeMainTabId) || state.mainTabs[0];
+	const s = state.splitTabs.find((t) => t.id === state.activeSplitTabId) || state.splitTabs[0];
+	const mLabel = m ? formatTabLabel(m) : "";
+	const sLabel = s ? formatTabLabel(s) : "";
+	if (mLabel && sLabel) return `${mLabel} + ${sLabel}`;
+	const total = state.mainTabs.length + state.splitTabs.length;
+	return mLabel ? `${mLabel}${total > 1 ? ` (${total} tabs)` : ""}` : `Research tabs (${total})`;
+}
+function buildTabGroupSnapshot(customName = "") {
+	const activeMainIdx = Math.max(0, state.mainTabs.findIndex((t) => t.id === state.activeMainTabId));
+	const activeSplitIdx = Math.max(0, state.splitTabs.findIndex((t) => t.id === state.activeSplitTabId));
+	return {
+		id: `grp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+		name: (customName || "").trim() || suggestTabGroupName(),
+		saved_at: (/* @__PURE__ */ new Date()).toISOString(),
+		mainTabs: state.mainTabs.map((t) => ({
+			id: t.id,
+			kind: t.kind,
+			title: Number(t.title),
+			sectionId: t.sectionId,
+			partId: t.partId,
+			unit: t.unit || null,
+			full: Boolean(t.full),
+			para: t.para || null,
+			label: formatTabLabel(t),
+			heading: t.heading || "",
+			tier: t.tier || "cfr",
+			href: t.href || buildReaderHref(t)
+		})),
+		activeMainIdx,
+		splitTabs: state.splitTabs.map((s) => ({
+			id: s.id,
+			kind: s.kind || (s.partId && !s.sectionId ? "part" : "section"),
+			title: Number(s.title),
+			sectionId: s.sectionId,
+			partId: s.partId,
+			unit: s.unit || null,
+			full: Boolean(s.full),
+			para: s.para || null,
+			label: s.label || formatTabLabel(s),
+			heading: s.heading || ""
+		})),
+		activeSplitIdx,
+		splitWide: Boolean(state.splitWide)
+	};
+}
+function restoreTabGroup(group) {
+	if (!group) return;
+	const restoredMain = (group.mainTabs || []).map((t) => makeMainTabEntry(t));
+	state.mainTabs = restoredMain;
+	const activeMain = restoredMain[Math.min(group.activeMainIdx || 0, Math.max(0, restoredMain.length - 1))] || null;
+	state.activeMainTabId = activeMain?.id || null;
+	state.splitWide = Boolean(group.splitWide);
+	const restoredSplit = Array.isArray(group.splitTabs) ? group.splitTabs : [];
+	if (restoredSplit.length > 0 && splitRestorer) splitRestorer(restoredSplit, group.activeSplitIdx || 0, group.splitWide);
+	else if (splitCloser) splitCloser();
+	persistSessionTabs();
+	renderMainTabs();
+	const total = restoredMain.length + restoredSplit.length;
+	showToast(`Restored “${group.name}” (${total} ${total === 1 ? "tab" : "tabs"})`);
+	if (activeMain?.href && window.location.hash !== activeMain.href) window.location.hash = activeMain.href;
+}
+if (dom.mainTabs) dom.mainTabs.addEventListener("click", (e) => {
+	const t = e.target;
+	const closeBtn = t?.closest("[data-tab-close]");
+	if (closeBtn?.dataset.tabClose) {
+		e.preventDefault();
+		e.stopPropagation();
+		closeMainTab(closeBtn.dataset.tabClose);
+		return;
+	}
+	const switchBtn = t?.closest("[data-tab-switch]");
+	if (switchBtn?.dataset.tabSwitch) {
+		switchMainTab(switchBtn.dataset.tabSwitch);
+		return;
+	}
+	const saveBtn = t?.closest("[data-tabs-act=\"save-group\"]");
+	if (saveBtn) emit("tabs:save-group", { anchor: saveBtn });
+});
+// src/components/chat.ts
+var chatAbort = null;
+var chatGenSeq = 0;
+function abortActiveChat() {
+	if (chatAbort) {
+		try {
+			chatAbort.abort();
+		} catch {}
+		chatAbort = null;
+	}
+	chatGenSeq++;
+}
+function toggleChat() {
+	if (state.noTitles) return;
+	if (dom.chat.hidden) openChat();
+	else closeChat();
+}
+function openChat() {
+	dom.chat.hidden = false;
+	dom.layout.classList.add("chat-open");
+	applyNav();
+	dom.chatToggle.classList.add("is-active");
+	dom.chatToggle.setAttribute("aria-expanded", "true");
+	if (state.chatHistory.length === 0) renderChatWelcome();
+	dom.chatText.focus();
+}
+function closeChat() {
+	abortActiveChat();
+	const hadFocus = dom.chat.contains(document.activeElement);
+	dom.chat.hidden = true;
+	dom.layout.classList.remove("chat-open");
+	applyNav();
+	dom.chatToggle.classList.remove("is-active");
+	dom.chatToggle.setAttribute("aria-expanded", "false");
+	if (hadFocus) dom.chatToggle.focus();
+}
+function updateChatContext() {
+	if (state.currentSection) {
+		dom.chatContext.hidden = false;
+		dom.contextLabel.textContent = `${state.currentSection.label} (Title ${state.currentTitle})`;
+	} else dom.chatContext.hidden = true;
+	if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
+}
+var HOME_PROMPTS = {
+	29: [
+		"How do overtime exemptions work under Part 541?",
+		"What are OSHA’s main hazard communication rules?",
+		"What are employer responsibilities under FMLA?"
+	],
+	40: [
+		"What makes a waste “hazardous” under RCRA?",
+		"When does a facility need a Title V operating permit?",
+		"What has to be reported after a chemical spill, and to whom?"
+	],
+	49: [
+		"What are the placarding rules for hazmat shipments?",
+		"Who needs a CDL, and what disqualifies a driver?",
+		"Which carriers are subject to the FMCSA safety regulations?"
+	]
+};
+function renderChatWelcome() {
+	if (!state.chatConfig.configured) {
+		dom.chatMessages.innerHTML = `
+      <div class="setup-card">
+        <h3>Connect Claude</h3>
+        <p>Reading and search work without it. To ask questions and summarize sections, add an Anthropic API key:</p>
+        <ol>
+          <li>Create a key at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a></li>
+          <li>Save it to <code>reader/.env</code> using the built-in key editor (no restart required).</li>
+        </ol>
+        <div class="setup-card-actions">
+          <button type="button" class="btn btn-sm btn-accent" data-open-env="anthropic_api_key">${icon("key")} Enter Anthropic Key</button>
+          <a class="btn btn-sm" href="#/help">${icon("help")} Setup Guide</a>
+        </div>
+      </div>
+    `;
+		return;
+	}
+	if (state.chatConfig.error) {
+		dom.chatMessages.innerHTML = `
+      <div class="setup-card">
+        <h3>Claude isn’t available</h3>
+        <p class="setup-error">${escapeHtml(state.chatConfig.error)}</p>
+        <p>Reading and search still work in the meantime.</p>
+      </div>
+    `;
+		return;
+	}
+	let prompts = [
+		"What are the key requirements in this section?",
+		"Who is exempt and who is covered?",
+		"Draft an audit and compliance checklist for this rule."
+	];
+	if (!state.currentSection) prompts = HOME_PROMPTS[state.currentTitle] || [
+		"What does this title cover, at a high level?",
+		"What are the most important definitions in this title?",
+		"Find the penalty and enforcement provisions in this title."
+	];
+	const titleList = state.installedTitles.map((t) => "Title " + t.title).join(", ") || `Title ${state.currentTitle}`;
+	dom.chatMessages.innerHTML = `
+    <div class="chat-empty">
+      <h3>Ask Claude about ${state.currentSection ? escapeHtml(state.currentSection.label) : "Title " + state.currentTitle}</h3>
+      <p>Claude searches and reads the full regulation text across ${escapeHtml(titleList)}. Select any passage in a section to ask about it.</p>
+      <div class="suggestions">
+        ${prompts.map((p) => `<button type="button" data-prompt="${escapeHtml(p)}">${escapeHtml(p)}</button>`).join("")}
+      </div>
+    </div>
+  `;
+	dom.chatMessages.querySelectorAll(".suggestions button").forEach((b) => {
+		b.addEventListener("click", () => {
+			dom.chatText.value = b.dataset.prompt || "";
+			submitChat();
+		});
+	});
+}
+var TOOL_LABELS = {
+	search_regulations: "Searching the regulations…",
+	read_section: "Reading a section…",
+	list_part: "Looking through a part…"
+};
+async function submitChat() {
+	const text = dom.chatText.value.trim();
+	if (!text || state.isGenerating) return;
+	if (!state.chatConfig.configured) {
+		openChat();
+		return;
+	}
+	if (!(dom.modelSelect.value || state.chatConfig.default)) {
+		showToast(state.chatConfig.error || "Claude isn’t available right now.", 5e3);
+		return;
+	}
+	dom.chatText.value = "";
+	dom.chatText.style.height = "auto";
+	state.chatHistory.push({
+		role: "user",
+		content: text
+	});
+	appendChatMessage("user", text);
+	const assistantMsgEl = appendChatMessage("assistant", "");
+	state.isGenerating = true;
+	dom.chatSend.disabled = true;
+	const model = dom.modelSelect.value || state.chatConfig.default;
+	const sectionId = dom.contextToggle.checked && state.currentSection && state.currentSection ? state.currentSection.id : null;
+	let replyText = "";
+	let renderRaf = 0;
+	let contentDiv = null;
+	abortActiveChat();
+	chatAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+	const seq = chatGenSeq;
+	const flushMarkdown = () => {
+		renderRaf = 0;
+		if (seq !== chatGenSeq || !assistantMsgEl.isConnected) return;
+		if (!contentDiv) {
+			contentDiv = document.createElement("div");
+			contentDiv.className = "md";
+			assistantMsgEl.appendChild(contentDiv);
+		}
+		contentDiv.innerHTML = renderMarkdown(replyText);
+		dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+	};
+	const scheduleMarkdown = () => {
+		if (!renderRaf) renderRaf = requestAnimationFrame(flushMarkdown);
+	};
+	try {
+		const res = await fetch("/api/" + state.currentTitle + "/chat", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			signal: chatAbort?.signal,
+			body: JSON.stringify({
+				messages: state.chatHistory,
+				section_id: sectionId,
+				model
+			})
+		});
+		if (!res.ok) {
+			assistantMsgEl.innerHTML = `<div class="msg-error">${escapeHtml((await res.json()).detail || "Request failed")}</div>`;
+			return;
+		}
+		const reader = res.body?.getReader();
+		if (!reader) return;
+		const decoder = new TextDecoder();
+		let buffer = "";
+		let toolsEl = null;
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done || seq !== chatGenSeq) break;
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split("\n\n");
+			buffer = lines.pop() ?? "";
+			for (const line of lines) {
+				if (!line.startsWith("data: ")) continue;
+				const ev = JSON.parse(line.slice(6));
+				if (ev.type === "tool") {
+					if (!toolsEl) {
+						toolsEl = document.createElement("div");
+						toolsEl.className = "tool-activity";
+						assistantMsgEl.prepend(toolsEl);
+					}
+					const chip = document.createElement("span");
+					chip.className = "tool-chip running";
+					chip.id = `tool-${Date.now()}`;
+					chip.textContent = ev.name && TOOL_LABELS[ev.name] || `Using ${ev.name || "tool"}…`;
+					toolsEl.appendChild(chip);
+				} else if (ev.type === "tool_result") {
+					if (toolsEl && toolsEl.lastElementChild) {
+						toolsEl.lastElementChild.className = "tool-chip";
+						toolsEl.lastElementChild.textContent = ev.summary || `Finished ${ev.name || "tool"}`;
+					}
+				} else if (ev.type === "text") {
+					replyText += ev.text || "";
+					scheduleMarkdown();
+				} else if (ev.type === "error") {
+					const errDiv = document.createElement("div");
+					errDiv.className = "msg-error";
+					errDiv.textContent = ev.message || "Chat error";
+					assistantMsgEl.appendChild(errDiv);
+				}
+			}
+		}
+		if (renderRaf) {
+			cancelAnimationFrame(renderRaf);
+			flushMarkdown();
+		}
+	} catch (err) {
+		if (renderRaf) cancelAnimationFrame(renderRaf);
+		if (err instanceof Error && err.name === "AbortError") return;
+		assistantMsgEl.innerHTML = `<div class="msg-error">Chat error: ${escapeHtml(err instanceof Error ? err.message : "Unexpected error")}</div>`;
+	} finally {
+		if (seq === chatGenSeq) {
+			if (replyText) state.chatHistory.push({
+				role: "assistant",
+				content: replyText
+			});
+			else state.chatHistory.pop();
+		}
+		chatAbort = null;
+		state.isGenerating = false;
+		dom.chatSend.disabled = false;
+	}
+}
+function appendChatMessage(role, content) {
+	const empty = dom.chatMessages.querySelector(".chat-empty, .setup-card");
+	if (empty) empty.remove();
+	const msg = document.createElement("div");
+	msg.className = `msg msg-${role}`;
+	if (role === "user") msg.textContent = content;
+	else if (content) msg.innerHTML = `<div class="md">${renderMarkdown(content)}</div>`;
+	dom.chatMessages.appendChild(msg);
+	dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+	return msg;
+}
+dom.chatText?.addEventListener("input", () => {
+	dom.chatText.style.height = "auto";
+	dom.chatText.style.height = Math.min(dom.chatText.scrollHeight, 180) + "px";
+});
+dom.chatText?.addEventListener("keydown", (e) => {
+	if (e.key === "Enter" && !e.shiftKey) {
+		e.preventDefault();
+		submitChat();
+	}
+});
+dom.chatForm?.addEventListener("submit", (e) => {
+	e.preventDefault();
+	submitChat();
+});
+dom.chatNew?.addEventListener("click", () => {
+	abortActiveChat();
+	state.chatHistory = [];
+	renderChatWelcome();
+});
+dom.chatToggle?.addEventListener("click", toggleChat);
+dom.chatClose?.addEventListener("click", closeChat);
+on("models:updated", () => {
+	if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
+});
+// src/components/env_modal.ts
+var envModalEl = typeof document !== "undefined" ? document.getElementById("env-modal") : null;
+var envModalDialog = envModalEl ? envModalEl.querySelector(".modal-dialog") : null;
+state.envModalReturnFocus = null;
+state.envModalSnapshot = null;
+function envPreviewText(form, snapshot) {
+	const keys = snapshot && snapshot.keys || {};
+	const dolInput = form.querySelector("#env-dol-key");
+	const dolClear = form.querySelector("#env-dol-clear");
+	const antInput = form.querySelector("#env-ant-key");
+	const antClear = form.querySelector("#env-ant-clear");
+	const modelInput = form.querySelector("#env-ant-model");
+	const syncInput = form.querySelector("#env-news-sync");
+	const retInput = form.querySelector("#env-news-retention");
+	const dolVal = dolClear && dolClear.checked ? "" : dolInput && dolInput.value.trim() ? "••••(new key)" : keys.DOL_API_KEY && keys.DOL_API_KEY.masked || "";
+	const antVal = antClear && antClear.checked ? "" : antInput && antInput.value.trim() ? "••••(new key)" : keys.ANTHROPIC_API_KEY && keys.ANTHROPIC_API_KEY.masked || "";
+	const modelVal = modelInput && modelInput.value.trim() || "";
+	const syncVal = syncInput && syncInput.checked ? "1" : "0";
+	const retVal = retInput && retInput.value.trim() || "365";
+	return [
+		`ANTHROPIC_API_KEY=${antVal}`,
+		`ANTHROPIC_MODEL=${modelVal}`,
+		`DOL_API_KEY=${dolVal}`,
+		`NEWS_SYNC=${syncVal}`,
+		`NEWS_RETENTION_DAYS=${retVal}`
+	].join("\n");
+}
+function renderEnvModal(env, focusKey = "") {
+	if (!envModalDialog) return;
+	const keys = env && env.keys || {};
+	const dol = keys.DOL_API_KEY || {};
+	const ant = keys.ANTHROPIC_API_KEY || {};
+	const model = String(keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.value || "");
+	const modelDefault = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.default || "claude-sonnet-5-5";
+	const newsSync = keys.NEWS_SYNC ? Boolean(keys.NEWS_SYNC.value) : true;
+	const retDays = Number(keys.NEWS_RETENTION_DAYS && keys.NEWS_RETENTION_DAYS.value || 365);
+	envModalDialog.innerHTML = `
+    <div class="modal-head">
+      <div>
+        <div class="doc-kicker">${env && env.env_exists ? "Update local settings" : "Create reader/.env"}</div>
+        <h2 id="env-modal-title" class="modal-title">Configure API Keys &amp; Sync Settings</h2>
+      </div>
+      <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button>
+    </div>
+    <form id="env-modal-form" class="modal-body" autocomplete="off">
+      <p class="modal-intro">Keys are saved privately to <code>reader/.env</code> on your computer and take effect immediately—no restart needed. Leave an existing key blank to keep it unchanged.</p>
+
+      <div class="env-field">
+        <div class="env-field-head">
+          <label for="env-dol-key">DOL API Key <code>DOL_API_KEY</code></label>
+          ${dol.configured ? statPill("synced", `Saved (${dol.masked || "set"})`) : statPill("uninstalled", "Not set")}
+        </div>
+        <p class="env-field-help">Free key from <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a> for OSHA inspections and penalties.</p>
+        <div class="env-secret-row">
+          <input id="env-dol-key" name="dol_api_key" type="password" placeholder="${dol.configured ? "Leave blank to keep existing key, or paste new key" : "Paste your DOL X-API-KEY"}" spellcheck="false" autocomplete="off">
+          <button type="button" class="btn btn-sm" data-env-reveal="env-dol-key" aria-label="Show or hide DOL key">${icon("eye")}</button>
+        </div>
+        ${dol.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-dol-clear" name="clear_dol_api_key"> Remove saved DOL key</label>` : ""}
+      </div>
+
+      <div class="env-field">
+        <div class="env-field-head">
+          <label for="env-ant-key">Anthropic API Key <code>ANTHROPIC_API_KEY</code></label>
+          ${ant.configured ? statPill("synced", `Saved (${ant.masked || "set"})`) : statPill("uninstalled", "Not set")}
+        </div>
+        <p class="env-field-help">From <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> to enable the Ask Claude side panel.</p>
+        <div class="env-secret-row">
+          <input id="env-ant-key" name="anthropic_api_key" type="password" placeholder="${ant.configured ? "Leave blank to keep existing key, or paste new key" : "sk-ant-…"}" spellcheck="false" autocomplete="off">
+          <button type="button" class="btn btn-sm" data-env-reveal="env-ant-key" aria-label="Show or hide Anthropic key">${icon("eye")}</button>
+        </div>
+        ${ant.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-ant-clear" name="clear_anthropic_api_key"> Remove saved Anthropic key</label>` : ""}
+      </div>
+
+      <details class="env-advanced"${focusKey === "news_sync" ? " open" : ""}>
+        <summary>Advanced options (Claude model &amp; News sync)</summary>
+        <div class="env-advanced-body">
+          <div class="env-field">
+            <label for="env-ant-model">Preferred Claude Model <code>ANTHROPIC_MODEL</code></label>
+            <input id="env-ant-model" name="anthropic_model" type="text" value="${escapeHtml(model)}" placeholder="${escapeHtml(modelDefault)}" spellcheck="false">
+          </div>
+          <div class="env-field-row">
+            <label class="env-toggle-row"><input type="checkbox" id="env-news-sync" name="news_sync"${newsSync ? " checked" : ""}> <span>Enable background news sync (<code>NEWS_SYNC</code>)</span></label>
+            <div class="env-days-field">
+              <label for="env-news-retention">Retention (days)</label>
+              <input id="env-news-retention" name="news_retention_days" type="number" min="1" max="3650" value="${Number(retDays)}">
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <div class="env-preview-wrap">
+        <span class="env-preview-label">Preview of <code>reader/.env</code></span>
+        <pre class="env-preview" id="env-preview"></pre>
+      </div>
+
+      <p class="modal-error" id="env-modal-error" hidden></p>
+
+      <div class="modal-foot">
+        <button type="button" class="btn" data-env-close>Cancel</button>
+        <button type="submit" class="btn btn-accent" id="env-modal-save">${icon("check")} Save to reader/.env</button>
+      </div>
+    </form>`;
+	const form = document.getElementById("env-modal-form");
+	const preview = document.getElementById("env-preview");
+	if (!form) return;
+	const syncPreview = () => {
+		if (preview) preview.textContent = envPreviewText(form, state.envModalSnapshot);
+	};
+	syncPreview();
+	form.addEventListener("input", syncPreview);
+	form.addEventListener("change", syncPreview);
+	form.addEventListener("submit", submitEnvModal);
+	requestAnimationFrame(() => {
+		const targetId = focusKey === "dol_api_key" ? "env-dol-key" : focusKey === "anthropic_api_key" ? "env-ant-key" : focusKey === "news_sync" ? "env-news-sync" : "env-dol-key";
+		(document.getElementById(targetId) || envModalDialog.querySelector("input, button"))?.focus();
+	});
+}
+async function openEnvModal(focusKey = "") {
+	if (!envModalEl || !envModalDialog) return;
+	state.envModalReturnFocus = document.activeElement;
+	envModalDialog.innerHTML = `<div class="modal-head"><h2 id="env-modal-title" class="modal-title">Configure reader/.env</h2>
+    <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button></div>
+    <div class="modal-body"><div class="loading">Loading current configuration…</div></div>`;
+	envModalEl.hidden = false;
+	setModalBackgroundInert(true);
+	try {
+		state.envModalSnapshot = await getJSON("/api/settings/env");
+		state.navEnvStatus = state.envModalSnapshot;
+		renderEnvModal(state.envModalSnapshot, focusKey);
+	} catch {
+		state.envModalSnapshot = {
+			env_exists: false,
+			env_file: "reader/.env",
+			keys: {}
+		};
+		renderEnvModal(state.envModalSnapshot, focusKey);
+	}
+}
+function closeEnvModal(restoreFocus = true) {
+	if (!envModalEl || envModalEl.hidden) return;
+	envModalEl.hidden = true;
+	setModalBackgroundInert(false);
+	if (restoreFocus && state.envModalReturnFocus && document.contains(state.envModalReturnFocus)) state.envModalReturnFocus.focus?.();
+	state.envModalReturnFocus = null;
+}
+async function refreshModelsConfig() {
+	if (state.noTitles) return;
+	try {
+		const cfg = await fetchTitleModels(state.currentTitle);
+		if (!cfg) return;
+		state.chatConfig = cfg;
+		const modelSelect = dom.modelSelect;
+		if (state.chatConfig.configured && state.chatConfig.models.length > 0) {
+			modelSelect.innerHTML = state.chatConfig.models.map((m) => `
+        <option value="${escapeHtml(m.id)}" ${m.id === state.chatConfig.default ? "selected" : ""}>
+          ${escapeHtml(m.name)}
+        </option>
+      `).join("");
+			modelSelect.hidden = false;
+		} else {
+			modelSelect.innerHTML = "";
+			modelSelect.hidden = true;
+		}
+		emit("models:updated");
+	} catch {}
+}
+async function submitEnvModal(e) {
+	e.preventDefault();
+	const form = e.currentTarget;
+	const saveBtn = document.getElementById("env-modal-save");
+	const errEl = document.getElementById("env-modal-error");
+	if (errEl) {
+		errEl.hidden = true;
+		errEl.textContent = "";
+	}
+	if (saveBtn) saveBtn.disabled = true;
+	const val = (name) => form.elements.namedItem(name);
+	const payload = {
+		dol_api_key: val("dol_api_key")?.value ?? null,
+		clear_dol_api_key: Boolean(val("clear_dol_api_key")?.checked),
+		anthropic_api_key: val("anthropic_api_key")?.value ?? null,
+		clear_anthropic_api_key: Boolean(val("clear_anthropic_api_key")?.checked),
+		anthropic_model: val("anthropic_model")?.value ?? null,
+		news_sync: Boolean(val("news_sync")?.checked),
+		news_retention_days: val("news_retention_days") ? Number(val("news_retention_days").value) || 365 : 365
+	};
+	try {
+		const res = await getJSON("/api/settings/env", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload)
+		});
+		state.navEnvStatus = res.status;
+		state.envModalSnapshot = res.status;
+		const [newsSt] = await Promise.all([getJSON("/api/news/status").catch(() => null), refreshModelsConfig()]);
+		if (newsSt) state.navNewsStatus = newsSt;
+		closeEnvModal(true);
+		showToast((res.news_sync_queued || []).length > 0 ? "Saved to reader/.env · Syncing DOL enforcement data…" : "Saved to reader/.env — active immediately");
+		emit("env:saved");
+	} catch (err) {
+		if (errEl) {
+			errEl.textContent = (err instanceof Error ? err.message : "") || "Could not save reader/.env";
+			errEl.hidden = false;
+		}
+		if (saveBtn) saveBtn.disabled = false;
+	}
+}
+if (envModalEl) envModalEl.addEventListener("click", (e) => {
+	const t = e.target;
+	if (t === envModalEl || t?.closest("[data-env-close]")) {
+		closeEnvModal(true);
+		return;
+	}
+	const rev = t?.closest("[data-env-reveal]");
+	if (rev?.dataset.envReveal) {
+		const inp = document.getElementById(rev.dataset.envReveal);
+		if (inp) {
+			const show = inp.type === "password";
+			inp.type = show ? "text" : "password";
+			rev.innerHTML = icon(show ? "eyeOff" : "eye");
+		}
+	}
+});
+if (typeof document !== "undefined") document.addEventListener("keydown", (e) => {
+	if (!envModalEl || envModalEl.hidden) return;
+	if (e.key === "Escape") {
+		e.preventDefault();
+		closeEnvModal(true);
+		return;
+	}
+	trapFocusKeydown(envModalDialog, e);
+});
+if (typeof document !== "undefined") document.addEventListener("click", (e) => {
+	const t = e.target;
+	const trigger = t?.closest("[data-open-env]");
+	if (trigger) {
+		e.preventDefault();
+		openEnvModal(trigger.dataset.openEnv || "");
+		return;
+	}
+	const copyBtn = t?.closest("[data-copy-url]");
+	if (copyBtn?.dataset.copyUrl) {
+		const url = copyBtn.dataset.copyUrl;
+		if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(() => showToast("RSS feed URL copied")).catch(() => showToast(url, 5e3));
+		else showToast(url, 5e3);
+		return;
+	}
+	const jump = t?.closest("[data-help-jump]");
+	if (jump?.dataset.helpJump) {
+		const el = document.getElementById("help-" + jump.dataset.helpJump);
+		if (el) el.scrollIntoView({
+			behavior: reduceMotion.matches ? "auto" : "smooth",
+			block: "start"
+		});
+	}
+});
+async function loadStorage() {
+	try {
+		state.navStorage = await getJSON("/api/library/storage");
+	} catch {
+		state.navStorage = {
+			titles: [],
+			legacy_bytes: 0,
+			temp_files: 0,
+			temp_bytes: 0,
+			total_bytes: 0
+		};
+	}
+	emit("env:saved");
+}
+on("titles:refreshed", ({ hadNone, list }) => {
+	if (hadNone && list.length) refreshModelsConfig();
+});
+// src/views/doc_utils.ts
+var figModal = typeof document !== "undefined" ? document.getElementById("figure-modal") : null;
+var figReturnFocus = null;
+function closeFigureModal() {
+	if (!figModal || figModal.hidden) return;
+	figModal.hidden = true;
+	setModalBackgroundInert(false);
+	const dialog = figModal.querySelector(".modal-dialog");
+	if (dialog) dialog.innerHTML = "";
+	if (figReturnFocus && "focus" in figReturnFocus && typeof figReturnFocus.focus === "function") figReturnFocus.focus();
+	figReturnFocus = null;
+}
+function openFigureModal(figLink) {
+	if (!figModal || !figLink) return;
+	const img = figLink.querySelector(".reg-img");
+	const fullSrc = safeHttpUrl(figLink.getAttribute("href") || img && img.src || "");
+	if (!fullSrc) return;
+	figReturnFocus = document.activeElement;
+	const caption = figLink.previousElementSibling?.classList.contains("reg-label") ? (figLink.previousElementSibling.textContent || "").trim() : "Regulatory Figure";
+	const dialog = figModal.querySelector(".modal-dialog");
+	if (!dialog) return;
+	dialog.innerHTML = `
+    <div class="modal-head">
+      <div>
+        <div class="doc-kicker">Figure preview</div>
+        <h2 class="modal-title" id="fig-modal-title">${escapeHtml(caption)}</h2>
+      </div>
+      <div class="fig-modal-acts">
+        <button type="button" class="btn btn-sm" id="fig-invert-btn" aria-pressed="false">Invert contrast</button>
+        <a class="btn btn-sm" href="${escapeHtml(fullSrc)}" target="_blank" rel="noopener noreferrer">${icon("external")} Full image</a>
+        <button type="button" class="icon-btn" id="fig-close-btn" aria-label="Close preview">${icon("close")}</button>
+      </div>
+    </div>
+    <div class="fig-modal-stage">
+      <img src="${escapeHtml(fullSrc)}" alt="${escapeHtml(caption)}" id="fig-modal-img">
+    </div>
+  `;
+	figModal.hidden = false;
+	setModalBackgroundInert(true);
+	document.getElementById("fig-close-btn")?.focus();
+}
+if (figModal) {
+	figModal.addEventListener("click", (e) => {
+		const t = e.target;
+		if (e.target === figModal || t?.closest("#fig-close-btn")) {
+			closeFigureModal();
+			return;
+		}
+		const inv = t?.closest("#fig-invert-btn");
+		if (inv) {
+			const stage = figModal.querySelector(".fig-modal-stage");
+			if (!stage) return;
+			const on = !stage.classList.contains("is-inverted");
+			stage.classList.toggle("is-inverted", on);
+			inv.setAttribute("aria-pressed", String(on));
+		}
+	});
+	figModal.addEventListener("keydown", (e) => {
+		if (e.key === "Escape") {
+			e.preventDefault();
+			closeFigureModal();
+			return;
+		}
+		trapFocusKeydown(figModal.querySelector(".modal-dialog"), e);
+	});
+	window.addEventListener("hashchange", closeFigureModal);
+}
+function findParagraphElement(root, pText) {
+	if (!root) return null;
+	const clean = (pText || "").trim();
+	if (!clean) return null;
+	const paras = [...root.querySelectorAll(".reg-p")];
+	for (const p of paras) {
+		const pm = p.querySelector(".pmark");
+		if (pm && (pm.textContent || "").includes(clean)) return p;
+	}
+	const tokens = clean.match(/\([a-zA-Z0-9]{1,4}\)/g);
+	if (!tokens || !tokens.length) return null;
+	let ti = 0;
+	let lastMatched = null;
+	let minLevel = 0;
+	for (const p of paras) {
+		const lvlMatch = /\blvl-(\d+)\b/.exec(p.className);
+		const lvl = lvlMatch ? Number(lvlMatch[1]) : 0;
+		const pm = p.querySelector(".pmark");
+		if (!pm) continue;
+		const pTokens = (pm.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
+		if (!pTokens.length) continue;
+		if (ti > 0 && lvl > 0 && lvl <= minLevel) {
+			if (lvl === 1 && tokens[0].toLowerCase() !== (pTokens[0] || "").toLowerCase()) {
+				ti = 0;
+				minLevel = 0;
+			}
+		}
+		let matchedHere = 0;
+		let tempIdx = ti;
+		for (const pt of pTokens) if (tempIdx < tokens.length && pt.toLowerCase() === tokens[tempIdx].toLowerCase()) {
+			tempIdx++;
+			matchedHere++;
+		} else break;
+		if (matchedHere > 0 && (ti === 0 || lvl > minLevel)) {
+			ti = tempIdx;
+			minLevel = lvl;
+			lastMatched = p;
+			if (ti === tokens.length) return p;
+		}
+	}
+	return lastMatched;
+}
+function findParagraphRange(root, pText) {
+	const clean = (pText || "").trim();
+	if (!clean || !root) return [];
+	const rangeM = /^\s*((?:\([a-zA-Z0-9]{1,4}\))+)\s*(?:-|–|through|to)\s*((?:\([a-zA-Z0-9]{1,4}\))+)\s*$/i.exec(clean);
+	if (rangeM) {
+		const startEl = findParagraphElement(root, rangeM[1]);
+		const endEl = findParagraphElement(root, rangeM[2]);
+		if (startEl && endEl) {
+			const paras = [...root.querySelectorAll(".reg-p")];
+			const i1 = paras.indexOf(startEl);
+			const i2 = paras.indexOf(endEl);
+			if (i1 >= 0 && i2 >= i1 && i2 - i1 < 16) return paras.slice(i1, i2 + 1);
+			return [startEl];
+		}
+		if (startEl) return [startEl];
+	}
+	const hit = findParagraphElement(root, clean);
+	return hit ? [hit] : [];
+}
+function resolveAnchorTargets(root, target) {
+	if (!root || !target) return [];
+	const clean = String(target).trim();
+	if (!clean) return [];
+	const bareId = clean.startsWith("#") ? clean.slice(1) : clean;
+	if (/^(table|fig|figure|appendix|fn|ftref|sec|p)-?[a-zA-Z0-9_.\-]+$/i.test(bareId)) try {
+		const el = root.querySelector(`#${CSS.escape(bareId)}`);
+		if (el) return [el];
+	} catch {}
+	return findParagraphRange(root, clean);
+}
+function flashElements(els, scroll = true) {
+	if (!els || !els.length) return;
+	for (const el of els) {
+		el.classList.remove("flash");
+		el.offsetWidth;
+		el.classList.add("flash");
+	}
+	if (scroll) smoothScrollToTarget(els[0], { block: "center" });
+}
+function highlightTarget(root, target, delay = 120) {
+	setTimeout(() => {
+		flashElements(resolveAnchorTargets(root, target), true);
+	}, delay);
+}
+function slugifyAnchor(raw) {
+	return raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+function enhanceDomAnchors(root = dom.view) {
+	if (!root) return;
+	const targets = /* @__PURE__ */ new Map();
+	let figSeq = 0;
+	for (const fig of root.querySelectorAll(".reg-figure")) {
+		const cap = fig.previousElementSibling?.classList.contains("reg-label") ? (fig.previousElementSibling.textContent || "").trim() : "";
+		const m = /^\s*(Figure\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(cap);
+		if (!fig.id) {
+			figSeq++;
+			const base = m ? `fig-${slugifyAnchor(m[1].replace(/^figure\s+/i, ""))}` : `fig-${figSeq}`;
+			let id = base;
+			let n = 2;
+			while (root.querySelector(`#${CSS.escape(id)}`)) id = `${base}-${n++}`;
+			fig.id = id;
+		}
+		if (m) targets.set(m[1].toLowerCase(), {
+			label: m[1],
+			id: fig.id
+		});
+	}
+	for (const w of root.querySelectorAll(".table-wrap[id^=\"table-\"]")) {
+		const cap = w.querySelector("caption")?.textContent || "";
+		const m = /^\s*(Table\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(cap);
+		if (m) targets.set(m[1].toLowerCase(), {
+			label: m[1],
+			id: w.id
+		});
+	}
+	for (const appEl of root.querySelectorAll(".reg-appendix[id^=\"appendix-\"]")) {
+		const head = appEl.querySelector(".reg-subhead, .reg-label, .reg-p")?.textContent || "";
+		const m = /^\s*(Appendix\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(head);
+		if (m) targets.set(m[1].toLowerCase(), {
+			label: m[1],
+			id: appEl.id
+		});
+	}
+	if (!targets.size) return;
+	const pattern = [...targets.keys()].map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+	const re = new RegExp(`\\b(${pattern})\\b`, "gi");
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
+		const parent = node.parentElement;
+		if (!parent || !parent.closest(".reg-body") || parent.closest("a, button, caption, .reg-table")) return NodeFilter.FILTER_REJECT;
+		const txt = node.nodeValue || "";
+		return /(?:table|figure|appendix)/i.test(txt) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+	} });
+	const nodes = [];
+	let n;
+	while (n = walker.nextNode()) nodes.push(n);
+	for (const textNode of nodes) {
+		const val = textNode.nodeValue || "";
+		re.lastIndex = 0;
+		if (!re.test(val)) continue;
+		re.lastIndex = 0;
+		const frag = document.createDocumentFragment();
+		let last = 0;
+		let match;
+		while ((match = re.exec(val)) !== null) {
+			if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
+			const hit = targets.get(match[1].toLowerCase());
+			if (hit) {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = "xref xref-anchor";
+				btn.dataset.anchor = hit.id;
+				btn.textContent = match[0];
+				frag.appendChild(btn);
+			} else frag.appendChild(document.createTextNode(match[0]));
+			last = match.index + match[0].length;
+		}
+		if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
+		textNode.parentNode?.replaceChild(frag, textNode);
+	}
+}
+function resolveParagraphPath(root, paraEl) {
+	if (!root || !paraEl) return "";
+	const pm = paraEl.querySelector(".pmark");
+	if (!pm) return "";
+	const firstTok = (pm.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
+	if (!firstTok.length) return "";
+	if (firstTok.length > 1) return firstTok.join("");
+	const lvlMatch = /\blvl-(\d+)\b/.exec(paraEl.className);
+	let targetLvl = lvlMatch ? Number(lvlMatch[1]) : 0;
+	if (targetLvl <= 1) return firstTok[0] || "";
+	const paras = [...root.querySelectorAll(".reg-p")];
+	const idx = paras.indexOf(paraEl);
+	if (idx < 0) return firstTok[0] || "";
+	const chain = firstTok[0] ? [firstTok[0]] : [];
+	for (let i = idx - 1; i >= 0 && targetLvl > 1; i--) {
+		const p = paras[i];
+		const lm = /\blvl-(\d+)\b/.exec(p.className);
+		const lvl = lm ? Number(lm[1]) : 0;
+		if (lvl > 0 && lvl < targetLvl) {
+			const toks = (p.querySelector(".pmark")?.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g);
+			if (toks && toks.length) {
+				chain.unshift(...toks);
+				targetLvl = lvl;
+			}
+		}
+	}
+	return chain.join("");
+}
+function formatCfrCitation(title, sectionLabelOrId, para = "") {
+	const cleanLabel = String(sectionLabelOrId || "").trim();
+	return `${title} C.F.R. ${cleanLabel.startsWith("§") ? cleanLabel : `§ ${cleanLabel}`}${para || ""}`;
+}
+function wrapIbrMentions(root, ibrList) {
+	if (!root || !Array.isArray(ibrList) || !ibrList.length) return;
+	const byMatch = /* @__PURE__ */ new Map();
+	for (const item of ibrList) {
+		if (!item || !item.match_text) continue;
+		byMatch.set(item.match_text.toLowerCase(), item);
+		if (item.code) byMatch.set(item.code.toLowerCase(), item);
+	}
+	if (!byMatch.size) return;
+	const escaped = [...byMatch.keys()].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+	const re = new RegExp(`(${escaped})`, "gi");
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
+		const parent = node.parentElement;
+		if (!parent || !parent.closest(".reg-body") || parent.closest("a, button, .pmark, .runin")) return NodeFilter.FILTER_REJECT;
+		return NodeFilter.FILTER_ACCEPT;
+	} });
+	const nodes = [];
+	let n;
+	while (n = walker.nextNode()) nodes.push(n);
+	for (const textNode of nodes) {
+		const val = textNode.nodeValue || "";
+		re.lastIndex = 0;
+		if (!re.test(val)) continue;
+		re.lastIndex = 0;
+		const frag = document.createDocumentFragment();
+		let last = 0;
+		let match;
+		while ((match = re.exec(val)) !== null) {
+			if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
+			const item = byMatch.get(match[1].toLowerCase());
+			if (item) {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = "xref xref-ibr";
+				btn.dataset.ibrCode = item.code;
+				btn.title = item.approved_in ? `${item.code} — IBR approved in ${item.approved_in.label}${item.approved_in.para || ""}` : `${item.code} (${item.org_name || item.org})`;
+				btn.textContent = match[0];
+				frag.appendChild(btn);
+			} else frag.appendChild(document.createTextNode(match[0]));
+			last = match.index + match[0].length;
+		}
+		if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
+		textNode.parentNode?.replaceChild(frag, textNode);
+	}
+}
+function renderViewError(container, title, message, { retryLabel = "Try again", onRetry = null } = {}) {
+	if (!container) return;
+	container.innerHTML = emptyStateHtml({
+		title,
+		body: escapeHtml(message),
+		actionsHtml: onRetry ? `<button type="button" class="btn" id="view-err-retry">${escapeHtml(retryLabel)}</button>` : ""
+	});
+	if (onRetry) document.getElementById("view-err-retry")?.addEventListener("click", onRetry);
+}
+function parseCfrHref(href, fallbackTitle = 29) {
+	if (!href) return null;
+	if (href.startsWith("#")) {
+		const [pathPart, qs] = href.slice(1).split("?");
+		const params = new URLSearchParams(qs || "");
+		const mCorpusSec = /^\/corpus\/(?:federal-reg|cfr)\/[^/]+\/(\d+)\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
+		if (mCorpusSec) return {
+			kind: "section",
+			title: parseInt(mCorpusSec[1], 10),
+			section: decodeURIComponent(mCorpusSec[2]),
+			unit: mCorpusSec[3] ? decodeURIComponent(mCorpusSec[3]) : null,
+			para: params.get("p") || null
+		};
+		const mTitleSec = /^\/title\/(\d+)\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
+		if (mTitleSec) return {
+			kind: "section",
+			title: parseInt(mTitleSec[1], 10),
+			section: decodeURIComponent(mTitleSec[2]),
+			unit: mTitleSec[3] ? decodeURIComponent(mTitleSec[3]) : null,
+			para: params.get("p") || null
+		};
+		const mSec = /^\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
+		if (mSec) return {
+			kind: "section",
+			title: fallbackTitle,
+			section: decodeURIComponent(mSec[1]),
+			unit: mSec[2] ? decodeURIComponent(mSec[2]) : null,
+			para: params.get("p") || null
+		};
+		const mCorpusPart = /^\/corpus\/(?:federal-reg|cfr)\/[^/]+\/(\d+)\/part\/([^/]+)$/.exec(pathPart);
+		if (mCorpusPart) return {
+			kind: "part",
+			title: parseInt(mCorpusPart[1], 10),
+			part: decodeURIComponent(mCorpusPart[2])
+		};
+		const mTitlePart = /^\/title\/(\d+)\/part\/([^/]+)$/.exec(pathPart);
+		if (mTitlePart) return {
+			kind: "part",
+			title: parseInt(mTitlePart[1], 10),
+			part: decodeURIComponent(mTitlePart[2])
+		};
+		const mPart = /^\/part\/([^/]+)$/.exec(pathPart);
+		if (mPart) return {
+			kind: "part",
+			title: fallbackTitle,
+			part: decodeURIComponent(mPart[1])
+		};
+	}
+	return null;
+}
+function bindBrokenImageFallback(root, getEcfrUrl) {
+	if (!root) return;
+	root.addEventListener("error", (e) => {
+		const img = e.target;
+		if (!(img instanceof HTMLImageElement) || !img.classList.contains("reg-img")) return;
+		const fig = img.closest(".reg-figure");
+		if (!fig || fig.classList.contains("is-broken")) return;
+		fig.classList.add("is-broken");
+		const url = safeHttpUrl(getEcfrUrl?.() || "");
+		if (url) fig.href = url;
+		fig.title = "This figure is only available on eCFR";
+		fig.innerHTML = `${icon("external")}<span>Figure — view on eCFR</span>`;
+	}, true);
+}
+function createParaToolsController({ root, bodySelector = ".reg-body", paraSelector = ".reg-body .reg-p[id]", isActive, getSectionRef }) {
+	let bar = null;
+	let target = null;
+	const hide = () => {
+		if (bar) bar.hidden = true;
+		target = null;
+	};
+	const show = (pEl) => {
+		if (!root?.querySelector(bodySelector) || !pEl?.querySelector(".pmark")) {
+			hide();
+			return;
+		}
+		if (!bar || !bar.isConnected) {
+			bar = document.createElement("div");
+			bar.className = "para-tools";
+			bar.setAttribute("aria-label", "Paragraph actions");
+			bar.innerHTML = `
+        <button type="button" class="para-tool-btn" data-para-act="copy" title="Copy legal CFR citation">${icon("link")} Cite</button>
+        <button type="button" class="para-tool-btn" data-para-act="clip" title="Clip clause to workspace">${icon("bookmark")} Clip</button>
+      `;
+		}
+		target = pEl;
+		bar.hidden = false;
+		pEl.appendChild(bar);
+	};
+	if (root) {
+		root.addEventListener("mouseover", (e) => {
+			if (!isActive()) return;
+			const t = e.target;
+			if (bar && t && bar.contains(t)) return;
+			const p = t?.closest(paraSelector);
+			if (p && p.querySelector(".pmark")) {
+				if (p !== target) show(p);
+			} else hide();
+		});
+		root.addEventListener("mouseleave", hide);
+	}
+	const handleClick = async (e) => {
+		const btn = e.target?.closest(".para-tool-btn[data-para-act]");
+		if (!btn || !target || !isActive()) return false;
+		e.preventDefault();
+		e.stopPropagation();
+		const ref = getSectionRef();
+		if (!ref) return true;
+		const para = resolveParagraphPath(root, target);
+		const label = cleanInlineLabel(ref.label);
+		const cite = formatCfrCitation(ref.title, label, para);
+		if (btn.dataset.paraAct === "copy") await copyText(cite, `Copied ${cite}`, "Couldn’t copy citation");
+		else if (btn.dataset.paraAct === "clip") {
+			const clone = target.cloneNode(true);
+			clone.querySelectorAll(".para-tools").forEach((x) => x.remove());
+			clipToWorkspace(ref, {
+				para,
+				quote: (clone.textContent || "").trim().slice(0, 320),
+				cite
+			});
+		}
+		return true;
+	};
+	return {
+		hide,
+		handleClick
+	};
+}
+// src/components/rail.ts
 function sectionHref(id, view) {
 	return `#/section/${encodeURIComponent(id)}${view ? "/" + encodeURIComponent(view) : ""}`;
 }
@@ -6622,12 +9429,13 @@ function unitShort(u) {
 function unitName(u) {
 	return (u.group && u.kind === "chapter" ? `${u.group_label} · ` : "") + (u.title || u.label || "");
 }
+var UNIT_KIND_MAP = {
+	clause: "clause",
+	chapter: "part",
+	appendix: "appendix"
+};
 function unitKind(u) {
-	return {
-		clause: "clause",
-		chapter: "part",
-		appendix: "appendix"
-	}[u.kind] || "part";
+	return u.kind && UNIT_KIND_MAP[u.kind] || "part";
 }
 function railHtml(data, mode) {
 	const units = data.outline || [];
@@ -6652,12 +9460,13 @@ function railHtml(data, mode) {
 	return `<nav class="rail" style="--rows:${rows}" aria-label="Contents of this section">${html}<a class="rail-pop" tabindex="-1" aria-hidden="true"><span class="rail-pop-label"></span><span class="rail-pop-name"></span></a></nav>`;
 }
 function bindRail() {
-	const rail = dom.viewHead && dom.viewHead.querySelector(".rail");
+	const rail = dom.viewHead?.querySelector(".rail");
 	if (!rail) return;
 	const pop = rail.querySelector(".rail-pop");
+	if (!pop) return;
 	const items = [...rail.querySelectorAll(".rail-item")];
 	let active = null;
-	let hideTimer = 0;
+	let hideTimer;
 	const centerY = (el) => {
 		const r = el.getBoundingClientRect();
 		return r.top + r.height / 2;
@@ -6669,9 +9478,11 @@ function bindRail() {
 		if (active) active.classList.remove("is-hover");
 		active = item;
 		item.classList.add("is-hover");
-		pop.querySelector(".rail-pop-label").textContent = item.dataset.label || "";
-		pop.querySelector(".rail-pop-name").textContent = item.dataset.name || "";
-		pop.href = item.getAttribute("href");
+		const lbl = pop.querySelector(".rail-pop-label");
+		const nm = pop.querySelector(".rail-pop-name");
+		if (lbl) lbl.textContent = item.dataset.label || "";
+		if (nm) nm.textContent = item.dataset.name || "";
+		pop.href = item.getAttribute("href") || "#";
 		if (item.dataset.anchor) pop.dataset.anchor = item.dataset.anchor;
 		else delete pop.dataset.anchor;
 		if (opening) pop.classList.add("is-placing");
@@ -6716,14 +9527,17 @@ function bindRail() {
 	});
 	rail.addEventListener("pointerleave", hide);
 	rail.addEventListener("focusin", (e) => {
-		const it = e.target.closest(".rail-item");
+		const it = e.target?.closest(".rail-item");
 		if (it) show(it);
 	});
 	rail.addEventListener("focusout", hide);
 }
 function unitStepHtml(data) {
-	const sectionBtn = (s, dir) => s ? docStepBtn("section", dir, sectionHref(s.id), s.label, s.title) : "";
-	const unitBtn = (u, dir) => u ? docStepBtn(unitKind(u), dir, sectionHref(data.id, u.key), unitShort(u), unitName(u)) : "";
+	const sectionBtn = (s, dir) => s ? docStepBtn("section", dir, sectionHref(s.id), s.label || s.id, s.title) : "";
+	const unitBtn = (u, dir) => {
+		if (!u) return "";
+		return docStepBtn(unitKind(u), dir, sectionHref(data.id, u.key), unitShort(u), unitName(u));
+	};
 	const sep = "<span class=\"doc-step-sep\" aria-hidden=\"true\"></span>";
 	return `<nav class="doc-step" aria-label="Previous and next">${[sectionBtn(data.prev, -1), unitBtn(data.unit_prev, -1)].filter(Boolean).join(sep)}<span class="spacer"></span>${[unitBtn(data.unit_next, 1), sectionBtn(data.next, 1)].filter(Boolean).join(sep)}</nav>`;
 }
@@ -6733,10 +9547,10 @@ function watchRail() {
 		state.railObserver.disconnect();
 		state.railObserver = null;
 	}
-	const rail = dom.viewHead && dom.viewHead.querySelector(".rail");
+	const rail = dom.viewHead?.querySelector(".rail");
 	const sections = [...dom.view.querySelectorAll(".reg-unit")];
 	if (!rail || !sections.length) return;
-	let lit = null;
+	let lit;
 	let frame = 0;
 	const update = () => {
 		frame = 0;
@@ -6766,13 +9580,13 @@ function watchRail() {
 	update();
 }
 function scrollToAnchor(id, rootOrOpts = {}) {
-	const isNode = rootOrOpts && typeof rootOrOpts.querySelector === "function";
+	const isNode = rootOrOpts && "querySelector" in rootOrOpts && typeof rootOrOpts.querySelector === "function";
 	const root = isNode ? rootOrOpts : rootOrOpts.root || dom.view;
 	const flash = isNode ? true : rootOrOpts.flash !== false;
 	let target = null;
 	try {
 		target = root && root.querySelector(`#${CSS.escape(id)}`) || document.getElementById(id);
-	} catch (e) {
+	} catch {
 		target = document.getElementById(id);
 	}
 	if (!target) return false;
@@ -6785,21 +9599,12 @@ function scrollToAnchor(id, rootOrOpts = {}) {
 	return true;
 }
 for (const rootEl of [dom.viewHead, dom.view].filter(Boolean)) rootEl.addEventListener("click", (e) => {
-	const a = e.target.closest("[data-anchor]");
-	if (!a) return;
+	const a = e.target?.closest("[data-anchor]");
+	if (!a || !a.dataset.anchor) return;
 	e.preventDefault();
 	scrollToAnchor(a.dataset.anchor, dom.view);
 });
-dom.view.addEventListener("error", (e) => {
-	const img = e.target;
-	if (!(img instanceof HTMLImageElement) || !img.classList.contains("reg-img")) return;
-	const fig = img.closest(".reg-figure");
-	if (!fig || fig.classList.contains("is-broken")) return;
-	fig.classList.add("is-broken");
-	fig.href = state.currentSection && state.currentSection.ecfr_url || fig.href;
-	fig.title = "This figure is only available on eCFR";
-	fig.innerHTML = `${icon("external")}<span>Figure — view on eCFR</span>`;
-}, true);
+bindBrokenImageFallback(dom.view, () => state.currentSection?.ecfr_url || "");
 function applyFontSize(v) {
 	const size = Math.max(13, Math.min(24, Number(v) || 16));
 	lsSet("fontSize", String(size));
@@ -6809,136 +9614,279 @@ function applyFontSize(v) {
 	if (range && Number(range.value) !== size) range.value = String(size);
 }
 function adjustFontSize(delta) {
-	applyFontSize((parseInt(lsGet("fontSize"), 10) || 16) + delta);
+	applyFontSize((parseInt(lsGet("fontSize") || "", 10) || 16) + delta);
 }
-// src/citations.ts
-var NEWS_CITE_RE = /\b29\s*C\.?F\.?R\.?\s*(?:§§?\s*)?(\d{1,4}\.\d+)(?:\([a-z0-9]{1,4}\))*|§§?\s*(19\d{2}\.\d+)(?:\([a-z0-9]{1,4}\))*/gi;
-// src/views/core.js
-var HOME_CONTENT = {
-	29: {
-		tagline: "Federal labor regulations — workplace safety, wages and hours, leave, and employee benefits — with local search and Claude.",
-		cards: [
-			{
-				part: "1910",
-				kicker: "OSHA Safety",
-				title: "Part 1910 — General Industry",
-				desc: "PPE, hazard communication, walking-working surfaces, fire protection, and machinery."
-			},
-			{
-				part: "1926",
-				kicker: "OSHA Safety",
-				title: "Part 1926 — Construction",
-				desc: "Scaffolds, fall protection, cranes, excavations, and electrical safety on sites."
-			},
-			{
-				part: "541",
-				kicker: "Wage & Hour",
-				title: "Part 541 — Overtime Exemptions",
-				desc: "Executive, administrative, professional, computer, and outside sales exemptions (FLSA)."
-			},
-			{
-				part: "825",
-				kicker: "Leave & Family",
-				title: "Part 825 — Family & Medical Leave",
-				desc: "FMLA employee eligibility, employer notice obligations, leave duration, and certification."
-			},
-			{
-				part: "1904",
-				kicker: "Recordkeeping",
-				title: "Part 1904 — Injury Recording",
-				desc: "Recording and reporting occupational injuries, illnesses, and severe incidents."
-			},
-			{
-				part: "2560",
-				kicker: "Employee Benefits",
-				title: "Part 2560 — ERISA Administration",
-				desc: "Claims procedures, participant remedies, and retirement plan fiduciaries."
-			}
-		]
-	},
-	40: {
-		tagline: "EPA regulations — air and water quality, hazardous waste, permits, and chemical releases — with local search and Claude.",
-		cards: [
-			{
-				part: "50",
-				kicker: "Air",
-				title: "Part 50 — Air Quality Standards",
-				desc: "National ambient air quality standards (NAAQS) for ozone, particulates, lead, and more."
-			},
-			{
-				part: "70",
-				kicker: "Air Permits",
-				title: "Part 70 — Operating Permits",
-				desc: "State operating permit programs for major stationary sources (Title V)."
-			},
-			{
-				part: "122",
-				kicker: "Water",
-				title: "Part 122 — NPDES Permits",
-				desc: "The discharge permit program for point sources under the Clean Water Act."
-			},
-			{
-				part: "136",
-				kicker: "Water",
-				title: "Part 136 — Test Procedures",
-				desc: "Approved analytical methods for pollutant monitoring and compliance."
-			},
-			{
-				part: "261",
-				kicker: "Hazardous Waste",
-				title: "Part 261 — Waste Identification",
-				desc: "What counts as a solid and hazardous waste under RCRA: listings and characteristics."
-			},
-			{
-				part: "302",
-				kicker: "Emergencies",
-				title: "Part 302 — Reportable Quantities",
-				desc: "CERCLA hazardous substance designations and release notification thresholds."
-			}
-		]
-	},
-	49: {
-		tagline: "DOT regulations — hazardous materials, motor carriers, drivers, and vehicle safety — with local search and Claude.",
-		cards: [
-			{
-				part: "172",
-				kicker: "Hazmat",
-				title: "Part 172 — Hazmat Table & Communication",
-				desc: "The hazardous materials table, shipping papers, marking, labeling, and placarding."
-			},
-			{
-				part: "173",
-				kicker: "Hazmat",
-				title: "Part 173 — Packaging Requirements",
-				desc: "General shipment and packaging requirements by hazard class."
-			},
-			{
-				part: "390",
-				kicker: "Motor Carriers",
-				title: "Part 390 — FMCSA General",
-				desc: "Who the federal motor carrier safety regulations apply to, and general duties."
-			},
-			{
-				part: "391",
-				kicker: "Drivers",
-				title: "Part 391 — Driver Qualifications",
-				desc: "Qualification files, medical certification, and disqualifying offenses."
-			},
-			{
-				part: "383",
-				kicker: "Drivers",
-				title: "Part 383 — Commercial Driver’s License",
-				desc: "CDL standards: who needs one, testing, endorsements, and disqualifications."
-			},
-			{
-				part: "571",
-				kicker: "Vehicles",
-				title: "Part 571 — Vehicle Safety Standards",
-				desc: "Federal motor vehicle safety standards (FMVSS) for cars, trucks, and buses."
-			}
-		]
+// src/panels/shared.ts
+var drLabel = (text, extra = "") => `<h3 class="dr-label"><span>${text}</span>${extra}</h3>`;
+var drEmpty = (title, body) => `<div class="dr-empty"><div class="dr-empty-title">${title}</div><p>${body}</p></div>`;
+function setPanel(panel, html) {
+	const el = document.getElementById(`panel-${panel}`);
+	if (!el) return;
+	const scroller = el.querySelector(".dr-scroll");
+	const top = scroller ? scroller.scrollTop : 0;
+	el.innerHTML = `<div class="dr-scroll">${html}</div>`;
+	const next = el.querySelector(".dr-scroll");
+	if (next) next.scrollTop = top;
+	if (navState.panel === panel) drawerEl.meta.textContent = panelMeta(panel);
+}
+// src/panels/settings_panel.ts
+state.navStorage = null;
+state.navNewsStatus = null;
+state.navEnvStatus = null;
+async function loadEnvStatus() {
+	try {
+		state.navEnvStatus = await getJSON("/api/settings/env");
+	} catch {
+		state.navEnvStatus = null;
 	}
-};
+	if (state.navEnvStatus) refreshSettingsViews();
+}
+function timeUntil(iso) {
+	if (!iso) return "";
+	const s = (Date.parse(iso) - Date.now()) / 1e3;
+	if (Number.isNaN(s)) return "";
+	if (s <= 60) return "any moment";
+	if (s < 3600) return `in ${Math.round(s / 60)}m`;
+	if (s < 86400) return `in ${Math.round(s / 3600)}h`;
+	return `in ${Math.round(s / 86400)}d`;
+}
+function newsSettingsHtml() {
+	const ns = state.navNewsStatus;
+	if (!ns) return "<div class=\"loading\">Checking…</div>";
+	if (!ns.sync_enabled) return "<p class=\"dr-note\">News sync is off (<code>NEWS_SYNC=0</code> in <code>reader/.env</code>).</p>";
+	const enabled = Object.entries(ns.sources || {}).filter(([, s]) => s.enabled);
+	const lastOk = enabled.map(([, s]) => s.last_ok_at).filter(Boolean).sort().pop();
+	const nextDue = enabled.map(([, s]) => s.next_due_at).filter(Boolean).sort()[0];
+	const backing = enabled.filter(([, s]) => s.retry_after);
+	const when = backing.length ? backing.map(([, s]) => `${escapeHtml(s.last_error || "Update failed")} · retrying ${escapeHtml(timeUntil(s.retry_after))}`).join(" · ") : `Last update ${lastOk ? escapeHtml(timeAgo(Date.parse(lastOk))) : "never"} · next check ${nextDue ? escapeHtml(timeUntil(nextDue)) || "due now" : "—"}`;
+	return `
+    <div class="dr-row is-static"><span class="dr-name">Federal Register</span><span class="dr-time">on</span></div>
+    <div class="dr-row is-static"><span class="dr-name">DOL enforcement</span><span class="dr-time">${ns.dol_configured ? "on" : "off"}</span></div>
+    ${ns.dol_configured ? "" : "<p class=\"dr-note\">Enforcement requires a free <code>DOL_API_KEY</code>. <a class=\"dr-inline-link\" href=\"#/help\">Open setup guide</a> or <button type=\"button\" class=\"dr-inline-btn\" data-open-env=\"dol_api_key\">enter key</button>.</p>"}
+    <p class="dr-note">${when}</p>`;
+}
+async function loadNewsSettings() {
+	try {
+		state.navNewsStatus = await getJSON("/api/news/status");
+	} catch {
+		state.navNewsStatus = {
+			sync_enabled: false,
+			sources: {},
+			dol_configured: false
+		};
+	}
+	refreshSettingsViews();
+}
+var settingSeg = (name, value, opts, disabled = false) => segmentedHtml({
+	label: name,
+	value,
+	cls: "seg",
+	dataAttr: `data-set="${escapeHtml(name)}" data-value`,
+	items: opts.map(([v, label]) => ({
+		value: v,
+		label,
+		attrs: disabled ? "disabled" : ""
+	}))
+});
+function settingsClaudeHtml() {
+	return state.chatConfig.configured && state.chatConfig.models.length ? `<select class="set-select" data-set-model aria-label="Claude model">${state.chatConfig.models.map((m) => `<option value="${escapeHtml(m.id)}"${(dom.modelSelect.value || state.chatConfig.default) === m.id ? " selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}</select>` : "<p class=\"dr-note\">Claude requires an <code>ANTHROPIC_API_KEY</code>. <a class=\"dr-inline-link\" href=\"#/help\">Open setup guide</a> or <button type=\"button\" class=\"dr-inline-btn\" data-open-env=\"anthropic_api_key\">enter key</button>.</p>";
+}
+function settingsStorageHtml() {
+	const st = state.navStorage;
+	if (!st) return "<div class=\"loading\">Measuring…</div>";
+	return `
+    <div class="set-total"><span class="set-total-val">${fmtBytes(st.total_bytes) || "0 KB"}</span><span class="set-total-sub">on disk in ${plural(st.titles.length, "title")}</span></div>
+    ${st.titles.map((t) => {
+		const meta = state.installedTitles.find((x) => x.title === t.title);
+		return `<div class="dr-row is-static"><span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(meta ? meta.name : `Title ${t.title}`)}</span><span class="dr-time">${fmtBytes(t.bytes)}</span></div>`;
+	}).join("")}
+    ${st.legacy_bytes ? `<div class="dr-row is-static"><span class="dr-num"></span><span class="dr-name">Title 29 legacy copy</span><span class="dr-time">${fmtBytes(st.legacy_bytes)}</span></div>` : ""}
+    <div class="set-row">
+      <span class="set-name">Temporary files<span class="set-sub">${st.temp_files ? `${plural(st.temp_files, "file")} from unfinished downloads` : "None left over"}</span></span>
+      <button type="button" class="btn btn-sm" data-set-act="prune"${st.temp_files ? "" : " disabled"}>${st.temp_files ? `Clean up ${fmtBytes(st.temp_bytes)}` : "Clean"}</button>
+    </div>`;
+}
+function settingsKeysHtml() {
+	const mod = isMac ? "⌘" : "Ctrl ";
+	return `<dl class="set-keys">${[
+		[`${mod} K`, "Search or jump to a section"],
+		["/", "Search"],
+		[">", "Commands, in search"],
+		[`${mod} B`, "Show or hide the drawer"],
+		[`${mod} J`, "Ask Claude"],
+		[`${mod} D`, "Pin section to a workspace"],
+		["G H", "Home"],
+		["G T", "Title start"],
+		["G C", "Contents"],
+		["G P", "Workspaces"],
+		["G N", "News"],
+		["G L", "Library"],
+		["G S", "Settings"],
+		[isMac ? "⌥ 1–7" : "Alt 1–7", "Rail items in order"],
+		["Esc", "Close the floating drawer"]
+	].map(([k, v]) => `<div><dt>${k.split(" ").map((x) => `<kbd>${escapeHtml(x)}</kbd>`).join("")}</dt><dd>${escapeHtml(v)}</dd></div>`).join("")}</dl>`;
+}
+function renderSettingsPanel() {
+	const size = parseInt(lsGet("fontSize") || "", 10) || 16;
+	const envKeys = state.navEnvStatus && state.navEnvStatus.keys;
+	const configuredKeysCount = envKeys ? (envKeys.DOL_API_KEY?.configured ? 1 : 0) + (envKeys.ANTHROPIC_API_KEY?.configured ? 1 : 0) : null;
+	const settingsMeta = configuredKeysCount == null ? "Claude · News · Storage · Keyboard" : `${configuredKeysCount} of 2 optional keys set`;
+	setPanel("settings", `
+    <section class="dr-sec">${drLabel("Quick settings")}
+      <div class="set-row"><span class="set-name">Reading text</span>
+        <span class="set-quick-size" role="group" aria-label="Reading text size">
+          <button type="button" data-set-act="font-dec" aria-label="Smaller text">A−</button>
+          <span class="set-val" data-size-val>${size} px</span>
+          <button type="button" data-set-act="font-inc" aria-label="Larger text">A+</button>
+        </span></div>
+      <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? "<span class=\"set-sub\">Overlay on narrow screens</span>" : ""}</span>${settingSeg("mode", mqMobile.matches ? "flyout" : navState.mode, [["pinned", "Pinned"], ["flyout", "Overlay"]], mqMobile.matches)}</div>
+      <div class="set-row"><span class="set-name">Motion</span>${settingSeg("motion", getMotionLevel(), [
+		["none", "No"],
+		["less", "Less"],
+		["full", "Full"]
+	])}</div>
+    </section>
+    <section class="dr-sec">${drLabel("Quick actions")}
+      <div class="set-quick-acts">
+        <button type="button" class="dr-act" data-open-env="">${icon("key")} Edit API keys</button>
+        <button type="button" class="dr-act" data-set-act="news-refresh">${icon("news")} Check for news</button>
+        <a class="dr-act" href="#/help">${icon("external")} Connections &amp; API keys</a>
+      </div>
+    </section>
+    <a class="dr-cta" href="#/settings">
+      <span class="dr-cta-text"><span class="dr-cta-title">Open settings</span><span class="dr-cta-meta">${escapeHtml(settingsMeta)}</span></span>${icon("chevronRight")}
+    </a>`);
+	if (!state.navEnvStatus) loadEnvStatus();
+}
+function renderSettingsPage(opts = {}) {
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = "Settings · FRAMEWORK";
+	const size = parseInt(lsGet("fontSize") || "", 10) || 16;
+	const top = dom.main.scrollTop;
+	dom.view.innerHTML = `
+    <div class="settings-front">
+      <header class="help-head">
+        <div>
+          <div class="doc-kicker">FRAMEWORK</div>
+          <h1 class="doc-title">Settings</h1>
+          <p class="help-lead">Appearance, Claude, news sync, storage and keyboard shortcuts. API keys and data sources live in <a href="#/help">Connections &amp; API Keys</a>.</p>
+        </div>
+        <div class="help-head-actions">
+          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
+        </div>
+      </header>
+      <div class="settings-grid">
+        <section class="set-card">
+          <h2 class="set-card-label">Appearance</h2>
+          <div class="set-row set-col">
+            <div class="set-row-head"><label class="set-name" for="set-size">Reading text</label><span class="set-val" id="set-size-val" data-size-val>${size} px</span></div>
+            <input type="range" class="set-range" id="set-size" min="13" max="24" step="1" value="${size}">
+          </div>
+          <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? "<span class=\"set-sub\">Overlay on narrow screens</span>" : ""}</span>${settingSeg("mode", mqMobile.matches ? "flyout" : navState.mode, [["pinned", "Pinned"], ["flyout", "Overlay"]], mqMobile.matches)}</div>
+          <p class="dr-note">Pinned sits beside the page. Overlay slides over it and closes once you pick something.</p>
+          <div class="set-row"><span class="set-name">Motion</span>${settingSeg("motion", getMotionLevel(), [
+		["none", "No"],
+		["less", "Less"],
+		["full", "Full"]
+	])}</div>
+          <p class="dr-note">Full uses slow, soothing glides and tactile settling. Less keeps quiet fades without movement. No turns motion off.</p>
+        </section>
+        <section class="set-card">
+          <h2 class="set-card-label">Claude</h2>
+          ${settingsClaudeHtml()}
+        </section>
+        <section class="set-card">
+          <h2 class="set-card-label">News</h2>
+          ${newsSettingsHtml()}
+        </section>
+        <section class="set-card">
+          <h2 class="set-card-label">Storage</h2>
+          ${settingsStorageHtml()}
+        </section>
+        <section class="set-card set-card-wide">
+          <h2 class="set-card-label">Keyboard</h2>
+          ${settingsKeysHtml()}
+        </section>
+      </div>
+    </div>`;
+	if (opts.enter) enterView();
+	else dom.main.scrollTop = top;
+	if (!state.navStorage) loadStorage();
+	if (!state.navNewsStatus) loadNewsSettings();
+	if (!state.navEnvStatus) loadEnvStatus();
+}
+var onSettingsPage = () => state.activeRoute === "/settings" || state.activeRoute === "/settings/";
+function refreshSettingsViews() {
+	if (navState.panel === "settings") renderSettingsPanel();
+	if (onSettingsPage()) renderSettingsPage();
+}
+function setMotionSetting(level) {
+	applyMotionLevel(level);
+	refreshSettingsViews();
+}
+async function runSettingsAction(btn) {
+	const act = btn.dataset.setAct;
+	if (act === "font-dec") adjustFontSize(-1);
+	else if (act === "font-inc") adjustFontSize(1);
+	else if (act === "news-refresh") emit("news:refresh");
+	else if (act === "prune") {
+		btn.disabled = true;
+		try {
+			const res = await getJSON("/api/library/storage/prune", { method: "POST" });
+			showToast(res.removed ? `Removed ${plural(res.removed, "temporary file")} (${fmtBytes(res.freed_bytes)})` : "Nothing to clean up");
+		} catch (err) {
+			showToast(err instanceof Error ? err.message : "Prune failed", 5e3);
+		}
+		state.navStorage = null;
+		refreshSettingsViews();
+	}
+}
+function handleSettingsClick(e) {
+	const t = e.target;
+	const set = t?.closest("[data-set]");
+	if (set) {
+		if (set.dataset.set === "mode" && set.dataset.value) setNavMode(set.dataset.value);
+		else if (set.dataset.set === "motion") setMotionSetting(set.dataset.value);
+		return;
+	}
+	const setAct = t?.closest("[data-set-act]");
+	if (setAct) runSettingsAction(setAct);
+}
+onView("click", handleSettingsClick);
+onView("input", (e) => {
+	const t = e.target;
+	if (t?.id === "set-size") applyFontSize(t.value);
+});
+onView("change", (e) => {
+	const t = e.target;
+	if (t?.matches("[data-set-model]")) {
+		dom.modelSelect.value = t.value;
+		dom.modelSelect.dispatchEvent(new Event("change"));
+	}
+});
+dom.sidebar?.addEventListener("click", handleSettingsClick);
+dom.sidebar?.addEventListener("input", (e) => {
+	const t = e.target;
+	if (t?.id === "set-size") applyFontSize(t.value);
+});
+dom.sidebar?.addEventListener("change", (e) => {
+	const t = e.target;
+	if (t?.matches("[data-set-model]")) {
+		dom.modelSelect.value = t.value;
+		dom.modelSelect.dispatchEvent(new Event("change"));
+	}
+});
+registerDrawerPanel("settings", renderSettingsPanel);
+on("nav:mode-changed", () => refreshSettingsViews());
+on("env:saved", () => refreshSettingsViews());
+on("jobs:finished", () => {
+	if (drawerShown() || onSettingsPage()) refreshSettingsViews();
+});
+// src/views/ref_almanac.ts
 var REF_CATS = [
 	["all", "All Web"],
 	["ibr", "IBR Standards"],
@@ -6961,6 +9909,129 @@ var refUi = {
 	q: "",
 	expanded: false
 };
+function filterWebEntries(data, cat, q) {
+	const ql = q.trim().toLowerCase();
+	const hosts = data.hosts && data.hosts.length ? data.hosts : null;
+	const rawItems = data.items || [];
+	let filtered = (hosts || rawItems).filter((it) => {
+		if (cat === "legacy") {
+			if (!it.legacy) return false;
+		} else if (cat !== "all" && it.category !== cat) return false;
+		if (!ql) return true;
+		const subUrls = (it.urls || []).map((u) => `${u.url} ${u.display}`).join(" ");
+		const cites = (it.cited_in || []).map((c) => `${c.id} ${c.label} ${c.title} ${c.part}`).join(" ");
+		return `${it.host} ${it.url} ${it.display} ${subUrls} ${it.legacy?.replacement_url || ""} ${cites}`.toLowerCase().includes(ql);
+	});
+	if (hosts && ql && !filtered.length) filtered = rawItems.filter((it) => {
+		if (cat === "legacy" && !it.legacy) return false;
+		if (cat !== "all" && cat !== "legacy" && it.category !== cat) return false;
+		const cites = (it.cited_in || []).map((c) => `${c.id} ${c.label} ${c.title} ${c.part}`).join(" ");
+		return `${it.host} ${it.url} ${it.display} ${it.legacy?.replacement_url || ""} ${cites}`.toLowerCase().includes(ql);
+	});
+	return filtered;
+}
+function filterIbrEntries(data, q) {
+	const list = data.ibr_standards || [];
+	const ql = q.trim().toLowerCase();
+	if (!ql) return list;
+	return list.filter((s) => {
+		const secs = (s.approved_in || []).map((a) => `${a.id} ${a.label} ${a.part} ${a.para || ""}`).join(" ");
+		return `${s.code} ${s.org} ${s.org_name || ""} ${s.excerpt} ${secs}`.toLowerCase().includes(ql);
+	});
+}
+function renderWebItemHtml(item, titleNum) {
+	const citesHtml = (item.cited_in || []).slice(0, 4).map((c) => `<a class="citation-chip" data-ref-tier="cfr" href="#/title/${titleNum}/section/${encodeURIComponent(c.id)}" title="${escapeHtml(c.title)}">${escapeHtml(c.label)}</a>`).join("");
+	const moreCites = item.cite_count > 4 ? `<span class="ref-cite-more">+${item.cite_count - 4}</span>` : "";
+	const href = safeHttpUrl(item.url);
+	const leg = item.legacy;
+	const replHref = leg ? safeHttpUrl(leg.replacement_url) : "";
+	const legacyHtml = leg ? `
+    <div class="ref-legacy">
+      <span class="stat-pill is-stale is-bare"><span class="stat-dot is-stale" aria-hidden="true"></span>Retired URL</span>
+      <span class="ref-legacy-note">${escapeHtml(leg.note)}</span>
+      ${replHref ? `<a class="citation-chip" href="${escapeHtml(replHref)}" target="_blank" rel="noopener noreferrer">${escapeHtml(leg.replacement_label)} ↗</a>` : ""}
+    </div>` : "";
+	const pageCount = (item.url_count || 0) > 1 ? `<span class="ref-subpages">${item.url_count} URLs</span>` : "";
+	return `
+    <article class="ref-item">
+      <div class="ref-item-top">
+        <span class="ref-host">${escapeHtml(item.host)}</span>
+        <span class="ref-cat-pill">${escapeHtml(CAT_LABELS[item.category] || item.category)}</span>
+        ${pageCount}
+        <span class="ref-count">${plural(item.cite_count, "section")}</span>
+      </div>
+      ${href ? `<a class="ref-url" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.display)}</a>` : `<span class="ref-url">${escapeHtml(item.display)}</span>`}
+      ${legacyHtml}
+      ${citesHtml ? `<div class="ref-cites"><span class="ref-cites-lbl">Cited in</span>${citesHtml}${moreCites}</div>` : ""}
+    </article>`;
+}
+function renderIbrItemHtml(std, titleNum) {
+	const approved = (std.approved_in || []).slice(0, 4).map((a) => `<a class="citation-chip" data-ref-tier="ibr" href="#/title/${titleNum}/section/${encodeURIComponent(a.id)}${a.para ? "?p=" + encodeURIComponent(a.para) : ""}">${escapeHtml(a.label)}${a.para ? escapeHtml(a.para) : ""}</a>`).join("");
+	const extra = (std.section_count || 0) - 4;
+	const orgHref = safeHttpUrl(std.org_url);
+	return `
+    <article class="ref-item is-ibr has-tier-bar" data-ref-tier="ibr">
+      <div class="ref-item-top">
+        <span class="ref-host">${escapeHtml(std.code)}</span>
+        ${orgHref ? `<a class="ref-cat-pill is-link" href="${escapeHtml(orgHref)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(std.org_name || std.org)}">${escapeHtml(std.org)} ↗</a>` : `<span class="ref-cat-pill">${escapeHtml(std.org)}</span>`}
+        <span class="ref-count">${plural(std.section_count || 1, "section")}</span>
+      </div>
+      <div class="ref-ibr-excerpt">${escapeHtml(std.excerpt)}</div>
+      <div class="ref-cites">
+        <span class="ref-cites-lbl">Approved in</span>
+        ${approved}
+        ${extra > 0 ? `<span class="ref-cite-more">+${extra}</span>` : ""}
+      </div>
+    </article>`;
+}
+function renderRefListHtml(data, titleNum) {
+	if (refUi.cat === "ibr") {
+		const filtered = filterIbrEntries(data, refUi.q);
+		if (!filtered.length) return "<div class=\"ref-empty\">No matching references for the current filter.</div>";
+		const showLimit = refUi.expanded || refUi.q.trim() ? filtered.length : 12;
+		const shown = filtered.slice(0, showLimit);
+		return `<div class="ref-grid">${shown.map((item) => renderIbrItemHtml(item, titleNum)).join("")}</div>${filtered.length > shown.length ? `<div class="ref-more"><button type="button" class="btn btn-sm" id="ref-show-all">Show all ${filtered.length} matching entries</button></div>` : ""}`;
+	}
+	const filtered = filterWebEntries(data, refUi.cat, refUi.q);
+	if (!filtered.length) return "<div class=\"ref-empty\">No matching references for the current filter.</div>";
+	const showLimit = refUi.expanded || refUi.q.trim() ? filtered.length : 12;
+	const shown = filtered.slice(0, showLimit);
+	return `<div class="ref-grid">${shown.map((item) => renderWebItemHtml(item, titleNum)).join("")}</div>${filtered.length > shown.length ? `<div class="ref-more"><button type="button" class="btn btn-sm" id="ref-show-all">Show all ${filtered.length} matching entries</button></div>` : ""}`;
+}
+function updateRefHubDom(data, titleNum) {
+	const hubEl = document.getElementById("ts-almanac");
+	const catsEl = document.getElementById("ref-cats-slot");
+	const listEl = document.getElementById("ref-list-slot");
+	const countEl = document.getElementById("ref-total-count");
+	if (!hubEl || !catsEl || !listEl) return;
+	const webTotal = data.host_total ?? data.total ?? 0;
+	const ibrTotal = data.ibr_total ?? (data.ibr_standards || []).length;
+	const catCounts = data.host_category_counts || data.category_counts || {};
+	const legacyCount = (data.hosts || data.items || []).filter((it) => it.legacy).length;
+	if (!webTotal && !ibrTotal) {
+		const count = Number(state.metaInfo.section_count || 0);
+		hubEl.innerHTML = `
+      <div class="ts-colophon">
+        Edition Colophon · Title ${titleNum}${count ? ` · ${fmt(count)} sections` : ""} · No external web portals or incorporated consensus standards cited.
+      </div>`;
+		return;
+	}
+	if (countEl) {
+		const parts = [];
+		if (webTotal) parts.push(plural(webTotal, data.host_total ? "host" : "resource"));
+		if (ibrTotal) parts.push(plural(ibrTotal, "IBR standard"));
+		countEl.textContent = parts.join(" · ");
+	}
+	if (refUi.cat === "ibr" && !ibrTotal) refUi.cat = "all";
+	if (refUi.cat === "legacy" && !legacyCount) refUi.cat = "all";
+	catsEl.innerHTML = REF_CATS.map(([k, label]) => {
+		const n = k === "all" ? webTotal : k === "ibr" ? ibrTotal : k === "legacy" ? legacyCount : catCounts[k] || 0;
+		if (k !== "all" && !n) return "";
+		return `<button type="button" class="sf-pill${refUi.cat === k ? " is-active" : ""}" data-ref-cat="${k}" aria-pressed="${refUi.cat === k}">${escapeHtml(label)} <span class="sf-pill-count">${n}</span></button>`;
+	}).join("");
+	listEl.innerHTML = renderRefListHtml(data, titleNum);
+}
+// src/views/core.ts
 var titleNewsCache = /* @__PURE__ */ new Map();
 function countLeafSections(node) {
 	if (!node) return 0;
@@ -6970,8 +10041,8 @@ function countLeafSections(node) {
 	return total;
 }
 function findChapterLabel(partNode) {
-	let k = treeIdx.parts.get(partNode.id);
-	while (k !== void 0 && k !== null) {
+	let k = treeIdx.parts.get(String(partNode.id || ""));
+	while (k !== void 0 && k !== null && k >= 0) {
 		const n = treeIdx.nodes[k];
 		if (n && (n.t === "chapter" || n.t === "subtitle")) {
 			const meta = agencyMeta(n);
@@ -7010,7 +10081,6 @@ function listDirectLeaves(partNode) {
 	walk(partNode);
 	return out;
 }
-/** Synthesize a concise editorial dek from a part's subparts or top sections. */
 function describePartNode(partNode, secCount) {
 	if (!partNode) return secCount ? `${plural(secCount, "section")} in this part` : "";
 	const cleanPhrase = (s) => cleanInlineLabel(s).replace(/\.+$/, "");
@@ -7033,10 +10103,11 @@ function describePartNode(partNode, secCount) {
 function buildDynamicCard(partNode, kickerOverride = "") {
 	const secCount = countLeafSections(partNode);
 	const titleText = cleanInlineLabel(partNode.d || "");
+	const idStr = String(partNode.id || "");
 	return {
-		part: partNode.id,
+		part: idStr,
 		kicker: kickerOverride || findChapterLabel(partNode),
-		title: `Part ${partNode.id}${titleText ? " — " + titleText : ""}`,
+		title: `Part ${idStr}${titleText ? " — " + titleText : ""}`,
 		desc: describePartNode(partNode, secCount),
 		secCount
 	};
@@ -7075,7 +10146,7 @@ function agencyBeatsList() {
 		node: treeIdx.nodes[k],
 		key: agencyKeyForNode(treeIdx.nodes[k]),
 		info: agencyInfo(treeIdx.nodes[k])
-	})).filter((x) => x.node && x.node.n > 0);
+	})).filter((x) => x.node && (x.node.n || 0) > 0);
 }
 function cardsForBeat(titleNum, beat) {
 	if (beat && beat !== "front") {
@@ -7083,12 +10154,12 @@ function cardsForBeat(titleNum, beat) {
 		const agNode = k != null ? treeIdx.nodes[k] : null;
 		if (agNode) {
 			const info = agencyInfo(agNode);
-			const curatedByPart = new Map(((HOME_CONTENT[titleNum] || {}).cards || []).map((c) => [c.part, c]));
+			const curatedByPart = new Map(((HOME_CONTENT[titleNum] || { cards: [] }).cards || []).map((c) => [c.part, c]));
 			return collectAgencyParts(agNode).map((p) => ({
 				node: p,
 				secCount: countLeafSections(p)
 			})).filter((x) => x.secCount > 0).sort((a, b) => b.secCount - a.secCount).slice(0, 7).map(({ node }) => {
-				const curated = curatedByPart.get(node.id);
+				const curated = curatedByPart.get(String(node.id || ""));
 				return curated ? {
 					...curated,
 					secCount: countLeafSections(node)
@@ -7115,13 +10186,13 @@ function leadInsideLinksHtml(titleNum, partId, partNode) {
 		const spLabel = cleanInlineLabel(sp.l || `Subpart ${sp.id}`);
 		const spName = cleanInlineLabel(sp.d || "");
 		items.push({
-			href: titleHref(titleNum, `section/${encodeURIComponent(target.id)}`),
+			href: titleHref(titleNum, `section/${encodeURIComponent(String(target.id || ""))}`),
 			code: spLabel,
 			text: spName && spName !== spLabel ? spName : cleanInlineLabel(target.d || target.l || "")
 		});
 	}
 	else for (const sec of listDirectLeaves(partNode).slice(0, 4)) items.push({
-		href: titleHref(titleNum, `section/${encodeURIComponent(sec.id)}`),
+		href: titleHref(titleNum, `section/${encodeURIComponent(String(sec.id || ""))}`),
 		code: cleanInlineLabel(sec.l || `§ ${sec.id}`),
 		text: cleanInlineLabel(sec.d || "")
 	});
@@ -7140,8 +10211,9 @@ function leadInsideLinksHtml(titleNum, partId, partNode) {
 }
 function mainBroadsheetHtml(titleNum, beat) {
 	const cards = cardsForBeat(titleNum, beat);
-	const beatInfo = beat !== "front" && treeIdx.agencies.has(beat) ? agencyInfo(treeIdx.nodes[treeIdx.agencies.get(beat)]) : null;
-	const beatK = beat !== "front" ? treeIdx.agencies.get(beat) : null;
+	const beatKey = beat !== "front" ? treeIdx.agencies.get(beat) : void 0;
+	const beatInfo = beatKey !== void 0 ? agencyInfo(treeIdx.nodes[beatKey]) : null;
+	const beatK = beatKey ?? null;
 	const flagHtml = beatInfo ? `
       <div class="ts-sec-flag">
         <span class="ts-flag-label">${escapeHtml(beatInfo.code)} Beat${beatInfo.name ? ` · ${escapeHtml(beatInfo.name)}` : ""}</span>
@@ -7217,7 +10289,7 @@ function titleDeskRailHtml(titleNum) {
 			id: key.slice(pipe + 1),
 			...e
 		};
-	}).filter((e) => e && e.title === titleNum && e.id).sort((a, b) => (b.t || 0) - (a.t || 0));
+	}).filter((e) => Boolean(e && e.title === titleNum && e.id)).sort((a, b) => (b.t || 0) - (a.t || 0));
 	let resumeHtml;
 	if (entries.length) {
 		const last = entries[0];
@@ -7227,7 +10299,7 @@ function titleDeskRailHtml(titleNum) {
       <div class="ts-rail-block title-resume">
         <div class="ts-rail-head">
           <span class="hm-kicker">Continue in Title ${titleNum}</span>
-          <span class="hm-time">${escapeHtml(timeAgo(last.t))}</span>
+          <span class="hm-time">${escapeHtml(timeAgo(last.t || 0))}</span>
         </div>
         <a class="ts-resume-link" href="${href}">${escapeHtml(last.l || "§ " + last.id)}${last.h ? " " + escapeHtml(last.h) : ""}</a>
         <div class="ts-resume-meta">
@@ -7243,7 +10315,7 @@ function titleDeskRailHtml(titleNum) {
               <a class="hm-trail-row" href="${titleHref(titleNum, "section/" + encodeURIComponent(e.id) + (e.u ? "/" + encodeURIComponent(e.u) : ""))}">
                 <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
                 <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
-                <span class="hm-row-val">${escapeHtml(timeAgo(e.t))}</span>
+                <span class="hm-row-val">${escapeHtml(timeAgo(e.t || 0))}</span>
               </a>`).join("")}
           </div>` : ""}
       </div>`;
@@ -7346,7 +10418,7 @@ function renderMostCitedHtml(data, titleNum) {
 function beatsRibbonHtml() {
 	const beats = agencyBeatsList();
 	if (beats.length < 2) return "";
-	const top = [...beats].sort((a, b) => b.node.n - a.node.n).slice(0, 6);
+	const top = [...beats].sort((a, b) => (b.node.n || 0) - (a.node.n || 0)).slice(0, 6);
 	const pill = (key, label) => {
 		return `<button type="button" aria-pressed="${refUi.beat === key}" data-ts-beat="${escapeHtml(key)}">${escapeHtml(label)}</button>`;
 	};
@@ -7390,36 +10462,6 @@ function departmentsDirectoryHtml() {
       </div>
     </section>`;
 }
-function filterWebEntries(data, cat, q) {
-	const ql = q.trim().toLowerCase();
-	const hosts = data.hosts && data.hosts.length ? data.hosts : null;
-	const rawItems = data.items || [];
-	let filtered = (hosts || rawItems).filter((it) => {
-		if (cat === "legacy") {
-			if (!it.legacy) return false;
-		} else if (cat !== "all" && it.category !== cat) return false;
-		if (!ql) return true;
-		const subUrls = (it.urls || []).map((u) => `${u.url} ${u.display}`).join(" ");
-		const cites = (it.cited_in || []).map((c) => `${c.id} ${c.label} ${c.title} ${c.part}`).join(" ");
-		return `${it.host} ${it.url} ${it.display} ${subUrls} ${it.legacy?.replacement_url || ""} ${cites}`.toLowerCase().includes(ql);
-	});
-	if (hosts && ql && !filtered.length) filtered = rawItems.filter((it) => {
-		if (cat === "legacy" && !it.legacy) return false;
-		if (cat !== "all" && cat !== "legacy" && it.category !== cat) return false;
-		const cites = (it.cited_in || []).map((c) => `${c.id} ${c.label} ${c.title} ${c.part}`).join(" ");
-		return `${it.host} ${it.url} ${it.display} ${it.legacy?.replacement_url || ""} ${cites}`.toLowerCase().includes(ql);
-	});
-	return filtered;
-}
-function filterIbrEntries(data, q) {
-	const list = data.ibr_standards || [];
-	const ql = q.trim().toLowerCase();
-	if (!ql) return list;
-	return list.filter((s) => {
-		const secs = (s.approved_in || []).map((a) => `${a.id} ${a.label} ${a.part} ${a.para}`).join(" ");
-		return `${s.code} ${s.org} ${s.org_name} ${s.excerpt} ${secs}`.toLowerCase().includes(ql);
-	});
-}
 function authorityStackHtml(titleNum) {
 	return `<div class="ts-auth-stack" aria-label="Legal authority hierarchy">
     ${jurisdictionStackForTitle(titleNum).nodes.map((node, idx) => {
@@ -7433,93 +10475,8 @@ function authorityStackHtml(titleNum) {
 	}).join("")}
   </div>`;
 }
-function renderWebItemHtml(item, titleNum) {
-	const citesHtml = (item.cited_in || []).slice(0, 4).map((c) => `<a class="citation-chip" data-ref-tier="cfr" href="#/title/${titleNum}/section/${encodeURIComponent(c.id)}" title="${escapeHtml(c.title)}">${escapeHtml(c.label)}</a>`).join("");
-	const moreCites = item.cite_count > 4 ? `<span class="ref-cite-more">+${item.cite_count - 4}</span>` : "";
-	const href = safeHttpUrl(item.url);
-	const replHref = item.legacy ? safeHttpUrl(item.legacy.replacement_url) : "";
-	const legacyHtml = item.legacy ? `
-    <div class="ref-legacy">
-      <span class="stat-pill is-stale is-bare"><span class="stat-dot is-stale" aria-hidden="true"></span>Retired URL</span>
-      <span class="ref-legacy-note">${escapeHtml(item.legacy.note)}</span>
-      ${replHref ? `<a class="citation-chip" href="${escapeHtml(replHref)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.legacy.replacement_label)} ↗</a>` : ""}
-    </div>` : "";
-	const pageCount = item.url_count > 1 ? `<span class="ref-subpages">${item.url_count} URLs</span>` : "";
-	return `
-    <article class="ref-item">
-      <div class="ref-item-top">
-        <span class="ref-host">${escapeHtml(item.host)}</span>
-        <span class="ref-cat-pill">${escapeHtml(CAT_LABELS[item.category] || item.category)}</span>
-        ${pageCount}
-        <span class="ref-count">${plural(item.cite_count, "section")}</span>
-      </div>
-      ${href ? `<a class="ref-url" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.display)}</a>` : `<span class="ref-url">${escapeHtml(item.display)}</span>`}
-      ${legacyHtml}
-      ${citesHtml ? `<div class="ref-cites"><span class="ref-cites-lbl">Cited in</span>${citesHtml}${moreCites}</div>` : ""}
-    </article>`;
-}
-function renderIbrItemHtml(std, titleNum) {
-	const approved = (std.approved_in || []).slice(0, 4).map((a) => `<a class="citation-chip" data-ref-tier="ibr" href="#/title/${titleNum}/section/${encodeURIComponent(a.id)}${a.para ? "?p=" + encodeURIComponent(a.para) : ""}">${escapeHtml(a.label)}${a.para ? escapeHtml(a.para) : ""}</a>`).join("");
-	const extra = (std.section_count || 0) - 4;
-	const orgHref = safeHttpUrl(std.org_url);
-	return `
-    <article class="ref-item is-ibr has-tier-bar" data-ref-tier="ibr">
-      <div class="ref-item-top">
-        <span class="ref-host">${escapeHtml(std.code)}</span>
-        ${orgHref ? `<a class="ref-cat-pill is-link" href="${escapeHtml(orgHref)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(std.org_name || std.org)}">${escapeHtml(std.org)} ↗</a>` : `<span class="ref-cat-pill">${escapeHtml(std.org)}</span>`}
-        <span class="ref-count">${plural(std.section_count || 1, "section")}</span>
-      </div>
-      <div class="ref-ibr-excerpt">${escapeHtml(std.excerpt)}</div>
-      <div class="ref-cites">
-        <span class="ref-cites-lbl">Approved in</span>
-        ${approved}
-        ${extra > 0 ? `<span class="ref-cite-more">+${extra}</span>` : ""}
-      </div>
-    </article>`;
-}
-function renderRefListHtml(data, titleNum) {
-	const isIbr = refUi.cat === "ibr";
-	const filtered = isIbr ? filterIbrEntries(data, refUi.q) : filterWebEntries(data, refUi.cat, refUi.q);
-	if (!filtered.length) return "<div class=\"ref-empty\">No matching references for the current filter.</div>";
-	const showLimit = refUi.expanded || refUi.q.trim() ? filtered.length : 12;
-	const shown = filtered.slice(0, showLimit);
-	return `<div class="ref-grid">${shown.map((item) => isIbr ? renderIbrItemHtml(item, titleNum) : renderWebItemHtml(item, titleNum)).join("")}</div>${filtered.length > shown.length ? `<div class="ref-more"><button type="button" class="btn btn-sm" id="ref-show-all">Show all ${filtered.length} matching entries</button></div>` : ""}`;
-}
-function updateRefHubDom(data, titleNum) {
-	const hubEl = document.getElementById("ts-almanac");
-	const catsEl = document.getElementById("ref-cats-slot");
-	const listEl = document.getElementById("ref-list-slot");
-	const countEl = document.getElementById("ref-total-count");
-	if (!hubEl || !catsEl || !listEl) return;
-	const webTotal = data.host_total ?? data.total ?? 0;
-	const ibrTotal = data.ibr_total ?? (data.ibr_standards || []).length;
-	const catCounts = data.host_category_counts || data.category_counts || {};
-	const legacyCount = (data.hosts || data.items || []).filter((it) => it.legacy).length;
-	if (!webTotal && !ibrTotal) {
-		const count = Number(state.metaInfo.section_count || 0);
-		hubEl.innerHTML = `
-      <div class="ts-colophon">
-        Edition Colophon · Title ${titleNum}${count ? ` · ${fmt(count)} sections` : ""} · No external web portals or incorporated consensus standards cited.
-      </div>`;
-		return;
-	}
-	if (countEl) {
-		const parts = [];
-		if (webTotal) parts.push(plural(webTotal, data.host_total ? "host" : "resource"));
-		if (ibrTotal) parts.push(plural(ibrTotal, "IBR standard"));
-		countEl.textContent = parts.join(" · ");
-	}
-	if (refUi.cat === "ibr" && !ibrTotal) refUi.cat = "all";
-	if (refUi.cat === "legacy" && !legacyCount) refUi.cat = "all";
-	catsEl.innerHTML = REF_CATS.map(([k, label]) => {
-		const n = k === "all" ? webTotal : k === "ibr" ? ibrTotal : k === "legacy" ? legacyCount : catCounts[k] || 0;
-		if (k !== "all" && !n) return "";
-		return `<button type="button" class="sf-pill${refUi.cat === k ? " is-active" : ""}" data-ref-cat="${k}" aria-pressed="${refUi.cat === k}">${escapeHtml(label)} <span class="sf-pill-count">${n}</span></button>`;
-	}).join("");
-	listEl.innerHTML = renderRefListHtml(data, titleNum);
-}
 function renderMastheadStatusHtml(titleNum) {
-	const libRow = (navLib.data && navLib.data.titles || []).find((x) => x.title === titleNum);
+	const libRow = (state.navLibData && state.navLibData.titles || []).find((x) => x.title === titleNum);
 	if (libRow && isStale(libRow)) return statPill("stale", "Update available", { bare: true });
 	if (state.metaInfo.partial) return statPill("partial", "Partial install", { bare: true });
 	return statPill("synced", "Installed", { bare: true });
@@ -7541,7 +10498,7 @@ function hydrateTitleWire(titleNum, seq, signal) {
 		applyWire(cached.articles);
 		return;
 	}
-	fetch("/api/news?limit=3", { signal }).then((r) => r.ok ? r.json() : null).then((data) => {
+	fetchNewsPreview(3, { signal }).then((data) => {
 		if (!data || seq !== state.routeSeq) return;
 		const articles = data.articles || [];
 		titleNewsCache.set(29, {
@@ -7637,8 +10594,8 @@ async function renderHome() {
 		if (beatsSlot) beatsSlot.innerHTML = beatsRibbonHtml();
 		if (mainSlot) mainSlot.innerHTML = mainBroadsheetHtml(titleNum, refUi.beat);
 		if (deptsSlot) deptsSlot.innerHTML = departmentsDirectoryHtml();
-	} catch (e) {}
-	if (!snapRow) fetch("/api/titles/snapshot", { signal }).then((r) => r.ok ? r.json() : null).then((snap) => {
+	} catch {}
+	if (!snapRow) fetchTitlesSnapshot({ signal }).then((snap) => {
 		if (!snap || seq !== state.routeSeq) return;
 		state.homeSnapshot = snap;
 		const row = snap.titles?.find((x) => x.title === titleNum);
@@ -7648,16 +10605,11 @@ async function renderHome() {
 		const crumbSpan = dom.view.querySelector(".ts-folio .doc-kicker > span:last-child");
 		if (row.desk && crumbSpan) crumbSpan.textContent = `${titleNum} CFR · ${row.desk}`;
 	}).catch(() => {});
-	let refData = state.refsCache.get(titleNum);
-	if (!refData) try {
-		const res = await fetch(`/api/${titleNum}/references`, { signal });
-		if (seq !== state.routeSeq) return;
-		if (res.ok) {
-			refData = await res.json();
-			state.refsCache.set(titleNum, refData);
-		}
+	let refData = null;
+	try {
+		refData = await fetchTitleReferences(titleNum, { signal });
 	} catch (err) {
-		if (err && err.name === "AbortError") return;
+		if (err instanceof Error && err.name === "AbortError") return;
 	}
 	if (seq !== state.routeSeq) return;
 	const citedSlot = document.getElementById("ts-cited-slot");
@@ -7674,20 +10626,23 @@ async function renderHome() {
 		if (listEl) listEl.innerHTML = "<div class=\"ref-empty\">Couldn’t load references for this title.</div>";
 	}
 }
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id !== "ref-filter" || !dom.view.querySelector(".ref-hub")) return;
-	refUi.q = e.target.value;
+onView("input", (e) => {
+	const inp = e.target;
+	if (!inp || inp.id !== "ref-filter" || !dom.view.querySelector(".ref-hub")) return;
+	refUi.q = inp.value;
 	refUi.expanded = false;
 	const data = state.refsCache.get(state.currentTitle);
 	if (data) updateRefHubDom(data, state.currentTitle);
 });
-dom.view.addEventListener("click", (e) => {
+onView("click", (e) => {
 	if (!dom.view.querySelector(".ts-front")) return;
-	if (e.target.closest("#home-open-contents")) {
+	const t = e.target;
+	if (!t) return;
+	if (t.closest("#home-open-contents")) {
 		openPanel("reader", { focus: true });
 		return;
 	}
-	const beatEl = e.target.closest("[data-ts-beat]");
+	const beatEl = t.closest("[data-ts-beat]");
 	if (beatEl) {
 		refUi.beat = beatEl.dataset.tsBeat || "front";
 		const beatsSlot = document.getElementById("ts-beats-slot");
@@ -7702,15 +10657,15 @@ dom.view.addEventListener("click", (e) => {
 		});
 		return;
 	}
-	const agencyBtn = e.target.closest("[data-ts-open-agency]");
+	const agencyBtn = t.closest("[data-ts-open-agency]");
 	if (agencyBtn) {
 		const k = Number(agencyBtn.dataset.tsOpenAgency);
 		if (!Number.isNaN(k)) showAgencyView(k);
 		openPanel("reader", { focus: true });
 		return;
 	}
-	const jumpBtn = e.target.closest("[data-ts-scroll]");
-	if (jumpBtn) {
+	const jumpBtn = t.closest("[data-ts-scroll]");
+	if (jumpBtn && jumpBtn.dataset.tsScroll) {
 		const target = document.getElementById(jumpBtn.dataset.tsScroll);
 		if (target) target.scrollIntoView({
 			behavior: "smooth",
@@ -7719,21 +10674,364 @@ dom.view.addEventListener("click", (e) => {
 		return;
 	}
 	if (!dom.view.querySelector(".ref-hub")) return;
-	const catBtn = e.target.closest("[data-ref-cat]");
-	if (catBtn) {
+	const catBtn = t.closest("[data-ref-cat]");
+	if (catBtn && catBtn.dataset.refCat) {
 		refUi.cat = catBtn.dataset.refCat;
 		refUi.expanded = false;
 		const data = state.refsCache.get(state.currentTitle);
 		if (data) updateRefHubDom(data, state.currentTitle);
 		return;
 	}
-	if (e.target.closest("#ref-show-all")) {
+	if (t.closest("#ref-show-all")) {
 		refUi.expanded = true;
 		const data = state.refsCache.get(state.currentTitle);
 		if (data) updateRefHubDom(data, state.currentTitle);
 	}
 });
-// src/views/home.js
+// src/views/projects.ts
+var armedTimers = /* @__PURE__ */ new WeakMap();
+var projectRouteId$1 = () => {
+	const m = /\/projects\/([^/?]+)/.exec(state.activeRoute || "");
+	return m ? decodeURIComponent(m[1]) : null;
+};
+var importInput = document.getElementById("projects-import");
+importInput.addEventListener("change", async () => {
+	const file = importInput.files && importInput.files[0];
+	importInput.value = "";
+	if (!file) return;
+	try {
+		const raw = JSON.parse(await file.text());
+		const incoming = (Array.isArray(raw) ? raw : raw?.projects || []).filter(validProject);
+		if (!incoming.length) throw new Error("No workspaces in that file");
+		const list = loadProjects();
+		for (const p of incoming) {
+			const i = list.findIndex((x) => x.id === p.id);
+			if (i < 0) list.push(p);
+			else if ((p.updated_at || "") >= (list[i].updated_at || "")) list[i] = p;
+		}
+		saveProjects(list);
+		showToast(`Imported ${plural(incoming.length, "workspace")}`);
+	} catch (err) {
+		showToast(`Couldn’t import: ${err instanceof Error ? err.message : "Invalid file"}`, 5e3);
+	}
+});
+function startNewWorkspace() {
+	const p = createProject("Untitled workspace");
+	window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
+	requestAnimationFrame(() => setTimeout(() => {
+		const n = dom.view.querySelector(".proj-name");
+		if (n) {
+			n.focus();
+			n.select();
+		}
+	}, 60));
+}
+function onProjectAction(btn) {
+	const act = btn.dataset.projAct;
+	if (act === "export") exportProjects(loadProjects());
+	else if (act === "import") importInput.click();
+	else if (act === "new") startNewWorkspace();
+	else if (act === "export-one") {
+		const p = loadProjects().find((x) => x.id === btn.dataset.id);
+		if (p) exportProjects([p], `${p.name.replace(/[^\w-]+/g, "-").toLowerCase() || "workspace"}.json`);
+	} else if (act === "delete" || act === "unpin" || act === "tabgroup-delete") {
+		if (!btn.classList.contains("is-armed")) {
+			const label = btn.textContent || "Remove";
+			btn.classList.add("is-armed");
+			btn.textContent = act === "delete" ? "Delete workspace?" : "Remove?";
+			announce(act === "delete" ? "Press again to delete workspace" : "Press again to confirm removal");
+			const prevT = armedTimers.get(btn);
+			if (prevT) clearTimeout(prevT);
+			armedTimers.set(btn, setTimeout(() => {
+				btn.classList.remove("is-armed");
+				btn.textContent = label;
+			}, 4e3));
+			return;
+		}
+		if (act === "delete") {
+			const list = loadProjects().filter((x) => x.id !== btn.dataset.id);
+			window.location.hash = "#/projects";
+			saveProjects(list);
+			showToast("Workspace deleted");
+		} else if (act === "unpin") {
+			const [title, ...rest] = (btn.dataset.sec || "").split("|");
+			updateProject(projectRouteId$1(), (p) => {
+				p.sections = p.sections.filter((s) => !(s.title === Number(title) && s.id === rest.join("|")));
+			});
+		} else if (act === "tabgroup-delete") {
+			const gid = btn.dataset.groupId;
+			updateProject(projectRouteId$1(), (p) => {
+				p.tab_groups = (p.tab_groups || []).filter((g) => g.id !== gid);
+			});
+		}
+	} else if (act === "tabgroup-restore") {
+		const grp = loadProjects().find((x) => x.id === projectRouteId$1())?.tab_groups?.find((g) => g.id === btn.dataset.groupId);
+		if (grp) restoreTabGroup(grp);
+	} else if (act === "tabgroup-save-active") {
+		if (!state.mainTabs.length && !state.splitTabs.length) {
+			showToast("No open reader tabs to save");
+			return;
+		}
+		addTabGroupToWorkspace(projectRouteId$1(), buildTabGroupSnapshot());
+	} else if (act === "task-cycle") {
+		const taskId = btn.dataset.taskId;
+		const order = [
+			"open",
+			"in_progress",
+			"done"
+		];
+		updateProject(projectRouteId$1(), (p) => {
+			const item = (p.projects || []).find((x) => x.id === taskId);
+			if (item) item.status = order[(order.indexOf(item.status) + 1) % order.length];
+		});
+	} else if (act === "task-remove") {
+		const taskId = btn.dataset.taskId;
+		updateProject(projectRouteId$1(), (p) => {
+			p.projects = (p.projects || []).filter((x) => x.id !== taskId);
+		});
+	} else if (act === "task-add") {
+		const inp = btn.closest(".proj-detail")?.querySelector("#proj-task-input");
+		const title = inp?.value.trim() || "";
+		if (!title) {
+			inp?.focus();
+			return;
+		}
+		updateProject(projectRouteId$1(), (p) => {
+			if (!Array.isArray(p.projects)) p.projects = [];
+			p.projects.unshift({
+				id: `act_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+				title,
+				status: "open",
+				created_at: nowIso()
+			});
+		});
+		showToast("Action project added");
+	}
+}
+dom.sidebar.addEventListener("click", (e) => {
+	const b = e.target?.closest("[data-proj-act]");
+	if (b) onProjectAction(b);
+});
+onView("click", (e) => {
+	const b = e.target?.closest("[data-proj-act]");
+	if (b && dom.view.querySelector(".proj-page, .hm")) onProjectAction(b);
+});
+var TASK_STATUS_LABEL = {
+	open: "Open",
+	in_progress: "In Progress",
+	done: "Done"
+};
+function renderWorkspaceTasksHtml(p) {
+	const tasks = p.projects || [];
+	const rows = tasks.map((t) => `
+    <div class="proj-task-row is-${escapeHtml(t.status || "open")}">
+      <button type="button" class="proj-task-status" data-proj-act="task-cycle" data-task-id="${escapeHtml(t.id)}" title="Click to advance status">${escapeHtml(TASK_STATUS_LABEL[t.status] || "Open")}</button>
+      <span class="proj-task-title">${escapeHtml(t.title)}</span>
+      <button type="button" class="icon-btn proj-task-del" data-proj-act="task-remove" data-task-id="${escapeHtml(t.id)}" aria-label="Remove action project">${icon("close")}</button>
+    </div>
+  `).join("");
+	return `
+    <div class="lib-desk proj-actions-sec">
+      <header class="lib-desk-header"><h2 class="lib-desk-name">Action projects</h2><span class="lib-desk-count">${plural(tasks.length, "project")}</span></header>
+      <div class="proj-task-add">
+        <input type="text" class="ui-input proj-task-input" id="proj-task-input" placeholder="Add an action project (e.g. Audit GHS SDS binder for Line 4)…" aria-label="New action project title" autocomplete="off">
+        <button type="button" class="btn btn-sm btn-accent" data-proj-act="task-add">${icon("plus")} Add project</button>
+      </div>
+      ${rows ? `<div class="proj-task-list">${rows}</div>` : "<p class=\"proj-task-empty\">Action projects turn the legal authorities pinned below into checklists and deliverables.</p>"}
+    </div>`;
+}
+function renderWorkspaceTabGroupsHtml(p) {
+	const groups = p.tab_groups || [];
+	const activeCount = state.mainTabs.length + state.splitTabs.length;
+	const rows = groups.map((g) => {
+		const mainPills = (g.mainTabs || []).map((t) => `<span class="proj-tabgroup-pill" data-ref-tier="${t.tier || "cfr"}"><span class="tier-pip" aria-hidden="true"></span>${escapeHtml(formatTabLabel(t))}</span>`).join("");
+		const splitPills = (g.splitTabs || []).map((s) => `<span class="proj-tabgroup-pill is-split" data-ref-tier="${s.title !== g.mainTabs?.[0]?.title ? "cross" : "cfr"}"><span class="tier-pip" aria-hidden="true"></span>${escapeHtml(s.label || formatTabLabel(s))}</span>`).join("");
+		const total = (g.mainTabs?.length || 0) + (g.splitTabs?.length || 0);
+		return `
+      <article class="proj-tabgroup has-tier-bar" data-ref-tier="cfr">
+        <div class="proj-tabgroup-head">
+          <div class="proj-tabgroup-meta">
+            <h3 class="proj-tabgroup-name">${escapeHtml(g.name)}</h3>
+            <span class="proj-tabgroup-time">${plural(total, "tab")}${SEP}Saved ${escapeHtml(timeAgo(Date.parse(g.saved_at) || Date.now()))}</span>
+          </div>
+          <div class="proj-tabgroup-acts">
+            <button type="button" class="btn btn-sm btn-accent" data-proj-act="tabgroup-restore" data-group-id="${escapeHtml(g.id)}">Open tabs</button>
+            <button type="button" class="lib-act is-danger" data-proj-act="tabgroup-delete" data-group-id="${escapeHtml(g.id)}">Remove</button>
+          </div>
+        </div>
+        ${mainPills ? `<div class="proj-tabgroup-row"><span class="proj-tabgroup-lane">Main</span><div class="proj-tabgroup-pills">${mainPills}</div></div>` : ""}
+        ${splitPills ? `<div class="proj-tabgroup-row"><span class="proj-tabgroup-lane">Side-by-side</span><div class="proj-tabgroup-pills">${splitPills}</div></div>` : ""}
+      </article>`;
+	}).join("");
+	return `
+    <div class="lib-desk proj-tabgroups-sec">
+      <header class="lib-desk-header">
+        <h2 class="lib-desk-name">Saved tab groups</h2>
+        <span class="lib-desk-count">${plural(groups.length, "group")}</span>
+        ${activeCount > 0 ? `<button type="button" class="btn btn-sm" data-proj-act="tabgroup-save-active">${icon("plus")} Save active (${activeCount})</button>` : ""}
+      </header>
+      ${rows ? `<div class="proj-tabgroup-list">${rows}</div>` : "<p class=\"proj-task-empty\">Open multiple sections in reader tabs or side-by-side panes, then click <strong>Save group</strong> to snapshot your research path here.</p>"}
+    </div>`;
+}
+function titlesOf(p) {
+	const ts = [...new Set(p.sections.map((s) => s.title))].sort((a, b) => a - b);
+	return ts.length ? `${ts.length === 1 ? "Title" : "Titles"} ${ts.join(", ")}` : "";
+}
+function renderProjects(id) {
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	const list = loadProjects();
+	const sections = list.reduce((a, p) => a + p.sections.length, 0);
+	const fresh = !dom.view.querySelector(`.proj-page[data-id="${id || ""}"]`);
+	if (!id) {
+		document.title = "Workspaces · FRAMEWORK";
+		const cards = list.map((p) => {
+			const topTier = refTierForCorpus(p.sections[0]?.tier || "federal-reg");
+			const taskCount = (p.projects || []).length;
+			const grpCount = (p.tab_groups || []).length;
+			return `<article class="lib-story proj-card has-tier-bar" data-ref-tier="${topTier}">
+        <div class="story-top"><span class="story-kicker">${projDot(p)}Workspace${SEP}Updated ${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</span></div>
+        <h3 class="story-name"><a href="#/projects/${encodeURIComponent(p.id)}">${escapeHtml(p.name)}</a></h3>
+        ${p.description ? `<p class="story-dek">${escapeHtml(p.description)}</p>` : ""}
+        ${p.tags && p.tags.length ? `<div class="proj-tags">${p.tags.map((t) => `<span class="proj-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
+        <div class="story-foot"><span class="story-date">${joinSep([
+				plural(p.sections.length, "section"),
+				taskCount ? plural(taskCount, "project") : "",
+				grpCount ? plural(grpCount, "tab group") : "",
+				escapeHtml(titlesOf(p))
+			])}</span></div>
+      </article>`;
+		}).join("");
+		const mod = isMac ? "⌘" : "Ctrl ";
+		dom.view.innerHTML = `<div class="lib lib-front proj-page" data-id="">
+      <div class="doc-kicker"><a href="#/">Home</a></div>
+      <div class="lib-head">
+        <div class="lib-head-text"><h1 class="doc-title">Workspaces</h1>
+          <p class="lib-sub">${joinSep([
+			"Subject-based workspaces of pinned sections and projects",
+			plural(list.length, "workspace"),
+			plural(sections, "section")
+		])}</p></div>
+        <button type="button" class="btn" data-proj-act="new">${icon("plus")} New workspace</button>
+      </div>
+      ${list.length ? `<div class="lib-desk"><header class="lib-desk-header"><h2 class="lib-desk-name">All workspaces</h2><span class="lib-desk-count">${plural(list.length, "workspace")}</span></header>
+        <div class="lib-stories">${cards}</div></div>` : `<div class="proj-empty"><div class="dr-empty-title">Start a workspace</div>
+            <p>Collect the sections a compliance program, audit, or permit review turns on, with a note on each. Open any section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>, or start an empty workspace here.</p>
+            <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon("plus")} New workspace</button><button type="button" class="btn" data-proj-act="import">Import file</button></span></div>`}
+    </div>`;
+		if (fresh) enterView();
+		return;
+	}
+	const p = list.find((x) => x.id === id);
+	if (!p) {
+		document.title = "Workspaces · FRAMEWORK";
+		dom.view.innerHTML = emptyStateHtml({
+			title: "No such workspace",
+			body: "It may have been deleted, or it lives in another browser.",
+			actionsHtml: "<a class=\"btn\" href=\"#/projects\">All workspaces</a>",
+			cls: "proj-page"
+		});
+		return;
+	}
+	document.title = `${p.name} · Workspaces · FRAMEWORK`;
+	const installed = new Set(state.installedTitles.map((t) => t.title));
+	const groupedHtml = TIER_ORDER.map((tier) => {
+		const tierSecs = p.sections.filter((s) => (s.tier || "federal-reg") === tier);
+		if (!tierSecs.length) return "";
+		const tMeta = TIER_META[tier] || TIER_META["federal-reg"];
+		const rTier = tMeta.refTier;
+		const rows = tierSecs.map((s) => {
+			const href = `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
+			return `<article class="proj-item has-tier-bar" data-ref-tier="${rTier}">
+        <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(tMeta.tag)}</span>${SEP}Title ${s.title}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ""}</span>
+          <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || "").slice(0, 10)))}</span></div>
+        <h3 class="story-name">${installed.has(s.title) ? `<a href="${href}">${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}</a>` : `${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}`}</h3>
+        ${installed.has(s.title) ? "" : `<p class="proj-missing">Title ${s.title} isn’t installed. <a href="#/library/${s.title}">Download it</a> to read this section.</p>`}
+        <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || "")}</textarea>
+        <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
+      </article>`;
+		}).join("");
+		return `<div class="proj-tier-group" data-ref-tier="${rTier}">
+      <div class="proj-tier-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(tMeta.label)}</span><span class="proj-tier-count">${tierSecs.length}</span></div>
+      ${rows}
+    </div>`;
+	}).join("");
+	const mod = isMac ? "⌘" : "Ctrl ";
+	dom.view.innerHTML = `<div class="lib proj-page proj-detail" data-id="${escapeHtml(p.id)}">
+    <div class="doc-kicker"><a href="#/projects">Workspaces</a></div>
+    <div class="proj-head">
+      <span class="proj-icon" style="--hue: var(${projectHue(p)})" aria-hidden="true">${icon("folder")}</span>
+      <input class="proj-name" value="${escapeHtml(p.name)}" maxlength="80" aria-label="Workspace name" spellcheck="false">
+      <span class="proj-head-acts">
+        <button type="button" class="btn btn-sm" data-proj-act="export-one" data-id="${escapeHtml(p.id)}">Export</button>
+        <button type="button" class="btn btn-sm is-danger" data-proj-act="delete" data-id="${escapeHtml(p.id)}">Delete</button>
+      </span>
+    </div>
+    <textarea class="proj-desc" rows="1" placeholder="Add a description…" aria-label="Description">${escapeHtml(p.description || "")}</textarea>
+    <dl class="proj-props">
+      <div><dt>Tags</dt><dd><input class="proj-tags-input" value="${escapeHtml((p.tags || []).join(", "))}" placeholder="Add tags, separated by commas" aria-label="Tags"></dd></div>
+      <div><dt>Sections</dt><dd>${joinSep([plural(p.sections.length, "section"), escapeHtml(titlesOf(p))]) || "0 sections"}</dd></div>
+      <div><dt>Created</dt><dd>${escapeHtml(fmtDate((p.created_at || "").slice(0, 10)))}</dd></div>
+      <div><dt>Updated</dt><dd data-f="updated">${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</dd></div>
+    </dl>
+    ${renderWorkspaceTasksHtml(p)}
+    ${renderWorkspaceTabGroupsHtml(p)}
+    <div class="lib-desk">
+      <header class="lib-desk-header"><h2 class="lib-desk-name">Pinned sections</h2><span class="lib-desk-count">${plural(p.sections.length, "section")}</span></header>
+      ${groupedHtml || `<div class="proj-empty is-inline"><p>Nothing pinned yet. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd> to add it here.</p></div>`}
+    </div>
+  </div>`;
+	for (const t of dom.view.querySelectorAll(".proj-desc, .proj-note")) autosize(t);
+	if (fresh) enterView();
+}
+function autosize(t) {
+	t.style.height = "auto";
+	t.style.height = `${t.scrollHeight}px`;
+}
+state.projEditT = null;
+onView("input", (e) => {
+	const page = e.target?.closest(".proj-detail");
+	if (!page) return;
+	const id = page.dataset.id;
+	const t = e.target;
+	if (t.matches("textarea")) autosize(t);
+	if (state.projEditT) clearTimeout(state.projEditT);
+	state.projEditT = setTimeout(() => {
+		updateProject(id, (p) => {
+			if (t.matches(".proj-name")) p.name = t.value.trim() || "Untitled workspace";
+			else if (t.matches(".proj-desc")) p.description = t.value;
+			else if (t.matches(".proj-tags-input")) p.tags = t.value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
+			else if (t.matches(".proj-note")) {
+				const s = p.sections.find((x) => secKey(x.title, x.id) === t.dataset.sec);
+				if (s) s.note = t.value;
+			}
+		}, { quiet: true });
+		const upd = page.querySelector("[data-f=\"updated\"]");
+		if (upd) upd.textContent = "just now";
+		if (t.matches(".proj-name")) document.title = `${t.value.trim() || "Untitled workspace"} · Workspaces · FRAMEWORK`;
+	}, 300);
+});
+onView("keydown", (e) => {
+	const ke = e;
+	const target = ke.target;
+	if (ke.key === "Enter" && target?.id === "proj-task-input") {
+		ke.preventDefault();
+		const btn = target.closest(".proj-task-add")?.querySelector("[data-proj-act=\"task-add\"]");
+		if (btn) onProjectAction(btn);
+		return;
+	}
+	if (ke.key === "Enter" && target?.matches(".proj-name, .proj-tags-input")) {
+		ke.preventDefault();
+		target.blur();
+	}
+});
+on("projects:changed", ({ quiet }) => {
+	if (!quiet && routeTarget() === "projects") renderProjects(projectRouteId$1());
+});
+// src/views/home.ts
 var HOME_NEWS_CACHE = "newsCache:v1:all";
 var HOME_STATUS_CACHE = "newsCache:v1:status";
 function installedFallbackList() {
@@ -7787,7 +11085,7 @@ function resumeCardHtml(recent, titles) {
       <section class="hm-card hm-resume" aria-label="Continue reading">
         <div class="hm-card-top">
           <span class="hm-kicker">Continue reading</span>
-          <span class="hm-time">${escapeHtml(timeAgo(last.t))}</span>
+          <span class="hm-time">${escapeHtml(timeAgo(last.t || 0))}</span>
         </div>
         <div class="hm-resume-loc">
           <span>${last.ti} CFR</span>
@@ -7811,7 +11109,7 @@ function resumeCardHtml(recent, titles) {
                   <span class="hm-tag">${e.ti} CFR</span>
                   <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
                   <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
-                  <span class="hm-row-val">${escapeHtml(timeAgo(e.t))}</span>
+                  <span class="hm-row-val">${escapeHtml(timeAgo(e.t || 0))}</span>
                 </a>`).join("")}
             </div>
           </div>` : ""}
@@ -7903,7 +11201,7 @@ function workspacesCardHtml(projects) {
 }
 function titleLivingSignalHtml(t, recent, projects) {
 	const lastInTitle = recent.find((e) => e.ti === t.title);
-	if (lastInTitle) return `<a class="hm-signal-link" href="${sectionLinkHref(lastInTitle)}">Last read ${escapeHtml(lastInTitle.l)}${SEP}${escapeHtml(timeAgo(lastInTitle.t))}</a>`;
+	if (lastInTitle) return `<a class="hm-signal-link" href="${sectionLinkHref(lastInTitle)}">Last read ${escapeHtml(lastInTitle.l)}${SEP}${escapeHtml(timeAgo(lastInTitle.t || 0))}</a>`;
 	const ws = projects.find((p) => (p.sections || []).some((s) => s.title === t.title));
 	if (ws) return `<a class="hm-signal-link" href="#/projects/${encodeURIComponent(ws.id)}">${projDot(ws)}In ${escapeHtml(ws.name)}</a>`;
 	if (t.news && t.news.count > 0) return `<a class="hm-signal-link" href="#/news">${escapeHtml(plural(t.news.count, "recent OSHA update"))}</a>`;
@@ -7926,7 +11224,7 @@ function titlePartsHtml(t) {
         ${t.scope_parts.slice(0, 3).map((p) => `<a class="hm-part-chip" href="${titleHref(t.title, "part/" + encodeURIComponent(p))}"><span class="hm-part-num">Part ${escapeHtml(p)}</span></a>`).join("")}
         ${t.scope_parts.length > 3 ? `<span class="hm-part-more">+${t.scope_parts.length - 3} more</span>` : ""}
       </div>`;
-	const parts = ((HOME_CONTENT[t.title] || {}).cards || []).slice(0, 3);
+	const parts = ((HOME_CONTENT[t.title] || { cards: [] }).cards || []).slice(0, 3);
 	if (parts.length) return `
       <div class="hm-title-parts">
         ${parts.map((c) => {
@@ -7940,7 +11238,7 @@ function titlePartsHtml(t) {
     </div>`;
 }
 function titlesBandHtml(titles, recent, projects, totalSections, totalRead) {
-	const staleSet = new Set((navLib.data && navLib.data.titles || []).filter(isStale).map((t) => t.title));
+	const staleSet = new Set((state.navLibData && state.navLibData.titles || []).filter(isStale).map((t) => t.title));
 	const corpora = syncCorporaState();
 	const deskId = state.activeDesk || "all";
 	const visibleTitles = deskId === "all" ? titles : titles.filter((t) => mapRawDeskToId(t.desk, t.title) === deskId);
@@ -7950,10 +11248,16 @@ function titlesBandHtml(titles, recent, projects, totalSections, totalRead) {
 		const read = visitedCountFor(t.title);
 		const count = Number(t.section_count || 0);
 		const pct = count ? Math.min(100, read / count * 100) : 0;
-		const agencies = (t.agencies || []).slice(0, 3);
+		const agencies = (t.agencies || []).slice(0, 2);
 		const corpus = corpora.find((c) => c.tier === "federal-reg" && c.title_num === t.title) || {
 			tier: "federal-reg",
-			desk: mapRawDeskToId(t.desk, t.title)
+			desk: mapRawDeskToId(t.desk, t.title),
+			corpus_id: "",
+			jurisdiction: "US",
+			jurisdiction_label: "Federal",
+			code: String(t.title),
+			name: t.name,
+			agencies: []
 		};
 		return `
       <article class="hm-title-card has-tier-bar" data-ref-tier="${refTierForCorpus(corpus)}">
@@ -8165,15 +11469,16 @@ function renderHomeScreen({ enter = true } = {}) {
 function refreshHomeIfActive() {
 	if (routeTarget() === "overview" && dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
 }
-dom.view.addEventListener("click", async (e) => {
+onView("click", async (e) => {
 	if (!dom.view.querySelector(".hm")) return;
-	const deskBtn = e.target.closest("[data-desk]");
+	const t = e.target;
+	const deskBtn = t?.closest("[data-desk]");
 	if (deskBtn) {
 		setActiveDesk(deskBtn.dataset.desk || "all");
 		renderHomeScreen({ enter: false });
 		return;
 	}
-	const actEl = e.target.closest("[data-hm-act]");
+	const actEl = t?.closest("[data-hm-act]");
 	if (!actEl) return;
 	const act = actEl.dataset.hmAct;
 	if (act === "new-workspace") startNewWorkspace();
@@ -8181,12 +11486,16 @@ dom.view.addEventListener("click", async (e) => {
 		state.historyFor = "overview";
 		openPanel("history", { focus: e.detail === 0 });
 	} else if (act === "open-contents") {
-		const t = Number(actEl.dataset.title);
-		if (t && t !== state.currentTitle) await switchTitle(t);
+		const titleNum = Number(actEl.dataset.title);
+		if (titleNum && titleNum !== state.currentTitle) await switchTitle(titleNum);
 		openPanel("reader", { focus: true });
 	}
 });
-// src/views/help.js
+on("projects:changed", ({ quiet }) => {
+	if (!quiet) refreshHomeIfActive();
+});
+on("env:saved", () => refreshHomeIfActive());
+// src/views/help.ts
 var HELP_LOGOS = {
 	dol: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
     <path d="M32 8 52 16v14c0 13.5-8.6 22.8-20 26-11.4-3.2-20-12.5-20-26V16L32 8Z" stroke="currentColor" stroke-width="2.2" fill="currentColor" fill-opacity=".06"/>
@@ -8238,7 +11547,7 @@ async function loadHelp() {
 		state.navEnvStatus = env;
 		if (newsSt) state.navNewsStatus = newsSt;
 		renderHelp(env, { enter: true });
-	} catch (e) {
+	} catch {
 		if (seq !== state.routeSeq) return;
 		renderHelp(state.navEnvStatus || {
 			env_exists: false,
@@ -8251,13 +11560,13 @@ function renderHelp(env, opts = {}) {
 	const keys = env && env.keys || {};
 	const dol = keys.DOL_API_KEY || {};
 	const ant = keys.ANTHROPIC_API_KEY || {};
-	const syncOn = keys.NEWS_SYNC ? keys.NEWS_SYNC.value : true;
-	const retDays = keys.NEWS_RETENTION_DAYS ? keys.NEWS_RETENTION_DAYS.value : 365;
+	const syncOn = keys.NEWS_SYNC ? Boolean(keys.NEWS_SYNC.value) : true;
+	const retDays = Number(keys.NEWS_RETENTION_DAYS ? keys.NEWS_RETENTION_DAYS.value : 365);
 	const titleCount = state.installedTitles.length;
 	const titlesWord = `${titleCount} ${titleCount === 1 ? "title" : "titles"}`;
-	const chip = (target, state, label) => `
+	const chip = (target, chipState, label) => `
     <button type="button" class="help-status-chip" data-help-jump="${target}">
-      <span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(label)}</button>`;
+      <span class="stat-dot is-${chipState}" aria-hidden="true"></span>${escapeHtml(label)}</button>`;
 	const statusStrip = `
     <nav class="help-status" aria-label="Connection status">
       ${chip("federal-register", syncOn ? "synced" : "stale", syncOn ? "Federal Register · On" : "Federal Register · Sync off")}
@@ -8367,7 +11676,1685 @@ function renderHelp(env, opts = {}) {
     </div>`;
 	if (opts.enter) enterView();
 }
-// src/components/news_activity.js
+on("env:saved", () => {
+	if (state.activeRoute === "/help" || state.activeRoute === "/help/") renderHelp(state.navEnvStatus);
+});
+// src/views/library.ts
+var lib = {
+	view: null,
+	data: null,
+	filter: "",
+	sort: "desk",
+	tier: "all",
+	wire: null
+};
+var savedSort = lsGet("libSort");
+if (savedSort === "desk" || savedSort === "number" || savedSort === "updated") lib.sort = savedSort;
+state.jobs = {
+	current: null,
+	queued: [],
+	recent: []
+};
+state.jobsTimer = null;
+state.jobsSeenActive = /* @__PURE__ */ new Set();
+state.lastJobsKey = "";
+var removeTimers = /* @__PURE__ */ new WeakMap();
+async function loadLibrary(title, part) {
+	const normTitle = title ?? null;
+	const normPart = part ?? null;
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	const sameView = Boolean(lib.view && lib.view.title === normTitle && lib.view.part === normPart);
+	if (!sameView) {
+		lib.filter = "";
+		dom.view.innerHTML = skeletonHtml(normTitle ? "list" : "cards", "Loading from eCFR…");
+	}
+	lib.view = {
+		title: normTitle,
+		part: normPart
+	};
+	try {
+		const data = await getJSON(normPart ? `/api/library/${normTitle}/part/${encodeURIComponent(normPart)}` : normTitle ? `/api/library/${normTitle}` : "/api/library");
+		if (seq !== state.routeSeq) return;
+		if (!normTitle) setJobs(data.jobs);
+		lib.data = data;
+		renderLibrary(!sameView);
+		if (!normTitle) {
+			pollJobsIfActive();
+			loadWire();
+		}
+	} catch (err) {
+		if (seq !== state.routeSeq) return;
+		const message = err instanceof Error ? err.message : String(err);
+		dom.view.innerHTML = emptyStateHtml({
+			title: "Couldn’t load the library",
+			body: escapeHtml(message),
+			actionsHtml: "<button type=\"button\" class=\"btn\" id=\"lib-retry\">Try again</button>"
+		});
+		document.getElementById("lib-retry")?.addEventListener("click", () => loadLibrary(normTitle, normPart));
+	}
+}
+async function refreshLibrary() {
+	if (!lib.view || !dom.view.querySelector(".lib")) return;
+	const { title, part } = lib.view;
+	try {
+		lib.data = await getJSON(part ? `/api/library/${title}/part/${encodeURIComponent(part)}` : title ? `/api/library/${title}` : "/api/library");
+		renderLibrary(false);
+	} catch {}
+}
+function actBtn(act, label, attrs, cls = "") {
+	return `<button type="button" class="lib-act${cls ? " " + cls : ""}" data-act="${act}" ${attrs}>${label}</button>`;
+}
+function libRow({ href, num, name, status, actions, dim, key }) {
+	const main = href ? `<a class="lib-main" href="${href}"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></a>` : `<span class="lib-main"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></span>`;
+	return `<div class="lib-row${dim ? " is-dim" : ""}${actions ? " has-actions" : ""}" data-hay="${escapeHtml(`${num} ${name}`.toLowerCase())}"${key ? ` data-key="${escapeHtml(key)}"` : ""}>
+    ${main}<span class="lib-status">${status || ""}</span><span class="lib-actions">${actions || ""}</span></div>`;
+}
+var libHref = (title, part) => "#/library" + (title ? `/${title}` : "") + (part ? `/part/${encodeURIComponent(part)}` : "");
+function renderStatusPill(t, opts = {}) {
+	const s = titleStatus(t);
+	return statPill(s.state, s.text, {
+		title: s.title,
+		...opts
+	});
+}
+function relTime(ms) {
+	const s = Math.max(0, (Date.now() - ms) / 1e3);
+	if (s < 60) return "just now";
+	if (s < 3600) return `${Math.round(s / 60)} min ago`;
+	if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+	return shortDate(new Date(ms).toISOString().slice(0, 10));
+}
+var LIB_SORTS = [
+	["desk", "By desk"],
+	["number", "By number"],
+	["updated", "Recently amended"]
+];
+function titleActions(t) {
+	if (t.reserved || jobFor(t.title, "title")) return "";
+	const inst = t.installed;
+	if (!inst) return actBtn("download", `${icon("download")}Download`, `data-title="${t.title}"`, "is-primary");
+	return `<a class="lib-act" href="#/title/${t.title}/">Open</a>` + (inst.whole ? "" : actBtn("download", "Download all", `data-title="${t.title}"`)) + (isStale(t) ? actBtn("update", "Update", `data-title="${t.title}" title="eCFR has a newer edition (${escapeHtml(fmtDate(t.latest))})"`) : "") + actBtn("remove", "Remove", `data-title="${t.title}"`, "is-danger");
+}
+function libStory(t) {
+	const inst = t.installed;
+	const agencies = (t.agencies || []).slice(0, 3);
+	const kicker = `Title ${t.title}${agencies.length ? `${SEP}<span class="story-ag">${agencies.map(escapeHtml).join(" ")}</span>` : ""}`;
+	const name = escapeHtml(t.name || "");
+	const headline = t.reserved ? name : `<a href="${libHref(t.title)}">${name}</a>`;
+	const sections = inst ? inst.section_count : t.sections;
+	const dateline = joinSep([
+		t.amended ? `Amended ${escapeHtml(shortDate(t.amended))}` : "",
+		t.reserved ? "" : fmtSections(sections),
+		t.reserved || !t.size_mb ? "" : `<span title="Size of the title's text on eCFR">${fmtMB(t.size_mb)}</span>`
+	]);
+	const acts = titleActions(t);
+	const hay = `${t.title} title ${t.name || ""} ${t.summary || ""} ${t.desk || ""} ${(t.agencies || []).join(" ")}`.toLowerCase();
+	return `<article class="lib-story has-tier-bar${t.reserved ? " is-dim" : ""}" data-ref-tier="cfr" data-hay="${escapeHtml(hay)}">
+    <div class="story-top"><span class="story-kicker">${kicker}</span>${renderStatusPill(t, { bare: !inst })}</div>
+    <h3 class="story-name">${headline}</h3>
+    ${t.summary ? `<p class="story-dek">${escapeHtml(t.summary)}</p>` : ""}
+    <div class="story-foot"><span class="story-date">${dateline}</span>${acts ? `<div class="story-actions">${acts}</div>` : ""}</div>
+  </article>`;
+}
+function libMetrics(d) {
+	const live = d.titles.filter((t) => !t.reserved);
+	const inst = live.filter((t) => t.installed);
+	const sections = inst.reduce((a, t) => a + (t.installed?.section_count || 0), 0);
+	const bytes = inst.reduce((a, t) => a + (t.installed?.bytes || 0), 0);
+	const stale = live.filter(isStale);
+	const { cut, recent } = amendedWeek(d);
+	const updating = [state.jobs.current, ...state.jobs.queued].some((j) => j && j.kind === "update");
+	return `<section class="lib-metrics" aria-label="Library at a glance">
+    ${metricCardHtml({
+		label: "<span class=\"stat-dot is-synced\" aria-hidden=\"true\"></span>eCFR",
+		value: "Online",
+		sub: d.checked_at ? `Title list checked ${escapeHtml(relTime(d.checked_at * 1e3))}` : `${live.length} titles tracked`
+	})}
+    ${metricCardHtml({
+		label: "Installed",
+		value: String(inst.length),
+		of: `of ${live.length}`,
+		sub: joinSep([fmtSections(sections) || "No sections yet", bytes ? `${fmtBytes(bytes)} on disk` : ""])
+	})}
+    ${metricCardHtml({
+		label: "Amended this week",
+		value: String(recent),
+		sub: cut ? `Since ${escapeHtml(shortDate(cut))}${recent ? `${SEP}<button type="button" class="metric-link" data-sort="updated">Show</button>` : ""}` : "No edition date"
+	})}
+    ${stale.length ? metricCardHtml({
+		label: "<span class=\"stat-dot is-stale\" aria-hidden=\"true\"></span>Editions",
+		value: `${stale.length} outdated`,
+		sub: updating ? statPill("busy", "Updating", { bare: true }) : `<button type="button" class="metric-link is-strong" data-act="update-all">Update all ${icon("chevronRight")}</button>`,
+		alert: true
+	}) : metricCardHtml({
+		label: "Editions",
+		value: inst.length ? "Current" : "—",
+		sub: inst.length ? "Every installed title is up to date" : "Nothing installed yet"
+	})}
+  </section>`;
+}
+function suiteHero(s, d) {
+	const st = suiteState(s, d);
+	const rows = st.ts.map((t) => {
+		const parts = (HOME_CONTENT[t.title]?.cards || []).slice(0, 3);
+		const partHref = (p) => t.installed && t.installed.whole ? `#/title/${t.title}/part/${encodeURIComponent(p)}` : libHref(t.title, p);
+		return `<li class="suite-row">
+      <span class="suite-num">${t.title}</span>
+      <div class="suite-row-body">
+        <a class="suite-name" href="${libHref(t.title)}">${escapeHtml(t.name || "")}</a>
+        <span class="suite-ag">${(t.agencies || []).slice(0, 3).map(escapeHtml).join(" ")}</span>
+        ${parts.length ? `<div class="suite-parts">${parts.map((c) => {
+			const [num, ...rest] = c.title.replace(/^Part\s+/, "").split(" — ");
+			return `<a href="${partHref(c.part)}"><span class="suite-part-num">${escapeHtml(num)}</span>${escapeHtml(rest.join(" — "))}</a>`;
+		}).join("")}</div>` : ""}
+        <div class="suite-meta">${joinSep([
+			t.amended ? `Amended ${escapeHtml(shortDate(t.amended))}` : "",
+			fmtSections(t.installed ? t.installed.section_count : t.sections),
+			t.size_mb ? fmtMB(t.size_mb) : "",
+			t.installed && t.installed.bytes ? `${fmtBytes(t.installed.bytes)} on disk` : ""
+		].map((x) => x && `<span>${x}</span>`).filter(Boolean))}</div>
+      </div>
+      ${renderStatusPill(t, { bare: true })}
+    </li>`;
+	}).join("");
+	const action = st.label ? `<button type="button" class="btn btn-accent" data-act="download-suite" data-suite="${escapeHtml(s.id)}">${icon("download")}${escapeHtml(st.label)}</button>` : st.busy.length ? "" : `<a class="btn" href="#/title/${st.ts[0] ? st.ts[0].title : ""}/">Open in reader</a>`;
+	return `<article class="suite-hero has-tier-bar" data-ref-tier="cfr" aria-labelledby="suite-${escapeHtml(s.id)}">
+    <div class="story-top"><span class="story-kicker"><span class="ref-badge">FEDERAL CFR PACK</span>${s.badge ? `${SEP}${escapeHtml(s.badge)}` : ""}</span>${st.pill}</div>
+    <h2 class="suite-title" id="suite-${escapeHtml(s.id)}">${escapeHtml(s.name)}</h2>
+    <p class="suite-dek">${escapeHtml(s.summary)}</p>
+    <ul class="suite-rows">${rows}</ul>
+    <div class="suite-foot">
+      <span class="suite-telemetry">${joinSep([
+		plural(st.total, "title"),
+		fmtSections(s.sections),
+		s.size_mb ? `${fmtMB(s.size_mb)} of text` : ""
+	])}</span>
+      ${action}
+    </div>
+  </article>`;
+}
+function suiteCard(s, d) {
+	const st = suiteState(s, d);
+	const titles = st.ts.length ? st.ts.map((t) => `<a href="${libHref(t.title)}"><span class="suite-part-num">${t.title}</span>${escapeHtml(t.name || "")}</a>`).join("") : (s.titles || []).map((n) => `<span><span class="suite-part-num">${n}</span>Title ${n} CFR</span>`).join("");
+	const action = st.label ? actBtn("download-suite", `${icon("download")}${escapeHtml(st.label)}`, `data-suite="${escapeHtml(s.id)}"`, "is-primary") : "";
+	return `<article class="suite-card has-tier-bar" data-ref-tier="cfr">
+    <div class="story-top"><span class="story-kicker"><span class="ref-badge">CFR PACK</span>${s.badge ? `${SEP}${escapeHtml(s.badge)}` : ""}</span>${st.pill}</div>
+    <h3 class="story-name">${escapeHtml(s.name)}</h3>
+    <p class="story-dek">${escapeHtml(s.summary)}</p>
+    <div class="suite-parts suite-card-titles">${titles}</div>
+    <div class="story-foot"><span class="story-date">${joinSep([fmtSections(s.sections), fmtMB(s.size_mb)])}</span>${action}</div>
+  </article>`;
+}
+function wireSummary(c) {
+	if (!c) return "<span class=\"wire-pending\" aria-hidden=\"true\"></span>";
+	if (!c.count) return "";
+	if (c.removed === c.count) return escapeHtml(`${plural(c.count, "section")} removed`);
+	const verb = c.kind === "revised" ? "revised" : "amended";
+	const parts = (c.parts || []).slice(0, 3);
+	const more = (c.parts || []).length - parts.length;
+	const where = parts.length ? ` in ${parts.length + more === 1 ? "Part" : "Parts"} ${parts.join(", ")}${more > 0 ? ` +${more}` : ""}` : "";
+	return `${escapeHtml(`${plural(c.count, "section")} ${verb}${where}`)}${c.first && c.first.name ? `<span class="wire-first">${escapeHtml(c.first.name)}</span>` : ""}`;
+}
+function libWire(d) {
+	const top = d.titles.filter((t) => !t.reserved && Boolean(t.amended)).sort((a, b) => (b.amended || "").localeCompare(a.amended || "") || a.title - b.title).slice(0, 5);
+	const byTitle = new Map((lib.wire?.items || []).map((c) => [c.title, c]));
+	const failed = Boolean(lib.wire && lib.wire.failed);
+	const listHtml = top.length ? `<ol class="wire-items">${top.map((t) => {
+		const c = byTitle.get(t.title);
+		const summary = !lib.wire ? wireSummary(null) : failed || !c || c.amended !== t.amended ? "" : wireSummary(c);
+		return `<li class="wire-entry"><a href="${libHref(t.title)}">
+          <span class="wire-entry-head"><span class="wire-entry-title">Title ${t.title}${(t.agencies || [])[0] ? `${SEP}${escapeHtml(t.agencies[0])}` : ""}</span>
+            <time class="wire-entry-date" datetime="${escapeHtml(t.amended || "")}">${escapeHtml(shortDate(t.amended))}</time></span>
+          <span class="wire-entry-name">${escapeHtml(t.name || "")}</span>
+          ${summary ? `<span class="wire-entry-summary">${summary}</span>` : ""}
+        </a></li>`;
+	}).join("")}</ol>
+      <div class="wire-foot"><button type="button" class="wire-link" data-sort="updated">All titles by last amendment ${icon("chevronRight")}</button></div>` : "<p class=\"wire-empty\">No recent eCFR amendment dates in this catalog slice.</p>";
+	return `<aside class="reg-wire${top.length ? "" : " is-empty"}" id="lib-wire" aria-labelledby="wire-title">
+    <div class="wire-head">
+      <h2 class="wire-title" id="wire-title">${icon("activity")}The Regulatory Wire</h2>
+      <span class="wire-badge">Live eCFR</span>
+    </div>
+    <p class="wire-sub">Latest amendments, newest first</p>
+    ${listHtml}
+  </aside>`;
+}
+async function loadWire() {
+	if (lib.wire && Date.now() - lib.wire.at < 18e5 && !lib.wire.failed) return;
+	try {
+		lib.wire = {
+			at: Date.now(),
+			items: await getJSON("/api/library/wire")
+		};
+	} catch {
+		lib.wire = {
+			at: Date.now(),
+			items: [],
+			failed: true
+		};
+	}
+	const el = document.getElementById("lib-wire");
+	if (el && lib.data && lib.view && !lib.view.title) el.outerHTML = libWire(lib.data);
+}
+function libTitleList(d, sort) {
+	const live = d.titles.filter((t) => !t.reserved);
+	const reserved = d.titles.filter((t) => t.reserved);
+	const grid = (ts) => `<div class="lib-stories">${ts.map(libStory).join("")}</div>`;
+	const desk = (name, ts, extra = "") => `<section class="lib-desk${extra}" aria-label="${escapeHtml(name)}">
+      <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(name)}</h3><span class="lib-desk-count">${plural(ts.length, "title")}</span></header>
+      ${grid(ts)}</section>`;
+	if (sort === "number" || sort === "updated") {
+		const ordered = sort === "number" ? live : [...live].sort((a, b) => (b.amended || "").localeCompare(a.amended || "") || a.title - b.title);
+		return desk(sort === "number" ? "All titles by number" : "All titles by last amendment", ordered, " is-flat") + (reserved.length ? desk("Reserved", reserved) : "");
+	}
+	const names = [...d.desks || []];
+	for (const t of live) if (t.desk && !names.includes(t.desk)) names.push(t.desk);
+	return names.map((name) => {
+		const ts = live.filter((t) => t.desk === name);
+		return ts.length ? desk(name, ts) : "";
+	}).join("") + (reserved.length ? desk("Reserved", reserved) : "");
+}
+var LIB_TIER_TABS = [
+	{
+		id: "all",
+		label: "All Authorities",
+		refTier: "cfr"
+	},
+	{
+		id: "federal-statute",
+		label: "U.S. Code",
+		refTier: "usc"
+	},
+	{
+		id: "federal-reg",
+		label: "Federal CFR",
+		refTier: "cfr"
+	},
+	{
+		id: "state",
+		label: "States",
+		refTier: "state"
+	},
+	{
+		id: "county",
+		label: "Counties",
+		refTier: "county"
+	},
+	{
+		id: "standard",
+		label: "Standards",
+		refTier: "ibr"
+	}
+];
+var TIER_CONNECTOR_NOTES = {
+	"federal-statute": "United States Code (U.S.C.) XML packs (OSH Act, RCRA, Clean Air Act) plug in alongside CFR cross-links.",
+	"state": "State administrative codes and OSHA-approved State Plans (e.g. Cal/OSHA 8 CCR, WA WAC) attach via CorpusSummary.",
+	"county": "County and municipal fire, air-quality, and health ordinances attach under State jurisdiction feeds.",
+	"standard": "Consensus standards (ANSI, NFPA, ASTM, ASME) currently resolve via section peeks and each Title Start Almanac."
+};
+function libTierTabsHtml(d) {
+	const cfrCount = (d.titles || []).filter((t) => !t.reserved).length;
+	const extras = state.extraCorpora || [];
+	const countFor = (id) => {
+		if (id === "all") return cfrCount + extras.length;
+		if (id === "federal-reg") return cfrCount + extras.filter((c) => c.tier === "federal-reg").length;
+		return extras.filter((c) => c.tier === id).length;
+	};
+	const populated = LIB_TIER_TABS.filter((t) => t.id === "all" || countFor(t.id) > 0);
+	if (populated.length <= 2) return "";
+	return `<div class="lib-tier-bar" role="tablist" aria-label="Filter catalog by authority tier">${populated.map((t) => {
+		const on = lib.tier === t.id;
+		const count = countFor(t.id);
+		return `<button type="button" role="tab" aria-selected="${on}" class="lib-tier-tab${on ? " is-active" : ""}" data-ref-tier="${t.refTier}" data-lib-tier="${t.id}">
+      <span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(t.label)}</span>${count ? `<span class="lib-tier-count">${count}</span>` : ""}
+    </button>`;
+	}).join("")}</div>`;
+}
+function libPlannedConnectorsHtml() {
+	const extras = state.extraCorpora || [];
+	const planned = LIB_TIER_TABS.filter((t) => t.id !== "all" && t.id !== "federal-reg" && !extras.some((c) => c.tier === t.id));
+	if (!planned.length) return "";
+	return `<details class="lib-planned">
+    <summary><span>Planned jurisdiction connectors</span><span class="lib-planned-sub">${planned.length} pre-wired authority layers</span></summary>
+    <div class="lib-planned-grid">${planned.map((t) => `
+      <div class="lib-planned-item" data-ref-tier="${t.refTier}">
+        <div class="lib-planned-head"><span class="tier-pip is-hollow" aria-hidden="true"></span><span>${escapeHtml(t.label)}</span></div>
+        <p class="lib-planned-desc">${escapeHtml(TIER_CONNECTOR_NOTES[t.id] || "Ingestion pack pending.")}</p>
+      </div>`).join("")}</div>
+  </details>`;
+}
+function libExtraTierBodyHtml(tierId) {
+	const meta = TIER_META[tierId] || TIER_META["state"];
+	const matches = (state.extraCorpora || []).filter((c) => c.tier === tierId);
+	if (matches.length) return `<section class="lib-desk" aria-label="${escapeHtml(meta.label)}">
+      <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(meta.label)}</h3><span class="lib-desk-count">${plural(matches.length, "corpus")}</span></header>
+      <div class="lib-stories">${matches.map((c) => `
+        <article class="lib-story has-tier-bar" data-ref-tier="${refTierForCorpus(c)}">
+          <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}${escapeHtml(c.jurisdiction_label || c.jurisdiction)}</span>${statPill("synced", "Ready")}</div>
+          <h3 class="story-name"><a href="${escapeHtml(corpusHashFor(c))}">${escapeHtml(c.code)} — ${escapeHtml(c.name)}</a></h3>
+          ${c.summary ? `<p class="story-dek">${escapeHtml(c.summary)}</p>` : ""}
+          <div class="story-foot"><span class="story-date">${escapeHtml((c.agencies || []).join(" · ") || meta.label)}</span><div class="story-actions"><a class="lib-act" href="${escapeHtml(corpusHashFor(c))}">Open</a></div></div>
+        </article>`).join("")}</div></section>`;
+	return `<section class="resolver-card is-catalog-slot has-tier-bar" data-ref-tier="${meta.refTier}">
+    <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}Catalog Slot Pre-Wired</div>
+    <h2 class="doc-title">${escapeHtml(meta.label)}</h2>
+    <p class="resolver-msg">${escapeHtml({
+		"federal-statute": "United States Code (U.S.C.) XML statutory packs (Title 29 OSH Act/FLSA, Title 42 EPA statutes, Title 49 Transportation) plug directly into this catalog slot alongside CFR cross-links.",
+		"state": "State administrative codes and OSHA-approved State Plans (e.g., California 8 CCR, Texas TAC, Washington WAC) share the same CorpusSummary contract and search facets.",
+		"county": "County and municipal fire, air-quality, and environmental health ordinances attach under State feeds using jurisdiction codes like US-CA-LA.",
+		"standard": "Incorporated consensus standards (ANSI, NFPA, ASTM, ASME) currently resolve inside section peeker popovers and each Title Start Almanac."
+	}[tierId] || "Backend ingestion pack pending.")}</p>
+    <div class="resolver-acts">
+      <button type="button" class="btn btn-accent" data-lib-tier="federal-reg">View Federal CFR Catalog</button>
+      <a class="btn" href="#/title/${state.currentTitle}/">Open ${state.currentTitle} CFR Almanac</a>
+    </div>
+  </section>`;
+}
+function libFrontHtml(d) {
+	const live = d.titles.filter((t) => !t.reserved);
+	const { newest, recent } = amendedWeek(d);
+	const sub = joinSep([
+		"Multi-Jurisdiction Regulatory Catalog",
+		newest ? `Edition ${escapeHtml(fmtDate(newest))}` : "",
+		`${live.length} CFR titles`,
+		recent ? `${recent} amended this week` : "No amendments this week"
+	]);
+	const suites = Object.values(d.suites || {});
+	const lead = suites.find((s) => s.featured) || suites[0];
+	const others = suites.filter((s) => s !== lead);
+	const showCfr = lib.tier === "all" || lib.tier === "federal-reg";
+	const extraTiers = TIER_ORDER.filter((t) => t !== "federal-reg" && Boolean(lib.extraCorporaCount || (state.extraCorpora || []).some((c) => c.tier === t)));
+	const cfrBody = `
+    <div class="lib-broadsheet${lead ? "" : " is-wire-only"}">${lead ? suiteHero(lead, d) : ""}${libWire(d)}</div>
+    ${others.length ? `<section class="lib-suites" aria-label="More compliance suites">
+      <header class="lib-desk-header"><h2 class="lib-desk-name">Jurisdiction Packs</h2><span class="lib-desk-count">${plural(others.length, "pack")}</span></header>
+      <div class="lib-suite-grid">${others.map((s) => suiteCard(s, d)).join("")}</div></section>` : ""}
+    <div class="lib-tools">
+      <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter titles or agencies…" aria-label="Filter titles or agencies" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
+      <div class="lib-seg" role="group" aria-label="Order titles">${LIB_SORTS.map(([k, label]) => `<button type="button" data-sort="${k}" aria-pressed="${lib.sort === k}">${label}</button>`).join("")}</div>
+    </div>
+    <div class="lib-list" id="lib-list">${libTitleList(d, lib.sort)}</div>
+    <div class="lib-none" id="lib-none" aria-live="polite" hidden>No title matches. Try an agency (“OSHA”) or a topic.</div>`;
+	return `<div class="lib lib-front">
+    <div class="doc-kicker"><a href="#/">Home</a></div>
+    <header class="lib-masthead">
+      <h1 class="doc-title">Library</h1>
+      <p class="lib-sub">${sub}</p>
+    </header>
+    ${libMetrics(d)}
+    ${libTierTabsHtml(d)}
+    ${showCfr ? cfrBody : libExtraTierBodyHtml(lib.tier)}
+    ${lib.tier === "all" && extraTiers.length ? extraTiers.map(libExtraTierBodyHtml).join("") : ""}
+    ${libPlannedConnectorsHtml()}
+  </div>`;
+}
+function renderLibrary(fresh) {
+	if (!lib.view || !lib.data) return;
+	const { title, part } = lib.view;
+	const scrollTop = dom.main.scrollTop;
+	if (!title) {
+		const d = lib.data;
+		document.title = "Library · FRAMEWORK";
+		const existingList = !fresh && document.getElementById("lib-list");
+		const frontShell = dom.view.querySelector(".lib-front");
+		if (existingList && frontShell) {
+			const tmp = document.createElement("div");
+			tmp.innerHTML = libFrontHtml(d);
+			const nextMetrics = tmp.querySelector(".lib-metrics");
+			const curMetrics = frontShell.querySelector(".lib-metrics");
+			if (nextMetrics && curMetrics) curMetrics.replaceWith(nextMetrics);
+			const nextBroad = tmp.querySelector(".lib-broadsheet");
+			const curBroad = frontShell.querySelector(".lib-broadsheet");
+			if (nextBroad && curBroad) curBroad.replaceWith(nextBroad);
+			const nextSuites = tmp.querySelector(".lib-suites");
+			const curSuites = frontShell.querySelector(".lib-suites");
+			if (nextSuites && curSuites) curSuites.replaceWith(nextSuites);
+			for (const btn of frontShell.querySelectorAll(".lib-seg [data-sort]")) btn.setAttribute("aria-pressed", String(btn.dataset.sort === lib.sort));
+			existingList.innerHTML = libTitleList(d, lib.sort);
+			applyLibraryFilter();
+			dom.main.scrollTop = scrollTop;
+			return;
+		}
+		dom.view.innerHTML = libFrontHtml(d);
+		applyLibraryFilter();
+		if (fresh) enterView();
+		else dom.main.scrollTop = scrollTop;
+		return;
+	}
+	let crumbs, heading, sub, head = "", body = "", placeholder;
+	if (!part) {
+		const d = lib.data;
+		document.title = `Title ${title} · Library · FRAMEWORK`;
+		const inst = d.installed;
+		crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a>`;
+		heading = `Title ${title} — ${d.name || ""}`;
+		sub = inst ? inst.whole ? `Installed · ${fmtDate(inst.edition)} · ${fmt(inst.section_count)} sections` : `Partly installed · ${fmt(inst.section_count)} ${inst.section_count === 1 ? "section" : "sections"}` : `Not installed · eCFR edition ${fmtDate(d.latest)}`;
+		placeholder = "Filter parts";
+		const j = jobFor(title, "title");
+		head = d.reserved ? "" : j ? `<span class="lib-head-status">${jobStatus(j)}</span>` : inst && inst.whole ? `<a class="btn" href="#/title/${title}/">Open in reader</a>` : `<button type="button" class="btn" data-act="download" data-title="${title}">${icon("download")} Download whole title</button>`;
+		body = d.groups.map((g) => `
+      ${g.label ? `<div class="lib-label">${escapeHtml(g.label)}</div>` : ""}
+      ${g.parts.map((p) => {
+			const pj = jobFor(title, "part", p.id);
+			if (p.r || !p.leaves) return libRow({
+				num: p.l.replace(/^Parts?\s+/, ""),
+				name: p.d || "Reserved",
+				status: "Reserved",
+				dim: true
+			});
+			const status = p.installed === "all" ? statPill("synced", "Installed", { bare: true }) : p.installed === "some" ? statPill("partial", `${p.installed_sections} of ${fmt(p.leaves)}`, {
+				bare: true,
+				title: "Sections installed"
+			}) : escapeHtml(fmtSections(p.leaves));
+			const acts = p.installed === "all" ? `<a class="lib-act" href="#/title/${title}/part/${encodeURIComponent(p.id)}">Open</a>` : actBtn("download", "Download part", `data-title="${title}" data-part="${escapeHtml(p.id)}"`);
+			return libRow({
+				href: libHref(title, p.id),
+				num: p.id,
+				name: p.d || p.l,
+				status: pj ? jobStatus(pj) : status,
+				actions: pj ? "" : acts,
+				key: `p${p.id}`
+			});
+		}).join("")}`).join("");
+	} else {
+		const d = lib.data;
+		document.title = `Part ${part} · Library · FRAMEWORK`;
+		crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a><span class="sep" aria-hidden="true">›</span><a href="${libHref(title)}">Title ${title}</a>`;
+		heading = `${d.l} — ${d.d || ""}`;
+		const countText = fmtSections(d.groups.reduce((a, g) => a + g.sections.filter((s) => !s.r).length, 0)) || "0 sections";
+		sub = d.installed === "all" ? `Installed · ${countText}` : d.installed === "some" ? `Partly installed · ${countText}` : countText;
+		placeholder = "Filter sections";
+		const j = jobFor(title, "part", part);
+		head = j ? `<span class="lib-head-status">${jobStatus(j)}</span>` : d.installed === "all" ? `<a class="btn" href="#/title/${title}/part/${encodeURIComponent(part)}">Open in reader</a>` : `<button type="button" class="btn" data-act="download" data-title="${title}" data-part="${escapeHtml(part)}">${icon("download")} Download part</button>`;
+		body = d.groups.map((g) => `
+      ${g.label ? `<div class="lib-label">${escapeHtml(g.label)}</div>` : ""}
+      ${g.sections.map((s) => {
+			const num = s.t === "appendix" ? s.l : s.l.replace(/^§\s*/, "");
+			const name = s.t === "appendix" ? s.d && s.d !== s.l ? s.d.replace(s.l, "").replace(/^\s*[—–-]\s*/, "") : "" : s.d || "";
+			if (s.r) return libRow({
+				num,
+				name: name || "Reserved",
+				status: "Reserved",
+				dim: true
+			});
+			const sj = jobFor(title, "section", s.id);
+			const acts = s.installed ? `<a class="lib-act" href="#/title/${title}/section/${encodeURIComponent(s.id)}">Open</a>` : actBtn("download", "Download", `data-title="${title}" data-part="${escapeHtml(part)}" data-section="${escapeHtml(s.id)}" data-kind="${s.t}"`);
+			return libRow({
+				num,
+				name,
+				status: sj ? jobStatus(sj) : s.installed ? statPill("synced", "Installed", { bare: true }) : "",
+				actions: sj ? "" : acts,
+				key: `s${s.id}`
+			});
+		}).join("")}`).join("");
+	}
+	const viewKey = `${title}|${part || ""}`;
+	if (!fresh && dom.view.querySelector(`.lib[data-lib-view="${CSS.escape(viewKey)}"]`)) {
+		const subEl = document.getElementById("lib-sub-slot");
+		const headEl = document.getElementById("lib-head-act-slot");
+		const listEl = document.getElementById("lib-list");
+		if (subEl) subEl.textContent = sub;
+		if (headEl) headEl.innerHTML = head;
+		if (listEl) listEl.innerHTML = body;
+		applyLibraryFilter();
+		dom.main.scrollTop = scrollTop;
+		return;
+	}
+	dom.view.innerHTML = `
+    <div class="lib" data-lib-view="${escapeHtml(viewKey)}">
+      <div class="doc-kicker">${crumbs}</div>
+      <div class="lib-head">
+        <div class="lib-head-text">
+          <h1 class="doc-title">${escapeHtml(heading)}</h1>
+          <p class="lib-sub" id="lib-sub-slot">${escapeHtml(sub)}</p>
+        </div>
+        <span id="lib-head-act-slot">${head}</span>
+      </div>
+      <input class="lib-filter" id="lib-filter" type="search" placeholder="${placeholder}…" aria-label="${placeholder}" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
+      <div class="lib-list" id="lib-list">${body}</div>
+      <div class="lib-none" id="lib-none" aria-live="polite" hidden>Nothing matches.</div>
+    </div>`;
+	applyLibraryFilter();
+	if (fresh) enterView();
+	else dom.main.scrollTop = scrollTop;
+}
+function applyLibraryFilter() {
+	const words = lib.filter.toLowerCase().split(/\s+/).filter(Boolean);
+	const list = document.getElementById("lib-list");
+	const noneEl = document.getElementById("lib-none");
+	if (!list) return;
+	if (list.querySelector(".lib-story")) {
+		let n = 0;
+		for (const desk of list.querySelectorAll(".lib-desk")) {
+			let k = 0;
+			for (const el of desk.querySelectorAll(".lib-story")) {
+				const ok = words.every((w) => (el.dataset.hay || "").includes(w));
+				el.hidden = !ok;
+				if (ok) k++;
+			}
+			desk.hidden = k === 0;
+			const total = desk.querySelectorAll(".lib-story").length;
+			const count = desk.querySelector(".lib-desk-count");
+			if (count) count.textContent = words.length && k !== total ? `${k} of ${plural(total, "title")}` : plural(total, "title");
+			n += k;
+		}
+		if (noneEl) noneEl.hidden = n > 0;
+		return;
+	}
+	let shown = 0;
+	let label = null;
+	let labelHas = false;
+	const closeLabel = () => {
+		if (label) label.hidden = !labelHas;
+	};
+	for (const child of list.children) {
+		const el = child;
+		if (el.classList.contains("lib-label")) {
+			closeLabel();
+			label = el;
+			labelHas = false;
+			continue;
+		}
+		const hay = el.dataset.hay || "";
+		const ok = words.every((w) => hay.includes(w));
+		el.hidden = !ok;
+		if (ok) {
+			shown++;
+			labelHas = true;
+		}
+	}
+	closeLabel();
+	if (noneEl) noneEl.hidden = shown > 0;
+}
+onView("input", (e) => {
+	const target = e.target;
+	if (!target || target.id !== "lib-filter") return;
+	lib.filter = target.value;
+	applyLibraryFilter();
+});
+onView("click", (e) => {
+	const target = e.target;
+	const tierBtn = target?.closest("button[data-lib-tier]");
+	if (tierBtn && lib.data && dom.view.querySelector(".lib-front")?.contains(tierBtn)) {
+		lib.tier = tierBtn.dataset.libTier || "all";
+		dom.view.innerHTML = libFrontHtml(lib.data);
+		applyLibraryFilter();
+		return;
+	}
+	const sortBtn = target?.closest("button[data-sort]");
+	if (!sortBtn || !dom.view.querySelector(".lib")?.contains(sortBtn)) return;
+	const fromSeg = Boolean(sortBtn.closest(".lib-seg"));
+	const nextSort = sortBtn.dataset.sort;
+	if ((nextSort === "desk" || nextSort === "number" || nextSort === "updated") && nextSort !== lib.sort) {
+		lib.sort = nextSort;
+		lsSet("libSort", lib.sort);
+		renderLibrary(false);
+	}
+	if (fromSeg) dom.view.querySelector(`.lib-seg [data-sort="${lib.sort}"]`)?.focus();
+	else {
+		const tools = dom.view.querySelector(".lib-tools");
+		if (tools) tools.scrollIntoView({
+			behavior: reduceMotion.matches ? "auto" : "smooth",
+			block: "start"
+		});
+	}
+});
+on("jobs:updated", (snap) => {
+	if (!dom.view.querySelector(".lib")) return;
+	const key = [snap.current, ...snap.queued || []].filter((j) => Boolean(j)).map((j) => `${j.id}${j.state[0]}`).join(",");
+	if (key !== state.lastJobsKey) {
+		state.lastJobsKey = key;
+		renderLibrary(false);
+	}
+});
+on("jobs:finished", () => {
+	if (dom.view.querySelector(".lib")) refreshLibrary();
+});
+onView("click", async (e) => {
+	const btn = e.target?.closest("button[data-act]");
+	if (!btn || !dom.view.querySelector(".lib")?.contains(btn)) return;
+	const title = parseInt(btn.dataset.title || "", 10);
+	const act = btn.dataset.act;
+	if (act === "remove") {
+		if (!btn.classList.contains("is-armed")) {
+			btn.classList.add("is-armed");
+			btn.textContent = "Confirm remove";
+			announce(`Press again to confirm removing Title ${title}`);
+			clearTimeout(removeTimers.get(btn));
+			removeTimers.set(btn, setTimeout(() => {
+				btn.classList.remove("is-armed");
+				btn.textContent = "Remove";
+			}, 4e3));
+			return;
+		}
+		btn.disabled = true;
+		try {
+			await getJSON(`/api/library/${title}`, { method: "DELETE" });
+			invalidateTitleCaches([title]);
+			showToast(`Removed Title ${title}`);
+			await refreshTitles();
+			await refreshLibrary();
+		} catch (err) {
+			showToast(err instanceof Error ? err.message : String(err), 5e3);
+			btn.disabled = false;
+		}
+		return;
+	}
+	btn.disabled = true;
+	try {
+		if (act === "download-suite") {
+			await queueBatch("/api/library/batch-download", { suite: btn.dataset.suite }, "Every title in this suite is installed and current");
+			return;
+		}
+		if (act === "update-all") {
+			await queueBatch("/api/library/update-all", null, "Every installed title is already current");
+			return;
+		}
+		const job = act === "update" ? await getJSON(`/api/library/${title}/update`, { method: "POST" }) : await getJSON("/api/library/download", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title,
+				part: btn.dataset.part || null,
+				section: btn.dataset.section || null,
+				kind: btn.dataset.kind === "appendix" ? "appendix" : "section"
+			})
+		});
+		state.jobsSeenActive.add(job.id);
+		await pollJobs();
+	} catch (err) {
+		showToast(err instanceof Error ? err.message : String(err), 5e3);
+		btn.disabled = false;
+	}
+});
+// src/views/news_case.ts
+var autoEnrichedCases = /* @__PURE__ */ new Set();
+function citationStatusText(v) {
+	const bits = [];
+	if (v.contest_date) bits.push(`Contested ${fmtDate(v.contest_date)}`);
+	if (v.final_order_date) bits.push(`Final ${fmtDate(v.final_order_date)}`);
+	if (v.abate_complete === "X" || v.abate_complete === "3") bits.push("Abated");
+	else if (v.abate_date) bits.push(`Abate due ${fmtDate(v.abate_date)}`);
+	return bits.join(" · ") || "Issued";
+}
+function violationStandardHtml(v) {
+	if (v.section_id) {
+		const dim = !titleInstalled(29);
+		const href = dim ? "#/library/29" : titleHref(29, "section/" + encodeURIComponent(v.section_id) + (v.para ? "?p=" + encodeURIComponent(v.para) : ""));
+		return `<a class="citation-link ins-std-link${dim ? " is-dim" : ""}" href="${href}">${escapeHtml(v.standard_display)}</a>`;
+	}
+	if (v.is_general_duty) return `<span class="ins-std-gdc">${escapeHtml(v.standard_display)}</span>`;
+	return `<span class="ins-std-state">${escapeHtml(v.standard_display || v.raw_standard || "Unlisted")}</span>` + (v.is_state_plan ? "<span class=\"ins-tag\">State plan</span>" : "");
+}
+function inspectionViolationsHtml(data) {
+	const viols = data.violations || [];
+	if (!viols.length) {
+		if (data.dol_configured) return `
+        <div class="ins-panel-empty">
+          <p class="ins-muted">Individual citation rows have not been cached locally for this inspection yet.</p>
+          <button type="button" class="btn btn-sm btn-accent" data-ins-act="enrich" data-act-nr="${data.activity_nr}">${icon("activity")} Load citations from DOL</button>
+        </div>`;
+		return "<div class=\"ins-panel-empty\"><p class=\"ins-muted\">Add a free DOL API key in Settings to load per-citation details on demand.</p></div>";
+	}
+	return `
+    <div class="ins-table-wrap">
+      <table class="ins-table">
+        <thead>
+          <tr>
+            <th>Cit.</th>
+            <th>Standard</th>
+            <th>Type</th>
+            <th>Exposed</th>
+            <th>Status</th>
+            <th class="is-num">Penalty</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${viols.map((v) => {
+		const tags = [];
+		if (v.gravity) tags.push(`Grav ${v.gravity}`);
+		if (v.emphasis) tags.push(`NEP ${v.emphasis}`);
+		if (v.hazcat) tags.push(v.hazcat);
+		if (v.fta_penalty) tags.push(`FTA ${fmtMoney(v.fta_penalty)}`);
+		if ((v.hazsubs || []).length) tags.push(`HazSub ${v.hazsubs.join(", ")}`);
+		const penChanged = v.initial_penalty && v.initial_penalty !== v.current_penalty;
+		const expBits = [v.nr_instances ? plural(v.nr_instances, "inst") : "", v.nr_exposed ? `${v.nr_exposed} exp` : ""].filter(Boolean).join(" · ");
+		return `
+              <tr>
+                <td class="ins-cit-id">${escapeHtml(v.citation_id || "—")}</td>
+                <td>
+                  <div class="ins-std-cell">
+                    ${violationStandardHtml(v)}
+                    ${tags.length ? `<div class="ins-tags">${tags.map((t) => `<span class="ins-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
+                  </div>
+                </td>
+                <td><span class="ins-viol-pill is-${escapeHtml((v.viol_type || "O").toLowerCase())}">${escapeHtml(v.viol_label || v.viol_type)}</span></td>
+                <td class="ins-mono-col">${escapeHtml(expBits || "—")}</td>
+                <td class="ins-status-col">${escapeHtml(citationStatusText(v))}</td>
+                <td class="is-num">
+                  <div class="ins-pen-cur">${v.current_penalty ? escapeHtml(fmtMoney(v.current_penalty)) : "$0"}</div>
+                  ${penChanged ? `<div class="ins-pen-init">Initial ${escapeHtml(fmtMoney(v.initial_penalty))}</div>` : ""}
+                </td>
+              </tr>`;
+	}).join("")}
+        </tbody>
+      </table>
+    </div>`;
+}
+function inspectionSectionsHtml(data) {
+	const secs = (data.article || {}).sections || [];
+	if (!secs.length) return "";
+	return `
+    <div class="ins-cfr-chips">
+      ${secs.map((s) => {
+		return `<a class="citation-chip${!titleInstalled(29) ? " is-dim" : ""}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`;
+	}).join("")}
+    </div>`;
+}
+function renderInspectionCase(data, { enter = true, enriching = false, enrichError = "" } = {}) {
+	const actNr = data.activity_nr;
+	const art = data.article || {};
+	const d = data.detail || {};
+	const company = d.estab_name || art.company || `Inspection #${actNr}`;
+	const docType = d.insp_type_label || art.doc_type || "OSHA inspection";
+	const addrParts = [
+		d.site_address,
+		[d.site_city || art.city, d.site_state || art.state].filter(Boolean).join(", "),
+		d.site_zip
+	].filter(Boolean);
+	const subLine = joinSep([
+		escapeHtml(docType),
+		addrParts.length ? escapeHtml(addrParts.join(" · ")) : "",
+		d.naics_code || art.naics ? `NAICS ${escapeHtml(d.naics_code || art.naics)}` : ""
+	]);
+	const curPen = d.current_penalty_usd ?? art.penalty_usd ?? 0;
+	const initPen = d.initial_penalty_usd ?? curPen;
+	const deltaPct = initPen > 0 && curPen !== initPen ? Math.round((curPen - initPen) / initPen * 100) : 0;
+	const violCount = (data.violations || []).length || d.citation_count || 0;
+	const vCounts = (data.violations || []).reduce((m, v) => {
+		const k = v.viol_label || v.viol_type;
+		if (k) m[k] = (m[k] || 0) + 1;
+		return m;
+	}, {});
+	const violSummary = Object.entries(vCounts).map(([k, n]) => `${n} ${k}`).join(", ") || (art.violation_types || []).join(", ") || "Recorded in summary";
+	const oshaUrl = safeHttpUrl(art.link || `https://www.osha.gov/ords/imis/establishment.inspection_detail?id=${actNr}`);
+	const openDt = d.open_date || art.opened_on;
+	const modDt = d.case_mod_date;
+	const closeDt = d.close_case_date;
+	const presentFacts = [
+		["Activity #", String(actNr)],
+		["Safety / Health", d.safety_hlth_label],
+		["Inspection scope", d.insp_scope_label],
+		["Ownership", d.owner_type_label],
+		["Union status", d.union_status_label],
+		["Advance notice", d.adv_notice === "Y" ? "Yes" : d.adv_notice === "N" ? "No" : null],
+		["Employees at site", d.nr_in_estab != null ? fmt(d.nr_in_estab) : null],
+		["SIC / NAICS", [d.sic_code && `SIC ${d.sic_code}`, (d.naics_code || art.naics) && `NAICS ${d.naics_code || art.naics}`].filter(Boolean).join(" · ") || null],
+		["Reporting ID", d.reporting_id]
+	].filter((entry) => Boolean(entry[1]));
+	const gdcList = data.gdc || [];
+	const accidents = data.accidents || [];
+	const events = data.events || [];
+	const takeaways = art.takeaways || [];
+	const statusPill = enriching ? statPill("busy", "Loading DOL case details…") : enrichError ? statPill("stale", enrichError) : data.enriched_at ? statPill("synced", `DOL synced ${timeAgo(Date.parse(data.enriched_at))}`) : "";
+	document.title = `${company} · Inspection #${actNr} · FRAMEWORK`;
+	dom.view.innerHTML = `
+    <div class="news-front ins-front">
+      <div class="ins-top-nav">
+        <a class="hm-inline-link" href="#/news?cat=enforcement">${icon("chevronLeft")} Back to Enforcement</a>
+        <div class="ins-top-status" id="ins-status-slot">${statusPill}</div>
+      </div>
+
+      <header class="ins-head">
+        <div class="ins-head-copy">
+          <div class="doc-kicker">OSHA Enforcement Case File${SEP}Inspection #${actNr}</div>
+          <h1 class="doc-title">${escapeHtml(company)}</h1>
+          ${subLine ? `<p class="ins-sub">${subLine}</p>` : ""}
+        </div>
+        <div class="ins-head-acts">
+          ${data.dol_configured ? `<button type="button" class="btn btn-sm" data-ins-act="enrich" data-act-nr="${actNr}"${enriching ? " disabled" : ""}>${icon("activity")} Refresh from DOL</button>` : ""}
+          ${oshaUrl ? `<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(oshaUrl)}" title="Opens OSHA.gov (may prompt human verification)">${icon("external")} OSHA.gov</a>` : ""}
+        </div>
+      </header>
+
+      <section class="ins-metrics" aria-label="Inspection summary">
+        ${metricCardHtml({
+		label: "Current penalty",
+		value: curPen ? escapeHtml(fmtMoney(curPen)) : "$0",
+		sub: deltaPct ? escapeHtml(`Initial ${fmtMoney(initPen)} (${deltaPct > 0 ? "+" : ""}${deltaPct}%)`) : escapeHtml(initPen ? `Initial ${fmtMoney(initPen)}` : "No penalty assessed")
+	})}
+        ${metricCardHtml({
+		label: "Citations",
+		value: violCount ? escapeHtml(plural(violCount, "citation")) : "Summary only",
+		sub: escapeHtml(violSummary)
+	})}
+        ${metricCardHtml({
+		label: "Case dates",
+		value: art.published_at ? escapeHtml(fmtDate(art.published_at)) : "—",
+		sub: escapeHtml([openDt && `Opened ${fmtDate(openDt)}`, closeDt ? `Closed ${fmtDate(closeDt)}` : modDt ? `Modified ${fmtDate(modDt)}` : "Open"].filter(Boolean).join(" · "))
+	})}
+        ${metricCardHtml({
+		label: "Exposure",
+		value: d.max_exposed ? escapeHtml(`${fmt(d.max_exposed)} exposed`) : d.nr_in_estab ? escapeHtml(`${fmt(d.nr_in_estab)} at site`) : "—",
+		sub: escapeHtml([d.total_instances ? plural(d.total_instances, "instance") : "", d.nr_in_estab && d.max_exposed ? `${fmt(d.nr_in_estab)} at site` : ""].filter(Boolean).join(" · ") || "Site exposure data")
+	})}
+      </section>
+
+      ${takeaways.length && !(data.violations || []).length ? `
+        <section class="ins-panel" aria-label="Cached summary">
+          <h2 class="ins-panel-title">Cached Summary</h2>
+          <dl class="news-takeaways">${takeaways.map((t) => `<dt>${escapeHtml(t.label)}</dt><dd>${linkifyNewsText(t.text)}</dd>`).join("")}</dl>
+          ${inspectionSectionsHtml(data)}
+        </section>` : ""}
+
+      <section class="ins-panel" aria-label="Citations and violated standards">
+        <div class="ins-panel-head">
+          <h2 class="ins-panel-title">Citations &amp; Violated Standards</h2>
+          <span class="ins-panel-meta">${violCount ? escapeHtml(plural(violCount, "item")) : "On-demand DOL lookup"}</span>
+        </div>
+        ${inspectionViolationsHtml(data)}
+      </section>
+
+      ${gdcList.length ? `
+        <section class="ins-panel" aria-label="General Duty Clause narrative">
+          <div class="ins-panel-head">
+            <h2 class="ins-panel-title">General Duty Clause — Section 5(a)(1)</h2>
+            <span class="ins-panel-meta">${escapeHtml(plural(gdcList.length, "narrative"))}</span>
+          </div>
+          ${gdcList.map((g) => `
+            <div class="ins-narrative">
+              <div class="ins-narrative-kicker">Citation ${escapeHtml(g.citation_id)}</div>
+              <p>${escapeHtml(g.text)}</p>
+            </div>`).join("")}
+        </section>` : ""}
+
+      ${accidents.length ? `
+        <section class="ins-panel" aria-label="Accident investigation abstract">
+          <div class="ins-panel-head">
+            <h2 class="ins-panel-title">Accident / Fatality Investigation</h2>
+            <span class="ins-panel-meta">${escapeHtml(plural(accidents.length, "summary"))}</span>
+          </div>
+          ${accidents.map((ac) => `
+            <div class="ins-narrative">
+              <div class="ins-narrative-kicker">${escapeHtml([
+		ac.event_date && fmtDate(ac.event_date),
+		ac.fatality ? "Fatality" : "",
+		ac.event_desc
+	].filter(Boolean).join(" · "))}</div>
+              ${ac.abstract ? `<p>${escapeHtml(ac.abstract)}</p>` : ""}
+              ${ac.keywords ? `<div class="ins-keywords">${escapeHtml(ac.keywords)}</div>` : ""}
+            </div>`).join("")}
+        </section>` : ""}
+
+      ${presentFacts.length || events.length ? `
+        <div class="ins-split">
+          ${presentFacts.length ? `
+            <section class="ins-panel" aria-label="Establishment details">
+              <h2 class="ins-panel-title">Establishment &amp; Case File</h2>
+              <dl class="ins-meta-list">
+                ${presentFacts.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
+              </dl>
+            </section>` : ""}
+          ${events.length ? `
+            <section class="ins-panel" aria-label="Penalty and contest history">
+              <h2 class="ins-panel-title">Citation Revision Timeline</h2>
+              <ol class="ins-events">
+                ${events.map((ev) => `
+                  <li>
+                    <span class="ins-ev-date">${escapeHtml(ev.date ? fmtDate(ev.date) : "—")}</span>
+                    <span class="ins-ev-body">
+                      <strong>${escapeHtml(ev.event_label)}</strong> · Cit. ${escapeHtml(ev.citation_id)}
+                      ${ev.penalty != null ? ` · ${escapeHtml(fmtMoney(ev.penalty))}` : ""}
+                    </span>
+                  </li>`).join("")}
+              </ol>
+            </section>` : ""}
+        </div>` : ""}
+    </div>`;
+	if (enter) enterView();
+}
+async function enrichInspection(activityNr, seq) {
+	try {
+		const res = await getJSON(`/api/news/inspection/${activityNr}/enrich`, { method: "POST" });
+		if (seq !== state.routeSeq) return;
+		renderInspectionCase(res, { enter: false });
+	} catch (err) {
+		if (seq !== state.routeSeq) return;
+		const slot = document.getElementById("ins-status-slot");
+		if (slot) slot.innerHTML = statPill("stale", (err instanceof Error ? err.message : "") || "Could not enrich from DOL");
+		const btn = dom.view.querySelector("[data-ins-act=\"enrich\"]");
+		if (btn) btn.disabled = false;
+	}
+}
+async function loadInspection(activityNr) {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = `Inspection #${activityNr} · FRAMEWORK`;
+	dom.view.innerHTML = skeletonHtml("cards", `Loading inspection #${activityNr}…`);
+	enterView();
+	let data;
+	try {
+		data = await getJSON(`/api/news/inspection/${activityNr}`);
+	} catch (err) {
+		if (seq !== state.routeSeq) return;
+		dom.view.innerHTML = `
+      <div class="news-front ins-front">
+        <div class="ins-top-nav"><a class="hm-inline-link" href="#/news?cat=enforcement">${icon("chevronLeft")} Back to Enforcement</a></div>
+        <div class="empty-state">
+          <h2>Inspection #${activityNr} not found</h2>
+          <p>${escapeHtml(err instanceof Error ? err.message : "Not found")}</p>
+        </div>
+      </div>`;
+		return;
+	}
+	if (seq !== state.routeSeq) return;
+	const auto = Boolean(data.needs_enrichment && data.dol_configured && !autoEnrichedCases.has(activityNr));
+	renderInspectionCase(data, {
+		enter: false,
+		enriching: auto
+	});
+	if (auto) {
+		autoEnrichedCases.add(activityNr);
+		await enrichInspection(activityNr, seq);
+	}
+}
+// src/views/news.ts
+var NEWS_SCOPES = { 29: {
+	title: 29,
+	agency: "OSHA",
+	agencySourceLabel: "OSHA.gov",
+	exampleSection: "1910.1030"
+} };
+function newsScope(titleNum) {
+	return NEWS_SCOPES[titleNum && NEWS_SCOPES[titleNum] ? titleNum : 29];
+}
+function articleNewsTitle(a) {
+	if (typeof a.title_num === "number" && a.title_num > 0) return a.title_num;
+	const firstPart = a.cfr_parts?.[0]?.title;
+	return typeof firstPart === "number" && firstPart > 0 ? firstPart : 29;
+}
+var NEWS_CATEGORIES = [
+	{
+		key: "all",
+		label: "All"
+	},
+	{
+		key: "rules",
+		label: "Final Rules"
+	},
+	{
+		key: "rulemaking",
+		label: "Proposed Rules"
+	},
+	{
+		key: "enforcement",
+		label: "Enforcement & Penalties"
+	},
+	{
+		key: "public_inspection",
+		label: "Public Inspection"
+	},
+	{
+		key: "notices",
+		label: "Notices"
+	}
+];
+function newsSnippetHtml(snippet) {
+	return escapeHtml(snippet || "").replace(/\x02/g, "<mark>").replace(/\x03/g, "</mark>");
+}
+var newsState = {
+	view: null,
+	data: null,
+	status: null,
+	facets: null,
+	summary: null,
+	watchToken: 0
+};
+function newsViewFromParams(params) {
+	const get = (k) => (params?.get(k) || "").trim();
+	return {
+		cat: NEWS_CATEGORIES.some((c) => c.key === get("cat")) ? get("cat") : "all",
+		q: get("q"),
+		section: get("section"),
+		part: get("part"),
+		state: /^[A-Za-z]{2}$/.test(get("state")) ? get("state").toUpperCase() : "",
+		min_penalty: /^\d+$/.test(get("min_penalty")) ? get("min_penalty") : "",
+		gravity: /^[WRS]$/.test(get("gravity")) ? get("gravity") : ""
+	};
+}
+function isDefaultNewsView(view) {
+	return !view.q && !view.section && !view.part && !view.state && !view.min_penalty && !view.gravity;
+}
+function newsHash(view) {
+	const p = new URLSearchParams();
+	if (view.cat && view.cat !== "all") p.set("cat", view.cat);
+	for (const k of [
+		"q",
+		"section",
+		"part",
+		"state",
+		"min_penalty",
+		"gravity"
+	]) if (view[k]) p.set(k, view[k]);
+	const qs = p.toString();
+	return "#/news" + (qs ? "?" + qs : "");
+}
+function newsApiUrl(view, offset = 0) {
+	const p = new URLSearchParams();
+	if (view.cat && view.cat !== "all") p.set("category", view.cat);
+	for (const k of [
+		"q",
+		"section",
+		"part",
+		"state",
+		"min_penalty",
+		"gravity"
+	]) if (view[k]) p.set(k, view[k]);
+	if (offset) p.set("offset", String(offset));
+	const qs = p.toString();
+	return "/api/news" + (qs ? "?" + qs : "");
+}
+function setNewsView(next, { replace = false } = {}) {
+	const hash = newsHash(next);
+	if (replace) {
+		history.replaceState(null, "", hash);
+		loadNews(new URLSearchParams(hash.split("?")[1] || ""));
+	} else window.location.hash = hash;
+}
+function trimNewsForCache(data) {
+	return {
+		articles: (data.articles || []).slice(0, 30),
+		total: data.total,
+		offset: 0
+	};
+}
+function newsChanged(oldData, newData, oldStatus, newStatus) {
+	const guids = (d) => (d?.articles || []).map((a) => a.guid || "").join("|");
+	const oks = (s) => s?.sources ? Object.values(s.sources).map((x) => x.last_ok_at || "").join("|") : "";
+	return guids(oldData) !== guids(newData) || oks(oldStatus) !== oks(newStatus);
+}
+function preservingNewsScroll(fn) {
+	const mainRect = dom.main.getBoundingClientRect();
+	let anchor = null;
+	let offset = 0;
+	for (const el of dom.view.querySelectorAll("[data-guid]")) {
+		const r = el.getBoundingClientRect();
+		if (r.bottom > mainRect.top + 8) {
+			anchor = el.dataset.guid || null;
+			offset = r.top - mainRect.top;
+			break;
+		}
+	}
+	const top = dom.main.scrollTop;
+	fn();
+	if (anchor) {
+		const el = dom.view.querySelector(`[data-guid="${CSS.escape(anchor)}"]`);
+		if (el) {
+			const r = el.getBoundingClientRect();
+			dom.main.scrollTop += r.top - dom.main.getBoundingClientRect().top - offset;
+			return;
+		}
+	}
+	dom.main.scrollTop = top;
+}
+async function loadNews(params) {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = "News · FRAMEWORK";
+	const view = newsViewFromParams(params);
+	const firstPaint = !dom.view.querySelector(".news-front");
+	const cacheable = isDefaultNewsView(view);
+	const cached = cacheable ? lsGetJSON(`newsCache:v1:${view.cat}`) : null;
+	const cachedStatus = lsGetJSON("newsCache:v1:status");
+	if (cached && cached.data && cachedStatus && cachedStatus.data) renderNews(view, cached.data, cachedStatus.data, {
+		enter: firstPaint,
+		fromCache: true
+	});
+	else {
+		dom.view.innerHTML = skeletonHtml("cards", "Loading news…");
+		if (firstPaint) enterView();
+	}
+	let data;
+	let status;
+	try {
+		const wantEnf = view.cat === "enforcement";
+		const [feedRes, statusRes] = await Promise.all([getJSON(newsApiUrl(view)), getJSON("/api/news/status")]);
+		data = feedRes;
+		status = statusRes;
+		if (wantEnf) {
+			const extras = [];
+			if (status.dol_configured && !newsState.facets) extras.push(getJSON("/api/news/facets").then((f) => {
+				newsState.facets = f;
+			}).catch(() => {}));
+			extras.push(getJSON("/api/news/enforcement/summary").then((s) => {
+				newsState.summary = s;
+			}).catch(() => {}));
+			await Promise.all(extras);
+		}
+	} catch (e) {
+		if (seq !== state.routeSeq) return;
+		const scope = newsScope(state.currentTitle);
+		const msg = e instanceof Error ? e.message : String(e);
+		if (cached && cached.data) markNewsOffline(cached.t);
+		else {
+			dom.view.innerHTML = `
+        <div class="news-front"><div class="news-head"><div>
+          <div class="doc-kicker">FRAMEWORK Newsroom</div><h1 class="doc-title">${escapeHtml(scope.agency)} Regulatory News</h1>
+        </div></div>
+        <div class="empty-state"><h2>Couldn’t reach the news service</h2>
+        <p>${escapeHtml(msg)}</p>
+        <button type="button" class="btn" data-news-act="reload">Try again</button></div></div>`;
+			showToast("Could not reach the news service");
+		}
+		return;
+	}
+	if (seq !== state.routeSeq) return;
+	if (cacheable) {
+		lsSetJSON(`newsCache:v1:${view.cat}`, {
+			t: Date.now(),
+			data: trimNewsForCache(data)
+		});
+		lsSetJSON("newsCache:v1:status", {
+			t: Date.now(),
+			data: status
+		});
+	}
+	if (!cached || !cached.data || !cachedStatus || !cachedStatus.data || newsChanged(cached.data, data, cachedStatus.data, status) || view.cat === "enforcement") preservingNewsScroll(() => renderNews(view, data, status, { enter: firstPaint && !(cached && cached.data) }));
+	else {
+		newsState.view = view;
+		newsState.data = data;
+		newsState.status = status;
+	}
+	let watch = Boolean(status.syncing);
+	if (status.sync_enabled && status.due && !status.syncing) {
+		try {
+			watch = ((await getJSON("/api/news/refresh", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ force: false })
+			})).queued || []).length > 0;
+		} catch {
+			try {
+				watch = Boolean((await getJSON("/api/news/status")).syncing);
+			} catch {
+				watch = false;
+			}
+		}
+		if (seq !== state.routeSeq) return;
+	}
+	if (watch) watchNewsSync(seq, view);
+}
+function markNewsOffline(cachedAt) {
+	const slot = document.getElementById("news-head-status");
+	if (slot) slot.innerHTML = statPill("stale", `Offline · showing saved news from ${fmtDate(new Date(cachedAt).toISOString().slice(0, 10))}`);
+}
+function watchNewsSync(seq, view) {
+	const token = ++newsState.watchToken;
+	const started = Date.now();
+	const slot = document.getElementById("news-head-status");
+	if (slot) slot.innerHTML = statPill("busy", "Checking for news…");
+	const tick = async () => {
+		if (seq !== state.routeSeq || token !== newsState.watchToken || Date.now() - started > 12e4) return;
+		let status;
+		try {
+			status = await getJSON("/api/news/status");
+		} catch {
+			return;
+		}
+		if (seq !== state.routeSeq || token !== newsState.watchToken) return;
+		if (status.syncing) {
+			setTimeout(tick, 3e3);
+			return;
+		}
+		let data;
+		try {
+			data = await getJSON(newsApiUrl(view));
+		} catch {
+			return;
+		}
+		if (seq !== state.routeSeq || token !== newsState.watchToken) return;
+		if (isDefaultNewsView(view)) {
+			lsSetJSON(`newsCache:v1:${view.cat}`, {
+				t: Date.now(),
+				data: trimNewsForCache(data)
+			});
+			lsSetJSON("newsCache:v1:status", {
+				t: Date.now(),
+				data: status
+			});
+		}
+		if (newsChanged(newsState.data, data, newsState.status, status)) preservingNewsScroll(() => renderNews(view, data, status, {}));
+		else {
+			newsState.status = status;
+			const s = document.getElementById("news-head-status");
+			if (s) s.innerHTML = newsHeadStatusHtml(status);
+		}
+	};
+	setTimeout(tick, 3e3);
+}
+async function refreshNewsCommand() {
+	try {
+		await getJSON("/api/news/refresh", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ force: true })
+		});
+		showToast("Checking for news…");
+		if (routeTarget() === "news" && newsState.view) watchNewsSync(state.routeSeq, newsState.view);
+	} catch (err) {
+		const m = err instanceof Error ? err.message : String(err);
+		showToast(/already running/i.test(m) ? "Already checking for news" : /sync is off/i.test(m) ? "News sync is off" : m);
+	}
+}
+function newsHeadStatusHtml(status) {
+	if (!status) return "";
+	const pill = newsStatusPillHtml(status);
+	if (!status.sync_enabled || status.syncing) return pill;
+	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
+	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
+	if (enabled.find((s) => s.last_error) && lastOk) return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
+	return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Refresh</button>`;
+}
+function newsBreakingHtml(articles) {
+	const today = Date.now();
+	const daysAgo = (iso) => (today - Date.parse(iso + "T00:00:00")) / 864e5;
+	const pi = articles.find((a) => a.category === "public_inspection" && daysAgo(a.published_at) <= 3);
+	const fine = articles.find((a) => a.category === "enforcement" && (a.penalty_usd || 0) >= 5e4 && daysAgo(a.published_at) <= 14);
+	const hit = pi || fine;
+	if (!hit) return "";
+	const tag = pi ? "Public inspection" : "Enforcement";
+	const actNr = !pi ? inspectionActivityNr(hit) : null;
+	const href = pi ? safeHttpUrl(hit.link) : actNr ? `#/news/inspection/${actNr}` : "#/news?cat=enforcement";
+	const ext = pi && href ? " target=\"_blank\" rel=\"noopener\"" : "";
+	if (!href) return "";
+	return `<a class="news-breaking" href="${escapeHtml(href)}"${ext}>
+    <span class="news-breaking-tag">${icon("activity")} ${escapeHtml(tag.toUpperCase())} · ${escapeHtml(fmtDate(hit.published_at))}</span>
+    <span class="news-breaking-text">${escapeHtml(hit.title)}</span>${icon("chevronRight")}</a>`;
+}
+function newsChipsHtml(a) {
+	const chips = [];
+	const defaultTitle = articleNewsTitle(a);
+	for (const r of a.cfr_parts || []) {
+		const href = newsPartHref(r.title, r.part);
+		const dim = !titleInstalled(r.title);
+		chips.push(`<a class="citation-chip${dim ? " is-dim" : ""}" data-ref-tier="${dim ? "uninstalled" : "cfr"}" href="${href}"${dim ? ` title="Title ${r.title} isn’t installed. Open the library"` : ""}>${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
+	}
+	for (const s of a.sections || []) {
+		const dim = !titleInstalled(defaultTitle);
+		chips.push(`<a class="citation-chip${dim ? " is-dim" : ""}" data-ref-tier="${dim ? "uninstalled" : "cfr"}" href="${newsSectionHref(defaultTitle, s)}"${dim ? ` title="Title ${defaultTitle} isn’t installed. Open the library"` : ""}>§ ${escapeHtml(s)}</a>`);
+	}
+	if (!chips.length) return "";
+	const extra = chips.length - 6;
+	return `<div class="news-chips">${extra > 0 ? chips.slice(0, 6).join("") + chips.slice(6).map((c) => c.replace("citation-chip", "citation-chip is-extra")).join("") + `<button type="button" class="citation-chip news-chip-more" data-news-act="expand-chips">+${extra}</button>` : chips.join("")}</div>`;
+}
+function newsActionsHtml(a) {
+	const out = [];
+	const defaultTitle = articleNewsTitle(a);
+	const scope = newsScope(defaultTitle);
+	const actNr = inspectionActivityNr(a);
+	if (actNr) out.push(`<a class="btn btn-sm btn-accent" href="#/news/inspection/${actNr}">${icon("file")} Case file</a>`);
+	const srcLabel = a.source === "dol_osha" ? scope.agencySourceLabel : "Federal Register";
+	const link = safeHttpUrl(a.link);
+	if (link) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(link)}">${icon("external")} ${escapeHtml(srcLabel)}</a>`);
+	const pdf = safeHttpUrl(a.pdf_url || "");
+	if (pdf) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(pdf)}">${icon("external")} PDF</a>`);
+	const sec = (a.sections || [])[0];
+	const partRef = (a.cfr_parts || [])[0];
+	const secCls = actNr ? "btn btn-sm" : "btn btn-sm btn-accent";
+	if (sec) out.push(`<a class="${secCls}" href="${newsSectionHref(defaultTitle, sec)}">${icon("book")} Open § ${escapeHtml(sec)}</a>`);
+	else if (partRef) out.push(`<a class="${secCls}" href="${newsPartHref(partRef.title, partRef.part)}">${icon("book")} Open Part ${escapeHtml(String(partRef.part))}</a>`);
+	return out.join("");
+}
+function newsCardHtml(a, { hero = false } = {}) {
+	const tag = hero ? "section" : "article";
+	const figure = a.penalty_usd ? `<span class="news-figure">${escapeHtml(fmtMoney(a.penalty_usd))}</span>` : "";
+	const rows = (a.takeaways || []).map((t, i) => {
+		const text = i === 0 && a.snippet ? newsSnippetHtml(a.snippet) : linkifyNewsText(t.text);
+		return `<dt>${escapeHtml(t.label)}</dt><dd>${text}</dd>`;
+	}).join("");
+	const actNr = inspectionActivityNr(a);
+	const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}">${escapeHtml(a.title)}</a>` : extLink(a.link, escapeHtml(a.title));
+	return `
+    <${tag} class="news-card${hero ? " news-hero" : ""}" data-guid="${escapeHtml(a.guid || "")}" data-cat="${escapeHtml(a.category)}">
+      <div class="news-card-top"><span class="news-kicker">${escapeHtml(newsKicker(a))}</span>${figure}</div>
+      <h3 class="news-card-title">${titleHtml}</h3>
+      ${newsBylineHtml(a)}
+      ${rows ? `<dl class="news-takeaways">${rows}</dl>` : ""}
+      ${newsChipsHtml(a)}
+      <div class="news-card-foot">${newsActionsHtml(a)}</div>
+    </${tag}>`;
+}
+function newsTabsHtml(view, status) {
+	const counts = status?.counts || {};
+	return `<div class="lib-seg news-tabs" role="tablist" aria-label="News categories">${NEWS_CATEGORIES.map((c) => {
+		const on = view.cat === c.key;
+		const n = counts[c.key];
+		return `<button type="button" role="tab" aria-selected="${on}" tabindex="${on ? 0 : -1}" aria-pressed="${on}" data-news-cat="${c.key}">${escapeHtml(c.label)}${n ? ` <span class="news-tab-count">${n}</span>` : ""}</button>`;
+	}).join("")}</div>`;
+}
+function newsFilterChipsHtml(view) {
+	const chips = [];
+	const chip = (key, label) => chips.push(`<button type="button" class="news-filter-chip" data-news-act="clear-filter" data-filter-key="${key}" aria-label="Remove filter: ${escapeHtml(label)}">${escapeHtml(label)}${icon("close")}</button>`);
+	if (view.section) chip("section", `Citing § ${view.section}`);
+	if (view.part) chip("part", `Citing Part ${view.part}`);
+	if (view.state) chip("state", stateName(view.state));
+	if (view.min_penalty) chip("min_penalty", `Over ${fmtMoney(Number(view.min_penalty))}`);
+	if (view.gravity) chip("gravity", {
+		W: "Willful",
+		R: "Repeat",
+		S: "Serious"
+	}[view.gravity] || view.gravity);
+	return chips.length ? `<div class="news-filter-chips">${chips.join("")}</div>` : "";
+}
+function newsFacetsHtml(view, status) {
+	if (view.cat !== "enforcement" || !status || !status.dol_configured) return "";
+	const states = newsState.facets?.states || [];
+	const sel = (v, cur) => v === cur ? " selected" : "";
+	return `<div class="news-facets">
+    <select data-news-facet="state" aria-label="State">
+      <option value="">All states</option>
+      ${states.map((s) => `<option value="${escapeHtml(s.code)}"${sel(s.code, view.state)}>${escapeHtml(stateName(s.code))} (${s.count})</option>`).join("")}
+    </select>
+    <select data-news-facet="min_penalty" aria-label="Minimum penalty">
+      <option value="">Any penalty</option>
+      ${[
+		25e3,
+		1e5,
+		25e4
+	].map((v) => `<option value="${v}"${sel(String(v), view.min_penalty)}>Over ${fmtMoney(v)}</option>`).join("")}
+    </select>
+    <select data-news-facet="gravity" aria-label="Violation gravity">
+      <option value="">Any gravity</option>
+      ${[
+		["W", "Willful"],
+		["R", "Repeat"],
+		["S", "Serious"]
+	].map(([v, l]) => `<option value="${v}"${sel(v, view.gravity)}>${l}</option>`).join("")}
+    </select>
+  </div>`;
+}
+function newsEmptyHtml(view, status) {
+	const s = status || {};
+	if (!s.sync_enabled && !(s.counts && s.counts.all)) return `<div class="empty-state"><h2>News sync is off</h2>
+      <p>Set <code>NEWS_SYNC=1</code> in <code>reader/.env</code> and restart FRAMEWORK.</p></div>`;
+	if (view.cat === "enforcement" && !view.q && !s.dol_configured) return `<div class="news-setup">
+      <h3>Enforcement data needs a free DOL API key</h3>
+      <p>Register at <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a>,
+      then save <code>DOL_API_KEY</code> in <code>reader/.env</code> using the setup guide or in-app editor.
+      Federal Register news works without it.</p>
+      <div class="news-setup-actions">
+        <button type="button" class="btn btn-sm btn-accent" data-open-env="dol_api_key">${icon("key")} Add DOL key</button>
+        <a class="btn btn-sm" href="#/help">${icon("help")} Connections &amp; API keys</a>
+      </div></div>`;
+	if (view.q) {
+		const tab = NEWS_CATEGORIES.find((c) => c.key === view.cat) || NEWS_CATEGORIES[0];
+		const widen = view.cat !== "all" ? `<button type="button" class="btn" data-news-act="search-all">Search all news</button>` : "";
+		return `<div class="empty-state"><h2>No news matches “${escapeHtml(view.q)}” in ${escapeHtml(tab.label)}</h2>${widen}</div>`;
+	}
+	const enabled = Object.values(s.sources || {}).filter((x) => x.enabled);
+	const neverSynced = enabled.every((x) => !x.last_ok_at);
+	const failed = enabled.find((x) => x.last_error);
+	if (neverSynced && failed) {
+		const retry = failed.retry_after ? `<p>Retrying ${escapeHtml(timeUntil(failed.retry_after))}.</p>` : "";
+		return `<div class="empty-state"><h2>Couldn’t fetch the news</h2>
+      <p>${escapeHtml(failed.last_error || "")}</p>${retry}
+      <button type="button" class="btn" data-news-act="refresh">Retry</button></div>`;
+	}
+	if (neverSynced) return `<div class="empty-state">${statPill("busy", "Fetching from the Federal Register…")}
+      <p class="dr-note">The first sync takes a few seconds.</p></div>`;
+	return "<div class=\"empty-state\"><h2>Nothing here yet</h2><p>No items in this view.</p></div>";
+}
+function enforcementSummaryHtml(view) {
+	const s = newsState.summary;
+	if (view.cat !== "enforcement" || !isDefaultNewsView(view) || !s || !s.total_cases) return "";
+	const scope = newsScope(state.currentTitle);
+	const g = s.gravity_counts || {};
+	const highGrav = (g.W || 0) + (g.R || 0);
+	const topSec = (s.top_sections || [])[0];
+	const topState = (s.top_states || [])[0];
+	return `
+    <section class="ins-summary-strip" aria-label="Enforcement telemetry">
+      ${metricCardHtml({
+		label: "Tracked penalties",
+		value: escapeHtml(fmtMoney(s.total_penalty_usd || 0)),
+		sub: escapeHtml(`${plural(s.total_cases, "case")} · avg ${fmtMoney(s.avg_penalty_usd || 0)}`)
+	})}
+      ${metricCardHtml({
+		label: "High gravity",
+		value: fmt(highGrav),
+		of: "cases",
+		sub: joinSep([g.W ? `<button type="button" class="metric-link" data-news-quick-gravity="W">${g.W} Willful</button>` : "0 Willful", g.R ? `<button type="button" class="metric-link" data-news-quick-gravity="R">${g.R} Repeat</button>` : "0 Repeat"])
+	})}
+      ${topSec ? metricCardHtml({
+		label: "Top cited standard",
+		value: `<a class="ins-tile-link" href="${newsSectionHref(scope.title, topSec.section_id)}">§ ${escapeHtml(topSec.section_id)}</a>`,
+		sub: `<button type="button" class="metric-link" data-news-quick-sec="${escapeHtml(topSec.section_id)}">Filter ${plural(topSec.count, "case")} ${icon("chevronRight")}</button>`
+	}) : metricCardHtml({
+		label: "Top cited standard",
+		value: "—",
+		sub: "No CFR mappings yet"
+	})}
+      ${topState ? metricCardHtml({
+		label: "Top state",
+		value: escapeHtml(stateName(topState.code)),
+		sub: `<button type="button" class="metric-link" data-news-quick-state="${escapeHtml(topState.code)}">${escapeHtml(fmtMoney(topState.total_penalty_usd))} · ${plural(topState.count, "case")} ${icon("chevronRight")}</button>`
+	}) : metricCardHtml({
+		label: "Top state",
+		value: "—",
+		sub: "No state data"
+	})}
+    </section>`;
+}
+function renderNews(view, data, status, opts = {}) {
+	newsState.view = view;
+	newsState.data = data;
+	newsState.status = status;
+	const scope = newsScope(state.currentTitle);
+	const articles = data.articles || [];
+	let hero = null;
+	if (articles.length) {
+		const fresh = (a) => (Date.now() - Date.parse(a.published_at + "T00:00:00")) / 864e5 <= 30;
+		hero = (view.cat === "all" ? articles.find((a) => a.category === "rules" && fresh(a)) : null) || articles[0];
+	}
+	const feed = articles.filter((a) => !hero || a.guid !== hero.guid);
+	const more = data.total > articles.length ? `<div class="news-more"><button type="button" class="btn" data-news-act="more">Load more</button></div>` : "";
+	const qEl = document.getElementById("news-q");
+	const qFocus = qEl && document.activeElement === qEl ? {
+		value: qEl.value,
+		start: qEl.selectionStart ?? qEl.value.length,
+		end: qEl.selectionEnd ?? qEl.value.length
+	} : null;
+	dom.view.innerHTML = `
+    <div class="news-front">
+      <div class="news-head">
+        <div>
+          <div class="doc-kicker">FRAMEWORK Newsroom · ${escapeHtml(scope.agency)}</div>
+          <h1 class="doc-title">Regulatory News</h1>
+        </div>
+        <div class="news-head-status" id="news-head-status" aria-live="polite">${newsHeadStatusHtml(status)}</div>
+      </div>
+      ${newsBreakingHtml(articles)}
+      <div class="news-bar">
+        ${newsTabsHtml(view, status)}
+        <input type="search" class="news-q" id="news-q" value="${escapeHtml(view.q)}"
+          placeholder="Filter news, company, or § ${escapeHtml(scope.exampleSection)}…" aria-label="Search news" autocomplete="off" spellcheck="false">
+      </div>
+      ${newsFilterChipsHtml(view)}
+      ${newsFacetsHtml(view, status)}
+      ${enforcementSummaryHtml(view)}
+      ${articles.length ? `
+        ${hero ? newsCardHtml(hero, { hero: true }) : ""}
+        <div class="news-grid" id="news-grid">${feed.map((a) => newsCardHtml(a)).join("")}</div>
+        ${more}` : newsEmptyHtml(view, status)}
+    </div>`;
+	if (opts.enter) enterView();
+	if (qFocus) {
+		const q = document.getElementById("news-q");
+		if (q) {
+			q.value = qFocus.value;
+			q.focus();
+			try {
+				q.setSelectionRange(qFocus.start, qFocus.end);
+			} catch {}
+		}
+	}
+}
+async function loadMoreNews() {
+	const seq = state.routeSeq;
+	const { view, data } = newsState;
+	if (!view || !data) return;
+	let page;
+	try {
+		page = await getJSON(newsApiUrl(view, data.articles.length));
+	} catch {
+		return;
+	}
+	if (seq !== state.routeSeq || newsState.data !== data) return;
+	data.articles = data.articles.concat(page.articles || []);
+	data.total = page.total;
+	const grid = document.getElementById("news-grid");
+	if (grid) {
+		const shown = new Set([...dom.view.querySelectorAll("[data-guid]")].map((el) => el.dataset.guid));
+		grid.insertAdjacentHTML("beforeend", (page.articles || []).filter((a) => !shown.has(a.guid)).map((a) => newsCardHtml(a)).join(""));
+	}
+	const moreBtn = dom.view.querySelector("[data-news-act=\"more\"]");
+	if (moreBtn && data.articles.length >= data.total) moreBtn.closest(".news-more")?.remove();
+}
+onView("click", (e) => {
+	const target = e.target;
+	if (!target) return;
+	const tab = target.closest("[data-news-cat]");
+	if (tab && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: tab.dataset.newsCat || "all"
+		});
+		return;
+	}
+	const qGrav = target.closest("[data-news-quick-gravity]");
+	if (qGrav && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: "enforcement",
+			gravity: qGrav.dataset.newsQuickGravity || ""
+		}, { replace: true });
+		return;
+	}
+	const qSec = target.closest("[data-news-quick-sec]");
+	if (qSec && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: "enforcement",
+			section: qSec.dataset.newsQuickSec || ""
+		}, { replace: true });
+		return;
+	}
+	const qState = target.closest("[data-news-quick-state]");
+	if (qState && newsState.view) {
+		setNewsView({
+			...newsState.view,
+			cat: "enforcement",
+			state: qState.dataset.newsQuickState || ""
+		}, { replace: true });
+		return;
+	}
+	const insAct = target.closest("[data-ins-act=\"enrich\"]");
+	if (insAct) {
+		const actNr = parseInt(insAct.dataset.actNr || "", 10);
+		if (!Number.isNaN(actNr)) {
+			insAct.disabled = true;
+			const slot = document.getElementById("ins-status-slot");
+			if (slot) slot.innerHTML = statPill("busy", "Refreshing from DOL…");
+			enrichInspection(actNr, state.routeSeq);
+		}
+		return;
+	}
+	const act = target.closest("[data-news-act]");
+	if (!act) return;
+	const kind = act.dataset.newsAct;
+	if (kind === "refresh") refreshNewsCommand();
+	else if (kind === "reload") emit("route:refresh");
+	else if (kind === "more") loadMoreNews();
+	else if (kind === "search-all" && newsState.view) setNewsView({
+		...newsState.view,
+		cat: "all"
+	});
+	else if (kind === "clear-filter" && newsState.view && act.dataset.filterKey) setNewsView({
+		...newsState.view,
+		[act.dataset.filterKey]: ""
+	}, { replace: true });
+	else if (kind === "expand-chips") {
+		const row = act.closest(".news-chips");
+		if (row) {
+			row.classList.add("is-expanded");
+			act.remove();
+		}
+	}
+});
+state.newsQTimer = null;
+onView("input", (e) => {
+	const target = e.target;
+	if (!target || target.id !== "news-q" || !newsState.view) return;
+	clearTimeout(state.newsQTimer);
+	const q = target.value.trim();
+	state.newsQTimer = setTimeout(() => {
+		if (newsState.view && q !== newsState.view.q) setNewsView({
+			...newsState.view,
+			q
+		}, { replace: true });
+	}, 250);
+});
+onView("keydown", (e) => {
+	const ke = e;
+	const target = e.target;
+	if (!target) return;
+	if (target.id === "news-q" && ke.key === "Escape" && target.value) {
+		target.value = "";
+		if (newsState.view && newsState.view.q) setNewsView({
+			...newsState.view,
+			q: ""
+		}, { replace: true });
+		return;
+	}
+	const tab = target.closest(".news-tabs [role=\"tab\"]");
+	if (!tab) return;
+	if (![
+		"ArrowLeft",
+		"ArrowRight",
+		"Home",
+		"End"
+	].includes(ke.key)) return;
+	ke.preventDefault();
+	const tabs = [...dom.view.querySelectorAll(".news-tabs [role=\"tab\"]")];
+	const i = tabs.indexOf(tab);
+	tabs[ke.key === "Home" ? 0 : ke.key === "End" ? tabs.length - 1 : (i + (ke.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length].focus();
+});
+onView("change", (e) => {
+	const facet = e.target?.closest("[data-news-facet]");
+	if (!facet || !newsState.view || !facet.dataset.newsFacet) return;
+	setNewsView({
+		...newsState.view,
+		[facet.dataset.newsFacet]: facet.value
+	}, { replace: true });
+});
+on("news:refresh", () => refreshNewsCommand());
+on("env:saved", () => {
+	if (routeTarget() === "news") emit("route:refresh");
+});
+// src/components/news_activity.ts
 var newsPop = document.getElementById("news-pop");
 var newsActivityCache = /* @__PURE__ */ new Map();
 state.newsActivityCtx = null;
@@ -8381,7 +13368,7 @@ async function fetchNewsActivity(titleNum, kind, id) {
 	if (!data) {
 		try {
 			data = await getJSON(kind === "part" ? `/api/news/part/${encodeURIComponent(id)}?title=29` : `/api/news/section/${encodeURIComponent(id)}?title=29`);
-		} catch (e) {
+		} catch {
 			return null;
 		}
 		newsActivityCache.set(key, data);
@@ -8400,14 +13387,16 @@ async function fillNewsActivity(kind, id, seq) {
 		id,
 		data
 	};
-	btn.querySelector("span").textContent = data.count === 1 ? "1 rule or citation" : `${data.count} rules & citations`;
+	const label = btn.querySelector("span");
+	if (label) label.textContent = data.count === 1 ? "1 rule or citation" : `${data.count} rules & citations`;
 	btn.hidden = false;
 }
 function newsTimelineHtml(ctx) {
 	const label = ctx.kind === "part" ? `Part ${ctx.id}` : `§ ${ctx.id}`;
 	const articles = ctx.data.articles || [];
 	const nodes = articles.map((a) => {
-		let meta = fmtDate(a.published_at), second = "";
+		let meta = fmtDate(a.published_at);
+		let second = "";
 		if (a.category === "rules") meta += ` · Final rule${a.citation ? " · " + a.citation : ""}`;
 		else if (a.category === "rulemaking") meta += " · Proposed rule" + (a.comments_close_on ? ` · comments close ${fmtDate(a.comments_close_on)}` : "");
 		else if (a.category === "public_inspection") meta += " · Public inspection" + (a.scheduled_on ? ` · publishes ${fmtDate(a.scheduled_on)}` : "");
@@ -8415,7 +13404,7 @@ function newsTimelineHtml(ctx) {
 			meta += " · Citation" + (a.penalty_usd ? ` · ${fmtMoney(a.penalty_usd)}` : "");
 			second = [a.company, [a.city, a.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
 		} else meta += " · Notice";
-		const title = a.category === "enforcement" && second ? second : a.title;
+		const title = a.category === "enforcement" && second ? second : a.title || "";
 		const hay = `${meta} ${title} ${a.citation || ""}`.toLowerCase();
 		const actNr = inspectionActivityNr(a);
 		const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}" data-pop-nav><span class="tl-title">${escapeHtml(title)}</span></a>` : extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`);
@@ -8460,20 +13449,22 @@ function closeNewsActivity(returnFocus = true) {
 	newsCtrl.close(returnFocus);
 }
 newsPop.addEventListener("click", (e) => {
-	if (e.target.closest("[data-pop-close]")) closeNewsActivity(true);
-	else if (e.target.closest("[data-pop-nav]")) closeNewsActivity(false);
+	const t = e.target;
+	if (t?.closest("[data-pop-close]")) closeNewsActivity(true);
+	else if (t?.closest("[data-pop-nav]")) closeNewsActivity(false);
 });
 newsPop.addEventListener("input", (e) => {
-	if (e.target.id !== "news-pop-filter") return;
-	const q = e.target.value.trim().toLowerCase();
+	const t = e.target;
+	if (!t || t.id !== "news-pop-filter") return;
+	const q = t.value.trim().toLowerCase();
 	for (const li of newsPop.querySelectorAll(".tl-node")) {
 		const hay = li.dataset.hay || "";
 		li.hidden = Boolean(q && !hay.includes(q));
 	}
 	newsCtrl.reposition(activeNewsAnchor?.isConnected ? activeNewsAnchor : document.getElementById("btn-news-activity"));
 });
-dom.view.addEventListener("click", (e) => {
-	if (e.target.closest("#btn-news-activity")) openNewsActivity();
+onView("click", (e) => {
+	if (e.target?.closest("#btn-news-activity")) openNewsActivity();
 });
 newsPop.addEventListener("keydown", (e) => {
 	if (e.key === "Escape") {
@@ -8482,1416 +13473,171 @@ newsPop.addEventListener("keydown", (e) => {
 		closeNewsActivity(true);
 	}
 });
-// src/views/doc_utils.js
-var figModal = document.getElementById("figure-modal");
-var figReturnFocus = null;
-function closeFigureModal() {
-	if (!figModal || figModal.hidden) return;
-	figModal.hidden = true;
-	const dialog = figModal.querySelector(".modal-dialog");
-	if (dialog) dialog.innerHTML = "";
-	if (figReturnFocus && typeof figReturnFocus.focus === "function") figReturnFocus.focus();
-	figReturnFocus = null;
+// src/components/pin_pop.ts
+var pinPop = document.getElementById("pin-pop");
+var pinTargetOverride = null;
+var pinAnchorOverride = null;
+var pinPopMode = "pin";
+function activePinSection() {
+	return pinTargetOverride || currentSectionRef();
 }
-function openFigureModal(figLink) {
-	if (!figModal || !figLink) return;
-	const img = figLink.querySelector(".reg-img");
-	const fullSrc = figLink.getAttribute("href") || img && img.src || "";
-	if (!fullSrc) return;
-	figReturnFocus = document.activeElement;
-	const caption = figLink.previousElementSibling?.classList.contains("reg-label") ? figLink.previousElementSibling.textContent.trim() : "Regulatory Figure";
-	const dialog = figModal.querySelector(".modal-dialog");
-	if (!dialog) return;
-	dialog.innerHTML = `
-    <div class="modal-head">
-      <div>
-        <div class="doc-kicker">Figure preview</div>
-        <h2 class="modal-title" id="fig-modal-title">${escapeHtml(caption)}</h2>
-      </div>
-      <div class="fig-modal-acts">
-        <button type="button" class="btn btn-sm" id="fig-invert-btn" aria-pressed="false">Invert contrast</button>
-        <a class="btn btn-sm" href="${escapeHtml(fullSrc)}" target="_blank" rel="noopener noreferrer">${icon("external")} Full image</a>
-        <button type="button" class="icon-btn" id="fig-close-btn" aria-label="Close preview">${icon("close")}</button>
-      </div>
-    </div>
-    <div class="fig-modal-stage">
-      <img src="${escapeHtml(fullSrc)}" alt="${escapeHtml(caption)}" id="fig-modal-img">
-    </div>
-  `;
-	figModal.hidden = false;
-	document.getElementById("fig-close-btn")?.focus();
+function pinButtonHtml(secRef = null, id = "btn-pin") {
+	const t = secRef ? secRef.title : state.currentTitle;
+	const sId = secRef ? secRef.id : state.currentSection?.id;
+	const n = sId ? projectsWith(t, sId).length : 0;
+	return `<button type="button" class="${id === "btn-pin" ? "btn" : "btn btn-small"}${n ? " is-pinned" : ""}" id="${id}" aria-haspopup="dialog" aria-expanded="false" title="Pin to a workspace (${isMac ? "⌘" : "Ctrl "}D)">${icon(n ? "bookmarkFilled" : "bookmark")} ${n ? "Pinned" : "Pin"}</button>`;
 }
-if (figModal) {
-	figModal.addEventListener("click", (e) => {
-		if (e.target === figModal || e.target.closest("#fig-close-btn")) {
-			closeFigureModal();
-			return;
-		}
-		const inv = e.target.closest("#fig-invert-btn");
-		if (inv) {
-			const stage = figModal.querySelector(".fig-modal-stage");
-			if (!stage) return;
-			const on = !stage.classList.contains("is-inverted");
-			stage.classList.toggle("is-inverted", on);
-			inv.setAttribute("aria-pressed", String(on));
-		}
-	});
-	figModal.addEventListener("keydown", (e) => {
-		if (e.key === "Escape") {
-			e.preventDefault();
-			closeFigureModal();
-		}
-	});
-	window.addEventListener("hashchange", closeFigureModal);
-}
-function findParagraphElement(root, pText) {
-	if (!root) return null;
-	const clean = (pText || "").trim();
-	if (!clean) return null;
-	const paras = [...root.querySelectorAll(".reg-p")];
-	for (const p of paras) {
-		const pm = p.querySelector(".pmark");
-		if (pm && pm.textContent.includes(clean)) return p;
-	}
-	const tokens = clean.match(/\([a-zA-Z0-9]{1,4}\)/g);
-	if (!tokens || !tokens.length) return null;
-	let ti = 0;
-	let lastMatched = null;
-	let minLevel = 0;
-	for (const p of paras) {
-		const lvlMatch = /\blvl-(\d+)\b/.exec(p.className);
-		const lvl = lvlMatch ? Number(lvlMatch[1]) : 0;
-		const pm = p.querySelector(".pmark");
-		if (!pm) continue;
-		const pTokens = pm.textContent.match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
-		if (!pTokens.length) continue;
-		if (ti > 0 && lvl > 0 && lvl <= minLevel) {
-			if (lvl === 1 && tokens[0].toLowerCase() !== pTokens[0].toLowerCase()) {
-				ti = 0;
-				minLevel = 0;
-			}
-		}
-		let matchedHere = 0;
-		let tempIdx = ti;
-		for (const pt of pTokens) if (tempIdx < tokens.length && pt.toLowerCase() === tokens[tempIdx].toLowerCase()) {
-			tempIdx++;
-			matchedHere++;
-		} else break;
-		if (matchedHere > 0 && (ti === 0 || lvl > minLevel)) {
-			ti = tempIdx;
-			minLevel = lvl;
-			lastMatched = p;
-			if (ti === tokens.length) return p;
-		}
-	}
-	return lastMatched;
-}
-function findParagraphRange(root, pText) {
-	const clean = (pText || "").trim();
-	if (!clean || !root) return [];
-	const rangeM = /^\s*((?:\([a-zA-Z0-9]{1,4}\))+)\s*(?:-|–|through|to)\s*((?:\([a-zA-Z0-9]{1,4}\))+)\s*$/i.exec(clean);
-	if (rangeM) {
-		const startEl = findParagraphElement(root, rangeM[1]);
-		const endEl = findParagraphElement(root, rangeM[2]);
-		if (startEl && endEl) {
-			const paras = [...root.querySelectorAll(".reg-p")];
-			const i1 = paras.indexOf(startEl);
-			const i2 = paras.indexOf(endEl);
-			if (i1 >= 0 && i2 >= i1 && i2 - i1 < 16) return paras.slice(i1, i2 + 1);
-			return [startEl];
-		}
-		if (startEl) return [startEl];
-	}
-	const hit = findParagraphElement(root, clean);
-	return hit ? [hit] : [];
-}
-function resolveAnchorTargets(root, target) {
-	if (!root || !target) return [];
-	const clean = String(target).trim();
-	if (!clean) return [];
-	const bareId = clean.startsWith("#") ? clean.slice(1) : clean;
-	if (/^(table|fig|figure|appendix|fn|ftref|sec|p)-?[a-zA-Z0-9_.\-]+$/i.test(bareId)) try {
-		const el = root.querySelector(`#${CSS.escape(bareId)}`);
-		if (el) return [el];
-	} catch (e) {}
-	return findParagraphRange(root, clean);
-}
-function flashElements(els, scroll = true) {
-	if (!els || !els.length) return;
-	for (const el of els) {
-		el.classList.remove("flash");
-		el.offsetWidth;
-		el.classList.add("flash");
-	}
-	if (scroll) smoothScrollToTarget(els[0], { block: "center" });
-}
-function highlightTarget(root, target, delay = 120) {
-	setTimeout(() => {
-		flashElements(resolveAnchorTargets(root, target), true);
-	}, delay);
-}
-function slugifyAnchor(raw) {
-	return raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-function enhanceDomAnchors(root = dom.view) {
-	if (!root) return;
-	const targets = /* @__PURE__ */ new Map();
-	let figSeq = 0;
-	for (const fig of root.querySelectorAll(".reg-figure")) {
-		const cap = fig.previousElementSibling?.classList.contains("reg-label") ? fig.previousElementSibling.textContent.trim() : "";
-		const m = /^\s*(Figure\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(cap);
-		if (!fig.id) {
-			figSeq++;
-			const base = m ? `fig-${slugifyAnchor(m[1].replace(/^figure\s+/i, ""))}` : `fig-${figSeq}`;
-			let id = base;
-			let n = 2;
-			while (root.querySelector(`#${CSS.escape(id)}`)) id = `${base}-${n++}`;
-			fig.id = id;
-		}
-		if (m) targets.set(m[1].toLowerCase(), {
-			label: m[1],
-			id: fig.id
-		});
-	}
-	for (const w of root.querySelectorAll(".table-wrap[id^=\"table-\"]")) {
-		const cap = w.querySelector("caption")?.textContent || "";
-		const m = /^\s*(Table\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(cap);
-		if (m) targets.set(m[1].toLowerCase(), {
-			label: m[1],
-			id: w.id
-		});
-	}
-	for (const appEl of root.querySelectorAll(".reg-appendix[id^=\"appendix-\"]")) {
-		const head = appEl.querySelector(".reg-subhead, .reg-label, .reg-p")?.textContent || "";
-		const m = /^\s*(Appendix\s+[A-Z0-9]+(?:[.\-][A-Z0-9]+)*)\b/i.exec(head);
-		if (m) targets.set(m[1].toLowerCase(), {
-			label: m[1],
-			id: appEl.id
-		});
-	}
-	if (!targets.size) return;
-	const pattern = [...targets.keys()].map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-	const re = new RegExp(`\\b(${pattern})\\b`, "gi");
-	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
-		const parent = node.parentElement;
-		if (!parent || !parent.closest(".reg-body") || parent.closest("a, button, caption, .reg-table")) return NodeFilter.FILTER_REJECT;
-		const txt = node.nodeValue || "";
-		return /(?:table|figure|appendix)/i.test(txt) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-	} });
-	const nodes = [];
-	let n;
-	while (n = walker.nextNode()) nodes.push(n);
-	for (const textNode of nodes) {
-		const val = textNode.nodeValue || "";
-		re.lastIndex = 0;
-		if (!re.test(val)) continue;
-		re.lastIndex = 0;
-		const frag = document.createDocumentFragment();
-		let last = 0;
-		let match;
-		while ((match = re.exec(val)) !== null) {
-			if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
-			const hit = targets.get(match[1].toLowerCase());
-			if (hit) {
-				const btn = document.createElement("button");
-				btn.type = "button";
-				btn.className = "xref xref-anchor";
-				btn.dataset.anchor = hit.id;
-				btn.textContent = match[0];
-				frag.appendChild(btn);
-			} else frag.appendChild(document.createTextNode(match[0]));
-			last = match.index + match[0].length;
-		}
-		if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
-		textNode.parentNode.replaceChild(frag, textNode);
-	}
-}
-function resolveParagraphPath(root, paraEl) {
-	if (!root || !paraEl) return "";
-	const pm = paraEl.querySelector(".pmark");
-	if (!pm) return "";
-	const firstTok = (pm.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
-	if (!firstTok.length) return "";
-	if (firstTok.length > 1) return firstTok.join("");
-	const lvlMatch = /\blvl-(\d+)\b/.exec(paraEl.className);
-	let targetLvl = lvlMatch ? Number(lvlMatch[1]) : 0;
-	if (targetLvl <= 1) return firstTok[0];
-	const paras = [...root.querySelectorAll(".reg-p")];
-	let idx = paras.indexOf(paraEl);
-	if (idx < 0) return firstTok[0];
-	const chain = [firstTok[0]];
-	for (let i = idx - 1; i >= 0 && targetLvl > 1; i--) {
-		const p = paras[i];
-		const lm = /\blvl-(\d+)\b/.exec(p.className);
-		const lvl = lm ? Number(lm[1]) : 0;
-		if (lvl > 0 && lvl < targetLvl) {
-			const toks = (p.querySelector(".pmark")?.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g);
-			if (toks && toks.length) {
-				chain.unshift(...toks);
-				targetLvl = lvl;
-			}
-		}
-	}
-	return chain.join("");
-}
-function formatCfrCitation(title, sectionLabelOrId, para = "") {
-	const cleanLabel = String(sectionLabelOrId || "").trim();
-	return `${title} C.F.R. ${cleanLabel.startsWith("§") ? cleanLabel : `§ ${cleanLabel}`}${para || ""}`;
-}
-function wrapIbrMentions(root, ibrList) {
-	if (!root || !Array.isArray(ibrList) || !ibrList.length) return;
-	const byMatch = /* @__PURE__ */ new Map();
-	for (const item of ibrList) {
-		if (!item || !item.match_text) continue;
-		byMatch.set(item.match_text.toLowerCase(), item);
-		if (item.code) byMatch.set(item.code.toLowerCase(), item);
-	}
-	if (!byMatch.size) return;
-	const escaped = [...byMatch.keys()].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-	const re = new RegExp(`(${escaped})`, "gi");
-	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
-		const parent = node.parentElement;
-		if (!parent || !parent.closest(".reg-body") || parent.closest("a, button, .pmark, .runin")) return NodeFilter.FILTER_REJECT;
-		return NodeFilter.FILTER_ACCEPT;
-	} });
-	const nodes = [];
-	let n;
-	while (n = walker.nextNode()) nodes.push(n);
-	for (const textNode of nodes) {
-		const val = textNode.nodeValue || "";
-		re.lastIndex = 0;
-		if (!re.test(val)) continue;
-		re.lastIndex = 0;
-		const frag = document.createDocumentFragment();
-		let last = 0;
-		let match;
-		while ((match = re.exec(val)) !== null) {
-			if (match.index > last) frag.appendChild(document.createTextNode(val.slice(last, match.index)));
-			const item = byMatch.get(match[1].toLowerCase());
-			if (item) {
-				const btn = document.createElement("button");
-				btn.type = "button";
-				btn.className = "xref xref-ibr";
-				btn.dataset.ibrCode = item.code;
-				btn.title = item.approved_in ? `${item.code} — IBR approved in ${item.approved_in.label}${item.approved_in.para || ""}` : `${item.code} (${item.org_name || item.org})`;
-				btn.textContent = match[0];
-				frag.appendChild(btn);
-			} else frag.appendChild(document.createTextNode(match[0]));
-			last = match.index + match[0].length;
-		}
-		if (last < val.length) frag.appendChild(document.createTextNode(val.slice(last)));
-		textNode.parentNode.replaceChild(frag, textNode);
-	}
-}
-function renderViewError(container, title, message, { retryLabel = "Try again", onRetry = null } = {}) {
-	if (!container) return;
-	container.innerHTML = emptyStateHtml({
-		title,
-		body: escapeHtml(message),
-		actionsHtml: onRetry ? `<button type="button" class="btn" id="view-err-retry">${escapeHtml(retryLabel)}</button>` : ""
-	});
-	if (onRetry) document.getElementById("view-err-retry")?.addEventListener("click", onRetry);
-}
-function parseCfrHref(href, fallbackTitle = 29) {
-	if (!href) return null;
-	if (href.startsWith("#")) {
-		const [pathPart, qs] = href.slice(1).split("?");
-		const params = new URLSearchParams(qs || "");
-		const mCorpusSec = /^\/corpus\/(?:federal-reg|cfr)\/[^/]+\/(\d+)\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
-		if (mCorpusSec) return {
-			kind: "section",
-			title: parseInt(mCorpusSec[1], 10),
-			section: decodeURIComponent(mCorpusSec[2]),
-			unit: mCorpusSec[3] ? decodeURIComponent(mCorpusSec[3]) : null,
-			para: params.get("p") || null
-		};
-		const mTitleSec = /^\/title\/(\d+)\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
-		if (mTitleSec) return {
-			kind: "section",
-			title: parseInt(mTitleSec[1], 10),
-			section: decodeURIComponent(mTitleSec[2]),
-			unit: mTitleSec[3] ? decodeURIComponent(mTitleSec[3]) : null,
-			para: params.get("p") || null
-		};
-		const mSec = /^\/section\/([^/]+)(?:\/([^/]+))?$/.exec(pathPart);
-		if (mSec) return {
-			kind: "section",
-			title: fallbackTitle,
-			section: decodeURIComponent(mSec[1]),
-			unit: mSec[2] ? decodeURIComponent(mSec[2]) : null,
-			para: params.get("p") || null
-		};
-		const mCorpusPart = /^\/corpus\/(?:federal-reg|cfr)\/[^/]+\/(\d+)\/part\/([^/]+)$/.exec(pathPart);
-		if (mCorpusPart) return {
-			kind: "part",
-			title: parseInt(mCorpusPart[1], 10),
-			part: decodeURIComponent(mCorpusPart[2])
-		};
-		const mTitlePart = /^\/title\/(\d+)\/part\/([^/]+)$/.exec(pathPart);
-		if (mTitlePart) return {
-			kind: "part",
-			title: parseInt(mTitlePart[1], 10),
-			part: decodeURIComponent(mTitlePart[2])
-		};
-		const mPart = /^\/part\/([^/]+)$/.exec(pathPart);
-		if (mPart) return {
-			kind: "part",
-			title: fallbackTitle,
-			part: decodeURIComponent(mPart[1])
-		};
-	}
-	return null;
-}
-// src/components/split_pane.js
-var splitAbort = null;
-var splitSeq = 0;
-var activeSplitDoc = null;
-var activeSplitGraph = null;
-var activeSplitNewsCtx = null;
-var splitTreeCache = /* @__PURE__ */ new Map();
-var splitParaBar = null;
-var splitParaTarget = null;
-function hideSplitParaBar() {
-	if (splitParaBar) splitParaBar.hidden = true;
-	splitParaTarget = null;
-}
-function showSplitParaBar(pEl) {
-	if (!activeSplitDoc || !dom.splitPane?.querySelector(".split-body") || !pEl?.querySelector(".pmark")) {
-		hideSplitParaBar();
-		return;
-	}
-	if (!splitParaBar || !splitParaBar.isConnected) {
-		splitParaBar = document.createElement("div");
-		splitParaBar.className = "para-tools";
-		splitParaBar.setAttribute("aria-label", "Paragraph actions");
-		splitParaBar.innerHTML = `
-      <button type="button" class="para-tool-btn" data-split-para-act="copy" title="Copy legal CFR citation">${icon("link")} Cite</button>
-      <button type="button" class="para-tool-btn" data-split-para-act="clip" title="Clip clause to workspace">${icon("bookmark")} Clip</button>
-    `;
-	}
-	splitParaTarget = pEl;
-	splitParaBar.hidden = false;
-	pEl.appendChild(splitParaBar);
-}
-function activeSplitTab() {
-	return state.splitTabs.find((t) => t.id === state.activeSplitTabId) || state.splitTabs[0] || null;
-}
-function unitQueryFor(view, para) {
-	if (view === "full") return "";
-	if (view) return "?unit=" + encodeURIComponent(view);
-	const pClause = para && /^\(([a-z])\)/i.exec(para.trim());
-	return "?unit=" + encodeURIComponent(pClause ? pClause[1].toLowerCase() : "");
-}
-function buildSplitHash(entry = state.splitState) {
-	return buildReaderHref(entry);
-}
-function makeSplitTab(entry) {
-	return {
-		id: entry.id || `stab_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
-		kind: entry.kind || (entry.partId && !entry.sectionId ? "part" : "section"),
-		title: Number(entry.title) || state.currentTitle || 29,
-		sectionId: entry.sectionId ? String(entry.sectionId) : void 0,
-		partId: entry.partId ? String(entry.partId) : void 0,
-		full: Boolean(entry.full),
-		para: entry.para || null,
-		unit: entry.unit || null,
-		label: entry.label || formatTabLabel(entry),
-		heading: entry.heading || "",
-		history: Array.isArray(entry.history) && entry.history.length ? entry.history : [{ ...entry }]
-	};
-}
-function syncSplitTabStripInPlace() {
-	const host = dom.splitPane?.querySelector("#split-tabs");
-	if (host) host.outerHTML = splitTabsBarHtml();
-}
-function splitTabsBarHtml() {
-	if (!state.splitTabs.length) return "";
-	return `
-    <div id="split-tabs" class="reader-tabs is-split-tabs" role="tablist" aria-label="Side-by-side reader tabs">
-      <div class="reader-tabs-strip">${state.splitTabs.map((tab) => {
-		const active = tab.id === state.activeSplitTabId;
-		const tier = Number(tab.title) !== Number(state.currentTitle) ? "cross" : "cfr";
-		const label = tab.label || formatTabLabel(tab);
-		const titleAttr = `${label}${tab.heading ? ` — ${tab.heading}` : ""}`;
-		return `
-      <div class="reader-tab${active ? " is-active" : ""}" data-ref-tier="${tier}" role="presentation">
-        <button type="button" class="reader-tab-btn" role="tab" aria-selected="${active ? "true" : "false"}" data-split-tab="${escapeHtml(tab.id)}" title="${escapeHtml(titleAttr)}">
-          <span class="tier-pip" aria-hidden="true"></span>
-          <span class="reader-tab-label">${escapeHtml(label)}</span>
-        </button>
-        <button type="button" class="reader-tab-close" data-split-tab-close="${escapeHtml(tab.id)}" aria-label="Close ${escapeHtml(label)}" title="Close tab">${icon("close")}</button>
-      </div>`;
-	}).join("")}</div>
-      <div class="reader-tabs-acts">
-        <button type="button" class="btn btn-small reader-tabs-save" data-split-tabs-act="save-group" title="Save current main & side-by-side tabs as a workspace tab group">${icon("folder")} <span>Save group</span></button>
-      </div>
-    </div>`;
-}
-function splitHeaderHtml({ splitTier = "cfr", kickerHtml, titleText, hasBack = false, isLoading = false } = {}) {
-	const acts = isLoading ? `<button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>` : `<button type="button" class="icon-btn" data-split-act="swap" title="Swap with main reader" aria-label="Swap panes">${icon("stack")}</button>
-       <button type="button" class="icon-btn${state.splitWide ? " is-active" : ""}" data-split-act="wide" title="Toggle split width" aria-label="Toggle width">${icon("expand")}</button>
-       <button type="button" class="btn btn-small" data-split-act="to-main-tab" title="Move into a main reader tab">${icon("plus")} Main tab</button>
-       <button type="button" class="btn btn-small" data-split-act="promote" title="Open in main reading pane">Open</button>
-       <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>`;
-	return `
-    <header class="split-head" data-ref-tier="${splitTier}">
-      ${hasBack ? `<button type="button" class="icon-btn" data-split-act="back" title="Back in split pane" aria-label="Back">${icon("chevronLeft")}</button>` : ""}
-      <div class="split-head-meta">
-        <div class="doc-kicker"><span class="tier-pip" aria-hidden="true"></span> ${kickerHtml}</div>
-        <h2 class="split-head-title">${escapeHtml(titleText)}</h2>
-      </div>
-      <div class="split-head-acts">${acts}</div>
-    </header>`;
-}
-function closeSplitPane() {
-	hideSplitParaBar();
-	if (splitAbort) {
-		try {
-			splitAbort.abort();
-		} catch (e) {}
-		splitAbort = null;
-	}
-	splitSeq++;
-	activeSplitDoc = null;
-	activeSplitGraph = null;
-	activeSplitNewsCtx = null;
-	state.splitState = null;
-	state.splitTabs = [];
-	state.activeSplitTabId = null;
-	persistSessionTabs();
-	renderMainTabs();
-	if (dom.splitPane) {
-		dom.splitPane.hidden = true;
-		dom.splitPane.innerHTML = "";
-	}
-	if (dom.mainStage) dom.mainStage.classList.remove("is-split", "is-split-wide");
-}
-function closeSplitTab(tabId) {
-	const idx = state.splitTabs.findIndex((t) => t.id === tabId);
-	if (idx < 0) return;
-	if (state.splitTabs.length <= 1) {
-		closeSplitPane();
-		return;
-	}
-	const wasActive = state.splitTabs[idx].id === state.activeSplitTabId;
-	state.splitTabs.splice(idx, 1);
-	if (wasActive) {
-		const next = state.splitTabs[Math.min(idx, state.splitTabs.length - 1)] || state.splitTabs[0];
-		state.activeSplitTabId = next.id;
-		persistSessionTabs();
-		openSplitPane({
-			...next,
-			tabId: next.id,
-			newTab: false,
-			pushHistory: false
-		});
-	} else {
-		persistSessionTabs();
-		syncSplitTabStripInPlace();
-	}
-}
-function promoteSplitToMain() {
-	if (!state.splitState) return;
-	const target = buildSplitHash(state.splitState);
-	closeSplitPane();
-	window.location.hash = target;
-}
-function moveActiveSplitToMainTab() {
-	const active = activeSplitTab() || state.splitState;
-	if (!active) return;
-	const target = {
-		kind: active.kind || (active.partId && !active.sectionId ? "part" : "section"),
-		title: active.title,
-		sectionId: active.sectionId,
-		partId: active.partId,
-		unit: active.unit || null,
-		full: Boolean(active.full),
-		para: active.para || null,
-		label: active.label || formatTabLabel(active),
-		heading: active.heading || "",
-		href: buildSplitHash(active)
-	};
-	if (active.id && state.splitTabs.length > 1) closeSplitTab(active.id);
-	else closeSplitPane();
-	openMainReaderTab(target);
-}
-function activeSplitSectionRef() {
-	if (!activeSplitDoc || !state.splitState || state.splitState.kind === "part") return null;
-	return {
+function updatePinButton() {
+	const b = document.getElementById("btn-pin");
+	if (b) b.outerHTML = pinButtonHtml();
+	const sb = document.getElementById("split-btn-pin");
+	if (sb && state.splitState?.sectionId) sb.outerHTML = pinButtonHtml({
 		title: state.splitState.title,
-		id: activeSplitDoc.id,
-		label: cleanInlineLabel(activeSplitDoc.label) || `§ ${activeSplitDoc.id}`,
-		heading: cleanInlineLabel(activeSplitDoc.section_title || activeSplitDoc.title_label || ""),
-		part: activeSplitDoc.part || "",
-		tier: "federal-reg",
-		jurisdiction: "US"
-	};
+		id: state.splitState.sectionId
+	}, "split-btn-pin");
 }
-function swapSplitWithMain() {
-	if (!state.splitState) return;
-	const splitHref = buildSplitHash(state.splitState);
-	const mainSec = currentSectionRef();
-	const mainPart = !mainSec && state.currentPart ? {
-		kind: "part",
-		title: state.currentTitle,
-		partId: state.currentPart
-	} : null;
-	if (!mainSec && !mainPart) {
-		promoteSplitToMain();
-		return;
-	}
-	const nextSplit = mainSec ? {
-		kind: "section",
-		title: mainSec.title,
-		sectionId: mainSec.id,
-		unit: state.currentSection?.unit || null,
-		label: `${mainSec.title} CFR ${mainSec.label}`,
-		heading: mainSec.heading
-	} : {
-		kind: "part",
-		title: mainPart.title,
-		partId: mainPart.partId,
-		label: `${mainPart.title} CFR Part ${mainPart.partId}`
-	};
-	state.swapMotionX = 36;
-	window.location.hash = splitHref;
-	openSplitPane({
-		...nextSplit,
-		newTab: false,
-		pushHistory: true,
-		fromX: -36
-	});
-}
-async function loadTreeForTitle(tNum, signal) {
-	if (tNum === state.currentTitle && state.treeData) return state.treeData;
-	if (splitTreeCache.has(tNum)) return splitTreeCache.get(tNum);
-	const res = await fetch(`/api/${tNum}/tree`, { signal });
-	if (!res.ok) return null;
-	const tree = await res.json();
-	splitTreeCache.set(tNum, tree);
-	return tree;
-}
-function renderSplitLoading(tNum, labelText) {
-	dom.splitPane.innerHTML = `
-    ${splitTabsBarHtml()}
-    ${splitHeaderHtml({
-		splitTier: tNum !== state.currentTitle ? "cross" : "cfr",
-		kickerHtml: `${tNum} CFR · ${escapeHtml(labelText)}`,
-		titleText: "Loading…",
-		isLoading: true
-	})}
-    <div class="split-body">${skeletonHtml("doc", `Loading ${labelText}…`)}</div>
-  `;
-}
-function renderSplitUnavailable(tNum, titleLabel, bodyMsg) {
-	dom.splitPane.innerHTML = `
-    ${splitTabsBarHtml()}
-    ${splitHeaderHtml({
-		splitTier: "uninstalled",
-		kickerHtml: `${tNum} CFR`,
-		titleText: titleLabel,
-		hasBack: (activeSplitTab()?.history?.length || 0) > 1
-	})}
-    <div class="split-body"><p class="muted">${escapeHtml(bodyMsg)}</p></div>
-  `;
-}
-function updateSplitRefsBtn() {
-	const btn = document.getElementById("split-btn-refs");
-	if (!btn || !state.splitState) return;
-	const refs = collectSectionReferences(dom.splitPane, state.splitState.title);
-	const span = btn.querySelector("span");
-	if (span) span.textContent = refs.length ? `Refs ${refs.length}` : "Refs";
-	btn.hidden = refs.length === 0;
-}
-function splitActionsBarHtml({ pinRef = null, partId = null, ecfrUrl = "", partFull = false } = {}) {
-	return `
-    <div class="split-tools">
-      ${partId ? `<button type="button" class="btn btn-small" data-split-part="${escapeHtml(partId)}" data-split-full="${partFull ? "1" : "0"}" title="${partFull ? "View Full Part text" : `View Part ${escapeHtml(partId)} TOC`}">${icon("list")} ${partFull ? "Full part" : `Part ${escapeHtml(partId)}`}</button>` : ""}
-      ${pinRef ? pinButtonHtml(pinRef, "split-btn-pin") : ""}
-      <button type="button" class="btn btn-small" id="split-btn-refs" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("list")} <span>Refs</span></button>
-      <button type="button" class="btn btn-small" id="split-btn-cited" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("link")} <span>Cited by</span></button>
-      <button type="button" class="btn btn-small" id="split-btn-news" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("news")} <span>Activity</span></button>
-      <div class="spacer"></div>
-      <button type="button" class="btn btn-small" data-split-act="copy" title="Copy link">${icon("link")} Copy</button>
-      ${ecfrUrl ? `<a class="btn btn-small" href="${escapeHtml(ecfrUrl)}" target="_blank" rel="noopener noreferrer" title="View on eCFR">${icon("external")} eCFR</a>` : ""}
-      <div class="size-ctl split-size-ctl" role="group" aria-label="Text size">
-        <button type="button" data-split-act="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
-        <button type="button" data-split-act="font-inc" title="Larger text" aria-label="Larger text">A+</button>
-      </div>
-    </div>`;
-}
-async function openSplitPart(nextEntry, seq, signal, { fromX = 0 } = {}) {
-	const tNum = nextEntry.title;
-	const partId = nextEntry.partId;
-	const full = Boolean(nextEntry.full);
-	const tab = activeSplitTab();
-	const hasBack = (tab?.history?.length || 0) > 1;
-	if (full) {
-		const [tree, fullRes] = await Promise.all([loadTreeForTitle(tNum, signal), fetch(`/api/${tNum}/part/${encodeURIComponent(partId)}/full`, { signal })]);
-		if (seq !== splitSeq) return;
-		if (!fullRes.ok) {
-			renderSplitUnavailable(tNum, `Part ${partId}`, `Couldn’t load full text for Title ${tNum} Part ${partId}.`);
-			return;
-		}
-		const data = await fullRes.json();
-		if (seq !== splitSeq) return;
-		const partNode = tree ? findPartInTree(tree, partId) : null;
-		const heading = cleanInlineLabel(partNode?.d || partNode?.l || `Part ${partId}`);
-		const splitTier = tNum !== state.currentTitle ? "cross" : "cfr";
-		if (tab) {
-			tab.label = `${tNum} CFR Part ${partId} · Full`;
-			tab.heading = heading;
-			persistSessionTabs();
-		}
-		const sectionsHtml = (data.sections || []).map((s) => `
-      <article class="full-section" id="split-sec-${escapeHtml(String(s.id).replace(/[^a-zA-Z0-9.\-]/g, "_"))}">
-        <header class="full-section-head has-tier-bar" data-ref-tier="${splitTier}">
-          <a class="full-section-anchor" href="#/title/${tNum}/section/${encodeURIComponent(s.id)}">
-            <span class="full-section-num">${escapeHtml(s.label)}</span>
-            <span class="full-section-title">${escapeHtml(s.title || "")}</span>
-          </a>
-        </header>
-        ${s.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : s.html || ""}
-      </article>`).join("");
-		dom.splitPane.innerHTML = `
-      ${splitTabsBarHtml()}
-      ${splitHeaderHtml({
-			splitTier,
-			kickerHtml: `${tNum} CFR · Full Part ${escapeHtml(partId)}`,
-			titleText: heading,
-			hasBack
-		})}
-      ${splitActionsBarHtml({
-			partId,
-			partFull: false
-		})}
-      <div class="split-body">${sectionsHtml || "<p class=\"muted\">No sections in this part.</p>"}</div>
-    `;
-		const bodyEl = dom.splitPane.querySelector(".split-body");
-		if (bodyEl) {
-			enhanceDomAnchors(bodyEl);
-			animateCalm(bodyEl, {
-				fromY: fromX ? 0 : 14,
-				fromX,
-				fromScale: .992,
-				duration: 640
-			});
-		}
-		updateSplitRefsBtn();
-		hydrateSplitNews(tNum, "part", partId, seq);
-		dom.splitPane.scrollTop = 0;
-		return;
-	}
-	const [tree, frontRes] = await Promise.all([loadTreeForTitle(tNum, signal), fetch(`/api/${tNum}/part/${encodeURIComponent(partId)}`, { signal })]);
-	if (seq !== splitSeq) return;
-	const partNode = tree ? findPartInTree(tree, partId) : null;
-	if (!partNode) {
-		renderSplitUnavailable(tNum, `Part ${partId}`, `Title ${tNum} Part ${partId} isn’t installed yet.`);
-		return;
-	}
-	const front = frontRes.ok ? await frontRes.json() : {
-		part: "",
-		subparts: {}
-	};
-	const splitTier = tNum !== state.currentTitle ? "cross" : "cfr";
-	if (tab) {
-		tab.label = `${tNum} CFR Part ${partId}`;
-		tab.heading = cleanInlineLabel(partNode.d || partNode.l);
-		persistSessionTabs();
-	}
-	const toc = buildPartTocView({
-		partNode,
-		front,
-		titleNum: tNum,
-		tier: splitTier,
-		isSplit: true
-	});
-	dom.splitPane.innerHTML = `
-    ${splitTabsBarHtml()}
-    ${splitHeaderHtml({
-		splitTier,
-		kickerHtml: `${tNum} CFR · ${escapeHtml(partNode.l)}`,
-		titleText: partNode.d || partNode.l,
-		hasBack
-	})}
-    ${splitActionsBarHtml({
-		partId,
-		partFull: true
-	})}
-    <div class="split-body">
-      ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ""}
-      ${toc.atlasHtml}
-      <div class="toc-groups-wrap">
-        ${toc.groupsHtml || "<p class=\"muted\">No sections listed in this part.</p>"}
-      </div>
+function renderPinMenu() {
+	const sec = activePinSection();
+	if (!sec) return;
+	const list = loadProjects();
+	pinPop.innerHTML = `<div class="pin-head">
+      <span>Pin <strong>${escapeHtml(sec.label)}</strong> to</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close pin menu">${icon("close")}</button>
     </div>
-  `;
-	animateCalm(dom.splitPane.querySelector(".split-body"), {
-		fromY: fromX ? 0 : 14,
-		fromX,
-		fromScale: .992,
-		duration: 640
-	});
-	initPartTocCarousels(dom.splitPane, {
-		titleNum: tNum,
-		signal
-	});
-	updateSplitRefsBtn();
-	hydrateSplitNews(tNum, "part", partId, seq);
-	dom.splitPane.scrollTop = 0;
+    ${list.length ? `<div class="pin-list" role="group" aria-label="Workspaces">${list.map((p) => {
+		const on = p.sections.some((s) => s.title === sec.title && s.id === sec.id);
+		return `<button type="button" class="pin-opt" role="menuitemcheckbox" aria-checked="${on}" data-proj="${escapeHtml(p.id)}">
+        <span class="pin-check">${on ? icon("check") : ""}</span>${projDot(p)}<span class="pin-name">${escapeHtml(p.name)}</span><span class="pin-count">${p.sections.length}</span></button>`;
+	}).join("")}</div>` : "<p class=\"pin-none\">No workspaces yet. Name one to start.</p>"}
+    <form class="pin-new"><input class="dr-input" name="name" placeholder="New workspace…" maxlength="80" autocomplete="off" aria-label="New workspace name"></form>`;
 }
-async function hydrateSplitNews(tNum, kind, id, seq) {
-	if (tNum !== 29) return;
-	const data = await fetchNewsActivity(tNum, kind, id);
-	if (!data || !data.count || seq !== splitSeq) return;
-	activeSplitNewsCtx = {
-		kind,
-		id,
-		data
-	};
-	const btn = document.getElementById("split-btn-news");
-	if (btn) {
-		const span = btn.querySelector("span");
-		if (span) span.textContent = `${data.count} ${data.count === 1 ? "rule" : "rules"}`;
-		btn.hidden = false;
+var pinCtrl = createPopover({
+	el: pinPop,
+	triggerSelector: "#btn-pin, #split-btn-pin, [data-tabs-act=\"save-group\"], [data-split-tabs-act=\"save-group\"]",
+	onClose: () => {
+		pinTargetOverride = null;
+		pinAnchorOverride = null;
+		pinPopMode = "pin";
 	}
+});
+function renderSaveGroupMenu(initialName = "") {
+	const list = loadProjects();
+	const mainCount = state.mainTabs.length;
+	const splitCount = state.splitTabs.length;
+	const counts = `${mainCount} main${splitCount ? ` + ${splitCount} side-by-side` : ""}`;
+	const groupName = initialName || suggestTabGroupName();
+	pinPop.innerHTML = `<div class="pin-head">
+      <span>Save <strong>${escapeHtml(counts)}</strong> tab group</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close save tab group menu">${icon("close")}</button>
+    </div>
+    <div class="pin-group-field">
+      <input class="dr-input" id="pin-group-name" value="${escapeHtml(groupName)}" placeholder="Research path name…" maxlength="80" autocomplete="off" aria-label="Tab group name">
+    </div>
+    ${list.length ? `<div class="pin-list" role="group" aria-label="Choose workspace">${list.map((p) => {
+		const grpCount = (p.tab_groups || []).length;
+		return `<button type="button" class="pin-opt" data-save-group-proj="${escapeHtml(p.id)}">
+        <span class="pin-check">${icon("folder")}</span>${projDot(p)}<span class="pin-name">${escapeHtml(p.name)}</span><span class="pin-count">${grpCount ? `${grpCount} grp` : p.sections.length}</span></button>`;
+	}).join("")}</div>` : "<p class=\"pin-none\">No workspaces yet. Name one below to save this research path.</p>"}
+    <form class="pin-new"><input class="dr-input" name="name" placeholder="New workspace…" maxlength="80" autocomplete="off" aria-label="New workspace name and save"></form>`;
 }
-async function openSplitPane({ kind = null, title, sectionId = null, partId = null, full = false, para = null, unit = null, label = "", heading = "", pushHistory = true, newTab = true, tabId = null, fromX = 0 }) {
-	if (!dom.splitPane || !dom.mainStage) return;
-	const resolvedKind = kind || (partId && !sectionId ? "part" : "section");
-	if (resolvedKind === "section" && !sectionId) return;
-	if (resolvedKind === "part" && !partId) return;
-	hideSplitParaBar();
-	activeSplitGraph = null;
-	activeSplitNewsCtx = null;
-	const tNum = Number(title) || state.currentTitle || 29;
-	const nextEntry = resolvedKind === "part" ? {
-		kind: "part",
-		title: tNum,
-		partId: String(partId),
-		full: Boolean(full),
-		label: label || `${tNum} CFR Part ${partId}${full ? " · Full" : ""}`,
-		heading
-	} : {
-		kind: "section",
-		title: tNum,
-		sectionId: String(sectionId),
-		para: para || null,
-		unit: unit || null,
-		label: label || `${tNum} CFR § ${sectionId}`,
-		heading
-	};
-	let targetTab = tabId ? state.splitTabs.find((t) => t.id === tabId) : null;
-	if (!targetTab && newTab) {
-		targetTab = state.splitTabs.find((t) => tabIdentityMatch(t, nextEntry));
-		if (targetTab) Object.assign(targetTab, {
-			...nextEntry,
-			id: targetTab.id,
-			history: targetTab.history || []
-		});
-		else {
-			targetTab = makeSplitTab(nextEntry);
-			state.splitTabs.push(targetTab);
-		}
-	} else if (!targetTab) {
-		targetTab = activeSplitTab();
-		if (!targetTab) {
-			targetTab = makeSplitTab(nextEntry);
-			state.splitTabs.push(targetTab);
-		} else Object.assign(targetTab, {
-			...nextEntry,
-			id: targetTab.id,
-			history: targetTab.history || []
-		});
-	}
-	state.activeSplitTabId = targetTab.id;
-	if (pushHistory) {
-		const hist = targetTab.history || (targetTab.history = []);
-		const top = hist[hist.length - 1];
-		if (!(top && top.kind === nextEntry.kind && top.title === nextEntry.title && top.sectionId === nextEntry.sectionId && top.partId === nextEntry.partId && Boolean(top.full) === Boolean(nextEntry.full) && top.unit === nextEntry.unit && top.para === nextEntry.para)) hist.push({ ...nextEntry });
-	}
-	if (splitAbort) try {
-		splitAbort.abort();
-	} catch (e) {}
-	splitAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
-	const seq = ++splitSeq;
-	const wasClosed = dom.splitPane.hidden;
-	dom.splitPane.hidden = false;
-	if (wasClosed) {
-		dom.mainStage.classList.remove("is-split");
-		dom.mainStage.offsetWidth;
-	}
-	dom.mainStage.classList.add("is-split");
-	dom.mainStage.classList.toggle("is-split-wide", Boolean(state.splitWide));
-	state.splitState = nextEntry;
-	persistSessionTabs();
-	renderMainTabs();
-	if (wasClosed) {
-		renderSplitLoading(tNum, resolvedKind === "part" ? `Part ${partId}` : `§ ${sectionId}`);
-		animateCalm(dom.splitPane, {
-			fromX: 34,
-			fromY: 0,
-			fromScale: .985,
-			duration: 740
-		});
-	} else {
-		syncSplitTabStripInPlace();
-		const prevBody = dom.splitPane.querySelector(".split-body");
-		if (prevBody) {
-			prevBody.style.transition = "opacity var(--t-quick) var(--ease-calm)";
-			prevBody.style.opacity = "0.35";
-		}
-	}
-	try {
-		if (resolvedKind === "part") {
-			await openSplitPart(nextEntry, seq, splitAbort?.signal, { fromX });
-			return;
-		}
-		const qs = unitQueryFor(unit, para);
-		const res = await fetch(`/api/${tNum}/section/${encodeURIComponent(sectionId)}${qs}`, { signal: splitAbort?.signal });
-		if (seq !== splitSeq) return;
-		if (!res.ok) {
-			renderSplitUnavailable(tNum, `§ ${sectionId}`, `Couldn’t load § ${sectionId} from Title ${tNum}.`);
-			return;
-		}
-		const data = await res.json();
-		if (seq !== splitSeq) return;
-		activeSplitDoc = data;
-		state.peekCache.set(`${tNum}|${sectionId}|${data.unit || "full"}`, data);
-		const docHeading = cleanInlineLabel(data.section_title || data.title_label || "");
-		const docLabel = cleanInlineLabel(data.label);
-		targetTab.label = `${tNum} CFR ${docLabel}`;
-		targetTab.heading = docHeading;
-		persistSessionTabs();
-		const hasBack = (targetTab.history?.length || 0) > 1;
-		const outline = data.outline || [];
-		const unitsHtml = data.mode === "units" && outline.length > 1 ? `<div class="split-units" role="navigation" aria-label="Section parts">
-          ${outline.map((u) => `<button type="button" class="split-unit-chip${data.unit === u.key ? " is-active" : ""}" data-split-unit="${escapeHtml(u.key)}">${escapeHtml(unitShort(u))}</button>`).join("")}
-          <button type="button" class="split-unit-chip${!data.unit ? " is-active" : ""}" data-split-unit="full">Full</button>
-        </div>` : "";
-		const partKicker = data.part ? ` · <button type="button" class="split-kicker-link" data-split-part="${escapeHtml(data.part)}" data-split-full="0">Part ${escapeHtml(data.part)}</button>` : "";
-		const splitTier = tNum !== state.currentTitle ? "cross" : "cfr";
-		const pinRef = activeSplitSectionRef();
-		dom.splitPane.innerHTML = `
-      ${splitTabsBarHtml()}
-      ${splitHeaderHtml({
-			splitTier,
-			kickerHtml: `${tNum} CFR${partKicker}`,
-			titleText: `${docLabel} ${docHeading}`,
-			hasBack
-		})}
-      ${splitActionsBarHtml({
-			pinRef,
-			partId: data.part,
-			ecfrUrl: data.ecfr_url,
-			partFull: false
-		})}
-      ${unitsHtml}
-      <div class="split-body">
-        ${data.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : ""}
-        ${data.html || ""}
-      </div>
-    `;
-		const bodyEl = dom.splitPane.querySelector(".split-body");
-		if (bodyEl) {
-			enhanceDomAnchors(bodyEl);
-			animateCalm(bodyEl, {
-				fromY: fromX ? 0 : 14,
-				fromX,
-				fromScale: .992,
-				duration: wasClosed ? 680 : 600,
-				delay: wasClosed ? 110 : 0
-			});
-			updateSplitRefsBtn();
-			const applyGraph = (g) => {
-				if (!g || seq !== splitSeq || !bodyEl.isConnected) return;
-				activeSplitGraph = g;
-				if (g.cited_by_count > 0) {
-					const citedBtn = document.getElementById("split-btn-cited");
-					if (citedBtn) {
-						const span = citedBtn.querySelector("span");
-						if (span) span.textContent = `Cited by ${g.cited_by_count}`;
-						citedBtn.hidden = false;
-					}
-				}
-				if (g.ibr?.length) {
-					wrapIbrMentions(bodyEl, g.ibr);
-					updateSplitRefsBtn();
-				}
-			};
-			const cachedGraph = state.graphCache.get(`${tNum}|${data.id}`);
-			if (cachedGraph) applyGraph(cachedGraph);
-			else fetch(`/api/${tNum}/citations/${encodeURIComponent(data.id)}`, { signal: splitAbort?.signal }).then((r) => r.ok ? r.json() : null).then((g) => {
-				if (g) state.graphCache.set(`${tNum}|${data.id}`, g);
-				applyGraph(g);
-			}).catch(() => {});
-			hydrateSplitNews(tNum, "section", data.id, seq);
-			if (para) highlightTarget(bodyEl, para, 60);
-			else dom.splitPane.scrollTop = 0;
-		}
-	} catch (err) {
-		if (err && err.name === "AbortError") return;
-		if (seq !== splitSeq) return;
-		renderSplitUnavailable(tNum, resolvedKind === "part" ? `Part ${partId}` : `§ ${sectionId}`, err?.message || "Error");
-	}
-}
-function restoreSplitTabs(entries, activeIdx = 0, wide = false) {
-	if (!entries || !entries.length) {
-		closeSplitPane();
+function openSaveTabGroupMenu(anchorEl) {
+	if (!anchorEl) return;
+	if (!pinPop.hidden && pinPopMode === "tabgroup" && pinAnchorOverride === anchorEl) {
+		closePinMenu(true);
 		return;
 	}
-	state.splitWide = Boolean(wide);
-	state.splitTabs = entries.map((e) => makeSplitTab(e));
-	const active = state.splitTabs[Math.min(activeIdx, state.splitTabs.length - 1)] || state.splitTabs[0];
-	state.activeSplitTabId = active.id;
-	persistSessionTabs();
-	openSplitPane({
-		...active,
-		tabId: active.id,
-		newTab: false,
-		pushHistory: false
+	pinPopMode = "tabgroup";
+	pinTargetOverride = null;
+	pinAnchorOverride = anchorEl;
+	renderSaveGroupMenu();
+	pinCtrl.open(anchorEl, null, {
+		focusSelector: "#pin-group-name, .pin-opt",
+		returnFocus: anchorEl
 	});
 }
-registerSplitTabHandlers({
-	restore: restoreSplitTabs,
-	close: closeSplitPane
-});
-function getActiveSplitDoc() {
-	return activeSplitDoc;
-}
-if (dom.splitPane) {
-	dom.splitPane.addEventListener("mouseover", (e) => {
-		if (!activeSplitDoc) return;
-		if (splitParaBar && splitParaBar.contains(e.target)) return;
-		const p = e.target.closest(".split-body .reg-p[id]");
-		if (p && p.querySelector(".pmark")) {
-			if (p !== splitParaTarget) showSplitParaBar(p);
-		} else hideSplitParaBar();
+function openPinMenu(anchorEl = null, customRef = null) {
+	if (!(customRef || currentSectionRef())) return;
+	pinPopMode = "pin";
+	pinTargetOverride = customRef || null;
+	const btn = anchorEl || document.getElementById("btn-pin");
+	pinAnchorOverride = btn;
+	renderPinMenu();
+	pinCtrl.open(btn, null, {
+		focusSelector: ".pin-opt, .pin-new input",
+		returnFocus: btn || document.activeElement
 	});
-	dom.splitPane.addEventListener("mouseleave", () => hideSplitParaBar());
-	dom.splitPane.addEventListener("click", async (e) => {
-		const splitTabClose = e.target.closest("[data-split-tab-close]");
-		if (splitTabClose) {
-			e.preventDefault();
-			e.stopPropagation();
-			closeSplitTab(splitTabClose.dataset.splitTabClose);
-			return;
-		}
-		const splitTabBtn = e.target.closest("[data-split-tab]");
-		if (splitTabBtn) {
-			const t = state.splitTabs.find((x) => x.id === splitTabBtn.dataset.splitTab);
-			if (t) openSplitPane({
-				...t,
-				tabId: t.id,
-				newTab: false,
-				pushHistory: false
-			});
-			return;
-		}
-		const saveSplitGroupBtn = e.target.closest("[data-split-tabs-act=\"save-group\"]");
-		if (saveSplitGroupBtn) {
-			openSaveTabGroupMenu(saveSplitGroupBtn);
-			return;
-		}
-		const paraBtn = e.target.closest("[data-split-para-act]");
-		if (paraBtn && splitParaTarget && activeSplitDoc) {
-			e.preventDefault();
-			e.stopPropagation();
-			const para = resolveParagraphPath(dom.splitPane, splitParaTarget);
-			const cite = formatCfrCitation(state.splitState?.title || activeSplitDoc.title || state.currentTitle, cleanInlineLabel(activeSplitDoc.label), para);
-			if (paraBtn.dataset.splitParaAct === "copy") try {
-				await navigator.clipboard.writeText(cite);
-				showToast(`Copied ${cite}`);
-			} catch (err) {
-				showToast("Couldn’t copy citation");
-			}
-			else if (paraBtn.dataset.splitParaAct === "clip") {
-				const clone = splitParaTarget.cloneNode(true);
-				clone.querySelectorAll(".para-tools").forEach((x) => x.remove());
-				const ref = activeSplitSectionRef();
-				if (ref) clipToWorkspace(ref, {
-					para,
-					quote: clone.textContent.trim().slice(0, 320),
-					cite
-				});
-			}
-			return;
-		}
-		if (e.target.closest("#split-btn-pin")) {
-			const ref = activeSplitSectionRef();
-			if (ref) toggleSplitPinMenu(e.target.closest("#split-btn-pin"), ref);
-			return;
-		}
-		if (e.target.closest("#split-btn-refs") && state.splitState) {
-			openRefsLedgerPopover(e.target.closest("#split-btn-refs"), dom.splitPane, state.splitState.title);
-			return;
-		}
-		if (e.target.closest("#split-btn-cited") && activeSplitGraph && state.splitState) {
-			openCitedByPopover(e.target.closest("#split-btn-cited"), activeSplitGraph, state.splitState.title);
-			return;
-		}
-		if (e.target.closest("#split-btn-news") && activeSplitNewsCtx) {
-			openNewsActivityFor(e.target.closest("#split-btn-news"), activeSplitNewsCtx);
-			return;
-		}
-		const partBtn = e.target.closest("[data-split-part]");
-		if (partBtn && state.splitState) {
-			openSplitPane({
-				kind: "part",
-				title: state.splitState.title,
-				partId: partBtn.dataset.splitPart,
-				full: partBtn.dataset.splitFull === "1",
-				newTab: false,
-				pushHistory: true
-			});
-			return;
-		}
-		const actBtn = e.target.closest("[data-split-act]");
-		if (actBtn) {
-			const act = actBtn.dataset.splitAct;
-			if (act === "close") closeSplitPane();
-			else if (act === "promote") promoteSplitToMain();
-			else if (act === "to-main-tab") moveActiveSplitToMainTab();
-			else if (act === "swap") swapSplitWithMain();
-			else if (act === "wide") {
-				state.splitWide = !state.splitWide;
-				dom.mainStage?.classList.toggle("is-split-wide", state.splitWide);
-				actBtn.classList.toggle("is-active", state.splitWide);
-				persistSessionTabs();
-			} else if (act === "copy") {
-				const url = new URL(buildSplitHash(), window.location.href).href;
-				try {
-					await navigator.clipboard.writeText(url);
-					showToast("Link copied");
-				} catch (err) {
-					showToast("Couldn’t copy the link");
-				}
-			} else if (act === "font-dec") adjustFontSize(-1);
-			else if (act === "font-inc") adjustFontSize(1);
-			else if (act === "back") {
-				const tab = activeSplitTab();
-				if (tab && tab.history?.length > 1) {
-					tab.history.pop();
-					const prev = tab.history[tab.history.length - 1];
-					if (prev) openSplitPane({
-						...prev,
-						tabId: tab.id,
-						newTab: false,
-						pushHistory: false
-					});
-				}
-			}
-			return;
-		}
-		const unitBtn = e.target.closest("[data-split-unit]");
-		if (unitBtn && state.splitState) {
-			openSplitPane({
-				kind: "section",
-				title: state.splitState.title,
-				sectionId: state.splitState.sectionId,
-				para: null,
-				unit: unitBtn.dataset.splitUnit,
-				newTab: false,
-				pushHistory: false
-			});
-			return;
-		}
-		if (handlePartTocCarouselClick(e, dom.splitPane, {
-			titleNum: state.splitState?.title || state.currentTitle,
-			signal: splitAbort?.signal
-		})) return;
-		const anchorTrigger = e.target.closest("[data-anchor]");
-		if (anchorTrigger) {
-			e.preventDefault();
-			scrollToAnchor(anchorTrigger.dataset.anchor, dom.splitPane);
-			return;
-		}
-		const localPara = e.target.closest("a.xref-local[data-local-para]");
-		if (localPara) {
-			e.preventDefault();
-			highlightTarget(dom.splitPane, localPara.dataset.localPara, 0);
-			return;
-		}
-		const figLink = e.target.closest("a.reg-figure:not(.is-broken)");
-		if (figLink && dom.splitPane.contains(figLink)) {
-			e.preventDefault();
-			openFigureModal(figLink);
-			return;
-		}
-		const link = e.target.closest("a[href^=\"#\"]");
-		if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && link.getAttribute("target") !== "_blank") {
-			if (!link.classList.contains("xref-local") && Boolean(link.closest(".reg-body, .full-section .reg-body, .front-matter")) && link.classList.contains("xref")) return;
-			const parsed = parseCfrHref(link.getAttribute("href"), state.splitState?.title || state.currentTitle);
-			if (parsed && parsed.kind === "section") {
-				e.preventDefault();
-				openSplitPane({
-					kind: "section",
-					title: parsed.title,
-					sectionId: parsed.section,
-					para: parsed.para,
-					unit: parsed.unit,
-					newTab: false,
-					pushHistory: true
-				});
-			} else if (parsed && parsed.kind === "part") {
-				e.preventDefault();
-				openSplitPane({
-					kind: "part",
-					title: parsed.title,
-					partId: parsed.part,
-					newTab: false,
-					pushHistory: true
-				});
-			}
-		}
-	});
-	dom.splitPane.addEventListener("keydown", (e) => {
-		handlePartTocCarouselKeydown(e, {
-			titleNum: state.splitState?.title || state.currentTitle,
-			signal: splitAbort?.signal
-		});
-	});
-	dom.splitPane.addEventListener("error", (e) => {
-		const img = e.target;
-		if (!(img instanceof HTMLImageElement) || !img.classList.contains("reg-img")) return;
-		const fig = img.closest(".reg-figure");
-		if (!fig || fig.classList.contains("is-broken")) return;
-		fig.classList.add("is-broken");
-		if (activeSplitDoc?.ecfr_url) fig.href = activeSplitDoc.ecfr_url;
-		fig.title = "This figure is only available on eCFR";
-		fig.innerHTML = `${icon("external")}<span>Figure — view on eCFR</span>`;
-	}, true);
 }
-// src/views/reader.js
-var READING_MODE_KEY = "readingModeByPart:v1";
-function loadReadingModePrefs() {
-	try {
-		const obj = JSON.parse(lsGet(READING_MODE_KEY) || "{}");
-		return obj && typeof obj === "object" ? obj : {};
-	} catch (e) {
-		return {};
-	}
+function toggleSplitPinMenu(anchorEl, customRef) {
+	if (!pinPop.hidden && pinTargetOverride?.id === customRef?.id && pinTargetOverride?.title === customRef?.title) closePinMenu(true);
+	else openPinMenu(anchorEl, customRef);
 }
-function getPreferredPartMode(title, part) {
-	if (!part) return null;
-	return loadReadingModePrefs()[`${title}|${part}`] || null;
+function closePinMenu(returnFocus = true) {
+	pinCtrl.close(returnFocus);
 }
-function savePreferredPartMode(title, part, mode) {
-	if (!part) return;
-	const prefs = loadReadingModePrefs();
-	prefs[`${title}|${part}`] = mode;
-	lsSet(READING_MODE_KEY, JSON.stringify(prefs));
-}
-function highlightParagraph(pText, delay = 120) {
-	highlightTarget(dom.view, pText, delay);
-}
-var paraBar = null;
-var paraBarTarget = null;
-function hideParaBar() {
-	if (paraBar) paraBar.hidden = true;
-	paraBarTarget = null;
-}
-function showParaBar(pEl) {
-	if (!dom.view.querySelector(".reg-body") || !pEl?.querySelector(".pmark")) {
-		hideParaBar();
+pinPop.addEventListener("click", (e) => {
+	const t = e.target;
+	if (t?.closest("[data-pop-close]")) {
+		closePinMenu(true);
 		return;
 	}
-	if (!paraBar || !paraBar.isConnected) {
-		paraBar = document.createElement("div");
-		paraBar.className = "para-tools";
-		paraBar.setAttribute("aria-label", "Paragraph actions");
-		paraBar.innerHTML = `
-      <button type="button" class="para-tool-btn" data-para-act="copy" title="Copy legal CFR citation">${icon("link")} Cite</button>
-      <button type="button" class="para-tool-btn" data-para-act="clip" title="Clip clause to workspace">${icon("bookmark")} Clip</button>
-    `;
+	const saveProjBtn = t?.closest("[data-save-group-proj]");
+	if (saveProjBtn && pinPopMode === "tabgroup") {
+		const snapshot = buildTabGroupSnapshot(pinPop.querySelector("#pin-group-name")?.value || "");
+		if (saveProjBtn.dataset.saveGroupProj) addTabGroupToWorkspace(saveProjBtn.dataset.saveGroupProj, snapshot);
+		closePinMenu(true);
+		return;
 	}
-	paraBarTarget = pEl;
-	paraBar.hidden = false;
-	pEl.appendChild(paraBar);
-}
-dom.view.addEventListener("mouseover", (e) => {
-	if (!state.currentSection) return;
-	if (paraBar && paraBar.contains(e.target)) return;
-	const p = e.target.closest(".reg-body .reg-p[id]");
-	if (p && p.querySelector(".pmark")) {
-		if (p !== paraBarTarget) showParaBar(p);
-	} else hideParaBar();
+	const opt = t?.closest(".pin-opt");
+	if (!opt || !opt.dataset.proj) return;
+	const sec = activePinSection();
+	if (!sec) return;
+	const targetAnchor = pinAnchorOverride?.isConnected ? pinAnchorOverride : document.getElementById(pinAnchorOverride?.id || "btn-pin");
+	togglePin(opt.dataset.proj, sec);
+	const focusId = opt.dataset.proj;
+	renderPinMenu();
+	pinCtrl.reposition(targetAnchor);
+	pinPop.querySelector(`.pin-opt[data-proj="${focusId}"]`)?.focus();
 });
-dom.view.addEventListener("mouseleave", () => hideParaBar());
-dom.view.addEventListener("click", async (e) => {
-	const toolBtn = e.target.closest(".para-tool-btn[data-para-act]");
-	if (toolBtn && paraBarTarget && state.currentSection) {
+pinPop.addEventListener("submit", (e) => {
+	e.preventDefault();
+	const name = e.target.elements.namedItem("name")?.value.trim() || "";
+	if (!name) return;
+	if (pinPopMode === "tabgroup") {
+		const grpName = pinPop.querySelector("#pin-group-name")?.value || "";
+		addTabGroupToWorkspace(createProject(name).id, buildTabGroupSnapshot(grpName));
+		closePinMenu(true);
+		return;
+	}
+	const sec = activePinSection();
+	if (!sec) return;
+	const targetAnchor = pinAnchorOverride?.isConnected ? pinAnchorOverride : document.getElementById(pinAnchorOverride?.id || "btn-pin");
+	const p = createProject(name);
+	togglePin(p.id, sec);
+	renderPinMenu();
+	pinCtrl.reposition(targetAnchor);
+	pinPop.querySelector(`.pin-opt[data-proj="${p.id}"]`)?.focus();
+});
+pinPop.addEventListener("keydown", (e) => {
+	if (e.key === "Escape") {
 		e.preventDefault();
 		e.stopPropagation();
-		const para = resolveParagraphPath(dom.view, paraBarTarget);
-		const label = cleanInlineLabel(state.currentSection.label);
-		const cite = formatCfrCitation(state.currentTitle, label, para);
-		if (toolBtn.dataset.paraAct === "copy") try {
-			await navigator.clipboard.writeText(cite);
-			showToast(`Copied ${cite}`);
-		} catch (err) {
-			showToast("Couldn’t copy citation");
-		}
-		else if (toolBtn.dataset.paraAct === "clip") {
-			const clone = paraBarTarget.cloneNode(true);
-			clone.querySelectorAll(".para-tools").forEach((x) => x.remove());
-			const ref = currentSectionRef();
-			if (ref) clipToWorkspace(ref, {
-				para,
-				quote: clone.textContent.trim().slice(0, 320),
-				cite
-			});
-		}
+		closePinMenu(true);
 		return;
 	}
-	const modeBtn = e.target.closest("a[data-mode-pref]");
-	if (modeBtn && state.currentSection?.part) savePreferredPartMode(state.currentTitle, state.currentSection.part, modeBtn.dataset.modePref);
-	if (e.target.closest("#btn-cited-by") && state.currentSection) {
-		const btn = e.target.closest("#btn-cited-by");
-		const graphData = state.graphCache.get(`${state.currentTitle}|${state.currentSection.id}`);
-		if (graphData) openCitedByPopover(btn, graphData);
-		return;
-	}
-	if (e.target.closest("#btn-refs-ledger") && state.currentSection) {
-		openRefsLedgerPopover(e.target.closest("#btn-refs-ledger"));
-		return;
-	}
-	if (e.altKey) return;
-	const localPara = e.target.closest("a.xref-local[data-local-para]");
-	if (localPara) {
-		if (findParagraphElement(dom.view, localPara.dataset.localPara)) {
-			e.preventDefault();
-			highlightParagraph(localPara.dataset.localPara, 0);
-		}
-		return;
-	}
-	const figLink = e.target.closest("a.reg-figure:not(.is-broken)");
-	if (figLink && dom.view.contains(figLink)) {
-		e.preventDefault();
-		openFigureModal(figLink);
-	}
+	if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+	const items = [...pinPop.querySelectorAll(".pin-opt, input")];
+	if (!items.length) return;
+	const i = items.indexOf(document.activeElement);
+	e.preventDefault();
+	items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
 });
-function renderCitedByListHtml(graphData, targetTitle = state.currentTitle, filter = "") {
-	const q = filter.trim().toLowerCase();
-	const rows = (graphData.cited_by || []).filter((c) => {
-		if (!q) return true;
-		return `${c.id} ${c.label} ${c.title} ${c.part}`.toLowerCase().includes(q);
-	});
-	if (!rows.length) return "<p class=\"peek-text\" style=\"padding:8px 0\">No matching citing sections.</p>";
-	return `<div class="cited-list">${rows.slice(0, 50).map((c) => {
-		return `
-      <div class="cited-row">
-        <a class="cited-link" href="${`#/title/${targetTitle}/section/${encodeURIComponent(c.id)}`}">
-          <span class="cited-num">${escapeHtml(c.label)}</span>
-          <span class="cited-title">${escapeHtml(c.title)}</span>
-        </a>
-        <button type="button" class="lib-act cited-split" data-cited-tab="${escapeHtml(c.id)}" data-cited-title="${targetTitle}" title="Open in reader tab">Tab</button>
-        <button type="button" class="lib-act cited-split" data-cited-split="${escapeHtml(c.id)}" data-cited-title="${targetTitle}" title="Open side-by-side">Split</button>
-      </div>`;
-	}).join("")}</div>`;
-}
-function openCitedByPopover(btn, graphData, targetTitle = state.currentTitle) {
-	const total = graphData.cited_by_count || 0;
-	const filterHtml = total >= 6 ? `<input type="search" class="pop-filter" id="cited-pop-filter" placeholder="Filter ${total} citing sections…" aria-label="Filter citing sections" autocomplete="off">` : "";
-	citePop.open(btn, `
-    <div class="pop-head-row">
-      <div class="pop-kicker">Cited by ${plural(total, "section")} in Title ${targetTitle}</div>
-      <span class="peek-badge">CITED BY</span>
-      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close citing sections">${icon("close")}</button>
-    </div>
-    ${filterHtml}
-    <div id="cited-pop-list">${renderCitedByListHtml(graphData, targetTitle)}</div>
-  `, {
-		interactive: true,
-		returnFocus: btn,
-		focusSelector: "#cited-pop-filter, .cited-link",
-		refTier: "cfr"
-	});
-	const filterEl = document.getElementById("cited-pop-filter");
-	if (filterEl) filterEl.addEventListener("input", () => {
-		const slot = document.getElementById("cited-pop-list");
-		if (slot) slot.innerHTML = renderCitedByListHtml(graphData, targetTitle, filterEl.value);
-		citePop.reposition(btn);
-	});
-}
-if (dom.citePop) dom.citePop.addEventListener("click", (e) => {
-	const sp = e.target.closest("[data-cited-split]");
-	if (sp) {
-		const secId = sp.dataset.citedSplit;
-		const tNum = Number(sp.dataset.citedTitle) || state.currentTitle;
-		citePop.close(false);
-		openSplitPane({
-			title: tNum,
-			sectionId: secId,
-			pushHistory: true
-		});
-		return;
-	}
-	const ctab = e.target.closest("[data-cited-tab]");
-	if (ctab) {
-		const secId = ctab.dataset.citedTab;
-		const tNum = Number(ctab.dataset.citedTitle) || state.currentTitle;
-		citePop.close(false);
-		openMainReaderTab({
-			kind: "section",
-			title: tNum,
-			sectionId: secId
-		});
-		return;
-	}
-	const lsp = e.target.closest("[data-ledger-split]");
-	if (lsp) {
-		const baseTitle = Number(lsp.dataset.ledgerTitle) || state.currentTitle;
-		const parsed = parseCfrHref(lsp.dataset.ledgerSplit || "", baseTitle);
-		citePop.close(false);
-		if (parsed?.kind === "section") openSplitPane({
-			title: parsed.title,
-			sectionId: parsed.section,
-			para: parsed.para,
-			unit: parsed.unit,
-			pushHistory: true
-		});
-		else if (parsed?.kind === "part") openSplitPane({
-			kind: "part",
-			title: parsed.title,
-			partId: parsed.part,
-			pushHistory: true
-		});
-		return;
-	}
-	const ltab = e.target.closest("[data-ledger-tab]");
-	if (ltab) {
-		const baseTitle = Number(ltab.dataset.ledgerTitle) || state.currentTitle;
-		const parsed = parseCfrHref(ltab.dataset.ledgerTab || "", baseTitle);
-		citePop.close(false);
-		if (parsed?.kind === "section") openMainReaderTab({
-			kind: "section",
-			title: parsed.title,
-			sectionId: parsed.section,
-			para: parsed.para,
-			unit: parsed.unit
-		});
-		else if (parsed?.kind === "part") openMainReaderTab({
-			kind: "part",
-			title: parsed.title,
-			partId: parsed.part
-		});
-		return;
-	}
-	const ljmp = e.target.closest("[data-ledger-idx]");
-	if (ljmp) {
-		const idx = Number(ljmp.dataset.ledgerIdx);
-		const item = activeLedgerItems[idx];
-		if (!item) return;
-		if (item.el?.isConnected && (item.tier === "local" || item.tier === "ibr" || item.tier === "uninstalled")) {
-			citePop.close(false);
-			flashElements([item.el], true);
-		} else if (item.href && item.href.startsWith("#")) {
-			citePop.close(false);
-			window.location.hash = item.href;
-		}
-	}
+onView("click", (e) => {
+	if (e.target?.closest("#btn-pin")) pinPop.hidden ? openPinMenu() : closePinMenu();
 });
+on("pin:open", () => openPinMenu());
+on("tabs:save-group", ({ anchor }) => openSaveTabGroupMenu(anchor));
+on("projects:changed", () => updatePinButton());
+// src/components/refs_popovers.ts
 var LEDGER_GROUPS = [
 	{
 		tier: "usc",
@@ -9935,6 +13681,49 @@ var LEDGER_GROUPS = [
 	}
 ];
 var activeLedgerItems = [];
+function renderCitedByListHtml(graphData, targetTitle = state.currentTitle, filter = "") {
+	const q = filter.trim().toLowerCase();
+	const rows = (graphData.cited_by || []).filter((c) => {
+		if (!q) return true;
+		return `${c.id} ${c.label} ${c.title} ${c.part}`.toLowerCase().includes(q);
+	});
+	if (!rows.length) return "<p class=\"peek-text is-empty\">No matching citing sections.</p>";
+	return `<div class="cited-list">${rows.slice(0, 50).map((c) => {
+		return `
+      <div class="cited-row">
+        <a class="cited-link" href="${`#/title/${targetTitle}/section/${encodeURIComponent(c.id)}`}">
+          <span class="cited-num">${escapeHtml(c.label)}</span>
+          <span class="cited-title">${escapeHtml(c.title)}</span>
+        </a>
+        <button type="button" class="lib-act cited-split" data-cited-tab="${escapeHtml(c.id)}" data-cited-title="${targetTitle}" title="Open in reader tab">Tab</button>
+        <button type="button" class="lib-act cited-split" data-cited-split="${escapeHtml(c.id)}" data-cited-title="${targetTitle}" title="Open side-by-side">Split</button>
+      </div>`;
+	}).join("")}</div>`;
+}
+function openCitedByPopover(btn, graphData, targetTitle = state.currentTitle) {
+	const total = graphData.cited_by_count || 0;
+	const filterHtml = total >= 6 ? `<input type="search" class="pop-filter" id="cited-pop-filter" placeholder="Filter ${total} citing sections…" aria-label="Filter citing sections" autocomplete="off">` : "";
+	citePop.open(btn, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">Cited by ${plural(total, "section")} in Title ${targetTitle}</div>
+      <span class="peek-badge">CITED BY</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close citing sections">${icon("close")}</button>
+    </div>
+    ${filterHtml}
+    <div id="cited-pop-list">${renderCitedByListHtml(graphData, targetTitle)}</div>
+  `, {
+		interactive: true,
+		returnFocus: btn,
+		focusSelector: "#cited-pop-filter, .cited-link",
+		refTier: "cfr"
+	});
+	const filterEl = document.getElementById("cited-pop-filter");
+	if (filterEl) filterEl.addEventListener("input", () => {
+		const slot = document.getElementById("cited-pop-list");
+		if (slot) slot.innerHTML = renderCitedByListHtml(graphData, targetTitle, filterEl.value);
+		citePop.reposition(btn);
+	});
+}
 function classifyDomRef(el) {
 	if (el.classList.contains("xref-usc")) return "usc";
 	if (el.classList.contains("xref-fr")) return "fr";
@@ -9948,7 +13737,7 @@ function classifyDomRef(el) {
 	return "cfr";
 }
 function collectSectionReferences(root = dom.view, fallbackTitle = state.currentTitle) {
-	const bodies = [...root?.querySelectorAll?.(".reg-body, .front-matter, .split-body") || []];
+	const bodies = root ? [...root.querySelectorAll(".reg-body, .front-matter, .split-body")] : [];
 	const scopes = bodies.length ? bodies : root ? [root] : [];
 	if (!scopes.length) return [];
 	const seen = /* @__PURE__ */ new Map();
@@ -9995,14 +13784,18 @@ function collectSectionReferences(root = dom.view, fallbackTitle = state.current
 function renderRefsLedgerHtml(items, filter = "") {
 	const q = filter.trim().toLowerCase();
 	const filtered = q ? items.filter((x) => `${x.code} ${x.sub} ${x.tier}`.toLowerCase().includes(q)) : items;
-	if (!filtered.length) return "<p class=\"peek-text\" style=\"padding:8px 0\">No matching references in this section.</p>";
+	if (!filtered.length) return "<p class=\"peek-text is-empty\">No matching references in this section.</p>";
 	const byTier = /* @__PURE__ */ new Map();
 	for (const item of filtered) {
-		if (!byTier.has(item.tier)) byTier.set(item.tier, []);
-		byTier.get(item.tier).push(item);
+		let bucket = byTier.get(item.tier);
+		if (!bucket) {
+			bucket = [];
+			byTier.set(item.tier, bucket);
+		}
+		bucket.push(item);
 	}
 	return `<div class="refs-ledger-wrap">${LEDGER_GROUPS.filter((g) => byTier.has(g.tier)).map((g) => {
-		const groupItems = byTier.get(g.tier);
+		const groupItems = byTier.get(g.tier) || [];
 		return `
       <div class="refs-ledger-group" data-ref-tier="${g.tier}">
         <div class="refs-ledger-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(g.label)}</span><span class="refs-ledger-count">${groupItems.length}</span></div>
@@ -10041,6 +13834,157 @@ function openRefsLedgerPopover(btn, root = dom.view, fallbackTitle = state.curre
 		citePop.reposition(btn);
 	});
 }
+if (dom.citePop) dom.citePop.addEventListener("click", (e) => {
+	const t = e.target;
+	const sp = t?.closest("[data-cited-split]");
+	if (sp) {
+		const secId = sp.dataset.citedSplit;
+		const tNum = Number(sp.dataset.citedTitle) || state.currentTitle;
+		citePop.close(false);
+		if (secId) emit("split:open", {
+			title: tNum,
+			sectionId: secId,
+			pushHistory: true
+		});
+		return;
+	}
+	const ctab = t?.closest("[data-cited-tab]");
+	if (ctab) {
+		const secId = ctab.dataset.citedTab;
+		const tNum = Number(ctab.dataset.citedTitle) || state.currentTitle;
+		citePop.close(false);
+		if (secId) openMainReaderTab({
+			kind: "section",
+			title: tNum,
+			sectionId: secId
+		});
+		return;
+	}
+	const lsp = t?.closest("[data-ledger-split]");
+	if (lsp) {
+		const baseTitle = Number(lsp.dataset.ledgerTitle) || state.currentTitle;
+		const parsed = parseCfrHref(lsp.dataset.ledgerSplit || "", baseTitle);
+		citePop.close(false);
+		if (parsed?.kind === "section") emit("split:open", {
+			title: parsed.title,
+			sectionId: parsed.section,
+			para: parsed.para,
+			unit: parsed.unit,
+			pushHistory: true
+		});
+		else if (parsed?.kind === "part") emit("split:open", {
+			kind: "part",
+			title: parsed.title,
+			partId: parsed.part,
+			pushHistory: true
+		});
+		return;
+	}
+	const ltab = t?.closest("[data-ledger-tab]");
+	if (ltab) {
+		const baseTitle = Number(ltab.dataset.ledgerTitle) || state.currentTitle;
+		const parsed = parseCfrHref(ltab.dataset.ledgerTab || "", baseTitle);
+		citePop.close(false);
+		if (parsed?.kind === "section") openMainReaderTab({
+			kind: "section",
+			title: parsed.title,
+			sectionId: parsed.section,
+			para: parsed.para,
+			unit: parsed.unit
+		});
+		else if (parsed?.kind === "part") openMainReaderTab({
+			kind: "part",
+			title: parsed.title,
+			partId: parsed.part
+		});
+		return;
+	}
+	const ljmp = t?.closest("[data-ledger-idx]");
+	if (ljmp) {
+		const idx = Number(ljmp.dataset.ledgerIdx);
+		const item = activeLedgerItems[idx];
+		if (!item) return;
+		if (item.el?.isConnected && (item.tier === "local" || item.tier === "ibr" || item.tier === "uninstalled")) {
+			citePop.close(false);
+			flashElements([item.el], true);
+		} else if (item.href && item.href.startsWith("#")) {
+			citePop.close(false);
+			window.location.hash = item.href;
+		}
+	}
+});
+// src/views/reader.ts
+var READING_MODE_KEY = "readingModeByPart:v1";
+function loadReadingModePrefs() {
+	try {
+		const obj = JSON.parse(lsGet(READING_MODE_KEY) || "{}");
+		return obj && typeof obj === "object" ? obj : {};
+	} catch {
+		return {};
+	}
+}
+function getPreferredPartMode(title, part) {
+	if (!part) return null;
+	return loadReadingModePrefs()[`${title}|${part}`] || null;
+}
+function savePreferredPartMode(title, part, mode) {
+	if (!part) return;
+	const prefs = loadReadingModePrefs();
+	prefs[`${title}|${part}`] = mode;
+	lsSet(READING_MODE_KEY, JSON.stringify(prefs));
+}
+function highlightParagraph(pText, delay = 120) {
+	highlightTarget(dom.view, pText, delay);
+}
+var mainParaTools = createParaToolsController({
+	root: dom.view,
+	bodySelector: ".reg-body",
+	paraSelector: ".reg-body .reg-p[id]",
+	isActive: () => Boolean(state.currentSection),
+	getSectionRef: currentSectionRef
+});
+onView("click", async (e) => {
+	if (await mainParaTools.handleClick(e)) return;
+	const t = e.target;
+	if (!t) return;
+	if (t.closest("#btn-copy-link")) {
+		await copyText(window.location.href, "Link copied", "Couldn’t copy the link");
+		return;
+	}
+	if (t.closest("#font-dec")) {
+		adjustFontSize(-1);
+		return;
+	}
+	if (t.closest("#font-inc")) {
+		adjustFontSize(1);
+		return;
+	}
+	const modeBtn = t.closest("a[data-mode-pref]");
+	if (modeBtn && state.currentSection?.part && modeBtn.dataset.modePref) savePreferredPartMode(state.currentTitle, state.currentSection.part, modeBtn.dataset.modePref);
+	const citedBtn = t.closest("#btn-cited-by");
+	if (citedBtn && state.currentSection) {
+		const graphData = state.graphCache.get(`${state.currentTitle}|${state.currentSection.id}`);
+		if (graphData) openCitedByPopover(citedBtn, graphData);
+		return;
+	}
+	const refsBtn = t.closest("#btn-refs-ledger");
+	if (refsBtn && state.currentSection) {
+		openRefsLedgerPopover(refsBtn);
+		return;
+	}
+	if (e.altKey) return;
+	const localPara = t.closest("a.xref-local[data-local-para]");
+	if (localPara?.dataset.localPara) {
+		e.preventDefault();
+		highlightParagraph(localPara.dataset.localPara, 0);
+		return;
+	}
+	const figLink = t.closest("a.reg-figure:not(.is-broken)");
+	if (figLink && dom.view.contains(figLink)) {
+		e.preventDefault();
+		openFigureModal(figLink);
+	}
+});
 function updateRefsLedgerButton() {
 	const btn = document.getElementById("btn-refs-ledger");
 	if (!btn) return;
@@ -10050,17 +13994,13 @@ function updateRefsLedgerButton() {
 	btn.hidden = items.length === 0;
 }
 async function fillSectionGraph(titleNum, sectionId, seq, signal) {
-	const key = `${titleNum}|${sectionId}`;
-	let data = state.graphCache.get(key);
-	if (!data) try {
-		const res = await fetch(`/api/${titleNum}/citations/${encodeURIComponent(sectionId)}`, { signal });
-		if (!res.ok) return;
-		data = await res.json();
-		state.graphCache.set(key, data);
-	} catch (e) {
+	let data;
+	try {
+		data = await fetchSectionGraph(titleNum, sectionId, { signal });
+	} catch {
 		return;
 	}
-	if (seq !== state.routeSeq || !state.currentSection || state.currentSection.id !== sectionId) return;
+	if (!data || seq !== state.routeSeq || !state.currentSection || state.currentSection.id !== sectionId) return;
 	if (data.cited_by_count > 0) {
 		const btn = document.getElementById("btn-cited-by");
 		if (btn) {
@@ -10075,19 +14015,20 @@ async function fillSectionGraph(titleNum, sectionId, seq, signal) {
 	}
 }
 async function loadSection(sectionId, params, view) {
-	hideParaBar();
+	mainParaTools.hide();
+	citePop.close(false);
 	const knownPart = partForSection(sectionId);
 	const prefMode = !view && !params?.get("p") && knownPart ? getPreferredPartMode(state.currentTitle, knownPart) : null;
 	const full = view === "full" || prefMode === "full";
 	const pClause = params && /^\(([a-z])\)/.exec(params.get("p") || "");
 	const unit = full ? null : view || (pClause ? pClause[1] : "");
-	const sameSection = state.currentSection && state.currentSection.id === sectionId && !dom.view.querySelector(".loading");
+	const sameSection = Boolean(state.currentSection && state.currentSection.id === sectionId && !dom.view.querySelector(".loading"));
 	if (!sameSection) dom.view.innerHTML = skeletonHtml("doc", "Loading section " + sectionId + "…");
 	try {
 		const qs = unit === null ? "" : "?unit=" + encodeURIComponent(unit);
 		const seq = state.routeSeq;
 		const signal = state.routeAbort?.signal;
-		const res = await fetch("/api/" + state.currentTitle + "/section/" + encodeURIComponent(sectionId) + qs, { signal });
+		const res = await fetchSectionRaw(state.currentTitle, sectionId, qs, { signal });
 		if (seq !== state.routeSeq) return;
 		if (!res.ok) {
 			if (state.metaInfo?.partial && /^\d+[a-z]?(?:\.\d+.*)?$/i.test(sectionId)) {
@@ -10115,12 +14056,13 @@ async function loadSection(sectionId, params, view) {
 		const heading = cleanInlineLabel(data.section_title || data.title_label || "");
 		const label = cleanInlineLabel(data.label);
 		document.title = `${label}${current ? " " + unitShort(current) : ""} · Title ${state.currentTitle}`;
-		setViewHead((reading === "units" ? unitStepHtml(data) : docStepHtml(data.part, data.prev, data.next)) + railHtml(data, reading));
+		setViewHead((reading === "units" ? unitStepHtml(data) : docStepHtml(data.part || "", data.prev, data.next)) + railHtml(data, reading));
 		const partLink = data.part ? `<a href="#/part/${encodeURIComponent(data.part)}">Part ${escapeHtml(data.part)}</a>` : "";
 		let unitBannerHtml = "";
-		if (current) unitBannerHtml = `<div class="unit-context"><span>${escapeHtml(current.group && current.kind === "chapter" ? `${current.group_label} · ${current.group_title || ""}` : `${current.label ? `Clause ${current.label}` : current.title}`)}</span><span class="sep" aria-hidden="true">·</span><span class="unit-pos">Unit ${unitIdx + 1} of ${outline.length}</span></div>`;
+		if (current) unitBannerHtml = `<div class="unit-context"><span>${escapeHtml(current.group && current.kind === "chapter" ? `${current.group_label} · ${current.group_title || ""}` : `${current.label ? `Clause ${current.label}` : current.title || ""}`)}</span><span class="sep" aria-hidden="true">·</span><span class="unit-pos">Unit ${unitIdx + 1} of ${outline.length}</span></div>`;
 		const fullPart = data.part ? `<a class="btn" href="#/part/${encodeURIComponent(data.part)}/full?from=${encodeURIComponent(data.id)}">${icon("list")} See full part</a>` : "";
 		const toggle = data.mode !== "units" ? "" : full ? `<a class="btn" href="${sectionHref(data.id)}" data-mode-pref="units">${icon("stack")} Read in parts</a>` : `<a class="btn" href="${sectionHref(data.id, "full")}" data-mode-pref="full">${icon("expand")} See full section</a>`;
+		const ecfrHref = safeHttpUrl(data.ecfr_url);
 		dom.view.innerHTML = `
       <div class="doc-kicker">${state.currentTitle} CFR ${partLink}</div>
       <h1 class="doc-title">${escapeHtml(label)} ${escapeHtml(heading)}</h1>
@@ -10134,11 +14076,11 @@ async function loadSection(sectionId, params, view) {
         <button type="button" class="btn" id="btn-refs-ledger" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("list")} <span>Refs</span></button>
         <div class="spacer"></div>
         <div class="doc-actions-util">
-          <a class="btn" href="${escapeHtml(data.ecfr_url)}" target="_blank" rel="noopener" title="Open official text on eCFR">${icon("external")} eCFR</a>
-          <button class="btn" id="btn-copy-link" title="Copy direct link">${icon("link")} Copy link</button>
+          ${ecfrHref ? `<a class="btn" href="${escapeHtml(ecfrHref)}" target="_blank" rel="noopener" title="Open official text on eCFR">${icon("external")} eCFR</a>` : ""}
+          <button type="button" class="btn" id="btn-copy-link" title="Copy direct link">${icon("link")} Copy link</button>
           <div class="size-ctl" role="group" aria-label="Text size">
-            <button id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
-            <button id="font-inc" title="Larger text" aria-label="Larger text">A+</button>
+            <button type="button" id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+            <button type="button" id="font-inc" title="Larger text" aria-label="Larger text">A+</button>
           </div>
         </div>
       </div>
@@ -10163,7 +14105,7 @@ async function loadSection(sectionId, params, view) {
 		const swapX = state.swapMotionX || 0;
 		state.swapMotionX = 0;
 		enterView({
-			subtle: Boolean(sameSection) && !swapX,
+			subtle: sameSection && !swapX,
 			fromX: swapX
 		});
 		bindRail();
@@ -10172,17 +14114,8 @@ async function loadSection(sectionId, params, view) {
 			state.railObserver.disconnect();
 			state.railObserver = null;
 		}
-		document.getElementById("btn-copy-link")?.addEventListener("click", async () => {
-			try {
-				await navigator.clipboard.writeText(window.location.href);
-				showToast("Link copied");
-			} catch (e) {
-				showToast("Couldn’t copy the link");
-			}
-		});
-		document.getElementById("font-dec")?.addEventListener("click", () => adjustFontSize(-1));
-		document.getElementById("font-inc")?.addEventListener("click", () => adjustFontSize(1));
-		if (params && params.get("p")) highlightParagraph(params.get("p"));
+		const pTarget = params?.get("p");
+		if (pTarget) highlightParagraph(pTarget);
 		selectTreeNode("s-" + data.id);
 		const unitInfo = reading === "units" && current ? {
 			key: current.key,
@@ -10193,13 +14126,778 @@ async function loadSection(sectionId, params, view) {
 		fillNewsActivity("section", data.id, seq);
 		fillSectionGraph(state.currentTitle, data.id, seq, signal);
 	} catch (err) {
-		if (err && err.name === "AbortError") return;
+		if (err instanceof Error && err.name === "AbortError") return;
 		console.error(err);
 		setViewHead("");
-		renderViewError(dom.view, "Failed to load section", err?.message || "Unexpected error", { onRetry: () => loadSection(sectionId, params, view) });
+		renderViewError(dom.view, "Failed to load section", (err instanceof Error ? err.message : "") || "Unexpected error", { onRetry: () => loadSection(sectionId, params, view) });
 	}
 }
-// src/views/search.js
+// src/components/part_toc.ts
+var TOC_VIEW_KEY = "tocViewMode";
+function getTocViewMode() {
+	return lsGet("tocViewMode") === "compact" ? "compact" : "cards";
+}
+function shortSubpartCode(label = "", idx = 0) {
+	const m = /Subpart\s+([A-Z0-9\-]+)/i.exec(label);
+	if (m) return m[1];
+	const m2 = /Subject Group\s+([A-Z0-9\-]+)/i.exec(label);
+	if (m2) return m2[1];
+	return String(idx + 1);
+}
+function buildPartTocView({ partNode, front = {
+	part: "",
+	subparts: {}
+}, titleNum = state.currentTitle, tier = "cfr", isSplit = false }) {
+	const usage = loadUsage();
+	const projects = loadProjects();
+	const pinnedMap = /* @__PURE__ */ new Map();
+	for (const p of projects) for (const s of p.sections || []) if (Number(s.title) === Number(titleNum)) pinnedMap.set(String(s.id), (pinnedMap.get(String(s.id)) || 0) + 1);
+	let sectionCount = 0;
+	let activeCount = 0;
+	let reservedCount = 0;
+	let appendixCount = 0;
+	let readCount = 0;
+	let pinnedCount = 0;
+	const subparts = [];
+	const rawBlocks = [];
+	const prefix = isSplit ? "sp-toc-grp-" : "toc-grp-";
+	const hrefFor = (secId) => `#/title/${titleNum}/section/${encodeURIComponent(secId)}`;
+	const countNode = (s) => {
+		sectionCount++;
+		if (s.r) reservedCount++;
+		else activeCount++;
+		if (s.t === "appendix") appendixCount++;
+		if (usage.s?.[`${titleNum}|${s.id}`]) readCount++;
+		if (pinnedMap.has(String(s.id))) pinnedCount++;
+	};
+	let flatRun = [];
+	const flushFlat = () => {
+		if (!flatRun.length) return;
+		rawBlocks.push({
+			type: "flat",
+			children: flatRun
+		});
+		flatRun = [];
+	};
+	for (const child of partNode.c || []) if (child.t === "subpart" || child.t === "subject_group") {
+		flushFlat();
+		const children = child.c || [];
+		children.forEach(countNode);
+		const spIdx = subparts.length;
+		const anchorId = `${prefix}${spIdx}`;
+		const rawLabel = cleanInlineLabel(child.l || "");
+		const rawDesc = cleanInlineLabel(child.d || "");
+		const fullTitle = rawDesc && rawDesc !== rawLabel ? rawDesc : rawLabel;
+		const code = shortSubpartCode(rawLabel, spIdx);
+		subparts.push({
+			code,
+			rawLabel,
+			fullTitle,
+			anchorId,
+			count: children.length
+		});
+		rawBlocks.push({
+			type: "subpart",
+			child,
+			children,
+			anchorId,
+			code,
+			rawLabel,
+			fullTitle,
+			spIdx
+		});
+	} else if (child.t === "section" || child.t === "appendix") {
+		countNode(child);
+		flatRun.push(child);
+	}
+	flushFlat();
+	const totalSecs = Math.max(1, sectionCount);
+	const itemHtml = (s, idx = 0) => {
+		const tTitle = tocTitle(s);
+		const uEntry = usage.s?.[`${titleNum}|${s.id}`];
+		const isPinned = pinnedMap.has(String(s.id));
+		const pinCount = pinnedMap.get(String(s.id)) || 0;
+		const isApp = s.t === "appendix";
+		const isRes = Boolean(s.r);
+		const badges = [
+			isApp ? "<span class=\"toc-pill is-app\">Appendix</span>" : "",
+			isRes ? "<span class=\"toc-pill is-res\">Reserved</span>" : "",
+			uEntry && !isRes ? `<span class="toc-pill is-read">${uEntry.u ? escapeHtml(uEntry.ul || uEntry.u) : "Visited"}</span>` : "",
+			isPinned ? `<span class="toc-pill is-pin">${pinCount > 1 ? `Pinned ×${pinCount}` : "Pinned"}</span>` : ""
+		].filter(Boolean).join("");
+		const hay = `${s.l || ""} ${s.id || ""} ${tTitle} ${isPinned ? "pinned" : ""} ${uEntry ? "read" : ""}`.toLowerCase();
+		const seqStr = String(idx + 1).padStart(2, "0");
+		const initialMode = isApp ? "Appendix" : isRes ? "Reserved" : "CFR Section";
+		const initialInfo = isRes ? "<span class=\"toc-fact is-muted\">No active text</span>" : (uEntry?.n || 0) > 1 ? `<span class="toc-fact">${uEntry.n} reads</span>` : "<span class=\"toc-fact is-loading\" data-sec-info-loading>Loading preview…</span>";
+		return `
+      <li class="toc-item toc-slide${isRes ? " reserved" : ""}${isApp ? " is-appendix" : ""}${uEntry ? " is-read" : ""}${isPinned ? " is-pinned" : ""}" data-slide-idx="${idx}" data-sec-id="${escapeHtml(s.id)}" data-hay="${escapeHtml(hay)}">
+        <article class="toc-card">
+          <div class="toc-card-top">
+            <span class="toc-card-eyebrow">
+              <span class="toc-seq">${seqStr}</span>
+              <span class="toc-num">${escapeHtml(s.l)}</span>
+            </span>
+            ${badges ? `<span class="toc-card-badges">${badges}</span>` : ""}
+          </div>
+          <h4 class="toc-title"><a class="toc-card-link" href="${hrefFor(String(s.id))}">${escapeHtml(tTitle)}</a></h4>
+          <div class="toc-thumb-sheet">
+            <p class="toc-card-excerpt" data-sec-excerpt="${escapeHtml(s.id)}">${isRes ? "This section is reserved." : ""}</p>
+            <div class="toc-thumb-facts">
+              <span class="toc-fact toc-card-meta" data-sec-meta="${escapeHtml(s.id)}">${initialMode}</span>
+              <span class="toc-thumb-info" data-sec-info="${escapeHtml(s.id)}">${initialInfo}</span>
+            </div>
+          </div>
+          <div class="toc-card-foot">
+            <div class="toc-card-acts">
+              ${!isSplit && !isRes ? `<button type="button" class="btn btn-small toc-card-split" data-toc-split="${escapeHtml(s.id)}" title="Open ${escapeHtml(s.l)} side-by-side" aria-label="Open ${escapeHtml(s.l)} side-by-side">Side-by-side</button>` : ""}
+              <a class="btn btn-small toc-card-read" href="${hrefFor(String(s.id))}">Read ${icon("arrowRight")}</a>
+            </div>
+          </div>
+        </article>
+      </li>`;
+	};
+	const carouselCtrlHtml = (label, count) => `
+    <div class="toc-car-ctrl" aria-label="${escapeHtml(label)} carousel controls">
+      <button type="button" class="icon-btn toc-cbtn" data-car-dir="-1" title="Previous sections" aria-label="Previous sections" disabled>${icon("chevronLeft")}</button>
+      <span class="toc-ccnt">01–03 / ${String(count).padStart(2, "0")}</span>
+      <button type="button" class="icon-btn toc-cbtn" data-car-dir="1" title="Next sections" aria-label="Next sections">${icon("chevronRight")}</button>
+    </div>`;
+	let groupsHtml = "";
+	for (const blk of rawBlocks) {
+		const count = blk.children.length;
+		const isCarousel = count > 3;
+		if (blk.type === "subpart") {
+			const sharePct = Math.max(4, Math.round(count / totalSecs * 100));
+			const subpartFront = front.subparts?.[String(blk.child.id)] || "";
+			const headingText = blk.rawLabel && blk.fullTitle !== blk.rawLabel ? `<span class="toc-group-code">${escapeHtml(blk.rawLabel)}</span><span class="toc-group-name">${escapeHtml(blk.fullTitle)}</span>` : `<span class="toc-group-name">${escapeHtml(blk.fullTitle)}</span>`;
+			groupsHtml += `
+        <section class="toc-group" id="${escapeHtml(blk.anchorId)}" data-ref-tier="${tier}">
+          <header class="toc-group-head">
+            <div class="toc-group-titles">${headingText}</div>
+            <div class="toc-group-right">
+              <span class="toc-group-bar" title="${sharePct}% of part"><span style="width:${sharePct}%"></span></span>
+              <span class="toc-group-count">${count}</span>
+              ${isCarousel ? carouselCtrlHtml(blk.fullTitle, count) : ""}
+            </div>
+          </header>
+          ${subpartFront ? `<div class="front-matter"><details><summary>Subpart notes</summary>${subpartFront}</details></div>` : ""}
+          <div class="toc-carousel${isCarousel ? " is-carousel" : " is-static"}" data-count="${count}" data-active-idx="0">
+            <div class="toc-viewport" tabindex="${isCarousel ? "0" : "-1"}" role="region" aria-label="${escapeHtml(blk.fullTitle)} thumbnails">
+              <ul class="toc-list toc-carousel-track">${blk.children.map((c, idx) => itemHtml(c, idx)).join("")}</ul>
+            </div>
+            ${isCarousel ? `<div class="toc-cpips" role="tablist" aria-label="Jump to page in ${escapeHtml(blk.fullTitle)}"></div>` : ""}
+          </div>
+        </section>`;
+		} else {
+			const flatHead = isCarousel ? `<header class="toc-group-head">
+            <div class="toc-group-titles"><span class="toc-group-name">Sections</span></div>
+            <div class="toc-group-right">
+              <span class="toc-group-count">${count}</span>
+              ${carouselCtrlHtml("Sections", count)}
+            </div>
+          </header>` : "";
+			groupsHtml += `
+        <section class="toc-group is-flat" data-ref-tier="${tier}">
+          ${flatHead}
+          <div class="toc-carousel${isCarousel ? " is-carousel" : " is-static"}" data-count="${count}" data-active-idx="0">
+            <div class="toc-viewport" tabindex="${isCarousel ? "0" : "-1"}" role="region" aria-label="Part sections thumbnails">
+              <ul class="toc-list toc-carousel-track">${blk.children.map((c, idx) => itemHtml(c, idx)).join("")}</ul>
+            </div>
+            ${isCarousel ? `<div class="toc-cpips" role="tablist" aria-label="Jump to page in sections"></div>` : ""}
+          </div>
+        </section>`;
+		}
+	}
+	const statItems = [
+		subparts.length ? `<div class="toc-stat"><span class="toc-stat-val">${subparts.length}</span><span class="toc-stat-lbl">${subparts.length === 1 ? "Subpart" : "Subparts"}</span></div>` : "",
+		`<div class="toc-stat"><span class="toc-stat-val">${activeCount}</span><span class="toc-stat-lbl">${activeCount === 1 ? "Active §" : "Active §§"}</span></div>`,
+		appendixCount ? `<div class="toc-stat is-app"><span class="toc-stat-val">${appendixCount}</span><span class="toc-stat-lbl">${appendixCount === 1 ? "Appendix" : "Appendices"}</span></div>` : "",
+		reservedCount ? `<div class="toc-stat is-muted"><span class="toc-stat-val">${reservedCount}</span><span class="toc-stat-lbl">Reserved</span></div>` : "",
+		readCount ? `<div class="toc-stat is-read"><span class="toc-stat-val">${readCount}</span><span class="toc-stat-lbl">Visited</span></div>` : "",
+		pinnedCount ? `<div class="toc-stat is-pin"><span class="toc-stat-val">${pinnedCount}</span><span class="toc-stat-lbl">Pinned</span></div>` : ""
+	].filter(Boolean).join("");
+	const mapBarHtml = subparts.length >= 2 ? `<div class="toc-map-bar" role="navigation" aria-label="Part structure map">
+        ${subparts.map((sp, i) => {
+		const pct = Math.max(2, Math.round(sp.count / totalSecs * 100));
+		return `<button type="button" class="toc-map-seg" style="flex:${Math.max(1, sp.count)} 1 0;--seg-i:${i % 6}" data-toc-jump="${escapeHtml(sp.anchorId)}" title="${escapeHtml(sp.rawLabel)}: ${escapeHtml(sp.fullTitle)} (${plural(sp.count, "section")}, ${pct}%)"><span class="toc-map-code">${escapeHtml(sp.code)}</span></button>`;
+	}).join("")}
+      </div>
+      <div class="toc-subpart-chips">
+        ${subparts.map((sp) => `<button type="button" class="toc-sub-chip" data-toc-jump="${escapeHtml(sp.anchorId)}"><span class="toc-sub-code">${escapeHtml(sp.code)}</span><span class="toc-sub-name">${escapeHtml(sp.fullTitle)}</span><span class="toc-sub-cnt">${sp.count}</span></button>`).join("")}
+      </div>` : "";
+	const atlasHtml = sectionCount > 0 ? `<section class="toc-atlas surface-card has-tier-bar" data-ref-tier="${tier}" aria-label="Part visual overview">
+        <div class="toc-atlas-stats">${statItems}</div>
+        ${mapBarHtml}
+      </section>` : "";
+	return {
+		sectionCount,
+		subpartCount: subparts.length,
+		atlasHtml,
+		groupsHtml
+	};
+}
+var MAX_CONCURRENT_HYDRATE = 4;
+var activeHydrates = 0;
+var hydrateQueue = [];
+var tocResizeObservers = /* @__PURE__ */ new WeakMap();
+function pumpHydrateQueue() {
+	while (activeHydrates < MAX_CONCURRENT_HYDRATE && hydrateQueue.length > 0) {
+		const task = hydrateQueue.shift();
+		if (!task || task.signal?.aborted || !task.slide.isConnected || task.slide.dataset.hydrated === "1") continue;
+		activeHydrates++;
+		hydrateSlideExcerptNow(task.slide, task.titleNum, task.signal).finally(() => {
+			activeHydrates--;
+			pumpHydrateQueue();
+		});
+	}
+}
+function hydrateSlideExcerpt(slide, titleNum, signal) {
+	if (!slide || slide.dataset.hydrated === "1" || slide.dataset.queued === "1" || slide.classList.contains("reserved")) return;
+	if (signal?.aborted) return;
+	slide.dataset.queued = "1";
+	hydrateQueue.push({
+		slide,
+		titleNum,
+		signal
+	});
+	pumpHydrateQueue();
+}
+async function hydrateSlideExcerptNow(slide, titleNum, signal) {
+	if (!slide || slide.dataset.hydrated === "1" || slide.classList.contains("reserved")) return;
+	if (signal?.aborted) return;
+	const secId = slide.dataset.secId;
+	if (!secId) return;
+	const cacheKey = `${titleNum}|${secId}|`;
+	let data = state.peekCache.get(cacheKey) || state.peekCache.get(`${titleNum}|${secId}|full`) || null;
+	if (!data) try {
+		data = await fetchSectionCached(titleNum, secId, "?unit=", cacheKey, { signal });
+		if (!data) return;
+	} catch {
+		delete slide.dataset.queued;
+		return;
+	}
+	if (!slide.isConnected || signal?.aborted) return;
+	slide.dataset.hydrated = "1";
+	const exEl = slide.querySelector("[data-sec-excerpt]");
+	const metaEl = slide.querySelector("[data-sec-meta]");
+	const infoEl = slide.querySelector("[data-sec-info]");
+	const { excerpt, refCount, docLen } = data.reserved ? {
+		excerpt: "This section is reserved.",
+		refCount: 0,
+		docLen: 0
+	} : extractDocExcerpt(data.html || "", {
+		maxChars: 240,
+		maxParas: 3
+	});
+	if (exEl && excerpt) exEl.textContent = excerpt;
+	const outline = Array.isArray(data.outline) ? data.outline : [];
+	if (metaEl) {
+		if (outline.length > 1) metaEl.textContent = `${outline.length} units`;
+		else if (data.kind === "appendix") metaEl.textContent = "Appendix";
+		else metaEl.textContent = "Single page";
+	}
+	if (infoEl) {
+		const totalChars = outline.reduce((acc, u) => acc + (Number(u.chars) || 0), 0) || docLen;
+		const mins = totalChars > 0 ? Math.max(1, Math.round(totalChars / 1200)) : 0;
+		const appGroups = new Set(outline.filter((u) => u.kind === "appendix").map((u) => u.group || u.key));
+		const facts = [];
+		if (totalChars > 0) facts.push(`<span class="toc-fact">${totalChars < 700 ? "<1 min" : `~${mins} min`}</span>`);
+		if (appGroups.size > 0) facts.push(`<span class="toc-fact is-app">+${appGroups.size} app.</span>`);
+		if (refCount > 0) facts.push(`<span class="toc-fact">${refCount} ${refCount === 1 ? "ref" : "refs"}</span>`);
+		infoEl.innerHTML = facts.join("");
+	}
+}
+function getColsPerView(carousel) {
+	if (!carousel) return 3;
+	const raw = parseInt(getComputedStyle(carousel).getPropertyValue("--toc-cols"), 10);
+	return Number.isFinite(raw) && raw >= 1 ? Math.min(raw, 3) : 3;
+}
+function buildCarouselPipList(totalSlides, perView) {
+	const maxIdx = Math.max(0, totalSlides - perView);
+	if (maxIdx <= 0) return [];
+	const indices = [0];
+	for (let i = perView; i < maxIdx; i += perView) indices.push(i);
+	if (indices[indices.length - 1] !== maxIdx) indices.push(maxIdx);
+	return indices;
+}
+function positionCarousel(carousel) {
+	if (!carousel) return;
+	const viewport = carousel.querySelector(".toc-viewport");
+	const track = carousel.querySelector(".toc-carousel-track");
+	const wrap = carousel.closest(".toc-groups-wrap");
+	const grp = carousel.closest(".toc-group") || carousel;
+	if (!viewport || !track) return;
+	if (wrap && (wrap.classList.contains("is-compact") || wrap.classList.contains("is-filtering")) || !carousel.classList.contains("is-carousel")) {
+		track.style.transform = "none";
+		return;
+	}
+	const slides = [...track.querySelectorAll(".toc-slide:not([hidden])")];
+	const perView = getColsPerView(carousel);
+	const maxIdx = Math.max(0, slides.length - perView);
+	const rawIdx = Number(carousel.dataset.activeIdx) || 0;
+	const clamped = Math.max(0, Math.min(rawIdx, maxIdx));
+	carousel.dataset.activeIdx = String(clamped);
+	if (slides.length <= perView || !slides[0]) track.style.transform = "none";
+	else {
+		const targetSlide = slides[clamped] || slides[0];
+		const offsetX = Math.max(0, Math.round(targetSlide.offsetLeft - slides[0].offsetLeft));
+		track.style.transform = `translate3d(${-offsetX}px, 0, 0)`;
+	}
+	slides.forEach((s, i) => {
+		const visible = i >= clamped && i < clamped + perView;
+		s.classList.toggle("is-visible", visible);
+		s.setAttribute("aria-hidden", String(!visible));
+	});
+	const prevBtn = grp.querySelector("[data-car-dir=\"-1\"]");
+	const nextBtn = grp.querySelector("[data-car-dir=\"1\"]");
+	if (prevBtn) prevBtn.disabled = clamped <= 0;
+	if (nextBtn) nextBtn.disabled = clamped >= maxIdx;
+	const cntEl = grp.querySelector(".toc-ccnt");
+	if (cntEl) cntEl.textContent = `${String(clamped + 1).padStart(2, "0")}–${String(Math.min(slides.length, clamped + perView)).padStart(2, "0")} / ${String(slides.length).padStart(2, "0")}`;
+	const pipRow = carousel.querySelector(".toc-cpips");
+	if (pipRow) {
+		const pages = buildCarouselPipList(slides.length, perView);
+		const activePage = pages.reduce((best, pIdx) => pIdx <= clamped ? pIdx : best, 0);
+		pipRow.innerHTML = pages.map((pIdx, pageNo) => {
+			const on = pIdx === activePage;
+			const endP = Math.min(slides.length, pIdx + perView);
+			return `<button type="button" role="tab" class="toc-cpip${on ? " is-active" : ""}" data-car-idx="${pIdx}" title="Show ${pIdx + 1}–${endP}" aria-label="Page ${pageNo + 1}: items ${pIdx + 1} to ${endP}" aria-selected="${on}"></button>`;
+		}).join("");
+	}
+}
+function setCarouselIndex(carousel, nextIdx, { titleNum = state.currentTitle, signal = state.routeAbort?.signal } = {}) {
+	if (!carousel) return;
+	const track = carousel.querySelector(".toc-carousel-track");
+	if (!track) return;
+	const slides = [...track.querySelectorAll(".toc-slide:not([hidden])")];
+	if (!slides.length) return;
+	const perView = getColsPerView(carousel);
+	const maxIdx = Math.max(0, slides.length - perView);
+	const clamped = Math.max(0, Math.min(nextIdx, maxIdx));
+	carousel.dataset.activeIdx = String(clamped);
+	positionCarousel(carousel);
+	const endIdx = Math.min(slides.length, clamped + perView + 1);
+	for (let i = clamped; i < endIdx; i++) hydrateSlideExcerpt(slides[i], titleNum, signal);
+}
+function initPartTocCarousels(container, { titleNum = state.currentTitle, signal = state.routeAbort?.signal } = {}) {
+	if (!container) return;
+	requestAnimationFrame(() => {
+		if (signal?.aborted) return;
+		const cars = [...container.querySelectorAll(".toc-carousel")];
+		for (const car of cars) if (car.classList.contains("is-carousel")) positionCarousel(car);
+		const observeAndHydrate = (car) => {
+			if (car.classList.contains("is-carousel")) setCarouselIndex(car, Number(car.dataset.activeIdx) || 0, {
+				titleNum,
+				signal
+			});
+			else for (const slide of car.querySelectorAll(".toc-slide:not([hidden])")) hydrateSlideExcerpt(slide, titleNum, signal);
+		};
+		if (typeof IntersectionObserver !== "undefined") {
+			const scrollRoot = container.closest(".split-body") || container.closest("#main, .main") || null;
+			const io = new IntersectionObserver((entries) => {
+				for (const entry of entries) {
+					if (!entry.isIntersecting) continue;
+					io.unobserve(entry.target);
+					observeAndHydrate(entry.target);
+				}
+			}, {
+				root: scrollRoot,
+				rootMargin: "600px 0px"
+			});
+			for (const car of cars) io.observe(car);
+			if (signal) signal.addEventListener("abort", () => io.disconnect(), { once: true });
+		} else for (const car of cars) observeAndHydrate(car);
+		const wrap = container.querySelector(".toc-groups-wrap");
+		if (wrap && typeof ResizeObserver !== "undefined") {
+			const prevRo = tocResizeObservers.get(wrap);
+			if (prevRo) try {
+				prevRo.disconnect();
+			} catch {}
+			const ro = new ResizeObserver(() => {
+				for (const car of wrap.querySelectorAll(".toc-carousel.is-carousel")) positionCarousel(car);
+			});
+			tocResizeObservers.set(wrap, ro);
+			ro.observe(wrap);
+			if (signal) signal.addEventListener("abort", () => {
+				ro.disconnect();
+				tocResizeObservers.delete(wrap);
+			}, { once: true });
+		}
+	});
+}
+function handlePartTocCarouselClick(e, root, { titleNum = state.currentTitle, signal = state.routeAbort?.signal } = {}) {
+	const t = e.target;
+	const dirBtn = t?.closest("[data-car-dir]");
+	if (dirBtn) {
+		const car = dirBtn.closest(".toc-group")?.querySelector(".toc-carousel");
+		if (car) setCarouselIndex(car, (Number(car.dataset.activeIdx) || 0) + Number(dirBtn.dataset.carDir) * getColsPerView(car), {
+			titleNum,
+			signal
+		});
+		return true;
+	}
+	const pipBtn = t?.closest("[data-car-idx]");
+	if (pipBtn) {
+		const car = pipBtn.closest(".toc-carousel");
+		if (car) setCarouselIndex(car, Number(pipBtn.dataset.carIdx) || 0, {
+			titleNum,
+			signal
+		});
+		return true;
+	}
+	const jumpBtn = t?.closest("[data-toc-jump]");
+	if (jumpBtn && jumpBtn.dataset.tocJump) {
+		const id = jumpBtn.dataset.tocJump;
+		const target = root ? root.querySelector(`#${CSS.escape(id)}`) : document.getElementById(id);
+		if (target) {
+			target.hidden = false;
+			smoothScrollToTarget(target, { block: "start" });
+			target.classList.remove("flash");
+			target.offsetWidth;
+			target.classList.add("flash");
+		}
+		return true;
+	}
+	return false;
+}
+function handlePartTocCarouselKeydown(e, { titleNum = state.currentTitle, signal = state.routeAbort?.signal } = {}) {
+	if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return false;
+	const car = e.target?.closest(".toc-carousel.is-carousel");
+	if (!car) return false;
+	const wrap = car.closest(".toc-groups-wrap");
+	if (wrap?.classList.contains("is-compact") || wrap?.classList.contains("is-filtering")) return false;
+	e.preventDefault();
+	setCarouselIndex(car, (Number(car.dataset.activeIdx) || 0) + (e.key === "ArrowRight" ? 1 : -1) * getColsPerView(car), {
+		titleNum,
+		signal
+	});
+	return true;
+}
+// src/views/reader_part.ts
+async function loadPart(partId) {
+	dom.view.innerHTML = skeletonHtml("list", "Loading Part " + partId + "…");
+	state.currentSection = null;
+	state.currentPart = partId;
+	updateChatContext();
+	try {
+		const seq = state.routeSeq;
+		const signal = state.routeAbort?.signal;
+		const [frontRes] = await Promise.all([fetchPartFront(state.currentTitle, partId, { signal }), ensureTreeLoaded()]);
+		const front = frontRes.ok ? await frontRes.json() : {
+			part: "",
+			subparts: {}
+		};
+		if (seq !== state.routeSeq) return;
+		const partNode = findPartInTree(state.treeData, partId);
+		if (!partNode) {
+			if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
+				clearTreeSelection();
+				setViewHead("");
+				await renderResolverPage(dom.view, {
+					title: state.currentTitle,
+					part: partId
+				});
+				return;
+			}
+			renderNotFound();
+			return;
+		}
+		const toc = buildPartTocView({
+			partNode,
+			front,
+			titleNum: state.currentTitle,
+			tier: "cfr",
+			isSplit: false
+		});
+		const viewMode = getTocViewMode();
+		document.title = `Part ${partId} · Title ${state.currentTitle}`;
+		setViewHead(docStepHtml(partId, null, firstSectionOf(partId)));
+		const sep = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
+		const toolsHtml = toc.sectionCount >= 2 ? `<div class="part-toc-tools">
+          ${toc.sectionCount >= 6 ? `<input type="search" id="part-toc-filter" class="ui-input part-toc-filter" placeholder="Filter ${plural(toc.sectionCount, "section")} in Part ${escapeHtml(partId)}…" aria-label="Filter sections in part" autocomplete="off" spellcheck="false">` : "<span class=\"toc-tools-label\">Sections index</span>"}
+          <span class="toc-filter-meta" id="part-toc-matches" aria-live="polite"></span>
+          ${segmentedHtml({
+			label: "Table of contents layout",
+			value: viewMode,
+			cls: "seg toc-view-toggle",
+			dataAttr: "data-toc-view",
+			items: [{
+				value: "cards",
+				label: "Thumbnails"
+			}, {
+				value: "compact",
+				label: "Index"
+			}]
+		})}
+        </div>` : "";
+		dom.view.innerHTML = `
+      <div class="doc-kicker" data-ref-tier="cfr">
+        <span class="ref-badge">FEDERAL REG</span>${sep}<span>${state.currentTitle} CFR ${escapeHtml(partNode.l)}</span>
+        ${toc.sectionCount ? `${sep}<span>${plural(toc.sectionCount, "section")}</span>` : ""}
+        ${toc.subpartCount ? `${sep}<span>${plural(toc.subpartCount, "subpart")}</span>` : ""}
+      </div>
+      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
+      <div class="doc-actions">
+        <a class="btn btn-accent" href="#/part/${encodeURIComponent(partId)}/full">${icon("list")} See full part</a>
+        ${newsActivityButtonHtml()}
+        <div class="spacer"></div>
+        <div class="doc-actions-util">
+          <button type="button" class="btn" id="btn-part-copy" title="Copy part link">${icon("link")} Copy link</button>
+        </div>
+      </div>
+      ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ""}
+      ${toc.atlasHtml}
+      ${toolsHtml}
+      <div class="toc-groups-wrap${viewMode === "compact" ? " is-compact" : ""}">
+        ${toc.groupsHtml || "<p class=\"muted\">No sections listed in this part.</p>"}
+      </div>
+      <p class="part-toc-empty muted" id="part-toc-empty" hidden>No matching sections in Part ${escapeHtml(partId)}.</p>
+    `;
+		syncMainTabFromRoute({
+			kind: "part",
+			title: state.currentTitle,
+			partId,
+			full: false,
+			label: `${state.currentTitle} CFR Part ${partId}`,
+			heading: partNode.d || partNode.l || "",
+			href: window.location.hash || `#/title/${state.currentTitle}/part/${encodeURIComponent(partId)}`
+		});
+		const swapX = state.swapMotionX || 0;
+		state.swapMotionX = 0;
+		enterView({ fromX: swapX });
+		initPartTocCarousels(dom.view, {
+			titleNum: state.currentTitle,
+			signal
+		});
+		selectTreeNode("p-" + partId);
+		recordPartVisit(partId, partNode.d);
+		fillNewsActivity("part", partId, seq);
+	} catch (err) {
+		if (err instanceof Error && err.name === "AbortError") return;
+		console.error(err);
+		setViewHead("");
+		renderViewError(dom.view, "Failed to load part", (err instanceof Error ? err.message : "") || "Unexpected error", { onRetry: () => loadPart(partId) });
+	}
+}
+async function loadPartFull(partId, params) {
+	dom.view.innerHTML = skeletonHtml("doc", "Loading Part " + partId + "…");
+	state.currentSection = null;
+	state.currentPart = partId;
+	updateChatContext();
+	try {
+		const seq = state.routeSeq;
+		const signal = state.routeAbort?.signal;
+		await ensureTreeLoaded();
+		if (seq !== state.routeSeq) return;
+		const partNode = findPartInTree(state.treeData, partId);
+		if (!partNode) {
+			if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
+				clearTreeSelection();
+				setViewHead("");
+				await renderResolverPage(dom.view, {
+					title: state.currentTitle,
+					part: partId
+				});
+				return;
+			}
+			renderNotFound();
+			return;
+		}
+		const res = await fetchPartFull(state.currentTitle, partId, { signal });
+		if (seq !== state.routeSeq) return;
+		if (!res.ok) {
+			renderNotFound();
+			return;
+		}
+		const data = await res.json();
+		if (seq !== state.routeSeq) return;
+		const from = params && params.get("from");
+		const anchorId = (id) => "sec-" + String(id).replace(/[^a-zA-Z0-9.\-]/g, "_");
+		const sections = data.sections || [];
+		const sectionsHtml = sections.map((s) => {
+			const num = escapeHtml(s.label);
+			const title = escapeHtml(s.title || "");
+			const body = s.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : s.html || "";
+			return `<article class="full-section${s.id === from ? " is-from" : ""}" id="${anchorId(s.id)}">
+        <header class="full-section-head has-tier-bar" data-ref-tier="cfr">
+          <a class="full-section-anchor" href="${sectionHref(s.id)}" title="Open this section on its own">
+            <span class="full-section-num">${num}</span>
+            <span class="full-section-title">${title}</span>
+          </a>
+          <button type="button" class="lib-act full-section-split" data-full-split="${escapeHtml(s.id)}" title="Open ${num} side-by-side">Split</button>
+        </header>
+        ${body}
+      </article>`;
+		}).join("");
+		document.title = `Part ${partId} (full) · Title ${state.currentTitle}`;
+		const [prevPart, nextPart] = partNeighbors(partId);
+		const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(String(node.id || ""))}/full`, `Part ${node.id || ""}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
+		setViewHead(prevPart || nextPart ? `<nav class="doc-step" aria-label="Previous and next part">${partBtn(prevPart, -1)}<span class="spacer"></span>${partBtn(nextPart, 1)}</nav>` : "");
+		const sep = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
+		dom.view.innerHTML = `
+      <div class="doc-kicker" data-ref-tier="cfr">
+        <span class="ref-badge">FULL PART</span>${sep}<span>${state.currentTitle} CFR ${escapeHtml(partNode.l)}</span>${sep}<span>${plural(sections.length, "section")}</span>${sep}<a href="#/part/${encodeURIComponent(partId)}">Table of contents</a>
+      </div>
+      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
+      <div class="doc-actions">
+        <a class="btn" href="#/part/${encodeURIComponent(partId)}">${icon("list")} Table of contents</a>
+        ${newsActivityButtonHtml()}
+        <button type="button" class="btn" id="btn-part-refs-ledger" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("list")} <span>Refs</span></button>
+        <div class="spacer"></div>
+        <div class="doc-actions-util">
+          <button type="button" class="btn" id="btn-part-copy" title="Copy direct link">${icon("link")} Copy link</button>
+          <div class="size-ctl" role="group" aria-label="Text size">
+            <button type="button" id="part-font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+            <button type="button" id="part-font-inc" title="Larger text" aria-label="Larger text">A+</button>
+          </div>
+        </div>
+      </div>
+      ${sectionsHtml || "<p class=\"muted\">No sections in this part.</p>"}
+    `;
+		enhanceDomAnchors(dom.view);
+		state.swapMotionX = 0;
+		syncMainTabFromRoute({
+			kind: "part",
+			title: state.currentTitle,
+			partId,
+			full: true,
+			label: `${state.currentTitle} CFR Part ${partId} · Full`,
+			heading: partNode.d || partNode.l || "",
+			href: window.location.hash || `#/title/${state.currentTitle}/part/${encodeURIComponent(partId)}/full`
+		});
+		const refs = collectSectionReferences(dom.view);
+		const ledgerBtn = document.getElementById("btn-part-refs-ledger");
+		if (ledgerBtn && refs.length) {
+			const span = ledgerBtn.querySelector("span");
+			if (span) span.textContent = `Refs ${refs.length}`;
+			ledgerBtn.hidden = false;
+		}
+		recordPartVisit(partId, partNode.d);
+		fillNewsActivity("part", partId, seq);
+		if (from) {
+			const el = document.getElementById(anchorId(from));
+			if (el) {
+				let userScrolled = false;
+				let lastSet = -1;
+				const align = () => {
+					if (userScrolled || signal?.aborted || !el.isConnected) return;
+					if (lastSet >= 0 && Math.abs(dom.main.scrollTop - lastSet) > 4) {
+						userScrolled = true;
+						return;
+					}
+					const r = el.getBoundingClientRect();
+					const m = dom.main.getBoundingClientRect();
+					const rel = r.top - m.top;
+					if (rel < 60 || rel > 100) {
+						el.scrollIntoView({ block: "start" });
+						lastSet = dom.main.scrollTop;
+					}
+				};
+				requestAnimationFrame(align);
+				document.fonts?.ready?.then(align);
+				const onImgLoad = () => align();
+				dom.view.addEventListener("load", onImgLoad, true);
+				const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(align) : null;
+				if (ro) ro.observe(dom.view);
+				const stop = () => {
+					dom.view.removeEventListener("load", onImgLoad, true);
+					ro?.disconnect();
+				};
+				setTimeout(stop, 2600);
+				signal?.addEventListener("abort", stop, { once: true });
+			}
+		} else dom.main.scrollTop = 0;
+		selectTreeNode("s-" + (from || sections[0] && sections[0].id));
+	} catch (err) {
+		if (err instanceof Error && err.name === "AbortError") return;
+		console.error(err);
+		setViewHead("");
+		renderViewError(dom.view, "Failed to load part", (err instanceof Error ? err.message : "") || "Unexpected error", { onRetry: () => loadPartFull(partId, params) });
+	}
+}
+onView("input", (e) => {
+	const input = e.target;
+	if (!input || input.id !== "part-toc-filter") return;
+	const q = input.value.trim().toLowerCase();
+	const wrap = dom.view.querySelector(".toc-groups-wrap");
+	if (wrap) wrap.classList.toggle("is-filtering", Boolean(q));
+	let visible = 0;
+	let total = 0;
+	for (const grp of dom.view.querySelectorAll(".toc-group")) {
+		let grpShown = 0;
+		for (const li of grp.querySelectorAll("li[data-hay]")) {
+			total++;
+			const show = !q || (li.dataset.hay || "").includes(q);
+			li.hidden = !show;
+			if (show) {
+				grpShown++;
+				visible++;
+			}
+		}
+		grp.hidden = grpShown === 0;
+		const cnt = grp.querySelector(".toc-group-count");
+		if (cnt) cnt.textContent = String(grpShown);
+	}
+	if (!q) initPartTocCarousels(dom.view, { titleNum: state.currentTitle });
+	else for (const car of dom.view.querySelectorAll(".toc-carousel")) positionCarousel(car);
+	const metaEl = document.getElementById("part-toc-matches");
+	if (metaEl) metaEl.textContent = q ? `${visible} of ${total} shown` : "";
+	const emptyEl = document.getElementById("part-toc-empty");
+	if (emptyEl) emptyEl.hidden = visible > 0 || !q;
+});
+onView("click", async (e) => {
+	if (handlePartTocCarouselClick(e, dom.view)) return;
+	const t = e.target;
+	if (!t) return;
+	const viewBtn = t.closest("[data-toc-view]");
+	if (viewBtn) {
+		const mode = viewBtn.dataset.tocView === "compact" ? "compact" : "cards";
+		lsSet(TOC_VIEW_KEY, mode);
+		const wrap = dom.view.querySelector(".toc-groups-wrap");
+		if (wrap) wrap.classList.toggle("is-compact", mode === "compact");
+		for (const b of dom.view.querySelectorAll("[data-toc-view]")) b.setAttribute("aria-pressed", String(b.dataset.tocView === mode));
+		initPartTocCarousels(dom.view, { titleNum: state.currentTitle });
+		return;
+	}
+	const tocSplit = t.closest("[data-toc-split]");
+	if (tocSplit) {
+		e.preventDefault();
+		e.stopPropagation();
+		emit("split:open", {
+			title: state.currentTitle,
+			sectionId: tocSplit.dataset.tocSplit,
+			pushHistory: true
+		});
+		return;
+	}
+	const ledgerBtn = t.closest("#btn-part-refs-ledger");
+	if (ledgerBtn) {
+		openRefsLedgerPopover(ledgerBtn);
+		return;
+	}
+	if (t.closest("#btn-part-copy")) {
+		await copyText(window.location.href, "Link copied", "Couldn’t copy the link");
+		return;
+	}
+	if (t.closest("#part-font-dec")) {
+		adjustFontSize(-1);
+		return;
+	}
+	if (t.closest("#part-font-inc")) {
+		adjustFontSize(1);
+		return;
+	}
+	const splitBtn = t.closest("[data-full-split]");
+	if (splitBtn) emit("split:open", {
+		title: state.currentTitle,
+		sectionId: splitBtn.dataset.fullSplit,
+		pushHistory: true
+	});
+});
+onView("keydown", (e) => {
+	handlePartTocCarouselKeydown(e);
+});
+// src/views/search.ts
 state.searchState = null;
 function renderResultRow(r, showTitleInPart) {
 	let snippet = (r.snippet || "").replace(/^[\s.…]+|[\s.…]+$/g, "");
@@ -10258,8 +14956,12 @@ function renderGroupedResults(filtered, collapsed) {
 	const byTitle = /* @__PURE__ */ new Map();
 	for (const r of filtered) {
 		const t = r.title || state.currentTitle;
-		if (!byTitle.has(t)) byTitle.set(t, []);
-		byTitle.get(t).push(r);
+		let bucket = byTitle.get(t);
+		if (!bucket) {
+			bucket = [];
+			byTitle.set(t, bucket);
+		}
+		bucket.push(r);
 	}
 	return `<div class="search-groups">${[...byTitle.entries()].sort((a, b) => b[1].length - a[1].length || a[0] - b[0]).map(([t, tItems]) => {
 		const tMeta = state.installedTitles.find((x) => x.title === t);
@@ -10268,8 +14970,12 @@ function renderGroupedResults(filtered, collapsed) {
 		const byPart = /* @__PURE__ */ new Map();
 		for (const r of tItems) {
 			const p = r.part || "";
-			if (!byPart.has(p)) byPart.set(p, []);
-			byPart.get(p).push(r);
+			let pBucket = byPart.get(p);
+			if (!pBucket) {
+				pBucket = [];
+				byPart.set(p, pBucket);
+			}
+			pBucket.push(r);
 		}
 		const partsHtml = [...byPart.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], void 0, { numeric: true })).map(([p, pItems]) => `
       <div class="search-part-group">
@@ -10385,7 +15091,7 @@ function renderSearchView() {
       <div class="doc-kicker">Search</div>
       <h1 class="doc-title">${escapeHtml(query)}</h1>
       <div class="search-meta">
-        <span id="search-count-slot"></span>
+        <span id="search-count-slot" aria-live="polite"></span>
         <div class="search-controls">${viewToggleHtml}${scopeHtml}</div>
       </div>
       <div class="search-filters" id="search-filters-box" role="region" aria-label="Filter search results" hidden>
@@ -10401,16 +15107,19 @@ function renderSearchView() {
   `;
 	patchSearchDynamicSlots();
 }
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id !== "sf-text" || !state.searchState || !dom.view.querySelector(".search-page")) return;
-	state.searchState.filters.text = e.target.value;
+onView("input", (e) => {
+	const input = e.target;
+	if (!input || input.id !== "sf-text" || !state.searchState || !dom.view.querySelector(".search-page")) return;
+	state.searchState.filters.text = input.value;
 	patchSearchDynamicSlots();
 });
-dom.view.addEventListener("click", (e) => {
+onView("click", (e) => {
 	if (!state.searchState || !dom.view.querySelector(".search-page")) return;
-	const viewBtn = e.target.closest("[data-sview]");
+	const t = e.target;
+	if (!t) return;
+	const viewBtn = t.closest("[data-sview]");
 	if (viewBtn) {
-		const next = viewBtn.dataset.sview;
+		const next = viewBtn.dataset.sview === "grouped" ? "grouped" : "compact";
 		if (next !== state.searchState.view) {
 			state.searchState.view = next;
 			lsSet("searchView", next);
@@ -10418,7 +15127,7 @@ dom.view.addEventListener("click", (e) => {
 		}
 		return;
 	}
-	const titlePill = e.target.closest("[data-ftitle]");
+	const titlePill = t.closest("[data-ftitle]");
 	if (titlePill) {
 		const val = titlePill.dataset.ftitle === "" ? null : Number(titlePill.dataset.ftitle);
 		state.searchState.filters.title = state.searchState.filters.title === val ? null : val;
@@ -10426,20 +15135,23 @@ dom.view.addEventListener("click", (e) => {
 		patchSearchDynamicSlots();
 		return;
 	}
-	const partPill = e.target.closest("[data-fpart]");
+	const partPill = t.closest("[data-fpart]");
 	if (partPill) {
-		const val = partPill.dataset.fpart === "" ? null : partPill.dataset.fpart;
+		const val = partPill.dataset.fpart === "" ? null : partPill.dataset.fpart || null;
 		state.searchState.filters.part = state.searchState.filters.part === val ? null : val;
 		patchSearchDynamicSlots();
 		return;
 	}
-	const kindPill = e.target.closest("[data-fkind]");
+	const kindPill = t.closest("[data-fkind]");
 	if (kindPill) {
-		state.searchState.filters.kind = kindPill.dataset.fkind;
-		patchSearchDynamicSlots();
+		const k = kindPill.dataset.fkind;
+		if (k === "all" || k === "section" || k === "appendix") {
+			state.searchState.filters.kind = k;
+			patchSearchDynamicSlots();
+		}
 		return;
 	}
-	if (e.target.closest("#sf-clear")) {
+	if (t.closest("#sf-clear")) {
 		state.searchState.filters = {
 			title: null,
 			part: null,
@@ -10451,12 +15163,15 @@ dom.view.addEventListener("click", (e) => {
 		patchSearchDynamicSlots();
 		return;
 	}
-	const titleHead = e.target.closest(".search-title-head");
+	const titleHead = t.closest(".search-title-head");
 	if (titleHead) {
-		const t = Number(titleHead.closest(".search-title-group").dataset.tgroup);
-		if (state.searchState.collapsed.has(t)) state.searchState.collapsed.delete(t);
-		else state.searchState.collapsed.add(t);
-		patchSearchDynamicSlots();
+		const grp = titleHead.closest(".search-title-group");
+		const tNum = Number(grp?.dataset.tgroup);
+		if (!Number.isNaN(tNum)) {
+			if (state.searchState.collapsed.has(tNum)) state.searchState.collapsed.delete(tNum);
+			else state.searchState.collapsed.add(tNum);
+			patchSearchDynamicSlots();
+		}
 	}
 });
 async function loadSearchPage(query, scope) {
@@ -10474,10 +15189,9 @@ async function loadSearchPage(query, scope) {
 	const allTitles = scope === "all" && state.installedTitles.length > 1;
 	dom.view.innerHTML = skeletonHtml("list", `Searching for “${query}”…`);
 	try {
-		const url = allTitles ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=100` : `/api/${state.currentTitle}/search?q=${encodeURIComponent(query)}&limit=100`;
 		const seq = state.routeSeq;
 		const signal = state.routeAbort?.signal;
-		const data = await (await fetch(url, { signal })).json();
+		const data = await fetchSearchResults(allTitles ? "all" : state.currentTitle, query, 100, { signal });
 		if (seq !== state.routeSeq) return;
 		state.searchState = {
 			query,
@@ -10495,15 +15209,15 @@ async function loadSearchPage(query, scope) {
 		renderSearchView();
 		enterView();
 	} catch (err) {
-		if (err && err.name === "AbortError") return;
-		renderViewError(dom.view, "Search failed", err?.message || "Unexpected error", { onRetry: () => loadSearchPage(query, scope) });
+		if (err instanceof Error && err.name === "AbortError") return;
+		renderViewError(dom.view, "Search failed", (err instanceof Error ? err.message : "") || "Unexpected error", { onRetry: () => loadSearchPage(query, scope) });
 	}
 }
-// src/views/welcome.js
-state.profilesData = null;
+// src/views/welcome.ts
+state.profilesData = void 0;
 function profileSummary(p, names) {
 	const groups = [];
-	for (const d of p.downloads) {
+	for (const d of p.downloads || []) {
 		let g = groups.find((x) => x.title === d.title);
 		if (!g) {
 			g = {
@@ -10518,7 +15232,7 @@ function profileSummary(p, names) {
 		if (!parts.length) return "";
 		if (parts.length === 1) return `Part ${parts[0]}`;
 		const nums = parts.map(Number);
-		return nums.every((n) => !isNaN(n)) && nums.every((n, i) => i === 0 || n === nums[i - 1] + 1) ? `Parts ${parts[0]}–${parts[parts.length - 1]}` : `Parts ${parts.join(", ")}`;
+		return nums.every((n) => !Number.isNaN(n)) && nums.every((n, i) => i === 0 || n === nums[i - 1] + 1) ? `Parts ${parts[0]}–${parts[parts.length - 1]}` : `Parts ${parts.join(", ")}`;
 	};
 	return groups.map((g) => {
 		const name = names[g.title] ? ` ${escapeHtml(names[g.title])}` : "";
@@ -10570,10 +15284,10 @@ async function renderWelcome() {
 			if (seq !== state.routeSeq) return;
 			dom.view.innerHTML = emptyStateHtml({
 				title: "Couldn’t load the profiles",
-				body: escapeHtml(err.message),
+				body: escapeHtml(err instanceof Error ? err.message : "Failed to load profiles"),
 				actionsHtml: "<button type=\"button\" class=\"btn\" id=\"welcome-retry\">Try again</button>"
 			});
-			document.getElementById("welcome-retry").addEventListener("click", () => renderWelcome());
+			document.getElementById("welcome-retry")?.addEventListener("click", () => renderWelcome());
 			return;
 		}
 		if (seq !== state.routeSeq) return;
@@ -10613,7 +15327,7 @@ function refreshWelcome() {
 	if (!busy) for (const b of list.querySelectorAll("button")) b.disabled = false;
 }
 async function installProfile(p) {
-	for (const d of p.downloads) {
+	for (const d of p.downloads || []) {
 		const job = await getJSON("/api/library/download", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -10626,23 +15340,25 @@ async function installProfile(p) {
 		});
 		state.jobsSeenActive.add(job.id);
 	}
+	await pollJobs();
 }
-dom.view.addEventListener("click", async (e) => {
-	const btn = e.target.closest("button[data-profile]");
+onView("click", async (e) => {
+	const btn = e.target?.closest("button[data-profile]");
 	if (!btn || !dom.view.querySelector(".welcome")?.contains(btn)) return;
-	const profile = (state.profilesData?.profiles || []).find((x) => x.id === btn.dataset.profile);
+	const profile = (state.profilesData?.profiles)?.find((x) => x.id === btn.dataset.profile);
 	if (!profile) return;
 	const list = document.getElementById("welcome-list");
-	for (const b of list.querySelectorAll("button")) b.disabled = true;
+	if (list) for (const b of list.querySelectorAll("button")) b.disabled = true;
 	try {
 		await installProfile(profile);
 	} catch (err) {
-		showToast(err.message, 6e3);
+		showToast(err instanceof Error ? err.message : "Install failed", 6e3);
 	}
-	await pollJobs();
 	refreshWelcome();
 });
-// src/router.js
+on("jobs:updated", () => refreshWelcome());
+on("jobs:finished", () => refreshWelcome());
+// src/router.ts
 function parseHash() {
 	const [pathPart, queryPart] = (window.location.hash || "#/").slice(1).split("?");
 	const params = new URLSearchParams(queryPart || "");
@@ -10657,7 +15373,7 @@ async function handleRoute() {
 	const seq = ++state.routeSeq;
 	if (state.routeAbort) try {
 		state.routeAbort.abort();
-	} catch (e) {}
+	} catch {}
 	state.routeAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
 	syncNavToRoute(path);
 	if (state.noTitles && !/^\/(library|news|projects|settings|help)(\/|$)/.test(path)) {
@@ -10706,14 +15422,14 @@ async function handleRoute() {
 				const slash = rest.indexOf("/");
 				try {
 					section = decodeURIComponent(slash < 0 ? rest : rest.slice(0, slash));
-				} catch (e) {
+				} catch {
 					section = rest;
 				}
 			} else if (subPath.startsWith("/part/")) {
 				part = subPath.slice(6).replace(/\/full$/, "");
 				try {
 					part = decodeURIComponent(part);
-				} catch (e) {}
+				} catch {}
 			}
 			clearTreeSelection();
 			setViewHead("");
@@ -10735,6 +15451,13 @@ async function handleRoute() {
 		}
 		checkPath = subPath;
 	}
+	const decode = (s) => {
+		try {
+			return decodeURIComponent(s);
+		} catch {
+			return s;
+		}
+	};
 	if (checkPath === "/" || checkPath === "") {
 		hideMainTabs();
 		if (titleMatch) renderHome();
@@ -10742,13 +15465,6 @@ async function handleRoute() {
 	} else if (checkPath.startsWith("/section/")) {
 		const rest = checkPath.slice(9);
 		const slash = rest.indexOf("/");
-		const decode = (s) => {
-			try {
-				return decodeURIComponent(s);
-			} catch (e) {
-				return s;
-			}
-		};
 		await loadSection(decode(slash < 0 ? rest : rest.slice(0, slash)), params, slash < 0 ? null : decode(rest.slice(slash + 1)) || null);
 	} else if (checkPath.startsWith("/part/")) {
 		const rest = checkPath.replace("/part/", "");
@@ -10759,16 +15475,7 @@ async function handleRoute() {
 		hideMainTabs();
 		const m = /^\/library(?:\/(\d+)(?:\/part\/(.+))?)?\/?$/.exec(checkPath);
 		if (!m) renderNotFound();
-		else {
-			const decode = (s) => {
-				try {
-					return decodeURIComponent(s);
-				} catch (e) {
-					return s;
-				}
-			};
-			await loadLibrary(m[1] ? parseInt(m[1], 10) : null, m[2] ? decode(m[2]) : null);
-		}
+		else await loadLibrary(m[1] ? parseInt(m[1], 10) : null, m[2] ? decode(m[2]) : null);
 	} else if (!titleMatch && (checkPath === "/projects" || checkPath.startsWith("/projects/"))) {
 		hideMainTabs();
 		const id = checkPath.slice(10);
@@ -10781,7 +15488,7 @@ async function handleRoute() {
 		await loadInspection(parseInt(checkPath.split("/")[3], 10));
 	} else if (!titleMatch && (checkPath === "/help" || checkPath === "/help/")) {
 		hideMainTabs();
-		await loadHelp(params);
+		await loadHelp();
 	} else if (!titleMatch && (checkPath === "/settings" || checkPath === "/settings/")) {
 		hideMainTabs();
 		renderSettingsPage({ enter: true });
@@ -10795,5169 +15502,13 @@ async function handleRoute() {
 		renderNotFound();
 	}
 }
-window.addEventListener("hashchange", handleRoute);
-// src/views/news.js
-var NEWS_CATEGORIES = [
-	{
-		key: "all",
-		label: "All"
-	},
-	{
-		key: "rules",
-		label: "Final Rules"
-	},
-	{
-		key: "rulemaking",
-		label: "Proposed Rules"
-	},
-	{
-		key: "enforcement",
-		label: "Enforcement & Penalties"
-	},
-	{
-		key: "public_inspection",
-		label: "Public Inspection"
-	},
-	{
-		key: "notices",
-		label: "Notices"
-	}
-];
-var NEWS_SOURCE_LABELS = {
-	federal_register: "Federal Register",
-	federal_register_pi: "Federal Register Public Inspection",
-	dol_osha: "DOL enforcement data"
-};
-var US_STATE_NAMES = {
-	AL: "Alabama",
-	AK: "Alaska",
-	AZ: "Arizona",
-	AR: "Arkansas",
-	CA: "California",
-	CO: "Colorado",
-	CT: "Connecticut",
-	DE: "Delaware",
-	DC: "District of Columbia",
-	FL: "Florida",
-	GA: "Georgia",
-	GU: "Guam",
-	HI: "Hawaii",
-	ID: "Idaho",
-	IL: "Illinois",
-	IN: "Indiana",
-	IA: "Iowa",
-	KS: "Kansas",
-	KY: "Kentucky",
-	LA: "Louisiana",
-	ME: "Maine",
-	MD: "Maryland",
-	MA: "Massachusetts",
-	MI: "Michigan",
-	MN: "Minnesota",
-	MS: "Mississippi",
-	MO: "Missouri",
-	MT: "Montana",
-	NE: "Nebraska",
-	NV: "Nevada",
-	NH: "New Hampshire",
-	NJ: "New Jersey",
-	NM: "New Mexico",
-	NY: "New York",
-	NC: "North Carolina",
-	ND: "North Dakota",
-	OH: "Ohio",
-	OK: "Oklahoma",
-	OR: "Oregon",
-	PA: "Pennsylvania",
-	PR: "Puerto Rico",
-	RI: "Rhode Island",
-	SC: "South Carolina",
-	SD: "South Dakota",
-	TN: "Tennessee",
-	TX: "Texas",
-	UT: "Utah",
-	VT: "Vermont",
-	VA: "Virginia",
-	VI: "Virgin Islands",
-	WA: "Washington",
-	WV: "West Virginia",
-	WI: "Wisconsin",
-	WY: "Wyoming"
-};
-var stateName = (code) => US_STATE_NAMES[(code || "").toUpperCase()] || code;
-function lsGetJSON(key) {
-	try {
-		const v = lsGet(key);
-		return v ? JSON.parse(v) : null;
-	} catch (e) {
-		return null;
-	}
-}
-function lsSetJSON(key, value) {
-	lsSet(key, JSON.stringify(value));
-}
-var moneyFmt = new Intl.NumberFormat("en-US", {
-	style: "currency",
-	currency: "USD",
-	maximumFractionDigits: 0
+if (typeof window !== "undefined") window.addEventListener("hashchange", () => {
+	handleRoute();
 });
-function fmtMoney(n) {
-	return moneyFmt.format(n);
-}
-function safeHttpUrl(u) {
-	if (!u) return "";
-	try {
-		const p = new URL(u, window.location.href).protocol;
-		return p === "http:" || p === "https:" ? u : "";
-	} catch (e) {
-		return "";
-	}
-}
-function extLink(url, html) {
-	const safe = safeHttpUrl(url);
-	return safe ? `<a target="_blank" rel="noopener" href="${escapeHtml(safe)}">${html}</a>` : html;
-}
-function titleInstalled(t) {
-	return state.installedTitles.some((x) => x.title === t);
-}
-function newsSectionHref(t, id) {
-	return titleInstalled(t) ? `#/title/${t}/section/${encodeURIComponent(id)}` : `#/library/${t}`;
-}
-function newsPartHref(t, part) {
-	return titleInstalled(t) ? `#/title/${t}/part/${encodeURIComponent(part)}` : `#/library/${t}`;
-}
-function linkifyNewsText(text) {
-	return escapeHtml(text || "").replace(NEWS_CITE_RE, (m, a, b) => {
-		return `<a class="citation-link" href="${newsSectionHref(29, a || b)}">${m}</a>`;
-	});
-}
-function newsSnippetHtml(snippet) {
-	return escapeHtml(snippet || "").replace(/\x02/g, "<mark>").replace(/\x03/g, "</mark>");
-}
-function inspectionActivityNr(a) {
-	if (!a || a.category !== "enforcement" || !a.guid) return null;
-	const m = /^dol-insp:(\d+)$/.exec(String(a.guid));
-	return m ? m[1] : null;
-}
-var newsState = {
-	view: null,
-	data: null,
-	status: null,
-	facets: null,
-	summary: null,
-	watchToken: 0
-};
-var autoEnrichedCases = /* @__PURE__ */ new Set();
-function newsViewFromParams(params) {
-	const get = (k) => (params && params.get(k) || "").trim();
-	return {
-		cat: NEWS_CATEGORIES.some((c) => c.key === get("cat")) ? get("cat") : "all",
-		q: get("q"),
-		section: get("section"),
-		part: get("part"),
-		state: /^[A-Za-z]{2}$/.test(get("state")) ? get("state").toUpperCase() : "",
-		min_penalty: /^\d+$/.test(get("min_penalty")) ? get("min_penalty") : "",
-		gravity: /^[WRS]$/.test(get("gravity")) ? get("gravity") : ""
-	};
-}
-function isDefaultNewsView(view) {
-	return !view.q && !view.section && !view.part && !view.state && !view.min_penalty && !view.gravity;
-}
-function newsHash(view) {
-	const p = new URLSearchParams();
-	if (view.cat && view.cat !== "all") p.set("cat", view.cat);
-	for (const k of [
-		"q",
-		"section",
-		"part",
-		"state",
-		"min_penalty",
-		"gravity"
-	]) if (view[k]) p.set(k, view[k]);
-	const qs = p.toString();
-	return "#/news" + (qs ? "?" + qs : "");
-}
-function newsApiUrl(view, offset = 0) {
-	const p = new URLSearchParams();
-	if (view.cat && view.cat !== "all") p.set("category", view.cat);
-	for (const k of [
-		"q",
-		"section",
-		"part",
-		"state",
-		"min_penalty",
-		"gravity"
-	]) if (view[k]) p.set(k, view[k]);
-	if (offset) p.set("offset", String(offset));
-	const qs = p.toString();
-	return "/api/news" + (qs ? "?" + qs : "");
-}
-function setNewsView(next, { replace = false } = {}) {
-	const hash = newsHash(next);
-	if (replace) {
-		history.replaceState(null, "", hash);
-		loadNews(new URLSearchParams(hash.split("?")[1] || ""));
-	} else window.location.hash = hash;
-}
-function trimNewsForCache(data) {
-	return {
-		articles: (data.articles || []).slice(0, 30),
-		total: data.total,
-		offset: 0
-	};
-}
-function newsChanged(oldData, newData, oldStatus, newStatus) {
-	const guids = (d) => (d && d.articles || []).map((a) => a.guid).join("|");
-	const oks = (s) => s && s.sources ? Object.values(s.sources).map((x) => x.last_ok_at || "").join("|") : "";
-	return guids(oldData) !== guids(newData) || oks(oldStatus) !== oks(newStatus);
-}
-function preservingNewsScroll(fn) {
-	const mainRect = dom.main.getBoundingClientRect();
-	let anchor = null, offset = 0;
-	for (const el of dom.view.querySelectorAll("[data-guid]")) {
-		const r = el.getBoundingClientRect();
-		if (r.bottom > mainRect.top + 8) {
-			anchor = el.dataset.guid;
-			offset = r.top - mainRect.top;
-			break;
-		}
-	}
-	const top = dom.main.scrollTop;
-	fn();
-	if (anchor) {
-		const el = dom.view.querySelector(`[data-guid="${CSS.escape(anchor)}"]`);
-		if (el) {
-			const r = el.getBoundingClientRect();
-			dom.main.scrollTop += r.top - dom.main.getBoundingClientRect().top - offset;
-			return;
-		}
-	}
-	dom.main.scrollTop = top;
-}
-async function loadNews(params) {
-	const seq = state.routeSeq;
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	document.title = "News · FRAMEWORK";
-	const view = newsViewFromParams(params);
-	const firstPaint = !dom.view.querySelector(".news-front");
-	const cacheable = isDefaultNewsView(view);
-	const cached = cacheable ? lsGetJSON(`newsCache:v1:${view.cat}`) : null;
-	const cachedStatus = lsGetJSON("newsCache:v1:status");
-	if (cached && cached.data && cachedStatus && cachedStatus.data) renderNews(view, cached.data, cachedStatus.data, {
-		enter: firstPaint,
-		fromCache: true
-	});
-	else {
-		dom.view.innerHTML = skeletonHtml("cards", "Loading news…");
-		if (firstPaint) enterView();
-	}
-	let data, status;
-	try {
-		const wantEnf = view.cat === "enforcement";
-		const [feedRes, statusRes] = await Promise.all([getJSON(newsApiUrl(view)), getJSON("/api/news/status")]);
-		data = feedRes;
-		status = statusRes;
-		if (wantEnf) {
-			const extras = [];
-			if (status.dol_configured && !newsState.facets) extras.push(getJSON("/api/news/facets").then((f) => {
-				newsState.facets = f;
-			}).catch(() => {}));
-			extras.push(getJSON("/api/news/enforcement/summary").then((s) => {
-				newsState.summary = s;
-			}).catch(() => {}));
-			await Promise.all(extras);
-		}
-	} catch (e) {
-		if (seq !== state.routeSeq) return;
-		if (cached && cached.data) markNewsOffline(cached.t);
-		else {
-			dom.view.innerHTML = `
-        <div class="news-front"><div class="news-head"><div>
-          <div class="doc-kicker">FRAMEWORK Newsroom</div><h1 class="doc-title">OSHA Regulatory News</h1>
-        </div></div>
-        <div class="empty-state"><h2>Couldn’t reach the news service</h2>
-        <p>${escapeHtml(e.message)}</p>
-        <button type="button" class="btn" data-news-act="reload">Try again</button></div></div>`;
-			showToast("Could not reach the news service");
-		}
-		return;
-	}
-	if (seq !== state.routeSeq) return;
-	if (cacheable) {
-		lsSetJSON(`newsCache:v1:${view.cat}`, {
-			t: Date.now(),
-			data: trimNewsForCache(data)
-		});
-		lsSetJSON("newsCache:v1:status", {
-			t: Date.now(),
-			data: status
-		});
-	}
-	if (!cached || !cached.data || !cachedStatus || !cachedStatus.data || newsChanged(cached.data, data, cachedStatus.data, status) || view.cat === "enforcement") preservingNewsScroll(() => renderNews(view, data, status, { enter: firstPaint && !(cached && cached.data) }));
-	else {
-		newsState.view = view;
-		newsState.data = data;
-		newsState.status = status;
-	}
-	let watch = status.syncing;
-	if (status.sync_enabled && status.due && !status.syncing) {
-		try {
-			watch = ((await getJSON("/api/news/refresh", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ force: false })
-			})).queued || []).length > 0;
-		} catch (e) {
-			try {
-				watch = (await getJSON("/api/news/status")).syncing;
-			} catch (e2) {
-				watch = false;
-			}
-		}
-		if (seq !== state.routeSeq) return;
-	}
-	if (watch) watchNewsSync(seq, view);
-}
-function markNewsOffline(cachedAt) {
-	const slot = document.getElementById("news-head-status");
-	if (slot) slot.innerHTML = statPill("stale", `Offline · showing saved news from ${fmtDate(new Date(cachedAt).toISOString().slice(0, 10))}`);
-}
-function watchNewsSync(seq, view) {
-	const token = ++newsState.watchToken;
-	const started = Date.now();
-	const slot = document.getElementById("news-head-status");
-	if (slot) slot.innerHTML = statPill("busy", "Checking for news…");
-	const tick = async () => {
-		if (seq !== state.routeSeq || token !== newsState.watchToken || Date.now() - started > 12e4) return;
-		let status;
-		try {
-			status = await getJSON("/api/news/status");
-		} catch (e) {
-			return;
-		}
-		if (seq !== state.routeSeq || token !== newsState.watchToken) return;
-		if (status.syncing) {
-			setTimeout(tick, 3e3);
-			return;
-		}
-		let data;
-		try {
-			data = await getJSON(newsApiUrl(view));
-		} catch (e) {
-			return;
-		}
-		if (seq !== state.routeSeq || token !== newsState.watchToken) return;
-		if (isDefaultNewsView(view)) {
-			lsSetJSON(`newsCache:v1:${view.cat}`, {
-				t: Date.now(),
-				data: trimNewsForCache(data)
-			});
-			lsSetJSON("newsCache:v1:status", {
-				t: Date.now(),
-				data: status
-			});
-		}
-		if (newsChanged(newsState.data, data, newsState.status, status)) preservingNewsScroll(() => renderNews(view, data, status, {}));
-		else {
-			newsState.status = status;
-			const s = document.getElementById("news-head-status");
-			if (s) s.innerHTML = newsHeadStatusHtml(status);
-		}
-	};
-	setTimeout(tick, 3e3);
-}
-async function refreshNewsCommand() {
-	try {
-		await getJSON("/api/news/refresh", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ force: true })
-		});
-		showToast("Checking for news…");
-		if (routeTarget() === "news" && newsState.view) watchNewsSync(state.routeSeq, newsState.view);
-	} catch (err) {
-		const m = String(err.message || "");
-		showToast(/already running/i.test(m) ? "Already checking for news" : /sync is off/i.test(m) ? "News sync is off" : m);
-	}
-}
-function newsStatusPillHtml(status) {
-	if (!status) return "";
-	if (!status.sync_enabled) return statPill("stale", "News sync is off");
-	if (status.syncing) return statPill("busy", "Checking for news…");
-	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
-	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
-	const failed = enabled.find((s) => s.last_error);
-	if (failed && lastOk) return statPill("stale", `Last update failed · showing data from ${fmtDate(lastOk.slice(0, 10))}`, { title: failed.last_error || "" });
-	return lastOk ? statPill("synced", `Updated ${timeAgo(Date.parse(lastOk))}`) : "";
-}
-function newsHeadStatusHtml(status) {
-	if (!status) return "";
-	const pill = newsStatusPillHtml(status);
-	if (!status.sync_enabled || status.syncing) return pill;
-	const enabled = Object.values(status.sources || {}).filter((s) => s.enabled);
-	const lastOk = enabled.map((s) => s.last_ok_at).filter(Boolean).sort().pop();
-	if (enabled.find((s) => s.last_error) && lastOk) return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Retry</button>`;
-	return `${pill} <button type="button" class="btn btn-sm" data-news-act="refresh">Refresh</button>`;
-}
-function newsBreakingHtml(articles) {
-	const today = Date.now();
-	const daysAgo = (iso) => (today - Date.parse(iso + "T00:00:00")) / 864e5;
-	const pi = articles.find((a) => a.category === "public_inspection" && daysAgo(a.published_at) <= 3);
-	const fine = articles.find((a) => a.category === "enforcement" && (a.penalty_usd || 0) >= 5e4 && daysAgo(a.published_at) <= 14);
-	const hit = pi || fine;
-	if (!hit) return "";
-	const tag = pi ? "Public inspection" : "Enforcement";
-	const actNr = !pi ? inspectionActivityNr(hit) : null;
-	const href = pi ? safeHttpUrl(hit.link) : actNr ? `#/news/inspection/${actNr}` : "#/news?cat=enforcement";
-	const ext = pi && href ? " target=\"_blank\" rel=\"noopener\"" : "";
-	if (!href) return "";
-	return `<a class="news-breaking" href="${escapeHtml(href)}"${ext}>
-    <span class="news-breaking-tag">${icon("activity")} ${escapeHtml(tag.toUpperCase())} · ${escapeHtml(fmtDate(hit.published_at))}</span>
-    <span class="news-breaking-text">${escapeHtml(hit.title)}</span>${icon("chevronRight")}</a>`;
-}
-function newsKicker(a) {
-	if (a.category === "enforcement") return ["ENFORCEMENT", a.state].filter(Boolean).join(" · ");
-	if (a.category === "public_inspection") return ["PUBLIC INSPECTION", (a.doc_type || "").toUpperCase()].filter(Boolean).join(" · ");
-	return [a.category === "rules" ? "FINAL RULE" : a.category === "rulemaking" ? "PROPOSED RULE" : "NOTICE", a.citation].filter(Boolean).join(" · ");
-}
-function newsBylineHtml(a) {
-	return `<div class="news-byline">${escapeHtml(fmtDate(a.published_at))}<span class="sep" aria-hidden="true">·</span>${escapeHtml(NEWS_SOURCE_LABELS[a.source] || a.source)}</div>`;
-}
-function newsChipsHtml(a) {
-	const chips = [];
-	for (const r of a.cfr_parts || []) {
-		const href = newsPartHref(r.title, r.part);
-		const dim = !titleInstalled(r.title);
-		chips.push(`<a class="citation-chip${dim ? " is-dim" : ""}" data-ref-tier="${dim ? "uninstalled" : "cfr"}" href="${href}"${dim ? ` title="Title ${r.title} isn’t installed. Open the library"` : ""}>${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
-	}
-	for (const s of a.sections || []) {
-		const dim = !titleInstalled(29);
-		chips.push(`<a class="citation-chip${dim ? " is-dim" : ""}" data-ref-tier="${dim ? "uninstalled" : "cfr"}" href="${newsSectionHref(29, s)}"${dim ? " title=\"Title 29 isn’t installed. Open the library\"" : ""}>§ ${escapeHtml(s)}</a>`);
-	}
-	if (!chips.length) return "";
-	const extra = chips.length - 6;
-	return `<div class="news-chips">${extra > 0 ? chips.slice(0, 6).join("") + chips.slice(6).map((c) => c.replace("citation-chip", "citation-chip is-extra")).join("") + `<button type="button" class="citation-chip news-chip-more" data-news-act="expand-chips">+${extra}</button>` : chips.join("")}</div>`;
-}
-function newsActionsHtml(a) {
-	const out = [];
-	const actNr = inspectionActivityNr(a);
-	if (actNr) out.push(`<a class="btn btn-sm btn-accent" href="#/news/inspection/${actNr}">${icon("file")} Case file</a>`);
-	const srcLabel = a.source === "dol_osha" ? "OSHA.gov" : "Federal Register";
-	const link = safeHttpUrl(a.link);
-	if (link) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(link)}">${icon("external")} ${srcLabel}</a>`);
-	const pdf = safeHttpUrl(a.pdf_url || "");
-	if (pdf) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(pdf)}">${icon("external")} PDF</a>`);
-	const sec = (a.sections || [])[0];
-	const partRef = (a.cfr_parts || [])[0];
-	const secCls = actNr ? "btn btn-sm" : "btn btn-sm btn-accent";
-	if (sec) out.push(`<a class="${secCls}" href="${newsSectionHref(29, sec)}">${icon("book")} Open § ${escapeHtml(sec)}</a>`);
-	else if (partRef) out.push(`<a class="${secCls}" href="${newsPartHref(partRef.title, partRef.part)}">${icon("book")} Open Part ${escapeHtml(String(partRef.part))}</a>`);
-	return out.join("");
-}
-function newsCardHtml(a, { hero = false } = {}) {
-	const tag = hero ? "section" : "article";
-	const figure = a.penalty_usd ? `<span class="news-figure">${escapeHtml(fmtMoney(a.penalty_usd))}</span>` : "";
-	const rows = (a.takeaways || []).map((t, i) => {
-		const text = i === 0 && a.snippet ? newsSnippetHtml(a.snippet) : linkifyNewsText(t.text);
-		return `<dt>${escapeHtml(t.label)}</dt><dd>${text}</dd>`;
-	}).join("");
-	const actNr = inspectionActivityNr(a);
-	const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}">${escapeHtml(a.title)}</a>` : extLink(a.link, escapeHtml(a.title));
-	return `
-    <${tag} class="news-card${hero ? " news-hero" : ""}" data-guid="${escapeHtml(a.guid)}" data-cat="${escapeHtml(a.category)}">
-      <div class="news-card-top"><span class="news-kicker">${escapeHtml(newsKicker(a))}</span>${figure}</div>
-      <h3 class="news-card-title">${titleHtml}</h3>
-      ${newsBylineHtml(a)}
-      ${rows ? `<dl class="news-takeaways">${rows}</dl>` : ""}
-      ${newsChipsHtml(a)}
-      <div class="news-card-foot">${newsActionsHtml(a)}</div>
-    </${tag}>`;
-}
-function newsTabsHtml(view, status) {
-	const counts = status && status.counts || {};
-	return `<div class="lib-seg news-tabs" role="tablist" aria-label="News categories">${NEWS_CATEGORIES.map((c) => {
-		const on = view.cat === c.key;
-		const n = counts[c.key];
-		return `<button type="button" role="tab" aria-selected="${on}" tabindex="${on ? 0 : -1}" aria-pressed="${on}" data-news-cat="${c.key}">${escapeHtml(c.label)}${n ? ` <span class="news-tab-count">${n}</span>` : ""}</button>`;
-	}).join("")}</div>`;
-}
-function newsFilterChipsHtml(view) {
-	const chips = [];
-	const chip = (key, label) => chips.push(`<button type="button" class="news-filter-chip" data-news-act="clear-filter" data-filter-key="${key}" aria-label="Remove filter: ${escapeHtml(label)}">${escapeHtml(label)}${icon("close")}</button>`);
-	if (view.section) chip("section", `Citing § ${view.section}`);
-	if (view.part) chip("part", `Citing Part ${view.part}`);
-	if (view.state) chip("state", stateName(view.state));
-	if (view.min_penalty) chip("min_penalty", `Over ${fmtMoney(Number(view.min_penalty))}`);
-	if (view.gravity) chip("gravity", {
-		W: "Willful",
-		R: "Repeat",
-		S: "Serious"
-	}[view.gravity]);
-	return chips.length ? `<div class="news-filter-chips">${chips.join("")}</div>` : "";
-}
-function newsFacetsHtml(view, status) {
-	if (view.cat !== "enforcement" || !status || !status.dol_configured) return "";
-	const states = newsState.facets && newsState.facets.states || [];
-	const sel = (v, cur) => v === cur ? " selected" : "";
-	return `<div class="news-facets">
-    <select data-news-facet="state" aria-label="State">
-      <option value="">All states</option>
-      ${states.map((s) => `<option value="${escapeHtml(s.code)}"${sel(s.code, view.state)}>${escapeHtml(stateName(s.code))} (${s.count})</option>`).join("")}
-    </select>
-    <select data-news-facet="min_penalty" aria-label="Minimum penalty">
-      <option value="">Any penalty</option>
-      ${[
-		25e3,
-		1e5,
-		25e4
-	].map((v) => `<option value="${v}"${sel(String(v), view.min_penalty)}>Over ${fmtMoney(v)}</option>`).join("")}
-    </select>
-    <select data-news-facet="gravity" aria-label="Violation gravity">
-      <option value="">Any gravity</option>
-      ${[
-		["W", "Willful"],
-		["R", "Repeat"],
-		["S", "Serious"]
-	].map(([v, l]) => `<option value="${v}"${sel(v, view.gravity)}>${l}</option>`).join("")}
-    </select>
-  </div>`;
-}
-function newsEmptyHtml(view, status) {
-	const s = status || {};
-	if (!s.sync_enabled && !(s.counts && s.counts.all)) return `<div class="empty-state"><h2>News sync is off</h2>
-      <p>Set <code>NEWS_SYNC=1</code> in <code>reader/.env</code> and restart FRAMEWORK.</p></div>`;
-	if (view.cat === "enforcement" && !view.q && s && !s.dol_configured) return `<div class="news-setup">
-      <h3>Enforcement data needs a free DOL API key</h3>
-      <p>Register at <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a>,
-      then save <code>DOL_API_KEY</code> in <code>reader/.env</code> using the setup guide or in-app editor.
-      Federal Register news works without it.</p>
-      <div class="news-setup-actions">
-        <button type="button" class="btn btn-sm btn-accent" data-open-env="dol_api_key">${icon("key")} Add DOL key</button>
-        <a class="btn btn-sm" href="#/help">${icon("help")} Connections &amp; API keys</a>
-      </div></div>`;
-	if (view.q) {
-		const tab = NEWS_CATEGORIES.find((c) => c.key === view.cat) || NEWS_CATEGORIES[0];
-		const widen = view.cat !== "all" ? `<button type="button" class="btn" data-news-act="search-all">Search all news</button>` : "";
-		return `<div class="empty-state"><h2>No news matches “${escapeHtml(view.q)}” in ${escapeHtml(tab.label)}</h2>${widen}</div>`;
-	}
-	const enabled = Object.values(s.sources || {}).filter((x) => x.enabled);
-	const neverSynced = enabled.every((x) => !x.last_ok_at);
-	const failed = enabled.find((x) => x.last_error);
-	if (neverSynced && failed) {
-		const retry = failed.retry_after ? `<p>Retrying ${escapeHtml(timeUntil(failed.retry_after))}.</p>` : "";
-		return `<div class="empty-state"><h2>Couldn’t fetch the news</h2>
-      <p>${escapeHtml(failed.last_error)}</p>${retry}
-      <button type="button" class="btn" data-news-act="refresh">Retry</button></div>`;
-	}
-	if (neverSynced) return `<div class="empty-state">${statPill("busy", "Fetching from the Federal Register…")}
-      <p class="dr-note">The first sync takes a few seconds.</p></div>`;
-	return "<div class=\"empty-state\"><h2>Nothing here yet</h2><p>No items in this view.</p></div>";
-}
-function enforcementSummaryHtml(view) {
-	const s = newsState.summary;
-	if (view.cat !== "enforcement" || !isDefaultNewsView(view) || !s || !s.total_cases) return "";
-	const g = s.gravity_counts || {};
-	const highGrav = (g.W || 0) + (g.R || 0);
-	const topSec = (s.top_sections || [])[0];
-	const topState = (s.top_states || [])[0];
-	return `
-    <section class="ins-summary-strip" aria-label="Enforcement telemetry">
-      ${metricCardHtml({
-		label: "Tracked penalties",
-		value: escapeHtml(fmtMoney(s.total_penalty_usd || 0)),
-		sub: escapeHtml(`${plural(s.total_cases, "case")} · avg ${fmtMoney(s.avg_penalty_usd || 0)}`)
-	})}
-      ${metricCardHtml({
-		label: "High gravity",
-		value: fmt(highGrav),
-		of: "cases",
-		sub: joinSep([g.W ? `<button type="button" class="metric-link" data-news-quick-gravity="W">${g.W} Willful</button>` : "0 Willful", g.R ? `<button type="button" class="metric-link" data-news-quick-gravity="R">${g.R} Repeat</button>` : "0 Repeat"])
-	})}
-      ${topSec ? metricCardHtml({
-		label: "Top cited standard",
-		value: `<a class="ins-tile-link" href="${newsSectionHref(29, topSec.section_id)}">§ ${escapeHtml(topSec.section_id)}</a>`,
-		sub: `<button type="button" class="metric-link" data-news-quick-sec="${escapeHtml(topSec.section_id)}">Filter ${plural(topSec.count, "case")} ${icon("chevronRight")}</button>`
-	}) : metricCardHtml({
-		label: "Top cited standard",
-		value: "—",
-		sub: "No CFR mappings yet"
-	})}
-      ${topState ? metricCardHtml({
-		label: "Top state",
-		value: escapeHtml(stateName(topState.code)),
-		sub: `<button type="button" class="metric-link" data-news-quick-state="${escapeHtml(topState.code)}">${escapeHtml(fmtMoney(topState.total_penalty_usd))} · ${plural(topState.count, "case")} ${icon("chevronRight")}</button>`
-	}) : metricCardHtml({
-		label: "Top state",
-		value: "—",
-		sub: "No state data"
-	})}
-    </section>`;
-}
-function renderNews(view, data, status, opts = {}) {
-	newsState.view = view;
-	newsState.data = data;
-	newsState.status = status;
-	const articles = data.articles || [];
-	let hero = null;
-	if (articles.length) {
-		const fresh = (a) => (Date.now() - Date.parse(a.published_at + "T00:00:00")) / 864e5 <= 30;
-		hero = (view.cat === "all" ? articles.find((a) => a.category === "rules" && fresh(a)) : null) || articles[0];
-	}
-	const feed = articles.filter((a) => !hero || a.guid !== hero.guid);
-	const more = data.total > articles.length ? `<div class="news-more"><button type="button" class="btn" data-news-act="more">Load more</button></div>` : "";
-	const qEl = document.getElementById("news-q");
-	const qFocus = qEl && document.activeElement === qEl ? {
-		value: qEl.value,
-		start: qEl.selectionStart,
-		end: qEl.selectionEnd
-	} : null;
-	dom.view.innerHTML = `
-    <div class="news-front">
-      <div class="news-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK Newsroom · OSHA</div>
-          <h1 class="doc-title">Regulatory News</h1>
-        </div>
-        <div class="news-head-status" id="news-head-status">${newsHeadStatusHtml(status)}</div>
-      </div>
-      ${newsBreakingHtml(articles)}
-      <div class="news-bar">
-        ${newsTabsHtml(view, status)}
-        <input type="search" class="news-q" id="news-q" value="${escapeHtml(view.q)}"
-          placeholder="Search news: keyword, company, § 1910.1030, 91 FR 55744" aria-label="Search news" autocomplete="off" spellcheck="false">
-      </div>
-      ${newsFilterChipsHtml(view)}
-      ${newsFacetsHtml(view, status)}
-      ${enforcementSummaryHtml(view)}
-      ${articles.length ? `
-        ${hero ? newsCardHtml(hero, { hero: true }) : ""}
-        <div class="news-grid" id="news-grid">${feed.map((a) => newsCardHtml(a)).join("")}</div>
-        ${more}` : newsEmptyHtml(view, status)}
-    </div>`;
-	if (opts.enter) enterView();
-	if (qFocus) {
-		const q = document.getElementById("news-q");
-		if (q) {
-			q.value = qFocus.value;
-			q.focus();
-			try {
-				q.setSelectionRange(qFocus.start, qFocus.end);
-			} catch (e) {}
-		}
-	}
-}
-async function loadMoreNews() {
-	const seq = state.routeSeq;
-	const { view, data } = newsState;
-	if (!view || !data) return;
-	let page;
-	try {
-		page = await getJSON(newsApiUrl(view, data.articles.length));
-	} catch (e) {
-		return;
-	}
-	if (seq !== state.routeSeq || newsState.data !== data) return;
-	data.articles = data.articles.concat(page.articles || []);
-	data.total = page.total;
-	const grid = document.getElementById("news-grid");
-	if (grid) {
-		const shown = new Set([...dom.view.querySelectorAll("[data-guid]")].map((el) => el.dataset.guid));
-		grid.insertAdjacentHTML("beforeend", (page.articles || []).filter((a) => !shown.has(a.guid)).map((a) => newsCardHtml(a)).join(""));
-	}
-	const moreBtn = dom.view.querySelector("[data-news-act=\"more\"]");
-	if (moreBtn && data.articles.length >= data.total) moreBtn.closest(".news-more").remove();
-}
-function citationStatusText(v) {
-	const bits = [];
-	if (v.contest_date) bits.push(`Contested ${fmtDate(v.contest_date)}`);
-	if (v.final_order_date) bits.push(`Final ${fmtDate(v.final_order_date)}`);
-	if (v.abate_complete === "X" || v.abate_complete === "3") bits.push("Abated");
-	else if (v.abate_date) bits.push(`Abate due ${fmtDate(v.abate_date)}`);
-	return bits.join(" · ") || "Issued";
-}
-function violationStandardHtml(v) {
-	if (v.section_id) {
-		const dim = !titleInstalled(29);
-		const href = dim ? "#/library/29" : titleHref(29, "section/" + encodeURIComponent(v.section_id) + (v.para ? "?p=" + encodeURIComponent(v.para) : ""));
-		return `<a class="citation-link ins-std-link${dim ? " is-dim" : ""}" href="${href}">${escapeHtml(v.standard_display)}</a>`;
-	}
-	if (v.is_general_duty) return `<span class="ins-std-gdc">${escapeHtml(v.standard_display)}</span>`;
-	return `<span class="ins-std-state">${escapeHtml(v.standard_display || v.raw_standard || "Unlisted")}</span>` + (v.is_state_plan ? "<span class=\"ins-tag\">State plan</span>" : "");
-}
-function inspectionViolationsHtml(data) {
-	const viols = data.violations || [];
-	if (!viols.length) {
-		if (data.dol_configured) return `
-        <div class="ins-panel-empty">
-          <p class="ins-muted">Individual citation rows have not been cached locally for this inspection yet.</p>
-          <button type="button" class="btn btn-sm btn-accent" data-ins-act="enrich" data-act-nr="${data.activity_nr}">${icon("activity")} Load citations from DOL</button>
-        </div>`;
-		return "<div class=\"ins-panel-empty\"><p class=\"ins-muted\">Add a free DOL API key in Settings to load per-citation details on demand.</p></div>";
-	}
-	return `
-    <div class="ins-table-wrap">
-      <table class="ins-table">
-        <thead>
-          <tr>
-            <th>Cit.</th>
-            <th>Standard</th>
-            <th>Type</th>
-            <th>Exposed</th>
-            <th>Status</th>
-            <th class="is-num">Penalty</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${viols.map((v) => {
-		const tags = [];
-		if (v.gravity) tags.push(`Grav ${v.gravity}`);
-		if (v.emphasis) tags.push(`NEP ${v.emphasis}`);
-		if (v.hazcat) tags.push(v.hazcat);
-		if (v.fta_penalty) tags.push(`FTA ${fmtMoney(v.fta_penalty)}`);
-		if ((v.hazsubs || []).length) tags.push(`HazSub ${v.hazsubs.join(", ")}`);
-		const penChanged = v.initial_penalty && v.initial_penalty !== v.current_penalty;
-		const expBits = [v.nr_instances ? plural(v.nr_instances, "inst") : "", v.nr_exposed ? `${v.nr_exposed} exp` : ""].filter(Boolean).join(" · ");
-		return `
-              <tr>
-                <td class="ins-cit-id">${escapeHtml(v.citation_id || "—")}</td>
-                <td>
-                  <div class="ins-std-cell">
-                    ${violationStandardHtml(v)}
-                    ${tags.length ? `<div class="ins-tags">${tags.map((t) => `<span class="ins-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
-                  </div>
-                </td>
-                <td><span class="ins-viol-pill is-${escapeHtml((v.viol_type || "O").toLowerCase())}">${escapeHtml(v.viol_label || v.viol_type)}</span></td>
-                <td class="ins-mono-col">${escapeHtml(expBits || "—")}</td>
-                <td class="ins-status-col">${escapeHtml(citationStatusText(v))}</td>
-                <td class="is-num">
-                  <div class="ins-pen-cur">${v.current_penalty ? escapeHtml(fmtMoney(v.current_penalty)) : "$0"}</div>
-                  ${penChanged ? `<div class="ins-pen-init">Initial ${escapeHtml(fmtMoney(v.initial_penalty))}</div>` : ""}
-                </td>
-              </tr>`;
-	}).join("")}
-        </tbody>
-      </table>
-    </div>`;
-}
-function inspectionSectionsHtml(data) {
-	const secs = (data.article || {}).sections || [];
-	if (!secs.length) return "";
-	return `
-    <div class="ins-cfr-chips">
-      ${secs.map((s) => {
-		return `<a class="citation-chip${!titleInstalled(29) ? " is-dim" : ""}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`;
-	}).join("")}
-    </div>`;
-}
-function renderInspectionCase(data, { enter = true, enriching = false, enrichError = "" } = {}) {
-	const actNr = data.activity_nr;
-	const art = data.article || {};
-	const d = data.detail || {};
-	const company = d.estab_name || art.company || `Inspection #${actNr}`;
-	const docType = d.insp_type_label || art.doc_type || "OSHA inspection";
-	const addrParts = [
-		d.site_address,
-		[d.site_city || art.city, d.site_state || art.state].filter(Boolean).join(", "),
-		d.site_zip
-	].filter(Boolean);
-	const subLine = joinSep([
-		escapeHtml(docType),
-		addrParts.length ? escapeHtml(addrParts.join(" · ")) : "",
-		d.naics_code || art.naics ? `NAICS ${escapeHtml(d.naics_code || art.naics)}` : ""
-	]);
-	const curPen = d.current_penalty_usd ?? art.penalty_usd ?? 0;
-	const initPen = d.initial_penalty_usd ?? curPen;
-	const deltaPct = initPen > 0 && curPen !== initPen ? Math.round((curPen - initPen) / initPen * 100) : 0;
-	const violCount = (data.violations || []).length || d.citation_count || 0;
-	const vCounts = (data.violations || []).reduce((m, v) => {
-		const k = v.viol_label || v.viol_type;
-		if (k) m[k] = (m[k] || 0) + 1;
-		return m;
-	}, {});
-	const violSummary = Object.entries(vCounts).map(([k, n]) => `${n} ${k}`).join(", ") || (art.violation_types || []).join(", ") || "Recorded in summary";
-	const oshaUrl = safeHttpUrl(art.link || `https://www.osha.gov/ords/imis/establishment.inspection_detail?id=${actNr}`);
-	const openDt = d.open_date || art.opened_on;
-	const modDt = d.case_mod_date;
-	const closeDt = d.close_case_date;
-	const metaFacts = [
-		["Activity #", String(actNr)],
-		["Safety / Health", d.safety_hlth_label],
-		["Inspection scope", d.insp_scope_label],
-		["Ownership", d.owner_type_label],
-		["Union status", d.union_status_label],
-		["Advance notice", d.adv_notice === "Y" ? "Yes" : d.adv_notice === "N" ? "No" : null],
-		["Employees at site", d.nr_in_estab != null ? fmt(d.nr_in_estab) : null],
-		["SIC / NAICS", [d.sic_code && `SIC ${d.sic_code}`, (d.naics_code || art.naics) && `NAICS ${d.naics_code || art.naics}`].filter(Boolean).join(" · ") || null],
-		["Reporting ID", d.reporting_id]
-	].filter(([, val]) => val);
-	const gdcList = data.gdc || [];
-	const accidents = data.accidents || [];
-	const events = data.events || [];
-	const takeaways = art.takeaways || [];
-	const statusPill = enriching ? statPill("busy", "Loading DOL case details…") : enrichError ? statPill("stale", enrichError) : data.enriched_at ? statPill("synced", `DOL synced ${timeAgo(Date.parse(data.enriched_at))}`) : "";
-	document.title = `${company} · Inspection #${actNr} · FRAMEWORK`;
-	dom.view.innerHTML = `
-    <div class="news-front ins-front">
-      <div class="ins-top-nav">
-        <a class="hm-inline-link" href="#/news?cat=enforcement">${icon("chevronLeft")} Back to Enforcement</a>
-        <div class="ins-top-status" id="ins-status-slot">${statusPill}</div>
-      </div>
-
-      <header class="ins-head">
-        <div class="ins-head-copy">
-          <div class="doc-kicker">OSHA Enforcement Case File${SEP}Inspection #${actNr}</div>
-          <h1 class="doc-title">${escapeHtml(company)}</h1>
-          ${subLine ? `<p class="ins-sub">${subLine}</p>` : ""}
-        </div>
-        <div class="ins-head-acts">
-          ${data.dol_configured ? `<button type="button" class="btn btn-sm" data-ins-act="enrich" data-act-nr="${actNr}"${enriching ? " disabled" : ""}>${icon("activity")} Refresh from DOL</button>` : ""}
-          ${oshaUrl ? `<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(oshaUrl)}" title="Opens OSHA.gov (may prompt human verification)">${icon("external")} OSHA.gov</a>` : ""}
-        </div>
-      </header>
-
-      <section class="ins-metrics" aria-label="Inspection summary">
-        ${metricCardHtml({
-		label: "Current penalty",
-		value: curPen ? escapeHtml(fmtMoney(curPen)) : "$0",
-		sub: deltaPct ? escapeHtml(`Initial ${fmtMoney(initPen)} (${deltaPct > 0 ? "+" : ""}${deltaPct}%)`) : escapeHtml(initPen ? `Initial ${fmtMoney(initPen)}` : "No penalty assessed")
-	})}
-        ${metricCardHtml({
-		label: "Citations",
-		value: violCount ? escapeHtml(plural(violCount, "citation")) : "Summary only",
-		sub: escapeHtml(violSummary)
-	})}
-        ${metricCardHtml({
-		label: "Case dates",
-		value: art.published_at ? escapeHtml(fmtDate(art.published_at)) : "—",
-		sub: escapeHtml([openDt && `Opened ${fmtDate(openDt)}`, closeDt ? `Closed ${fmtDate(closeDt)}` : modDt ? `Modified ${fmtDate(modDt)}` : "Open"].filter(Boolean).join(" · "))
-	})}
-        ${metricCardHtml({
-		label: "Exposure",
-		value: d.max_exposed ? escapeHtml(`${fmt(d.max_exposed)} exposed`) : d.nr_in_estab ? escapeHtml(`${fmt(d.nr_in_estab)} at site`) : "—",
-		sub: escapeHtml([d.total_instances ? plural(d.total_instances, "instance") : "", d.nr_in_estab && d.max_exposed ? `${fmt(d.nr_in_estab)} at site` : ""].filter(Boolean).join(" · ") || "Site exposure data")
-	})}
-      </section>
-
-      ${takeaways.length && !(data.violations || []).length ? `
-        <section class="ins-panel" aria-label="Cached summary">
-          <h2 class="ins-panel-title">Cached Summary</h2>
-          <dl class="news-takeaways">${takeaways.map((t) => `<dt>${escapeHtml(t.label)}</dt><dd>${linkifyNewsText(t.text)}</dd>`).join("")}</dl>
-          ${inspectionSectionsHtml(data)}
-        </section>` : ""}
-
-      <section class="ins-panel" aria-label="Citations and violated standards">
-        <div class="ins-panel-head">
-          <h2 class="ins-panel-title">Citations &amp; Violated Standards</h2>
-          <span class="ins-panel-meta">${violCount ? escapeHtml(plural(violCount, "item")) : "On-demand DOL lookup"}</span>
-        </div>
-        ${inspectionViolationsHtml(data)}
-      </section>
-
-      ${gdcList.length ? `
-        <section class="ins-panel" aria-label="General Duty Clause narrative">
-          <div class="ins-panel-head">
-            <h2 class="ins-panel-title">General Duty Clause — Section 5(a)(1)</h2>
-            <span class="ins-panel-meta">${escapeHtml(plural(gdcList.length, "narrative"))}</span>
-          </div>
-          ${gdcList.map((g) => `
-            <div class="ins-narrative">
-              <div class="ins-narrative-kicker">Citation ${escapeHtml(g.citation_id)}</div>
-              <p>${escapeHtml(g.text)}</p>
-            </div>`).join("")}
-        </section>` : ""}
-
-      ${accidents.length ? `
-        <section class="ins-panel" aria-label="Accident investigation abstract">
-          <div class="ins-panel-head">
-            <h2 class="ins-panel-title">Accident / Fatality Investigation</h2>
-            <span class="ins-panel-meta">${escapeHtml(plural(accidents.length, "summary"))}</span>
-          </div>
-          ${accidents.map((ac) => `
-            <div class="ins-narrative">
-              <div class="ins-narrative-kicker">${escapeHtml([
-		ac.event_date && fmtDate(ac.event_date),
-		ac.fatality ? "Fatality" : "",
-		ac.event_desc
-	].filter(Boolean).join(" · "))}</div>
-              ${ac.abstract ? `<p>${escapeHtml(ac.abstract)}</p>` : ""}
-              ${ac.keywords ? `<div class="ins-keywords">${escapeHtml(ac.keywords)}</div>` : ""}
-            </div>`).join("")}
-        </section>` : ""}
-
-      ${metaFacts.length || events.length ? `
-        <div class="ins-split">
-          ${metaFacts.length ? `
-            <section class="ins-panel" aria-label="Establishment details">
-              <h2 class="ins-panel-title">Establishment &amp; Case File</h2>
-              <dl class="ins-meta-list">
-                ${metaFacts.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
-              </dl>
-            </section>` : ""}
-          ${events.length ? `
-            <section class="ins-panel" aria-label="Penalty and contest history">
-              <h2 class="ins-panel-title">Citation Revision Timeline</h2>
-              <ol class="ins-events">
-                ${events.map((ev) => `
-                  <li>
-                    <span class="ins-ev-date">${escapeHtml(ev.date ? fmtDate(ev.date) : "—")}</span>
-                    <span class="ins-ev-body">
-                      <strong>${escapeHtml(ev.event_label)}</strong> · Cit. ${escapeHtml(ev.citation_id)}
-                      ${ev.penalty != null ? ` · ${escapeHtml(fmtMoney(ev.penalty))}` : ""}
-                    </span>
-                  </li>`).join("")}
-              </ol>
-            </section>` : ""}
-        </div>` : ""}
-    </div>`;
-	if (enter) enterView();
-}
-async function enrichInspection(activityNr, seq) {
-	try {
-		const res = await getJSON(`/api/news/inspection/${activityNr}/enrich`, { method: "POST" });
-		if (seq !== state.routeSeq) return;
-		renderInspectionCase(res, { enter: false });
-	} catch (err) {
-		if (seq !== state.routeSeq) return;
-		const slot = document.getElementById("ins-status-slot");
-		if (slot) slot.innerHTML = statPill("stale", err.message || "Could not enrich from DOL");
-		const btn = dom.view.querySelector("[data-ins-act=\"enrich\"]");
-		if (btn) btn.disabled = false;
-	}
-}
-async function loadInspection(activityNr) {
-	const seq = state.routeSeq;
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	document.title = `Inspection #${activityNr} · FRAMEWORK`;
-	dom.view.innerHTML = skeletonHtml("cards", `Loading inspection #${activityNr}…`);
-	enterView();
-	let data;
-	try {
-		data = await getJSON(`/api/news/inspection/${activityNr}`);
-	} catch (err) {
-		if (seq !== state.routeSeq) return;
-		dom.view.innerHTML = `
-      <div class="news-front ins-front">
-        <div class="ins-top-nav"><a class="hm-inline-link" href="#/news?cat=enforcement">${icon("chevronLeft")} Back to Enforcement</a></div>
-        <div class="empty-state">
-          <h2>Inspection #${activityNr} not found</h2>
-          <p>${escapeHtml(err.message)}</p>
-        </div>
-      </div>`;
-		return;
-	}
-	if (seq !== state.routeSeq) return;
-	const auto = Boolean(data.needs_enrichment && data.dol_configured && !autoEnrichedCases.has(activityNr));
-	renderInspectionCase(data, {
-		enter: false,
-		enriching: auto
-	});
-	if (auto) {
-		autoEnrichedCases.add(activityNr);
-		await enrichInspection(activityNr, seq);
-	}
-}
-dom.view.addEventListener("click", (e) => {
-	const tab = e.target.closest("[data-news-cat]");
-	if (tab && newsState.view) {
-		setNewsView({
-			...newsState.view,
-			cat: tab.dataset.newsCat
-		});
-		return;
-	}
-	const qGrav = e.target.closest("[data-news-quick-gravity]");
-	if (qGrav && newsState.view) {
-		setNewsView({
-			...newsState.view,
-			cat: "enforcement",
-			gravity: qGrav.dataset.newsQuickGravity
-		}, { replace: true });
-		return;
-	}
-	const qSec = e.target.closest("[data-news-quick-sec]");
-	if (qSec && newsState.view) {
-		setNewsView({
-			...newsState.view,
-			cat: "enforcement",
-			section: qSec.dataset.newsQuickSec
-		}, { replace: true });
-		return;
-	}
-	const qState = e.target.closest("[data-news-quick-state]");
-	if (qState && newsState.view) {
-		setNewsView({
-			...newsState.view,
-			cat: "enforcement",
-			state: qState.dataset.newsQuickState
-		}, { replace: true });
-		return;
-	}
-	const insAct = e.target.closest("[data-ins-act=\"enrich\"]");
-	if (insAct) {
-		const actNr = parseInt(insAct.dataset.actNr, 10);
-		if (!Number.isNaN(actNr)) {
-			insAct.disabled = true;
-			const slot = document.getElementById("ins-status-slot");
-			if (slot) slot.innerHTML = statPill("busy", "Refreshing from DOL…");
-			enrichInspection(actNr, state.routeSeq);
-		}
-		return;
-	}
-	const act = e.target.closest("[data-news-act]");
-	if (!act) return;
-	const kind = act.dataset.newsAct;
-	if (kind === "refresh") refreshNewsCommand();
-	else if (kind === "reload") handleRoute();
-	else if (kind === "more") loadMoreNews();
-	else if (kind === "search-all") setNewsView({
-		...newsState.view,
-		cat: "all"
-	});
-	else if (kind === "clear-filter") setNewsView({
-		...newsState.view,
-		[act.dataset.filterKey]: ""
-	}, { replace: true });
-	else if (kind === "expand-chips") {
-		const row = act.closest(".news-chips");
-		if (row) {
-			row.classList.add("is-expanded");
-			act.remove();
-		}
-	}
+on("route:refresh", () => {
+	handleRoute();
 });
-state.newsQTimer = null;
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id !== "news-q" || !newsState.view) return;
-	clearTimeout(state.newsQTimer);
-	const q = e.target.value.trim();
-	state.newsQTimer = setTimeout(() => {
-		if (newsState.view && q !== newsState.view.q) setNewsView({
-			...newsState.view,
-			q
-		}, { replace: true });
-	}, 250);
-});
-dom.view.addEventListener("keydown", (e) => {
-	if (e.target.id === "news-q" && e.key === "Escape" && e.target.value) {
-		e.target.value = "";
-		if (newsState.view && newsState.view.q) setNewsView({
-			...newsState.view,
-			q: ""
-		}, { replace: true });
-		return;
-	}
-	const tab = e.target.closest && e.target.closest(".news-tabs [role=\"tab\"]");
-	if (!tab) return;
-	if (![
-		"ArrowLeft",
-		"ArrowRight",
-		"Home",
-		"End"
-	].includes(e.key)) return;
-	e.preventDefault();
-	const tabs = [...dom.view.querySelectorAll(".news-tabs [role=\"tab\"]")];
-	const i = tabs.indexOf(tab);
-	tabs[e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : (i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length].focus();
-});
-dom.view.addEventListener("change", (e) => {
-	const facet = e.target.closest && e.target.closest("[data-news-facet]");
-	if (!facet || !newsState.view) return;
-	setNewsView({
-		...newsState.view,
-		[facet.dataset.newsFacet]: facet.value
-	}, { replace: true });
-});
-// src/panels/settings_panel.js
-state.navStorage = null;
-state.navNewsStatus = null;
-state.navEnvStatus = null;
-async function loadEnvStatus() {
-	try {
-		state.navEnvStatus = await getJSON("/api/settings/env");
-	} catch (e) {
-		state.navEnvStatus = null;
-	}
-	if (state.navEnvStatus) refreshSettingsViews();
-}
-function timeUntil(iso) {
-	const s = (Date.parse(iso) - Date.now()) / 1e3;
-	if (isNaN(s)) return "";
-	if (s <= 60) return "any moment";
-	if (s < 3600) return `in ${Math.round(s / 60)}m`;
-	if (s < 86400) return `in ${Math.round(s / 3600)}h`;
-	return `in ${Math.round(s / 86400)}d`;
-}
-function newsSettingsHtml() {
-	const ns = state.navNewsStatus;
-	if (!ns) return "<div class=\"loading\">Checking…</div>";
-	if (!ns.sync_enabled) return "<p class=\"dr-note\">News sync is off (<code>NEWS_SYNC=0</code> in <code>reader/.env</code>).</p>";
-	const enabled = Object.entries(ns.sources).filter(([, s]) => s.enabled);
-	const lastOk = enabled.map(([, s]) => s.last_ok_at).filter(Boolean).sort().pop();
-	const nextDue = enabled.map(([, s]) => s.next_due_at).filter(Boolean).sort()[0];
-	const backing = enabled.filter(([, s]) => s.retry_after);
-	const when = backing.length ? backing.map(([, s]) => `${escapeHtml(s.last_error || "Update failed")} · retrying ${escapeHtml(timeUntil(s.retry_after))}`).join(" · ") : `Last update ${lastOk ? escapeHtml(timeAgo(Date.parse(lastOk))) : "never"} · next check ${nextDue ? escapeHtml(timeUntil(nextDue)) || "due now" : "—"}`;
-	return `
-    <div class="dr-row is-static"><span class="dr-name">Federal Register</span><span class="dr-time">on</span></div>
-    <div class="dr-row is-static"><span class="dr-name">DOL enforcement</span><span class="dr-time">${ns.dol_configured ? "on" : "off"}</span></div>
-    ${ns.dol_configured ? "" : "<p class=\"dr-note\">Enforcement requires a free <code>DOL_API_KEY</code>. <a class=\"dr-inline-link\" href=\"#/help\">Open setup guide</a> or <button type=\"button\" class=\"dr-inline-btn\" data-open-env=\"dol_api_key\">enter key</button>.</p>"}
-    <p class="dr-note">${when}</p>`;
-}
-async function loadNewsSettings() {
-	try {
-		state.navNewsStatus = await getJSON("/api/news/status");
-	} catch (e) {
-		state.navNewsStatus = {
-			sync_enabled: false,
-			sources: {},
-			dol_configured: false
-		};
-	}
-	refreshSettingsViews();
-}
-var settingSeg = (name, value, opts, disabled = false) => segmentedHtml({
-	label: name,
-	value,
-	cls: "seg",
-	dataAttr: `data-set="${escapeHtml(name)}" data-value`,
-	items: opts.map(([v, label]) => ({
-		value: v,
-		label,
-		attrs: disabled ? "disabled" : ""
-	}))
-});
-function settingsClaudeHtml() {
-	return state.chatConfig.configured && state.chatConfig.models.length ? `<select class="set-select" data-set-model aria-label="Claude model">${state.chatConfig.models.map((m) => `<option value="${escapeHtml(m.id)}"${(dom.modelSelect.value || state.chatConfig.default) === m.id ? " selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}</select>` : "<p class=\"dr-note\">Claude requires an <code>ANTHROPIC_API_KEY</code>. <a class=\"dr-inline-link\" href=\"#/help\">Open setup guide</a> or <button type=\"button\" class=\"dr-inline-btn\" data-open-env=\"anthropic_api_key\">enter key</button>.</p>";
-}
-function settingsStorageHtml() {
-	const st = state.navStorage;
-	if (!st) return "<div class=\"loading\">Measuring…</div>";
-	return `
-    <div class="set-total"><span class="set-total-val">${fmtBytes(st.total_bytes) || "0 KB"}</span><span class="set-total-sub">on disk in ${plural(st.titles.length, "title")}</span></div>
-    ${st.titles.map((t) => {
-		const meta = state.installedTitles.find((x) => x.title === t.title);
-		return `<div class="dr-row is-static"><span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(meta ? meta.name : `Title ${t.title}`)}</span><span class="dr-time">${fmtBytes(t.bytes)}</span></div>`;
-	}).join("")}
-    ${st.legacy_bytes ? `<div class="dr-row is-static"><span class="dr-num"></span><span class="dr-name">Title 29 legacy copy</span><span class="dr-time">${fmtBytes(st.legacy_bytes)}</span></div>` : ""}
-    <div class="set-row">
-      <span class="set-name">Temporary files<span class="set-sub">${st.temp_files ? `${plural(st.temp_files, "file")} from unfinished downloads` : "None left over"}</span></span>
-      <button type="button" class="btn btn-sm" data-set-act="prune"${st.temp_files ? "" : " disabled"}>${st.temp_files ? `Clean up ${fmtBytes(st.temp_bytes)}` : "Clean"}</button>
-    </div>`;
-}
-function settingsKeysHtml() {
-	const mod = isMac ? "⌘" : "Ctrl";
-	return `<dl class="set-keys">${[
-		[`${mod} K`, "Search or jump to a section"],
-		["/", "Search"],
-		[">", "Commands, in search"],
-		[`${mod} B`, "Show or hide the drawer"],
-		[`${mod} J`, "Ask Claude"],
-		[`${mod} D`, "Pin section to a workspace"],
-		["G H", "Home"],
-		["G T", "Title start"],
-		["G C", "Contents"],
-		["G P", "Workspaces"],
-		["G N", "News"],
-		["G L", "Library"],
-		["G S", "Settings"],
-		[isMac ? "⌥ 1–7" : "Alt 1–7", "Rail items in order"],
-		["Esc", "Close the floating drawer"]
-	].map(([k, v]) => `<div><dt>${k.split(" ").map((x) => `<kbd>${escapeHtml(x)}</kbd>`).join("")}</dt><dd>${escapeHtml(v)}</dd></div>`).join("")}</dl>`;
-}
-function renderSettingsPanel() {
-	const size = parseInt(lsGet("fontSize"), 10) || 16;
-	const envKeys = state.navEnvStatus && state.navEnvStatus.keys;
-	const configuredKeysCount = envKeys ? (envKeys.DOL_API_KEY.configured ? 1 : 0) + (envKeys.ANTHROPIC_API_KEY.configured ? 1 : 0) : null;
-	const settingsMeta = configuredKeysCount == null ? "Claude · News · Storage · Keyboard" : `${configuredKeysCount} of 2 optional keys set`;
-	setPanel("settings", `
-    <section class="dr-sec">${drLabel("Quick settings")}
-      <div class="set-row"><span class="set-name">Reading text</span>
-        <span class="set-quick-size" role="group" aria-label="Reading text size">
-          <button type="button" data-set-act="font-dec" aria-label="Smaller text">A−</button>
-          <span class="set-val" data-size-val>${size} px</span>
-          <button type="button" data-set-act="font-inc" aria-label="Larger text">A+</button>
-        </span></div>
-      <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? "<span class=\"set-sub\">Overlay on narrow screens</span>" : ""}</span>${settingSeg("mode", mqMobile.matches ? "flyout" : navState.mode, [["pinned", "Pinned"], ["flyout", "Overlay"]], mqMobile.matches)}</div>
-      <div class="set-row"><span class="set-name">Motion</span>${settingSeg("motion", getMotionLevel(), [
-		["none", "No"],
-		["less", "Less"],
-		["full", "Full"]
-	])}</div>
-    </section>
-    <section class="dr-sec">${drLabel("Quick actions")}
-      <div class="set-quick-acts">
-        <button type="button" class="dr-act" data-open-env="">${icon("key")} Edit API keys</button>
-        <button type="button" class="dr-act" data-set-act="news-refresh">${icon("news")} Check for news</button>
-        <a class="dr-act" href="#/help">${icon("external")} Connections &amp; API keys</a>
-      </div>
-    </section>
-    <a class="dr-cta" href="#/settings">
-      <span class="dr-cta-text"><span class="dr-cta-title">Open settings</span><span class="dr-cta-meta">${escapeHtml(settingsMeta)}</span></span>${icon("chevronRight")}
-    </a>`);
-	if (!state.navEnvStatus) loadEnvStatus();
-}
-function renderSettingsPage(opts = {}) {
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	document.title = "Settings · FRAMEWORK";
-	const size = parseInt(lsGet("fontSize"), 10) || 16;
-	const top = dom.main.scrollTop;
-	dom.view.innerHTML = `
-    <div class="settings-front">
-      <header class="help-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK</div>
-          <h1 class="doc-title">Settings</h1>
-          <p class="help-lead">Appearance, Claude, news sync, storage and keyboard shortcuts. API keys and data sources live in <a href="#/help">Connections &amp; API Keys</a>.</p>
-        </div>
-        <div class="help-head-actions">
-          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
-        </div>
-      </header>
-      <div class="settings-grid">
-        <section class="set-card">
-          <h2 class="set-card-label">Appearance</h2>
-          <div class="set-row set-col">
-            <div class="set-row-head"><label class="set-name" for="set-size">Reading text</label><span class="set-val" id="set-size-val" data-size-val>${size} px</span></div>
-            <input type="range" class="set-range" id="set-size" min="13" max="24" step="1" value="${size}">
-          </div>
-          <div class="set-row"><span class="set-name">Drawer${mqMobile.matches ? "<span class=\"set-sub\">Overlay on narrow screens</span>" : ""}</span>${settingSeg("mode", mqMobile.matches ? "flyout" : navState.mode, [["pinned", "Pinned"], ["flyout", "Overlay"]], mqMobile.matches)}</div>
-          <p class="dr-note">Pinned sits beside the page. Overlay slides over it and closes once you pick something.</p>
-          <div class="set-row"><span class="set-name">Motion</span>${settingSeg("motion", getMotionLevel(), [
-		["none", "No"],
-		["less", "Less"],
-		["full", "Full"]
-	])}</div>
-          <p class="dr-note">Full uses slow, soothing glides and tactile settling. Less keeps quiet fades without movement. No turns motion off.</p>
-        </section>
-        <section class="set-card">
-          <h2 class="set-card-label">Claude</h2>
-          ${settingsClaudeHtml()}
-        </section>
-        <section class="set-card">
-          <h2 class="set-card-label">News</h2>
-          ${newsSettingsHtml()}
-        </section>
-        <section class="set-card">
-          <h2 class="set-card-label">Storage</h2>
-          ${settingsStorageHtml()}
-        </section>
-        <section class="set-card set-card-wide">
-          <h2 class="set-card-label">Keyboard</h2>
-          ${settingsKeysHtml()}
-        </section>
-      </div>
-    </div>`;
-	if (opts.enter) enterView();
-	else dom.main.scrollTop = top;
-	if (!state.navStorage) loadStorage();
-	if (!state.navNewsStatus) loadNewsSettings();
-	if (!state.navEnvStatus) loadEnvStatus();
-}
-var onSettingsPage = () => state.activeRoute === "/settings" || state.activeRoute === "/settings/";
-function refreshSettingsViews() {
-	if (navState.panel === "settings") renderSettingsPanel();
-	if (onSettingsPage()) renderSettingsPage();
-}
-function setMotionSetting(level) {
-	applyMotionLevel(level);
-	refreshSettingsViews();
-}
-async function runSettingsAction(btn) {
-	const act = btn.dataset.setAct;
-	if (act === "font-dec") adjustFontSize(-1);
-	else if (act === "font-inc") adjustFontSize(1);
-	else if (act === "news-refresh") refreshNewsCommand();
-	else if (act === "prune") {
-		btn.disabled = true;
-		try {
-			const res = await getJSON("/api/library/storage/prune", { method: "POST" });
-			showToast(res.removed ? `Removed ${plural(res.removed, "temporary file")} (${fmtBytes(res.freed_bytes)})` : "Nothing to clean up");
-		} catch (err) {
-			showToast(err.message, 5e3);
-		}
-		state.navStorage = null;
-		refreshSettingsViews();
-	}
-}
-dom.view.addEventListener("click", (e) => {
-	const set = e.target.closest("[data-set]");
-	if (set) {
-		if (set.dataset.set === "mode") setNavMode(set.dataset.value);
-		else if (set.dataset.set === "motion") setMotionSetting(set.dataset.value);
-		return;
-	}
-	const setAct = e.target.closest("[data-set-act]");
-	if (setAct) runSettingsAction(setAct);
-});
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id === "set-size") applyFontSize(e.target.value);
-});
-dom.view.addEventListener("change", (e) => {
-	if (e.target.matches("[data-set-model]")) {
-		dom.modelSelect.value = e.target.value;
-		dom.modelSelect.dispatchEvent(new Event("change"));
-	}
-});
-// src/views/library.js
-var lib = {
-	view: null,
-	data: null,
-	filter: "",
-	sort: "desk",
-	tier: "all",
-	wire: null
-};
-try {
-	const saved = localStorage.getItem("libSort");
-	if ([
-		"desk",
-		"number",
-		"updated"
-	].includes(saved)) lib.sort = saved;
-} catch (e) {}
-state.jobs = {
-	current: null,
-	queued: [],
-	recent: []
-};
-state.jobsTimer = null;
-state.jobsSeenActive = /* @__PURE__ */ new Set();
-state.lastJobsKey = "";
-var isStale = (t) => Boolean(t.installed && t.latest && t.installed.edition && t.latest > t.installed.edition);
-var jobStatus = (j) => j ? statPill("busy", j.state === "running" ? "Downloading" : "Queued", { bare: true }) : "";
-async function getJSON(url, opts) {
-	const res = await fetch(url, opts);
-	let body = null;
-	try {
-		body = await res.json();
-	} catch (e) {}
-	if (!res.ok) throw new Error(body && body.detail || `Request failed (${res.status})`);
-	return body;
-}
-async function loadLibrary(title, part) {
-	const seq = state.routeSeq;
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	const sameView = lib.view && lib.view.title === title && lib.view.part === part;
-	if (!sameView) {
-		lib.filter = "";
-		dom.view.innerHTML = skeletonHtml(title ? "list" : "cards", "Loading from eCFR…");
-	}
-	lib.view = {
-		title,
-		part
-	};
-	try {
-		const data = await getJSON(part ? `/api/library/${title}/part/${encodeURIComponent(part)}` : title ? `/api/library/${title}` : "/api/library");
-		if (seq !== state.routeSeq) return;
-		if (!title) setJobs(data.jobs);
-		lib.data = data;
-		renderLibrary(!sameView);
-		if (!title) {
-			pollJobsIfActive();
-			loadWire();
-		}
-	} catch (err) {
-		if (seq !== state.routeSeq) return;
-		dom.view.innerHTML = emptyStateHtml({
-			title: "Couldn’t load the library",
-			body: escapeHtml(err.message),
-			actionsHtml: "<button type=\"button\" class=\"btn\" id=\"lib-retry\">Try again</button>"
-		});
-		document.getElementById("lib-retry").addEventListener("click", () => loadLibrary(title, part));
-	}
-}
-async function refreshLibrary() {
-	if (!lib.view || !dom.view.querySelector(".lib")) return;
-	const { title, part } = lib.view;
-	try {
-		lib.data = await getJSON(part ? `/api/library/${title}/part/${encodeURIComponent(part)}` : title ? `/api/library/${title}` : "/api/library");
-		renderLibrary(false);
-	} catch (e) {}
-}
-function jobFor(title, kind, id) {
-	return [state.jobs.current, ...state.jobs.queued].filter(Boolean).find((j) => j.title === title && (kind === "title" ? j.kind === "title" || j.kind === "update" : kind === "part" ? j.kind === "part" && j.target && j.target.part === id : j.kind === "section" && j.target && j.target.id === id));
-}
-function actBtn(act, label, attrs, cls = "") {
-	return `<button type="button" class="lib-act${cls ? " " + cls : ""}" data-act="${act}" ${attrs}>${label}</button>`;
-}
-function libRow({ href, num, name, status, actions, dim, key }) {
-	const main = href ? `<a class="lib-main" href="${href}"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></a>` : `<span class="lib-main"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></span>`;
-	return `<div class="lib-row${dim ? " is-dim" : ""}${actions ? " has-actions" : ""}" data-hay="${escapeHtml(`${num} ${name}`.toLowerCase())}"${key ? ` data-key="${escapeHtml(key)}"` : ""}>
-    ${main}<span class="lib-status">${status || ""}</span><span class="lib-actions">${actions || ""}</span></div>`;
-}
-var libHref = (title, part) => "#/library" + (title ? `/${title}` : "") + (part ? `/part/${encodeURIComponent(part)}` : "");
-function titleStatus(t) {
-	if (t.reserved) return {
-		state: "uninstalled",
-		text: "Reserved"
-	};
-	const j = jobFor(t.title, "title");
-	if (j) return {
-		state: "busy",
-		text: j.state === "running" ? j.kind === "update" ? "Updating" : "Downloading" : "Queued"
-	};
-	const inst = t.installed;
-	if (!inst) return {
-		state: "uninstalled",
-		text: "Not installed"
-	};
-	if (isStale(t)) return {
-		state: "stale",
-		text: "Update available",
-		title: `eCFR has a newer edition (${fmtDate(t.latest)})`
-	};
-	if (!inst.whole) {
-		const what = [inst.parts ? plural(inst.parts, "part") : "", inst.sections ? plural(inst.sections, "section") : ""].filter(Boolean).join(", ");
-		return {
-			state: "partial",
-			text: "Partial",
-			title: what ? `Installed: ${what}` : ""
-		};
-	}
-	return {
-		state: "synced",
-		text: "Installed",
-		title: `Edition ${fmtDate(inst.edition)}`
-	};
-}
-function renderStatusPill(t, opts = {}) {
-	const s = titleStatus(t);
-	return statPill(s.state, s.text, {
-		title: s.title,
-		...opts
-	});
-}
-function relTime(ms) {
-	const s = Math.max(0, (Date.now() - ms) / 1e3);
-	if (s < 60) return "just now";
-	if (s < 3600) return `${Math.round(s / 60)} min ago`;
-	if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-	return shortDate(new Date(ms).toISOString().slice(0, 10));
-}
-function amendedWeek(d) {
-	const newest = d.titles.reduce((m, t) => t.latest && t.latest > m ? t.latest : m, "");
-	if (!newest) return {
-		newest: "",
-		cut: "",
-		recent: 0
-	};
-	const [y, m, dd] = newest.split("-").map(Number);
-	const cut = new Date(Date.UTC(y, m - 1, dd - 7)).toISOString().slice(0, 10);
-	return {
-		newest,
-		cut,
-		recent: d.titles.filter((t) => t.amended && t.amended >= cut).length
-	};
-}
-var LIB_SORTS = [
-	["desk", "By desk"],
-	["number", "By number"],
-	["updated", "Recently amended"]
-];
-function titleActions(t) {
-	if (t.reserved || jobFor(t.title, "title")) return "";
-	const inst = t.installed;
-	if (!inst) return actBtn("download", `${icon("download")}Download`, `data-title="${t.title}"`, "is-primary");
-	return `<a class="lib-act" href="#/title/${t.title}/">Open</a>` + (inst.whole ? "" : actBtn("download", "Download all", `data-title="${t.title}"`)) + (isStale(t) ? actBtn("update", "Update", `data-title="${t.title}" title="eCFR has a newer edition (${escapeHtml(fmtDate(t.latest))})"`) : "") + actBtn("remove", "Remove", `data-title="${t.title}"`, "is-danger");
-}
-function libStory(t) {
-	const inst = t.installed;
-	const agencies = (t.agencies || []).slice(0, 3);
-	const kicker = `Title ${t.title}${agencies.length ? `${SEP}<span class="story-ag">${agencies.map(escapeHtml).join(" ")}</span>` : ""}`;
-	const name = escapeHtml(t.name);
-	const headline = t.reserved ? name : `<a href="${libHref(t.title)}">${name}</a>`;
-	const sections = inst ? inst.section_count : t.sections;
-	const dateline = joinSep([
-		t.amended ? `Amended ${escapeHtml(shortDate(t.amended))}` : "",
-		t.reserved ? "" : fmtSections(sections),
-		t.reserved || !t.size_mb ? "" : `<span title="Size of the title's text on eCFR">${fmtMB(t.size_mb)}</span>`
-	]);
-	const acts = titleActions(t);
-	const hay = `${t.title} title ${t.name} ${t.summary || ""} ${t.desk || ""} ${(t.agencies || []).join(" ")}`.toLowerCase();
-	return `<article class="lib-story has-tier-bar${t.reserved ? " is-dim" : ""}" data-ref-tier="cfr" data-hay="${escapeHtml(hay)}">
-    <div class="story-top"><span class="story-kicker">${kicker}</span>${renderStatusPill(t, { bare: !inst })}</div>
-    <h3 class="story-name">${headline}</h3>
-    ${t.summary ? `<p class="story-dek">${escapeHtml(t.summary)}</p>` : ""}
-    <div class="story-foot"><span class="story-date">${dateline}</span>${acts ? `<div class="story-actions">${acts}</div>` : ""}</div>
-  </article>`;
-}
-function libMetrics(d) {
-	const live = d.titles.filter((t) => !t.reserved);
-	const inst = live.filter((t) => t.installed);
-	const sections = inst.reduce((a, t) => a + (t.installed.section_count || 0), 0);
-	const bytes = inst.reduce((a, t) => a + (t.installed.bytes || 0), 0);
-	const stale = live.filter(isStale);
-	const { cut, recent } = amendedWeek(d);
-	const updating = [state.jobs.current, ...state.jobs.queued].some((j) => j && j.kind === "update");
-	return `<section class="lib-metrics" aria-label="Library at a glance">
-    ${metricCardHtml({
-		label: "<span class=\"stat-dot is-synced\" aria-hidden=\"true\"></span>eCFR",
-		value: "Online",
-		sub: d.checked_at ? `Title list checked ${escapeHtml(relTime(d.checked_at * 1e3))}` : `${live.length} titles tracked`
-	})}
-    ${metricCardHtml({
-		label: "Installed",
-		value: String(inst.length),
-		of: `of ${live.length}`,
-		sub: joinSep([fmtSections(sections) || "No sections yet", bytes ? `${fmtBytes(bytes)} on disk` : ""])
-	})}
-    ${metricCardHtml({
-		label: "Amended this week",
-		value: String(recent),
-		sub: cut ? `Since ${escapeHtml(shortDate(cut))}${SEP}<button type="button" class="metric-link" data-sort="updated">Show</button>` : "No edition date"
-	})}
-    ${stale.length ? metricCardHtml({
-		label: "<span class=\"stat-dot is-stale\" aria-hidden=\"true\"></span>Editions",
-		value: `${stale.length} outdated`,
-		sub: updating ? statPill("busy", "Updating", { bare: true }) : `<button type="button" class="metric-link is-strong" data-act="update-all">Update all ${icon("chevronRight")}</button>`,
-		alert: true
-	}) : metricCardHtml({
-		label: "Editions",
-		value: inst.length ? "Current" : "—",
-		sub: inst.length ? "Every installed title is up to date" : "Nothing installed yet"
-	})}
-  </section>`;
-}
-function suiteState(s, d) {
-	const ts = s.titles.map((n) => d.titles.find((t) => t.title === n)).filter((t) => t && !t.reserved);
-	const busy = ts.filter((t) => jobFor(t.title, "title"));
-	const whole = ts.filter((t) => t.installed && t.installed.whole);
-	const any = ts.filter((t) => t.installed);
-	const stale = ts.filter(isStale);
-	const needs = ts.filter((t) => !jobFor(t.title, "title") && (!t.installed || !t.installed.whole || isStale(t)));
-	let pill;
-	if (!ts.length) pill = statPill("uninstalled", "Not installed", { bare: true });
-	else if (busy.length) pill = statPill("busy", `${busy.length} of ${ts.length} in progress`);
-	else if (whole.length === ts.length && !stale.length) pill = statPill("synced", "Installed");
-	else if (whole.length === ts.length) pill = statPill("stale", "Update available");
-	else if (any.length) pill = statPill("partial", `${any.length} of ${ts.length} installed`);
-	else pill = statPill("uninstalled", "Not installed", { bare: true });
-	const onlyUpdates = needs.length && needs.every((t) => t.installed && t.installed.whole);
-	const label = !needs.length ? "" : onlyUpdates ? `Update ${needs.length === ts.length ? "suite" : plural(needs.length, "title")}` : needs.length === ts.length ? "Download suite" : `Download ${plural(needs.length, "remaining title")}`;
-	return {
-		ts,
-		pill,
-		needs,
-		label,
-		busy
-	};
-}
-function suiteHero(s, d) {
-	const st = suiteState(s, d);
-	const rows = st.ts.map((t) => {
-		const parts = ((HOME_CONTENT[t.title] || {}).cards || []).slice(0, 3);
-		const partHref = (p) => t.installed && t.installed.whole ? `#/title/${t.title}/part/${encodeURIComponent(p)}` : libHref(t.title, p);
-		return `<li class="suite-row">
-      <span class="suite-num">${t.title}</span>
-      <div class="suite-row-body">
-        <a class="suite-name" href="${libHref(t.title)}">${escapeHtml(t.name)}</a>
-        <span class="suite-ag">${(t.agencies || []).slice(0, 3).map(escapeHtml).join(" ")}</span>
-        ${parts.length ? `<div class="suite-parts">${parts.map((c) => {
-			const [num, ...rest] = c.title.replace(/^Part\s+/, "").split(" — ");
-			return `<a href="${partHref(c.part)}"><span class="suite-part-num">${escapeHtml(num)}</span>${escapeHtml(rest.join(" — "))}</a>`;
-		}).join("")}</div>` : ""}
-        <div class="suite-meta">${joinSep([
-			t.amended ? `Amended ${escapeHtml(shortDate(t.amended))}` : "",
-			fmtSections(t.installed ? t.installed.section_count : t.sections),
-			t.size_mb ? fmtMB(t.size_mb) : "",
-			t.installed && t.installed.bytes ? `${fmtBytes(t.installed.bytes)} on disk` : ""
-		].map((x) => x && `<span>${x}</span>`))}</div>
-      </div>
-      ${renderStatusPill(t, { bare: true })}
-    </li>`;
-	}).join("");
-	const action = st.label ? `<button type="button" class="btn btn-accent" data-act="download-suite" data-suite="${escapeHtml(s.id)}">${icon("download")}${escapeHtml(st.label)}</button>` : st.busy.length ? "" : `<a class="btn" href="#/title/${st.ts[0] ? st.ts[0].title : ""}/">Open in reader</a>`;
-	return `<article class="suite-hero has-tier-bar" data-ref-tier="cfr" aria-labelledby="suite-${escapeHtml(s.id)}">
-    <div class="story-top"><span class="story-kicker"><span class="ref-badge">FEDERAL CFR PACK</span>${s.badge ? `${SEP}${escapeHtml(s.badge)}` : ""}</span>${st.pill}</div>
-    <h2 class="suite-title" id="suite-${escapeHtml(s.id)}">${escapeHtml(s.name)}</h2>
-    <p class="suite-dek">${escapeHtml(s.summary)}</p>
-    <ul class="suite-rows">${rows}</ul>
-    <div class="suite-foot">
-      <span class="suite-telemetry">${joinSep([
-		plural(st.ts.length, "title"),
-		fmtSections(s.sections),
-		s.size_mb ? `${fmtMB(s.size_mb)} of text` : ""
-	])}</span>
-      ${action}
-    </div>
-  </article>`;
-}
-function suiteCard(s, d) {
-	const st = suiteState(s, d);
-	const titles = st.ts.map((t) => `<a href="${libHref(t.title)}"><span class="suite-part-num">${t.title}</span>${escapeHtml(t.name)}</a>`).join("");
-	const action = st.label ? actBtn("download-suite", `${icon("download")}${escapeHtml(st.label)}`, `data-suite="${escapeHtml(s.id)}"`, "is-primary") : "";
-	return `<article class="suite-card has-tier-bar" data-ref-tier="cfr">
-    <div class="story-top"><span class="story-kicker"><span class="ref-badge">CFR PACK</span>${s.badge ? `${SEP}${escapeHtml(s.badge)}` : ""}</span>${st.pill}</div>
-    <h3 class="story-name">${escapeHtml(s.name)}</h3>
-    <p class="story-dek">${escapeHtml(s.summary)}</p>
-    <div class="suite-parts suite-card-titles">${titles}</div>
-    <div class="story-foot"><span class="story-date">${joinSep([fmtSections(s.sections), fmtMB(s.size_mb)])}</span>${action}</div>
-  </article>`;
-}
-function wireSummary(c) {
-	if (!c) return "<span class=\"wire-pending\" aria-hidden=\"true\"></span>";
-	if (!c.count) return "";
-	if (c.removed === c.count) return escapeHtml(`${plural(c.count, "section")} removed`);
-	const verb = c.kind === "revised" ? "revised" : "amended";
-	const parts = c.parts.slice(0, 3);
-	const more = c.parts.length - parts.length;
-	const where = parts.length ? ` in ${parts.length + more === 1 ? "Part" : "Parts"} ${parts.join(", ")}${more > 0 ? ` +${more}` : ""}` : "";
-	return `${escapeHtml(`${plural(c.count, "section")} ${verb}${where}`)}${c.first && c.first.name ? `<span class="wire-first">${escapeHtml(c.first.name)}</span>` : ""}`;
-}
-function libWire(d) {
-	const top = d.titles.filter((t) => !t.reserved && t.amended).sort((a, b) => b.amended.localeCompare(a.amended) || a.title - b.title).slice(0, 5);
-	const byTitle = new Map((lib.wire && lib.wire.items || []).map((c) => [c.title, c]));
-	const failed = lib.wire && lib.wire.failed;
-	return `<aside class="reg-wire" id="lib-wire" aria-labelledby="wire-title">
-    <div class="wire-head">
-      <h2 class="wire-title" id="wire-title">${icon("activity")}The Regulatory Wire</h2>
-      <span class="wire-badge">Live eCFR</span>
-    </div>
-    <p class="wire-sub">Latest amendments, newest first</p>
-    <ol class="wire-items">${top.map((t) => {
-		const c = byTitle.get(t.title);
-		const summary = !lib.wire ? wireSummary(null) : failed || !c || c.amended !== t.amended ? "" : wireSummary(c);
-		return `<li class="wire-entry"><a href="${libHref(t.title)}">
-        <span class="wire-entry-head"><span class="wire-entry-title">Title ${t.title}${(t.agencies || [])[0] ? `${SEP}${escapeHtml(t.agencies[0])}` : ""}</span>
-          <time class="wire-entry-date" datetime="${escapeHtml(t.amended)}">${escapeHtml(shortDate(t.amended))}</time></span>
-        <span class="wire-entry-name">${escapeHtml(t.name)}</span>
-        ${summary ? `<span class="wire-entry-summary">${summary}</span>` : ""}
-      </a></li>`;
-	}).join("")}</ol>
-    <div class="wire-foot"><button type="button" class="wire-link" data-sort="updated">All titles by last amendment ${icon("chevronRight")}</button></div>
-  </aside>`;
-}
-async function loadWire() {
-	if (lib.wire && Date.now() - lib.wire.at < 18e5 && !lib.wire.failed) return;
-	try {
-		lib.wire = {
-			at: Date.now(),
-			items: await getJSON("/api/library/wire")
-		};
-	} catch (e) {
-		lib.wire = {
-			at: Date.now(),
-			items: [],
-			failed: true
-		};
-	}
-	const el = document.getElementById("lib-wire");
-	if (el && lib.data && lib.view && !lib.view.title) el.outerHTML = libWire(lib.data);
-}
-function libTitleList(d, sort) {
-	const live = d.titles.filter((t) => !t.reserved);
-	const reserved = d.titles.filter((t) => t.reserved);
-	const grid = (ts) => `<div class="lib-stories">${ts.map(libStory).join("")}</div>`;
-	const desk = (name, ts, extra = "") => `<section class="lib-desk${extra}" aria-label="${escapeHtml(name)}">
-      <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(name)}</h3><span class="lib-desk-count">${plural(ts.length, "title")}</span></header>
-      ${grid(ts)}</section>`;
-	if (sort === "number" || sort === "updated") {
-		const ordered = sort === "number" ? live : [...live].sort((a, b) => (b.amended || "").localeCompare(a.amended || "") || a.title - b.title);
-		return desk(sort === "number" ? "All titles by number" : "All titles by last amendment", ordered, " is-flat") + (reserved.length ? desk("Reserved", reserved) : "");
-	}
-	const names = [...d.desks || []];
-	for (const t of live) if (!names.includes(t.desk)) names.push(t.desk);
-	return names.map((name) => {
-		const ts = live.filter((t) => t.desk === name);
-		return ts.length ? desk(name, ts) : "";
-	}).join("") + (reserved.length ? desk("Reserved", reserved) : "");
-}
-var LIB_TIER_TABS = [
-	{
-		id: "all",
-		label: "All Authorities",
-		refTier: "cfr"
-	},
-	{
-		id: "federal-statute",
-		label: "U.S. Code",
-		refTier: "usc"
-	},
-	{
-		id: "federal-reg",
-		label: "Federal CFR",
-		refTier: "cfr"
-	},
-	{
-		id: "state",
-		label: "States",
-		refTier: "state"
-	},
-	{
-		id: "county",
-		label: "Counties",
-		refTier: "county"
-	},
-	{
-		id: "standard",
-		label: "Standards",
-		refTier: "ibr"
-	}
-];
-function libTierTabsHtml(d) {
-	const cfrCount = (d.titles || []).filter((t) => !t.reserved).length;
-	const extras = state.extraCorpora || [];
-	const countFor = (id) => {
-		if (id === "all") return cfrCount + extras.length;
-		if (id === "federal-reg") return cfrCount + extras.filter((c) => c.tier === "federal-reg").length;
-		return extras.filter((c) => c.tier === id).length;
-	};
-	return `<div class="lib-tier-bar" role="tablist" aria-label="Filter catalog by authority tier">${LIB_TIER_TABS.map((t) => {
-		const on = lib.tier === t.id;
-		const count = countFor(t.id);
-		return `<button type="button" role="tab" aria-selected="${on}" class="lib-tier-tab${on ? " is-active" : ""}" data-ref-tier="${t.refTier}" data-lib-tier="${t.id}">
-      <span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(t.label)}</span>${count ? `<span class="lib-tier-count">${count}</span>` : ""}
-    </button>`;
-	}).join("")}</div>`;
-}
-function libExtraTierBodyHtml(tierId) {
-	const meta = TIER_META[tierId] || TIER_META["state"];
-	const matches = (state.extraCorpora || []).filter((c) => c.tier === tierId);
-	if (matches.length) return `<section class="lib-desk" aria-label="${escapeHtml(meta.label)}">
-      <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(meta.label)}</h3><span class="lib-desk-count">${plural(matches.length, "corpus")}</span></header>
-      <div class="lib-stories">${matches.map((c) => `
-        <article class="lib-story has-tier-bar" data-ref-tier="${refTierForCorpus(c)}">
-          <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}${escapeHtml(c.jurisdiction_label || c.jurisdiction)}</span>${statPill("synced", "Ready")}</div>
-          <h3 class="story-name"><a href="${escapeHtml(corpusHashFor(c))}">${escapeHtml(c.code)} — ${escapeHtml(c.name)}</a></h3>
-          ${c.summary ? `<p class="story-dek">${escapeHtml(c.summary)}</p>` : ""}
-          <div class="story-foot"><span class="story-date">${escapeHtml((c.agencies || []).join(" · ") || meta.label)}</span><div class="story-actions"><a class="lib-act" href="${escapeHtml(corpusHashFor(c))}">Open</a></div></div>
-        </article>`).join("")}</div></section>`;
-	return `<section class="resolver-card has-tier-bar" data-ref-tier="${meta.refTier}" style="margin-top:8px">
-    <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}Catalog Slot Pre-Wired</div>
-    <h2 class="doc-title" style="font-size:20px">${escapeHtml(meta.label)}</h2>
-    <p class="resolver-msg">${escapeHtml({
-		"federal-statute": "United States Code (U.S.C.) XML statutory packs (Title 29 OSH Act/FLSA, Title 42 EPA statutes, Title 49 Transportation) plug directly into this catalog slot alongside CFR cross-links.",
-		"state": "State administrative codes and OSHA-approved State Plans (e.g., California 8 CCR, Texas TAC, Washington WAC) share the same CorpusSummary contract and search facets.",
-		"county": "County and municipal fire, air-quality, and environmental health ordinances attach under State feeds using jurisdiction codes like US-CA-LA.",
-		"standard": "Incorporated consensus standards (ANSI, NFPA, ASTM, ASME) currently resolve inside section peeker popovers and each Title Start Almanac."
-	}[tierId] || "Backend ingestion pack pending.")}</p>
-    <div class="resolver-acts">
-      <button type="button" class="btn btn-accent" data-lib-tier="federal-reg">View Federal CFR Catalog</button>
-      <a class="btn" href="#/title/${state.currentTitle}/">Open ${state.currentTitle} CFR Almanac</a>
-    </div>
-  </section>`;
-}
-function libFrontHtml(d) {
-	const live = d.titles.filter((t) => !t.reserved);
-	const { newest, recent } = amendedWeek(d);
-	const sub = joinSep([
-		"Multi-Jurisdiction Regulatory Catalog",
-		newest ? `Edition ${escapeHtml(fmtDate(newest))}` : "",
-		`${live.length} CFR titles`,
-		recent ? `${recent} amended this week` : "No amendments this week"
-	]);
-	const suites = Object.values(d.suites || {});
-	const lead = suites.find((s) => s.featured) || suites[0];
-	const others = suites.filter((s) => s !== lead);
-	const showCfr = lib.tier === "all" || lib.tier === "federal-reg";
-	const extraTiers = TIER_ORDER.filter((t) => t !== "federal-reg" && (lib.extraCorporaCount || (state.extraCorpora || []).some((c) => c.tier === t)));
-	const cfrBody = `
-    <div class="lib-broadsheet${lead ? "" : " is-wire-only"}">${lead ? suiteHero(lead, d) : ""}${libWire(d)}</div>
-    ${others.length ? `<section class="lib-suites" aria-label="More compliance suites">
-      <header class="lib-desk-header"><h2 class="lib-desk-name">Jurisdiction Packs</h2><span class="lib-desk-count">${plural(others.length, "pack")}</span></header>
-      <div class="lib-suite-grid">${others.map((s) => suiteCard(s, d)).join("")}</div></section>` : ""}
-    <div class="lib-tools">
-      <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter titles or agencies…" aria-label="Filter titles or agencies" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
-      <div class="lib-seg" role="group" aria-label="Order titles">${LIB_SORTS.map(([k, label]) => `<button type="button" data-sort="${k}" aria-pressed="${lib.sort === k}">${label}</button>`).join("")}</div>
-    </div>
-    <div class="lib-list" id="lib-list">${libTitleList(d, lib.sort)}</div>
-    <div class="lib-none" id="lib-none" hidden>No title matches. Try an agency (“OSHA”) or a topic.</div>`;
-	return `<div class="lib lib-front">
-    <div class="doc-kicker"><a href="#/">Home</a></div>
-    <header class="lib-masthead">
-      <h1 class="doc-title">Library</h1>
-      <p class="lib-sub">${sub}</p>
-    </header>
-    ${libMetrics(d)}
-    ${libTierTabsHtml(d)}
-    ${showCfr ? cfrBody : libExtraTierBodyHtml(lib.tier)}
-    ${lib.tier === "all" && extraTiers.length ? extraTiers.map(libExtraTierBodyHtml).join("") : ""}
-  </div>`;
-}
-function renderLibrary(fresh) {
-	const { title, part } = lib.view;
-	const d = lib.data;
-	let crumbs, heading, sub, head = "", body = "", placeholder;
-	const scrollTop = dom.main.scrollTop;
-	if (!title) {
-		document.title = "Library · FRAMEWORK";
-		const existingList = !fresh && document.getElementById("lib-list");
-		const frontShell = dom.view.querySelector(".lib-front");
-		if (existingList && frontShell) {
-			const tmp = document.createElement("div");
-			tmp.innerHTML = libFrontHtml(d);
-			const nextMetrics = tmp.querySelector(".lib-metrics");
-			const curMetrics = frontShell.querySelector(".lib-metrics");
-			if (nextMetrics && curMetrics) curMetrics.replaceWith(nextMetrics);
-			const nextBroad = tmp.querySelector(".lib-broadsheet");
-			const curBroad = frontShell.querySelector(".lib-broadsheet");
-			if (nextBroad && curBroad) curBroad.replaceWith(nextBroad);
-			const nextSuites = tmp.querySelector(".lib-suites");
-			const curSuites = frontShell.querySelector(".lib-suites");
-			if (nextSuites && curSuites) curSuites.replaceWith(nextSuites);
-			for (const btn of frontShell.querySelectorAll(".lib-seg [data-sort]")) btn.setAttribute("aria-pressed", String(btn.dataset.sort === lib.sort));
-			existingList.innerHTML = libTitleList(d, lib.sort);
-			applyLibraryFilter();
-			dom.main.scrollTop = scrollTop;
-			return;
-		}
-		dom.view.innerHTML = libFrontHtml(d);
-		applyLibraryFilter();
-		if (fresh) enterView();
-		else dom.main.scrollTop = scrollTop;
-		return;
-	}
-	if (!part) {
-		document.title = `Title ${title} · Library · FRAMEWORK`;
-		const inst = d.installed;
-		crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a>`;
-		heading = `Title ${title} — ${d.name}`;
-		sub = inst ? inst.whole ? `Installed · ${fmtDate(inst.edition)} · ${fmt(inst.section_count)} sections` : `Partly installed · ${fmt(inst.section_count)} ${inst.section_count === 1 ? "section" : "sections"}` : `Not installed · eCFR edition ${fmtDate(d.latest)}`;
-		placeholder = "Filter parts";
-		const j = jobFor(title, "title");
-		head = d.reserved ? "" : j ? `<span class="lib-head-status">${jobStatus(j)}</span>` : inst && inst.whole ? `<a class="btn" href="#/title/${title}/">Open in reader</a>` : `<button type="button" class="btn" data-act="download" data-title="${title}">${icon("download")} Download whole title</button>`;
-		body = d.groups.map((g) => `
-      ${g.label ? `<div class="lib-label">${escapeHtml(g.label)}</div>` : ""}
-      ${g.parts.map((p) => {
-			const pj = jobFor(title, "part", p.id);
-			if (p.r || !p.leaves) return libRow({
-				num: p.l.replace(/^Parts?\s+/, ""),
-				name: p.d || "Reserved",
-				status: "Reserved",
-				dim: true
-			});
-			const status = p.installed === "all" ? statPill("synced", "Installed", { bare: true }) : p.installed === "some" ? statPill("partial", `${p.installed_sections} of ${fmt(p.leaves)}`, {
-				bare: true,
-				title: "Sections installed"
-			}) : escapeHtml(fmtSections(p.leaves));
-			const acts = p.installed === "all" ? `<a class="lib-act" href="#/title/${title}/part/${encodeURIComponent(p.id)}">Open</a>` : actBtn("download", "Download part", `data-title="${title}" data-part="${escapeHtml(p.id)}"`);
-			return libRow({
-				href: libHref(title, p.id),
-				num: p.id,
-				name: p.d || p.l,
-				status: pj ? jobStatus(pj) : status,
-				actions: pj ? "" : acts,
-				key: `p${p.id}`
-			});
-		}).join("")}`).join("");
-	} else {
-		document.title = `Part ${part} · Library · FRAMEWORK`;
-		crumbs = `<a href="#/">Home</a><span class="sep" aria-hidden="true">›</span><a href="${libHref()}">Library</a><span class="sep" aria-hidden="true">›</span><a href="${libHref(title)}">Title ${title}</a>`;
-		heading = `${d.l} — ${d.d}`;
-		const countText = fmtSections(d.groups.reduce((a, g) => a + g.sections.filter((s) => !s.r).length, 0)) || "0 sections";
-		sub = d.installed === "all" ? `Installed · ${countText}` : d.installed === "some" ? `Partly installed · ${countText}` : countText;
-		placeholder = "Filter sections";
-		const j = jobFor(title, "part", part);
-		head = j ? `<span class="lib-head-status">${jobStatus(j)}</span>` : d.installed === "all" ? `<a class="btn" href="#/title/${title}/part/${encodeURIComponent(part)}">Open in reader</a>` : `<button type="button" class="btn" data-act="download" data-title="${title}" data-part="${escapeHtml(part)}">${icon("download")} Download part</button>`;
-		body = d.groups.map((g) => `
-      ${g.label ? `<div class="lib-label">${escapeHtml(g.label)}</div>` : ""}
-      ${g.sections.map((s) => {
-			const num = s.t === "appendix" ? s.l : s.l.replace(/^§\s*/, "");
-			const name = s.t === "appendix" ? s.d && s.d !== s.l ? s.d.replace(s.l, "").replace(/^\s*[—–-]\s*/, "") : "" : s.d;
-			if (s.r) return libRow({
-				num,
-				name: name || "Reserved",
-				status: "Reserved",
-				dim: true
-			});
-			const sj = jobFor(title, "section", s.id);
-			const acts = s.installed ? `<a class="lib-act" href="#/title/${title}/section/${encodeURIComponent(s.id)}">Open</a>` : actBtn("download", "Download", `data-title="${title}" data-part="${escapeHtml(part)}" data-section="${escapeHtml(s.id)}" data-kind="${s.t}"`);
-			return libRow({
-				num,
-				name,
-				status: sj ? jobStatus(sj) : s.installed ? statPill("synced", "Installed", { bare: true }) : "",
-				actions: sj ? "" : acts,
-				key: `s${s.id}`
-			});
-		}).join("")}`).join("");
-	}
-	const viewKey = `${title}|${part || ""}`;
-	if (!fresh && dom.view.querySelector(`.lib[data-lib-view="${CSS.escape(viewKey)}"]`)) {
-		const subEl = document.getElementById("lib-sub-slot");
-		const headEl = document.getElementById("lib-head-act-slot");
-		const listEl = document.getElementById("lib-list");
-		if (subEl) subEl.textContent = sub;
-		if (headEl) headEl.innerHTML = head;
-		if (listEl) listEl.innerHTML = body;
-		applyLibraryFilter();
-		dom.main.scrollTop = scrollTop;
-		return;
-	}
-	dom.view.innerHTML = `
-    <div class="lib" data-lib-view="${escapeHtml(viewKey)}">
-      <div class="doc-kicker">${crumbs}</div>
-      <div class="lib-head">
-        <div class="lib-head-text">
-          <h1 class="doc-title">${escapeHtml(heading)}</h1>
-          <p class="lib-sub" id="lib-sub-slot">${escapeHtml(sub)}</p>
-        </div>
-        <span id="lib-head-act-slot">${head}</span>
-      </div>
-      <input class="lib-filter" id="lib-filter" type="search" placeholder="${placeholder}…" aria-label="${placeholder}" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
-      <div class="lib-list" id="lib-list">${body}</div>
-      <div class="lib-none" id="lib-none" hidden>Nothing matches.</div>
-    </div>`;
-	applyLibraryFilter();
-	if (fresh) enterView();
-	else dom.main.scrollTop = scrollTop;
-}
-function applyLibraryFilter() {
-	const words = lib.filter.toLowerCase().split(/\s+/).filter(Boolean);
-	const list = document.getElementById("lib-list");
-	if (!list) return;
-	if (list.querySelector(".lib-story")) {
-		let n = 0;
-		for (const desk of list.querySelectorAll(".lib-desk")) {
-			let k = 0;
-			for (const el of desk.querySelectorAll(".lib-story")) {
-				const ok = words.every((w) => (el.dataset.hay || "").includes(w));
-				el.hidden = !ok;
-				if (ok) k++;
-			}
-			desk.hidden = k === 0;
-			const total = desk.querySelectorAll(".lib-story").length;
-			const count = desk.querySelector(".lib-desk-count");
-			if (count) count.textContent = words.length && k !== total ? `${k} of ${plural(total, "title")}` : plural(total, "title");
-			n += k;
-		}
-		document.getElementById("lib-none").hidden = n > 0;
-		return;
-	}
-	let shown = 0;
-	let label = null, labelHas = false;
-	const closeLabel = () => {
-		if (label) label.hidden = !labelHas;
-	};
-	for (const el of list.children) {
-		if (el.classList.contains("lib-label")) {
-			closeLabel();
-			label = el;
-			labelHas = false;
-			continue;
-		}
-		const hay = el.dataset.hay || "";
-		const ok = words.every((w) => hay.includes(w));
-		el.hidden = !ok;
-		if (ok) {
-			shown++;
-			labelHas = true;
-		}
-	}
-	closeLabel();
-	document.getElementById("lib-none").hidden = shown > 0;
-}
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id !== "lib-filter") return;
-	lib.filter = e.target.value;
-	applyLibraryFilter();
-});
-dom.view.addEventListener("click", (e) => {
-	const tierBtn = e.target.closest("button[data-lib-tier]");
-	if (tierBtn && dom.view.querySelector(".lib-front")?.contains(tierBtn)) {
-		lib.tier = tierBtn.dataset.libTier || "all";
-		dom.view.innerHTML = libFrontHtml(lib.data);
-		applyLibraryFilter();
-		return;
-	}
-	const sortBtn = e.target.closest("button[data-sort]");
-	if (!sortBtn || !dom.view.querySelector(".lib")?.contains(sortBtn)) return;
-	const fromSeg = Boolean(sortBtn.closest(".lib-seg"));
-	if (sortBtn.dataset.sort !== lib.sort) {
-		lib.sort = sortBtn.dataset.sort;
-		lsSet("libSort", lib.sort);
-		renderLibrary(false);
-	}
-	if (fromSeg) dom.view.querySelector(`.lib-seg [data-sort="${lib.sort}"]`)?.focus();
-	else {
-		const tools = dom.view.querySelector(".lib-tools");
-		if (tools) tools.scrollIntoView({
-			behavior: reduceMotion.matches ? "auto" : "smooth",
-			block: "start"
-		});
-	}
-});
-async function queueBatch(url, body, emptyMsg) {
-	const res = await getJSON(url, body ? {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(body)
-	} : { method: "POST" });
-	for (const j of res.queued || []) state.jobsSeenActive.add(j.id);
-	showToast(res.count ? `Queued ${plural(res.count, "title")}` : emptyMsg);
-	await pollJobs();
-}
-dom.view.addEventListener("click", async (e) => {
-	const btn = e.target.closest("button[data-act]");
-	if (!btn || !dom.view.querySelector(".lib")?.contains(btn)) return;
-	const title = parseInt(btn.dataset.title, 10);
-	const act = btn.dataset.act;
-	if (act === "remove") {
-		if (!btn.classList.contains("is-armed")) {
-			btn.classList.add("is-armed");
-			btn.textContent = "Confirm remove";
-			clearTimeout(btn._t);
-			btn._t = setTimeout(() => {
-				btn.classList.remove("is-armed");
-				btn.textContent = "Remove";
-			}, 4e3);
-			return;
-		}
-		btn.disabled = true;
-		try {
-			await getJSON(`/api/library/${title}`, { method: "DELETE" });
-			showToast(`Removed Title ${title}`);
-			await refreshTitles();
-			await refreshLibrary();
-		} catch (err) {
-			showToast(err.message, 5e3);
-			btn.disabled = false;
-		}
-		return;
-	}
-	btn.disabled = true;
-	try {
-		if (act === "download-suite") {
-			await queueBatch("/api/library/batch-download", { suite: btn.dataset.suite }, "Every title in this suite is installed and current");
-			return;
-		}
-		if (act === "update-all") {
-			await queueBatch("/api/library/update-all", null, "Every installed title is already current");
-			return;
-		}
-		const job = act === "update" ? await getJSON(`/api/library/${title}/update`, { method: "POST" }) : await getJSON("/api/library/download", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				title,
-				part: btn.dataset.part || null,
-				section: btn.dataset.section || null,
-				kind: btn.dataset.kind === "appendix" ? "appendix" : "section"
-			})
-		});
-		state.jobsSeenActive.add(job.id);
-		await pollJobs();
-	} catch (err) {
-		showToast(err.message, 5e3);
-		btn.disabled = false;
-	}
-});
-function setJobs(snapshot) {
-	if (!snapshot) return;
-	state.jobs = snapshot;
-	for (const j of [state.jobs.current, ...state.jobs.queued]) if (j) state.jobsSeenActive.add(j.id);
-	updateDock();
-	updateNavTransfers();
-	document.dispatchEvent(new CustomEvent("framework:jobs-updated", { detail: { snap: snapshot } }));
-}
-function pollJobsIfActive() {
-	if ((state.jobs.current || state.jobs.queued.length) && !state.jobsTimer) state.jobsTimer = setTimeout(pollJobs, 700);
-}
-async function pollJobs() {
-	clearTimeout(state.jobsTimer);
-	state.jobsTimer = null;
-	let snap;
-	try {
-		snap = await getJSON("/api/library/jobs");
-	} catch (e) {
-		state.jobsTimer = setTimeout(pollJobs, 3e3);
-		return;
-	}
-	const before = new Set(state.jobsSeenActive);
-	setJobs(snap);
-	const finished = snap.recent.filter((j) => before.has(j.id));
-	for (const j of finished) {
-		state.jobsSeenActive.delete(j.id);
-		if (j.state === "error") showToast(`${j.label}: ${j.error}`, 6e3);
-		else if (j.state === "cancelled") showToast(`Cancelled ${j.label}`);
-		else showToast(j.phase === "Already installed" ? `${j.label} is already installed` : `Downloaded ${j.label}`);
-	}
-	if (finished.some((j) => j.state === "done")) await refreshTitles(finished.filter((j) => j.state === "done").map((j) => j.title));
-	if (finished.length) {
-		document.dispatchEvent(new CustomEvent("framework:jobs-finished", { detail: {
-			finished,
-			snap
-		} }));
-		navLib.at = 0;
-		state.navStorage = null;
-		if (drawerShown() && navState.panel === "library") ensureNavLibrary(true).then(renderLibraryPanel).catch(() => {});
-		if (drawerShown() || onSettingsPage()) refreshSettingsViews();
-	}
-	if (dom.view.querySelector(".lib")) {
-		if (finished.length) await refreshLibrary();
-		else {
-			const key = [snap.current, ...snap.queued].filter(Boolean).map((j) => `${j.id}${j.state[0]}`).join(",");
-			if (key !== state.lastJobsKey) {
-				state.lastJobsKey = key;
-				renderLibrary(false);
-			}
-		}
-	}
-	refreshWelcome();
-	refreshHomeIfActive();
-	pollJobsIfActive();
-}
-// src/panels/projects_panel.js
-state.newProjectOpen = false;
-function showNewProjectForm() {
-	state.newProjectOpen = true;
-	if (!drawerShown() || navState.panel !== "projects") openPanel("projects");
-	else renderProjectsPanel();
-	requestAnimationFrame(() => document.getElementById("dr-new-name")?.focus());
-}
-var projectRouteId = () => {
-	const m = /\/projects\/([^/?]+)/.exec(state.activeRoute || "");
-	return m ? decodeURIComponent(m[1]) : null;
-};
-function renderProjectsPanel() {
-	const list = loadProjects();
-	const current = projectRouteId();
-	const form = state.newProjectOpen ? `<form class="dr-new" id="dr-new-project">
-      <input class="dr-input" id="dr-new-name" name="name" placeholder="Workspace name" maxlength="80" autocomplete="off" aria-label="New workspace name">
-      <button type="submit" class="lib-act is-primary">Create</button></form>` : "";
-	const rows = list.map((p) => `<a class="dr-proj${p.id === current ? " is-current" : ""}" href="#/projects/${encodeURIComponent(p.id)}"${p.id === current ? " aria-current=\"page\"" : ""}>
-      ${projDot(p)}<span class="dr-proj-text"><span class="dr-name">${escapeHtml(p.name)}</span>
-      <span class="dr-proj-meta">${joinSep([plural(p.sections.length, "section"), escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))])}</span></span></a>`).join("");
-	const mod = isMac ? "⌘" : "Ctrl ";
-	setPanel("projects", `${form}
-    ${list.length ? `<section class="dr-sec">${drLabel("Workspaces", `<span class="dr-count">${list.length}</span>`)}${rows}</section>` : drEmpty("No workspaces yet", `Organize sections for program compliance, an audit, or a review. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>.`) + (state.newProjectOpen ? "" : "<button type=\"button\" class=\"btn dr-empty-btn\" data-nav-act=\"new-project\">New workspace</button>")}
-    <div class="dr-foot">
-      <a class="dr-link" href="#/projects">All workspaces</a>
-      <span class="dr-foot-acts"><button type="button" class="dr-link" data-proj-act="export"${list.length ? "" : " disabled"}>Export</button><button type="button" class="dr-link" data-proj-act="import">Import</button></span>
-    </div>`);
-}
-dom.sidebar.addEventListener("submit", (e) => {
-	if (e.target.id !== "dr-new-project") return;
-	e.preventDefault();
-	const name = e.target.elements.name.value.trim();
-	if (!name) return;
-	state.newProjectOpen = false;
-	const p = createProject(name);
-	window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
-});
-dom.sidebar.addEventListener("keydown", (e) => {
-	if (e.key === "Escape" && e.target.id === "dr-new-name") {
-		e.preventDefault();
-		state.newProjectOpen = false;
-		renderProjectsPanel();
-	}
-});
-// src/views/projects.js
-var PROJECTS_KEY = "framework_projects_v1";
-var PROJECT_HUES = [
-	"--accent",
-	"--ok",
-	"--warn",
-	"--partial",
-	"--blue",
-	"--danger"
-];
-var validProject = (p) => p && typeof p.id === "string" && typeof p.name === "string" && Array.isArray(p.sections);
-var normalizeWorkspace = (p) => ({
-	...p,
-	tags: Array.isArray(p.tags) ? p.tags : [],
-	sections: p.sections.map((s) => ({
-		tier: "federal-reg",
-		jurisdiction: "US",
-		...s
-	})),
-	projects: Array.isArray(p.projects) ? p.projects : [],
-	tab_groups: Array.isArray(p.tab_groups) ? p.tab_groups : []
-});
-function loadProjects() {
-	try {
-		const v = JSON.parse(lsGet("framework_projects_v1") || "[]");
-		return Array.isArray(v) ? v.filter(validProject).map(normalizeWorkspace) : [];
-	} catch (e) {
-		return [];
-	}
-}
-function saveProjects(list, { quiet = false } = {}) {
-	lsSet(PROJECTS_KEY, JSON.stringify(list));
-	if (navState.panel === "projects" || navState.panel === "history") renderPanel(navState.panel);
-	if (navState.panel === "projects") drawerEl.meta.textContent = panelMeta("projects");
-	if (!quiet && routeTarget() === "projects") renderProjects(projectRouteId());
-	if (!quiet && routeTarget() === "overview") refreshHomeIfActive();
-	updatePinButton();
-}
-var nowIso = () => (/* @__PURE__ */ new Date()).toISOString();
-function createProject(name, extra = {}) {
-	const list = loadProjects();
-	const p = {
-		id: `proj_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-		name: (name || "").trim() || "Untitled workspace",
-		description: "",
-		tags: [],
-		created_at: nowIso(),
-		updated_at: nowIso(),
-		sections: [],
-		projects: [],
-		tab_groups: [],
-		...extra
-	};
-	list.unshift(p);
-	saveProjects(list);
-	return p;
-}
-function addTabGroupToWorkspace(workspaceId, groupSnapshot) {
-	if (!groupSnapshot) return null;
-	const p = updateProject(workspaceId, (proj) => {
-		if (!Array.isArray(proj.tab_groups)) proj.tab_groups = [];
-		proj.tab_groups.unshift(groupSnapshot);
-	});
-	if (p) {
-		const count = (groupSnapshot.mainTabs?.length || 0) + (groupSnapshot.splitTabs?.length || 0);
-		showToast(`Saved “${groupSnapshot.name}” (${count} ${count === 1 ? "tab" : "tabs"}) to ${p.name}`);
-	}
-	return p;
-}
-function updateProject(id, fn, opts) {
-	const list = loadProjects();
-	const p = list.find((x) => x.id === id);
-	if (!p) return null;
-	fn(p);
-	p.updated_at = nowIso();
-	saveProjects(list, opts);
-	return p;
-}
-function projectHue(p) {
-	let h = 0;
-	for (const ch of p.id) h = h * 31 + ch.charCodeAt(0) >>> 0;
-	return PROJECT_HUES[h % PROJECT_HUES.length];
-}
-var projDot = (p) => `<span class="proj-dot" style="--hue: var(${projectHue(p)})" aria-hidden="true"></span>`;
-var secKey = (title, id) => `${title}|${id}`;
-var projectsWith = (title, id) => loadProjects().filter((p) => p.sections.some((s) => s.title === title && s.id === id));
-function togglePin(projectId, sec) {
-	let pinned = false;
-	const p = updateProject(projectId, (proj) => {
-		const i = proj.sections.findIndex((s) => s.title === sec.title && s.id === sec.id);
-		if (i >= 0) proj.sections.splice(i, 1);
-		else {
-			proj.sections.push({
-				...sec,
-				pinned_at: nowIso(),
-				note: ""
-			});
-			pinned = true;
-		}
-	});
-	if (p) showToast(pinned ? `Pinned ${sec.label} to ${p.name}` : `Removed ${sec.label} from ${p.name}`);
-	return pinned;
-}
-function currentSectionRef() {
-	if (!state.currentSection) return null;
-	return {
-		title: state.currentTitle,
-		id: state.currentSection.id,
-		label: state.currentSection.label || `§ ${state.currentSection.id}`,
-		heading: state.currentSection.section_title || state.currentSection.title_label || "",
-		part: state.currentSection.part || "",
-		tier: "federal-reg",
-		jurisdiction: "US"
-	};
-}
-function clipToWorkspace(sec, { para = "", quote = "", cite = "", projectId = null } = {}) {
-	if (!sec || !sec.id) return null;
-	let list = loadProjects();
-	let targetProj = projectId ? list.find((x) => x.id === projectId) : list[0];
-	if (!targetProj) {
-		targetProj = createProject("Research clips");
-		list = loadProjects();
-		targetProj = list.find((x) => x.id === targetProj.id) || list[0];
-	}
-	if (!targetProj) return null;
-	const cleanQuote = String(quote || "").replace(/\s+/g, " ").trim();
-	const clippedCite = cite || `${sec.title} C.F.R. ${sec.label || "§ " + sec.id}${para || ""}`;
-	const entryLine = cleanQuote ? `[${clippedCite}] "${cleanQuote}"` : `[${clippedCite}]`;
-	updateProject(targetProj.id, (p) => {
-		let item = p.sections.find((s) => s.title === sec.title && s.id === sec.id);
-		if (!item) {
-			item = {
-				...sec,
-				pinned_at: nowIso(),
-				note: entryLine
-			};
-			p.sections.push(item);
-		} else if (!item.note || !item.note.includes(entryLine)) item.note = item.note ? `${item.note}\n\n${entryLine}` : entryLine;
-	});
-	showToast(`Clipped ${clippedCite} to ${targetProj.name}`);
-	return targetProj;
-}
-function downloadJson(name, data) {
-	const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-	const a = document.createElement("a");
-	a.href = url;
-	a.download = name;
-	document.body.appendChild(a);
-	a.click();
-	a.remove();
-	setTimeout(() => URL.revokeObjectURL(url), 1e3);
-}
-var exportProjects = (list, name = "framework-projects.json") => downloadJson(name, {
-	format: "framework-projects",
-	version: 1,
-	exported_at: nowIso(),
-	projects: list
-});
-var importInput = document.getElementById("projects-import");
-importInput.addEventListener("change", async () => {
-	const file = importInput.files && importInput.files[0];
-	importInput.value = "";
-	if (!file) return;
-	try {
-		const raw = JSON.parse(await file.text());
-		const incoming = (Array.isArray(raw) ? raw : raw.projects || []).filter(validProject);
-		if (!incoming.length) throw new Error("No workspaces in that file");
-		const list = loadProjects();
-		for (const p of incoming) {
-			const i = list.findIndex((x) => x.id === p.id);
-			if (i < 0) list.push(p);
-			else if ((p.updated_at || "") >= (list[i].updated_at || "")) list[i] = p;
-		}
-		saveProjects(list);
-		showToast(`Imported ${plural(incoming.length, "workspace")}`);
-	} catch (err) {
-		showToast(`Couldn’t import: ${err.message}`, 5e3);
-	}
-});
-function startNewWorkspace() {
-	const p = createProject("Untitled workspace");
-	window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
-	requestAnimationFrame(() => setTimeout(() => {
-		const n = dom.view.querySelector(".proj-name");
-		if (n) {
-			n.focus();
-			n.select();
-		}
-	}, 60));
-}
-function onProjectAction(btn) {
-	const act = btn.dataset.projAct;
-	if (act === "export") exportProjects(loadProjects());
-	else if (act === "import") importInput.click();
-	else if (act === "new") startNewWorkspace();
-	else if (act === "export-one") {
-		const p = loadProjects().find((x) => x.id === btn.dataset.id);
-		if (p) exportProjects([p], `${p.name.replace(/[^\w-]+/g, "-").toLowerCase() || "workspace"}.json`);
-	} else if (act === "delete" || act === "unpin" || act === "tabgroup-delete") {
-		if (!btn.classList.contains("is-armed")) {
-			const label = btn.textContent;
-			btn.classList.add("is-armed");
-			btn.textContent = act === "delete" ? "Delete workspace?" : "Remove?";
-			clearTimeout(btn._t);
-			btn._t = setTimeout(() => {
-				btn.classList.remove("is-armed");
-				btn.textContent = label;
-			}, 4e3);
-			return;
-		}
-		if (act === "delete") {
-			const list = loadProjects().filter((x) => x.id !== btn.dataset.id);
-			window.location.hash = "#/projects";
-			saveProjects(list);
-			showToast("Workspace deleted");
-		} else if (act === "unpin") {
-			const [title, ...rest] = btn.dataset.sec.split("|");
-			updateProject(projectRouteId(), (p) => {
-				p.sections = p.sections.filter((s) => !(s.title === Number(title) && s.id === rest.join("|")));
-			});
-		} else if (act === "tabgroup-delete") {
-			const gid = btn.dataset.groupId;
-			updateProject(projectRouteId(), (p) => {
-				p.tab_groups = (p.tab_groups || []).filter((g) => g.id !== gid);
-			});
-		}
-	} else if (act === "tabgroup-restore") {
-		const grp = loadProjects().find((x) => x.id === projectRouteId())?.tab_groups?.find((g) => g.id === btn.dataset.groupId);
-		if (grp) restoreTabGroup(grp);
-	} else if (act === "tabgroup-save-active") {
-		if (!state.mainTabs.length && !state.splitTabs.length) {
-			showToast("No open reader tabs to save");
-			return;
-		}
-		addTabGroupToWorkspace(projectRouteId(), buildTabGroupSnapshot());
-	} else if (act === "task-cycle") {
-		const taskId = btn.dataset.taskId;
-		const order = [
-			"open",
-			"in_progress",
-			"done"
-		];
-		updateProject(projectRouteId(), (p) => {
-			const item = (p.projects || []).find((x) => x.id === taskId);
-			if (item) item.status = order[(order.indexOf(item.status) + 1) % order.length];
-		});
-	} else if (act === "task-remove") {
-		const taskId = btn.dataset.taskId;
-		updateProject(projectRouteId(), (p) => {
-			p.projects = (p.projects || []).filter((x) => x.id !== taskId);
-		});
-	} else if (act === "task-add") {
-		const inp = btn.closest(".proj-detail")?.querySelector("#proj-task-input");
-		const title = inp?.value.trim() || "";
-		if (!title) {
-			inp?.focus();
-			return;
-		}
-		updateProject(projectRouteId(), (p) => {
-			if (!Array.isArray(p.projects)) p.projects = [];
-			p.projects.unshift({
-				id: `act_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
-				title,
-				status: "open",
-				created_at: nowIso()
-			});
-		});
-		showToast("Action project added");
-	}
-}
-dom.sidebar.addEventListener("click", (e) => {
-	const b = e.target.closest("[data-proj-act]");
-	if (b) onProjectAction(b);
-});
-dom.view.addEventListener("click", (e) => {
-	const b = e.target.closest("[data-proj-act]");
-	if (b && dom.view.querySelector(".proj-page, .hm")) onProjectAction(b);
-});
-var TASK_STATUS_LABEL = {
-	open: "Open",
-	in_progress: "In Progress",
-	done: "Done"
-};
-function renderWorkspaceTasksHtml(p) {
-	const tasks = p.projects || [];
-	const rows = tasks.map((t) => `
-    <div class="proj-task-row is-${escapeHtml(t.status || "open")}">
-      <button type="button" class="proj-task-status" data-proj-act="task-cycle" data-task-id="${escapeHtml(t.id)}" title="Click to advance status">${escapeHtml(TASK_STATUS_LABEL[t.status] || "Open")}</button>
-      <span class="proj-task-title">${escapeHtml(t.title)}</span>
-      <button type="button" class="icon-btn proj-task-del" data-proj-act="task-remove" data-task-id="${escapeHtml(t.id)}" aria-label="Remove action project">${icon("close")}</button>
-    </div>
-  `).join("");
-	return `
-    <div class="lib-desk proj-actions-sec">
-      <header class="lib-desk-header"><h2 class="lib-desk-name">Action projects</h2><span class="lib-desk-count">${plural(tasks.length, "project")}</span></header>
-      <div class="proj-task-add">
-        <input type="text" class="ui-input proj-task-input" id="proj-task-input" placeholder="Add an action project (e.g. Audit GHS SDS binder for Line 4)…" aria-label="New action project title" autocomplete="off">
-        <button type="button" class="btn btn-sm btn-accent" data-proj-act="task-add">${icon("plus")} Add project</button>
-      </div>
-      ${rows ? `<div class="proj-task-list">${rows}</div>` : "<p class=\"proj-task-empty\">Action projects turn the legal authorities pinned below into checklists and deliverables.</p>"}
-    </div>`;
-}
-function renderWorkspaceTabGroupsHtml(p) {
-	const groups = p.tab_groups || [];
-	const activeCount = state.mainTabs.length + state.splitTabs.length;
-	const rows = groups.map((g) => {
-		const mainPills = (g.mainTabs || []).map((t) => `<span class="proj-tabgroup-pill" data-ref-tier="${t.tier || "cfr"}"><span class="tier-pip" aria-hidden="true"></span>${escapeHtml(formatTabLabel(t))}</span>`).join("");
-		const splitPills = (g.splitTabs || []).map((s) => `<span class="proj-tabgroup-pill is-split" data-ref-tier="${s.title !== g.mainTabs?.[0]?.title ? "cross" : "cfr"}"><span class="tier-pip" aria-hidden="true"></span>${escapeHtml(s.label || formatTabLabel(s))}</span>`).join("");
-		const total = (g.mainTabs?.length || 0) + (g.splitTabs?.length || 0);
-		return `
-      <article class="proj-tabgroup has-tier-bar" data-ref-tier="cfr">
-        <div class="proj-tabgroup-head">
-          <div class="proj-tabgroup-meta">
-            <h3 class="proj-tabgroup-name">${escapeHtml(g.name)}</h3>
-            <span class="proj-tabgroup-time">${plural(total, "tab")}${SEP}Saved ${escapeHtml(timeAgo(Date.parse(g.saved_at) || Date.now()))}</span>
-          </div>
-          <div class="proj-tabgroup-acts">
-            <button type="button" class="btn btn-sm btn-accent" data-proj-act="tabgroup-restore" data-group-id="${escapeHtml(g.id)}">Open tabs</button>
-            <button type="button" class="lib-act is-danger" data-proj-act="tabgroup-delete" data-group-id="${escapeHtml(g.id)}">Remove</button>
-          </div>
-        </div>
-        ${mainPills ? `<div class="proj-tabgroup-row"><span class="proj-tabgroup-lane">Main</span><div class="proj-tabgroup-pills">${mainPills}</div></div>` : ""}
-        ${splitPills ? `<div class="proj-tabgroup-row"><span class="proj-tabgroup-lane">Side-by-side</span><div class="proj-tabgroup-pills">${splitPills}</div></div>` : ""}
-      </article>`;
-	}).join("");
-	return `
-    <div class="lib-desk proj-tabgroups-sec">
-      <header class="lib-desk-header">
-        <h2 class="lib-desk-name">Saved tab groups</h2>
-        <span class="lib-desk-count">${plural(groups.length, "group")}</span>
-        ${activeCount > 0 ? `<button type="button" class="btn btn-sm" data-proj-act="tabgroup-save-active">${icon("plus")} Save active (${activeCount})</button>` : ""}
-      </header>
-      ${rows ? `<div class="proj-tabgroup-list">${rows}</div>` : "<p class=\"proj-task-empty\">Open multiple sections in reader tabs or side-by-side panes, then click <strong>Save group</strong> to snapshot your research path here.</p>"}
-    </div>`;
-}
-function titlesOf(p) {
-	const ts = [...new Set(p.sections.map((s) => s.title))].sort((a, b) => a - b);
-	return ts.length ? `${ts.length === 1 ? "Title" : "Titles"} ${ts.join(", ")}` : "";
-}
-function renderProjects(id) {
-	state.currentSection = null;
-	state.currentPart = null;
-	clearTreeSelection();
-	updateChatContext();
-	setViewHead("");
-	const list = loadProjects();
-	const sections = list.reduce((a, p) => a + p.sections.length, 0);
-	const fresh = !dom.view.querySelector(`.proj-page[data-id="${id || ""}"]`);
-	if (!id) {
-		document.title = "Workspaces · FRAMEWORK";
-		const cards = list.map((p) => {
-			const topTier = refTierForCorpus(p.sections[0]?.tier || "federal-reg");
-			const taskCount = (p.projects || []).length;
-			const grpCount = (p.tab_groups || []).length;
-			return `<article class="lib-story proj-card has-tier-bar" data-ref-tier="${topTier}">
-        <div class="story-top"><span class="story-kicker">${projDot(p)}Workspace${SEP}Updated ${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</span></div>
-        <h3 class="story-name"><a href="#/projects/${encodeURIComponent(p.id)}">${escapeHtml(p.name)}</a></h3>
-        ${p.description ? `<p class="story-dek">${escapeHtml(p.description)}</p>` : ""}
-        ${p.tags && p.tags.length ? `<div class="proj-tags">${p.tags.map((t) => `<span class="proj-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
-        <div class="story-foot"><span class="story-date">${joinSep([
-				plural(p.sections.length, "section"),
-				taskCount ? plural(taskCount, "project") : "",
-				grpCount ? plural(grpCount, "tab group") : "",
-				escapeHtml(titlesOf(p))
-			])}</span></div>
-      </article>`;
-		}).join("");
-		const mod = isMac ? "⌘" : "Ctrl ";
-		dom.view.innerHTML = `<div class="lib lib-front proj-page" data-id="">
-      <div class="doc-kicker"><a href="#/">Home</a></div>
-      <div class="lib-head">
-        <div class="lib-head-text"><h1 class="doc-title">Workspaces</h1>
-          <p class="lib-sub">${joinSep([
-			"Subject-based workspaces of pinned sections and projects",
-			plural(list.length, "workspace"),
-			plural(sections, "section")
-		])}</p></div>
-        <button type="button" class="btn" data-proj-act="new">${icon("plus")} New workspace</button>
-      </div>
-      ${list.length ? `<div class="lib-desk"><header class="lib-desk-header"><h2 class="lib-desk-name">All workspaces</h2><span class="lib-desk-count">${plural(list.length, "workspace")}</span></header>
-        <div class="lib-stories">${cards}</div></div>` : `<div class="proj-empty"><div class="dr-empty-title">Start a workspace</div>
-            <p>Collect the sections a compliance program, audit, or permit review turns on, with a note on each. Open any section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>, or start an empty workspace here.</p>
-            <span class="proj-empty-acts"><button type="button" class="btn btn-accent" data-proj-act="new">${icon("plus")} New workspace</button><button type="button" class="btn" data-proj-act="import">Import file</button></span></div>`}
-    </div>`;
-		if (fresh) enterView();
-		return;
-	}
-	const p = list.find((x) => x.id === id);
-	if (!p) {
-		document.title = "Workspaces · FRAMEWORK";
-		dom.view.innerHTML = emptyStateHtml({
-			title: "No such workspace",
-			body: "It may have been deleted, or it lives in another browser.",
-			actionsHtml: "<a class=\"btn\" href=\"#/projects\">All workspaces</a>",
-			cls: "proj-page"
-		});
-		return;
-	}
-	document.title = `${p.name} · Workspaces · FRAMEWORK`;
-	const installed = new Set(state.installedTitles.map((t) => t.title));
-	const groupedHtml = TIER_ORDER.map((tier) => {
-		const tierSecs = p.sections.filter((s) => (s.tier || "federal-reg") === tier);
-		if (!tierSecs.length) return "";
-		const tMeta = TIER_META[tier] || TIER_META["federal-reg"];
-		const rTier = tMeta.refTier;
-		const rows = tierSecs.map((s) => {
-			const href = `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
-			return `<article class="proj-item has-tier-bar" data-ref-tier="${rTier}">
-        <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(tMeta.tag)}</span>${SEP}Title ${s.title}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ""}</span>
-          <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || "").slice(0, 10)))}</span></div>
-        <h3 class="story-name">${installed.has(s.title) ? `<a href="${href}">${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}</a>` : `${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}`}</h3>
-        ${installed.has(s.title) ? "" : `<p class="proj-missing">Title ${s.title} isn’t installed. <a href="#/library/${s.title}">Download it</a> to read this section.</p>`}
-        <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || "")}</textarea>
-        <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
-      </article>`;
-		}).join("");
-		return `<div class="proj-tier-group" data-ref-tier="${rTier}">
-      <div class="proj-tier-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(tMeta.label)}</span><span class="proj-tier-count">${tierSecs.length}</span></div>
-      ${rows}
-    </div>`;
-	}).join("");
-	const mod = isMac ? "⌘" : "Ctrl ";
-	dom.view.innerHTML = `<div class="lib proj-page proj-detail" data-id="${escapeHtml(p.id)}">
-    <div class="doc-kicker"><a href="#/projects">Workspaces</a></div>
-    <div class="proj-head">
-      <span class="proj-icon" style="--hue: var(${projectHue(p)})" aria-hidden="true">${icon("folder")}</span>
-      <input class="proj-name" value="${escapeHtml(p.name)}" maxlength="80" aria-label="Workspace name" spellcheck="false">
-      <span class="proj-head-acts">
-        <button type="button" class="btn btn-sm" data-proj-act="export-one" data-id="${escapeHtml(p.id)}">Export</button>
-        <button type="button" class="btn btn-sm is-danger" data-proj-act="delete" data-id="${escapeHtml(p.id)}">Delete</button>
-      </span>
-    </div>
-    <textarea class="proj-desc" rows="1" placeholder="Add a description…" aria-label="Description">${escapeHtml(p.description || "")}</textarea>
-    <dl class="proj-props">
-      <div><dt>Tags</dt><dd><input class="proj-tags-input" value="${escapeHtml((p.tags || []).join(", "))}" placeholder="Add tags, separated by commas" aria-label="Tags"></dd></div>
-      <div><dt>Sections</dt><dd>${joinSep([plural(p.sections.length, "section"), escapeHtml(titlesOf(p))]) || "0 sections"}</dd></div>
-      <div><dt>Created</dt><dd>${escapeHtml(fmtDate((p.created_at || "").slice(0, 10)))}</dd></div>
-      <div><dt>Updated</dt><dd data-f="updated">${escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))}</dd></div>
-    </dl>
-    ${renderWorkspaceTasksHtml(p)}
-    ${renderWorkspaceTabGroupsHtml(p)}
-    <div class="lib-desk">
-      <header class="lib-desk-header"><h2 class="lib-desk-name">Pinned sections</h2><span class="lib-desk-count">${plural(p.sections.length, "section")}</span></header>
-      ${groupedHtml || `<div class="proj-empty is-inline"><p>Nothing pinned yet. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd> to add it here.</p></div>`}
-    </div>
-  </div>`;
-	for (const t of dom.view.querySelectorAll(".proj-desc, .proj-note")) autosize(t);
-	if (fresh) enterView();
-	if (navState.panel === "projects") renderProjectsPanel();
-}
-function autosize(t) {
-	t.style.height = "auto";
-	t.style.height = `${t.scrollHeight}px`;
-}
-state.projEditT = null;
-dom.view.addEventListener("input", (e) => {
-	const page = e.target.closest(".proj-detail");
-	if (!page) return;
-	const id = page.dataset.id;
-	const t = e.target;
-	if (t.matches("textarea")) autosize(t);
-	clearTimeout(state.projEditT);
-	state.projEditT = setTimeout(() => {
-		updateProject(id, (p) => {
-			if (t.matches(".proj-name")) p.name = t.value.trim() || "Untitled workspace";
-			else if (t.matches(".proj-desc")) p.description = t.value;
-			else if (t.matches(".proj-tags-input")) p.tags = t.value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
-			else if (t.matches(".proj-note")) {
-				const s = p.sections.find((x) => secKey(x.title, x.id) === t.dataset.sec);
-				if (s) s.note = t.value;
-			}
-		}, { quiet: true });
-		const upd = page.querySelector("[data-f=\"updated\"]");
-		if (upd) upd.textContent = "just now";
-		if (t.matches(".proj-name")) document.title = `${t.value.trim() || "Untitled workspace"} · Workspaces · FRAMEWORK`;
-	}, 300);
-});
-dom.view.addEventListener("keydown", (e) => {
-	if (e.key === "Enter" && e.target.id === "proj-task-input") {
-		e.preventDefault();
-		const btn = e.target.closest(".proj-task-add")?.querySelector("[data-proj-act=\"task-add\"]");
-		if (btn) onProjectAction(btn);
-		return;
-	}
-	if (e.key === "Enter" && e.target.matches(".proj-name, .proj-tags-input")) {
-		e.preventDefault();
-		e.target.blur();
-	}
-});
-// src/components/pin_pop.js
-var pinPop = document.getElementById("pin-pop");
-var pinTargetOverride = null;
-var pinAnchorOverride = null;
-var pinPopMode = "pin";
-function activePinSection() {
-	return pinTargetOverride || currentSectionRef();
-}
-function pinButtonHtml(secRef = null, id = "btn-pin") {
-	const t = secRef ? secRef.title : state.currentTitle;
-	const sId = secRef ? secRef.id : state.currentSection?.id;
-	const n = sId ? projectsWith(t, sId).length : 0;
-	return `<button type="button" class="${id === "btn-pin" ? "btn" : "btn btn-small"}${n ? " is-pinned" : ""}" id="${id}" aria-haspopup="dialog" aria-expanded="false" title="Pin to a workspace (${isMac ? "⌘" : "Ctrl "}D)">${icon(n ? "bookmarkFilled" : "bookmark")} ${n ? "Pinned" : "Pin"}</button>`;
-}
-function updatePinButton() {
-	const b = document.getElementById("btn-pin");
-	if (b) b.outerHTML = pinButtonHtml();
-	const sb = document.getElementById("split-btn-pin");
-	if (sb && state.splitState?.sectionId) sb.outerHTML = pinButtonHtml({
-		title: state.splitState.title,
-		id: state.splitState.sectionId
-	}, "split-btn-pin");
-}
-function renderPinMenu() {
-	const sec = activePinSection();
-	if (!sec) return;
-	const list = loadProjects();
-	pinPop.innerHTML = `<div class="pin-head">
-      <span>Pin <strong>${escapeHtml(sec.label)}</strong> to</span>
-      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close pin menu">${icon("close")}</button>
-    </div>
-    ${list.length ? `<div class="pin-list" role="group" aria-label="Workspaces">${list.map((p) => {
-		const on = p.sections.some((s) => s.title === sec.title && s.id === sec.id);
-		return `<button type="button" class="pin-opt" role="menuitemcheckbox" aria-checked="${on}" data-proj="${escapeHtml(p.id)}">
-        <span class="pin-check">${on ? icon("check") : ""}</span>${projDot(p)}<span class="pin-name">${escapeHtml(p.name)}</span><span class="pin-count">${p.sections.length}</span></button>`;
-	}).join("")}</div>` : "<p class=\"pin-none\">No workspaces yet. Name one to start.</p>"}
-    <form class="pin-new"><input class="dr-input" name="name" placeholder="New workspace…" maxlength="80" autocomplete="off" aria-label="New workspace name"></form>`;
-}
-var pinCtrl = createPopover({
-	el: pinPop,
-	triggerSelector: "#btn-pin, #split-btn-pin, [data-tabs-act=\"save-group\"], [data-split-tabs-act=\"save-group\"]",
-	onClose: () => {
-		pinTargetOverride = null;
-		pinAnchorOverride = null;
-		pinPopMode = "pin";
-	}
-});
-function renderSaveGroupMenu(initialName = "") {
-	const list = loadProjects();
-	const mainCount = state.mainTabs.length;
-	const splitCount = state.splitTabs.length;
-	const counts = `${mainCount} main${splitCount ? ` + ${splitCount} side-by-side` : ""}`;
-	const groupName = initialName || suggestTabGroupName();
-	pinPop.innerHTML = `<div class="pin-head">
-      <span>Save <strong>${escapeHtml(counts)}</strong> tab group</span>
-      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close save tab group menu">${icon("close")}</button>
-    </div>
-    <div class="pin-group-field">
-      <input class="dr-input" id="pin-group-name" value="${escapeHtml(groupName)}" placeholder="Research path name…" maxlength="80" autocomplete="off" aria-label="Tab group name">
-    </div>
-    ${list.length ? `<div class="pin-list" role="group" aria-label="Choose workspace">${list.map((p) => {
-		const grpCount = (p.tab_groups || []).length;
-		return `<button type="button" class="pin-opt" data-save-group-proj="${escapeHtml(p.id)}">
-        <span class="pin-check">${icon("folder")}</span>${projDot(p)}<span class="pin-name">${escapeHtml(p.name)}</span><span class="pin-count">${grpCount ? `${grpCount} grp` : p.sections.length}</span></button>`;
-	}).join("")}</div>` : "<p class=\"pin-none\">No workspaces yet. Name one below to save this research path.</p>"}
-    <form class="pin-new"><input class="dr-input" name="name" placeholder="New workspace…" maxlength="80" autocomplete="off" aria-label="New workspace name and save"></form>`;
-}
-function openSaveTabGroupMenu(anchorEl) {
-	if (!anchorEl) return;
-	if (!pinPop.hidden && pinPopMode === "tabgroup" && pinAnchorOverride === anchorEl) {
-		closePinMenu(true);
-		return;
-	}
-	pinPopMode = "tabgroup";
-	pinTargetOverride = null;
-	pinAnchorOverride = anchorEl;
-	renderSaveGroupMenu();
-	pinCtrl.open(anchorEl, null, {
-		focusSelector: "#pin-group-name, .pin-opt",
-		returnFocus: anchorEl
-	});
-}
-function openPinMenu(anchorEl = null, customRef = null) {
-	if (!(customRef || currentSectionRef())) return;
-	pinPopMode = "pin";
-	pinTargetOverride = customRef || null;
-	const btn = anchorEl || document.getElementById("btn-pin");
-	pinAnchorOverride = btn;
-	renderPinMenu();
-	pinCtrl.open(btn, null, {
-		focusSelector: ".pin-opt, .pin-new input",
-		returnFocus: btn || document.activeElement
-	});
-}
-function toggleSplitPinMenu(anchorEl, customRef) {
-	if (!pinPop.hidden && pinTargetOverride?.id === customRef?.id && pinTargetOverride?.title === customRef?.title) closePinMenu(true);
-	else openPinMenu(anchorEl, customRef);
-}
-function closePinMenu(returnFocus = true) {
-	pinCtrl.close(returnFocus);
-}
-pinPop.addEventListener("click", (e) => {
-	if (e.target.closest("[data-pop-close]")) {
-		closePinMenu(true);
-		return;
-	}
-	const saveProjBtn = e.target.closest("[data-save-group-proj]");
-	if (saveProjBtn && pinPopMode === "tabgroup") {
-		const snapshot = buildTabGroupSnapshot(pinPop.querySelector("#pin-group-name")?.value || "");
-		addTabGroupToWorkspace(saveProjBtn.dataset.saveGroupProj, snapshot);
-		closePinMenu(true);
-		return;
-	}
-	const opt = e.target.closest(".pin-opt");
-	if (!opt) return;
-	const sec = activePinSection();
-	if (!sec) return;
-	const targetAnchor = pinAnchorOverride?.isConnected ? pinAnchorOverride : document.getElementById(pinAnchorOverride?.id || "btn-pin");
-	togglePin(opt.dataset.proj, sec);
-	const focusId = opt.dataset.proj;
-	renderPinMenu();
-	pinCtrl.reposition(targetAnchor);
-	pinPop.querySelector(`.pin-opt[data-proj="${focusId}"]`)?.focus();
-});
-pinPop.addEventListener("submit", (e) => {
-	e.preventDefault();
-	const name = e.target.elements.name.value.trim();
-	if (!name) return;
-	if (pinPopMode === "tabgroup") {
-		const grpName = pinPop.querySelector("#pin-group-name")?.value || "";
-		addTabGroupToWorkspace(createProject(name).id, buildTabGroupSnapshot(grpName));
-		closePinMenu(true);
-		return;
-	}
-	const sec = activePinSection();
-	if (!sec) return;
-	const targetAnchor = pinAnchorOverride?.isConnected ? pinAnchorOverride : document.getElementById(pinAnchorOverride?.id || "btn-pin");
-	const p = createProject(name);
-	togglePin(p.id, sec);
-	renderPinMenu();
-	pinCtrl.reposition(targetAnchor);
-	pinPop.querySelector(`.pin-opt[data-proj="${p.id}"]`)?.focus();
-});
-pinPop.addEventListener("keydown", (e) => {
-	if (e.key === "Escape") {
-		e.preventDefault();
-		e.stopPropagation();
-		closePinMenu(true);
-		return;
-	}
-	if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-	const items = [...pinPop.querySelectorAll(".pin-opt, input")];
-	if (!items.length) return;
-	const i = items.indexOf(document.activeElement);
-	e.preventDefault();
-	items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
-});
-dom.view.addEventListener("click", (e) => {
-	if (e.target.closest("#btn-pin")) pinPop.hidden ? openPinMenu() : closePinMenu();
-});
-// src/panels/recent_panel.js
-function renderHistoryPanel() {
-	const u = loadUsage();
-	const rows = Object.entries(u.s).map(([key, e]) => ({
-		key,
-		title: Number(key.split("|")[0]),
-		id: key.slice(key.indexOf("|") + 1),
-		...e
-	})).sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 24);
-	const dayOf = (ms) => {
-		const d = new Date(ms);
-		const days = Math.floor((new Date((/* @__PURE__ */ new Date()).toDateString()) - new Date(d.toDateString())) / 864e5);
-		return days === 0 ? "Today" : days === 1 ? "Yesterday" : days < 7 ? "This week" : "Earlier";
-	};
-	let lastDay = "";
-	const list = rows.map((r) => {
-		const day = dayOf(r.t);
-		const label = day !== lastDay ? `<div class="dr-day">${day}</div>` : "";
-		lastDay = day;
-		return `${label}<a class="dr-item" href="#/title/${r.title}/section/${encodeURIComponent(r.id)}">
-      <span class="dr-item-top"><span class="dr-item-kicker">${escapeHtml(r.l || "§ " + r.id)}<span class="sep" aria-hidden="true">·</span>Title ${r.title}</span><span class="dr-time">${escapeHtml(timeAgo(r.t))}</span></span>
-      <span class="dr-item-name">${escapeHtml(r.h || "")}</span></a>`;
-	}).join("");
-	const pins = loadProjects().flatMap((p) => p.sections.map((s) => ({
-		...s,
-		project: p
-	}))).sort((a, b) => (b.pinned_at || "").localeCompare(a.pinned_at || "")).slice(0, 6);
-	setPanel("history", `
-    <section class="dr-sec">${drLabel("Recently read")}${list || drEmpty("Nothing read yet", "Sections you open appear here, newest first.")}</section>
-    ${pins.length ? `<section class="dr-sec">${drLabel("Recent pins")}${pins.map((s) => `<a class="dr-item" href="#/title/${s.title}/section/${encodeURIComponent(s.id)}">
-        <span class="dr-item-top"><span class="dr-item-kicker">§ ${escapeHtml(s.id)}<span class="sep" aria-hidden="true">·</span>${escapeHtml(s.project.name)}</span></span>
-        <span class="dr-item-name">${escapeHtml(s.heading || "")}</span></a>`).join("")}</section>` : ""}`);
-}
-dom.sidebar.addEventListener("click", async (e) => {
-	const set = e.target.closest("[data-set]");
-	if (set) {
-		if (set.dataset.set === "mode") setNavMode(set.dataset.value);
-		else if (set.dataset.set === "motion") setMotionSetting(set.dataset.value);
-		return;
-	}
-	const navAct = e.target.closest("[data-nav-act]");
-	if (navAct && navAct.dataset.navAct === "new-project") {
-		showNewProjectForm();
-		return;
-	}
-	const setAct = e.target.closest("[data-set-act]");
-	if (setAct) {
-		runSettingsAction(setAct);
-		return;
-	}
-	const dockBtn = e.target.closest("[data-dock]");
-	if (dockBtn) {
-		onDockAction(dockBtn);
-		return;
-	}
-	const act = e.target.closest("button[data-act]");
-	if (act && (act.dataset.act === "download-suite" || act.dataset.act === "update-all")) {
-		act.disabled = true;
-		try {
-			if (act.dataset.act === "download-suite") await queueBatch("/api/library/batch-download", { suite: act.dataset.suite }, "Every title in this suite is installed and current");
-			else await queueBatch("/api/library/update-all", null, "Every installed title is already current");
-		} catch (err) {
-			showToast(err.message, 5e3);
-			act.disabled = false;
-		}
-	}
-});
-dom.sidebar.addEventListener("input", (e) => {
-	if (e.target.id === "set-size") applyFontSize(e.target.value);
-});
-dom.sidebar.addEventListener("change", (e) => {
-	if (e.target.matches("[data-set-model]")) {
-		dom.modelSelect.value = e.target.value;
-		dom.modelSelect.dispatchEvent(new Event("change"));
-	}
-});
-// src/nav.js
-var NAV_PANELS = {
-	reader: "Contents",
-	projects: "Workspaces",
-	library: "Library",
-	settings: "Settings",
-	history: "Recent"
-};
-var NAV_TARGETS = [
-	"overview",
-	"home",
-	"reader",
-	"projects",
-	"news",
-	"library",
-	"settings"
-];
-var navState = (() => {
-	let st = {};
-	try {
-		st = JSON.parse(lsGet("railState") || "{}") || {};
-	} catch (e) {
-		st = {};
-	}
-	const w = st.width || parseInt(lsGet("sidebarW"), 10) || null;
-	return {
-		panel: NAV_PANELS[st.panel] && st.panel !== "history" ? st.panel : "reader",
-		collapsed: st.collapsed != null ? Boolean(st.collapsed) : lsGet("sidebarHidden") === "1",
-		mode: st.mode === "flyout" ? "flyout" : "pinned",
-		width: w >= 220 && w <= 560 ? w : null
-	};
-})();
-state.navRetracted = document.documentElement.classList.contains("drawer-retracted");
-state.historyFor = "overview";
-var mqMobile = window.matchMedia("(max-width: 900px)");
-var mqNarrow = window.matchMedia("(max-width: 1200px)");
-var railEl = document.getElementById("activity-rail");
-var drawerEl = {
-	title: document.getElementById("drawer-title"),
-	meta: document.getElementById("drawer-meta"),
-	acts: document.getElementById("drawer-acts"),
-	mode: document.getElementById("drawer-mode"),
-	close: document.getElementById("drawer-close")
-};
-function saveNav() {
-	lsSet("railState", JSON.stringify(navState));
-}
-var isFly = () => navState.mode === "flyout" || mqMobile.matches || mqNarrow.matches && dom.layout.classList.contains("chat-open");
-var flyOpen = () => document.body.classList.contains("nav-open");
-var drawerShown = () => isFly() ? flyOpen() : !navState.collapsed && !state.navRetracted;
-function routeTarget(path = state.activeRoute) {
-	const p = path || "/";
-	if (p === "/") return "overview";
-	if (/^\/title\/\d+\/?$/.test(p)) return "home";
-	const rest = p.replace(/^\/title\/\d+/, "");
-	if (rest.startsWith("/library")) return "library";
-	if (rest.startsWith("/projects")) return "projects";
-	if (rest.startsWith("/news")) return "news";
-	if (rest.startsWith("/help") || rest.startsWith("/settings")) return "settings";
-	return "reader";
-}
-function announce(text) {
-	const live = document.getElementById("nav-live");
-	if (live) live.textContent = text;
-}
-function applyNav() {
-	const root = document.documentElement;
-	const fly = isFly();
-	if (!fly && flyOpen()) document.body.classList.remove("nav-open");
-	root.classList.toggle("drawer-fly", fly);
-	root.classList.toggle("drawer-collapsed", !fly && navState.collapsed);
-	root.classList.toggle("drawer-retracted", !fly && !navState.collapsed && state.navRetracted);
-	const shown = drawerShown();
-	dom.sidebar.inert = !shown;
-	for (const el of dom.sidebar.querySelectorAll(".drawer-panel")) el.hidden = el.dataset.panel !== navState.panel;
-	drawerEl.title.textContent = NAV_PANELS[navState.panel];
-	drawerEl.meta.textContent = panelMeta(navState.panel);
-	drawerEl.acts.innerHTML = panelActions(navState.panel);
-	const pinned = navState.mode === "pinned";
-	drawerEl.mode.setAttribute("aria-pressed", String(pinned));
-	drawerEl.mode.title = pinned ? "Float the drawer over the page" : "Pin the drawer beside the page";
-	drawerEl.mode.setAttribute("aria-label", drawerEl.mode.title);
-	drawerEl.mode.innerHTML = icon(pinned ? "pin" : "pinOff");
-	drawerEl.mode.hidden = mqMobile.matches;
-	const route = routeTarget();
-	const lit = shown ? navState.panel === "history" ? state.historyFor : navState.panel : route;
-	for (const b of railEl.querySelectorAll(".ar-btn")) {
-		const t = b.dataset.target;
-		b.classList.toggle("is-active", t === lit);
-		if (b.tagName === "A") {
-			if (t === route) b.setAttribute("aria-current", "page");
-			else b.removeAttribute("aria-current");
-		} else b.setAttribute("aria-expanded", String(shown && navState.panel === t));
-	}
-	document.body.classList.toggle("drawer-library", shown && navState.panel === "library");
-}
-function panelMeta(panel) {
-	if (panel === "reader") return state.noTitles ? "No titles installed" : `Title ${state.currentTitle}`;
-	if (panel === "projects") {
-		const n = loadProjects().length;
-		return n ? plural(n, "workspace") : "";
-	}
-	if (panel === "library") return state.installedTitles.length ? `${state.installedTitles.length} installed` : "";
-	if (panel === "history") return "Reading history";
-	return "";
-}
-function panelActions(panel) {
-	if (panel === "projects") return `<button type="button" class="icon-btn drawer-icon" data-nav-act="new-project" title="New workspace" aria-label="New workspace">${icon("plus")}</button>`;
-	if (panel === "library") return `<a class="icon-btn drawer-icon" href="#/library" title="Open the library" aria-label="Open the library">${icon("external")}</a>`;
-	return "";
-}
-function renderPanel(panel) {
-	if (panel === "projects") renderProjectsPanel();
-	else if (panel === "library") renderLibraryPanel();
-	else if (panel === "settings") renderSettingsPanel();
-	else if (panel === "history") renderHistoryPanel();
-}
-function focusPanel(panel) {
-	const el = document.getElementById(`panel-${panel}`);
-	if (!el) return;
-	const first = panel === "reader" ? dom.treeFilter : el.querySelector("input, button, a[href], select, textarea");
-	if (first) requestAnimationFrame(() => first.focus({ preventScroll: true }));
-}
-function openPanel(panel, { focus = false, toggle = false } = {}) {
-	if (toggle && drawerShown() && navState.panel === panel) {
-		closeDrawer();
-		return;
-	}
-	navState.panel = panel;
-	if (isFly()) document.body.classList.add("nav-open");
-	else {
-		navState.collapsed = false;
-		state.navRetracted = false;
-	}
-	if (panel !== "history") saveNav();
-	renderPanel(panel);
-	applyNav();
-	if (panel === "reader") requestAnimationFrame(() => revealCurrent(false));
-	if (focus) focusPanel(panel);
-	announce(`${NAV_PANELS[panel]} drawer open`);
-}
-function closeDrawer() {
-	const hadFocus = dom.sidebar.contains(document.activeElement);
-	if (isFly()) document.body.classList.remove("nav-open");
-	else navState.collapsed = true;
-	saveNav();
-	applyNav();
-	if (hadFocus) railEl.querySelector(".ar-btn.is-active, .ar-btn[aria-current]")?.focus();
-	announce("Drawer closed");
-}
-function toggleDrawer(focus = true) {
-	if (drawerShown()) closeDrawer();
-	else openPanel(navState.panel === "history" ? "reader" : navState.panel, { focus });
-}
-function goTarget(t) {
-	if (t === "overview") window.location.hash = "#/";
-	else if (t === "home") window.location.hash = `#/title/${state.currentTitle}/`;
-	else if (t === "news") {
-		if (routeTarget() === "news") dom.main.scrollTop = 0;
-		else window.location.hash = "#/news";
-	} else openPanel(t, { focus: true });
-}
-function setNavMode(mode) {
-	navState.mode = mode === "flyout" ? "flyout" : "pinned";
-	if (navState.mode === "pinned") navState.collapsed = false;
-	saveNav();
-	applyNav();
-	refreshSettingsViews();
-}
-function syncNavToRoute(path) {
-	const t = routeTarget(path);
-	document.body.classList.remove("nav-open");
-	state.navRetracted = t === "overview" || t === "home" || t === "news" || t === "settings" || state.noTitles && t === "reader";
-	if (t === "library" && navState.panel !== "library") navState.panel = "library";
-	else if (t === "projects") navState.panel = "projects";
-	else if (t === "reader" && (navState.panel === "history" || navState.panel === "library")) navState.panel = "reader";
-	if (navState.panel !== "history") saveNav();
-	renderPanel(navState.panel);
-	applyNav();
-}
-function updateRailHome() {
-	const home = document.getElementById("ar-home");
-	if (!home) return;
-	if (state.noTitles) {
-		home.href = "#/";
-		home.dataset.tip = "Pick a profile";
-		home.setAttribute("aria-label", "Pick a profile");
-		return;
-	}
-	home.href = `#/title/${state.currentTitle}/`;
-	const t = state.installedTitles.find((x) => x.title === state.currentTitle);
-	home.dataset.tip = `Title ${state.currentTitle} start`;
-	home.setAttribute("aria-label", `Title ${state.currentTitle}${t ? " " + t.name : ""} start`);
-}
-function updateRailBadge() {
-	const badge = document.getElementById("ar-library-badge");
-	if (!badge) return;
-	const busy = Boolean(state.jobs.current || state.jobs.queued.length);
-	const stale = navLib.data ? navLib.data.titles.filter(isStale).length : 0;
-	badge.hidden = !busy && !stale;
-	badge.className = `ar-badge${busy ? " is-busy" : stale ? " is-stale" : ""}`;
-	const btn = badge.closest(".ar-btn");
-	btn.dataset.tip = busy ? "Library · downloading" : stale ? `Library · ${plural(stale, "update")}` : "Library";
-}
-railEl.addEventListener("click", (e) => {
-	const btn = e.target.closest(".ar-btn");
-	if (!btn) return;
-	const t = btn.dataset.target;
-	if (btn.tagName === "A") {
-		if (routeTarget() === t) {
-			e.preventDefault();
-			if (t === "news") {
-				dom.main.scrollTop = 0;
-				return;
-			}
-			state.historyFor = t;
-			openPanel("history", {
-				toggle: true,
-				focus: e.detail === 0
-			});
-		}
-		return;
-	}
-	openPanel(t, {
-		toggle: true,
-		focus: e.detail === 0
-	});
-});
-railEl.addEventListener("keydown", (e) => {
-	const i = (mqMobile.matches ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"]).indexOf(e.key);
-	if (i < 0 && e.key !== "Home" && e.key !== "End") return;
-	const items = [...railEl.querySelectorAll(".ar-btn")];
-	const at = items.indexOf(document.activeElement);
-	if (at < 0) return;
-	e.preventDefault();
-	items[e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (at + (i ? 1 : -1) + items.length) % items.length].focus();
-});
-drawerEl.close.addEventListener("click", () => closeDrawer());
-drawerEl.mode.addEventListener("click", () => setNavMode(navState.mode === "pinned" ? "flyout" : "pinned"));
-dom.navBackdrop.addEventListener("click", () => closeDrawer());
-dom.navToggle.addEventListener("click", (e) => toggleDrawer(e.detail === 0));
-for (const mq of [mqMobile, mqNarrow]) mq.addEventListener("change", () => applyNav());
-state.goPending = 0;
-var GO_KEYS = {
-	h: "overview",
-	o: "overview",
-	t: "home",
-	c: "reader",
-	p: "projects",
-	n: "news",
-	l: "library",
-	s: "settings"
-};
-document.addEventListener("keydown", (e) => {
-	const active = document.activeElement;
-	const typing = active && (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
-	const mod = e.metaKey || e.ctrlKey;
-	if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") {
-		e.preventDefault();
-		toggleDrawer();
-		return;
-	}
-	if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d" && state.currentSection && routeTarget() === "reader") {
-		e.preventDefault();
-		openPinMenu();
-		return;
-	}
-	if (e.altKey && !mod && /^Digit[1-7]$/.test(e.code)) {
-		e.preventDefault();
-		goTarget(NAV_TARGETS[Number(e.code.slice(5)) - 1]);
-		return;
-	}
-	if (e.key === "Escape" && isFly() && flyOpen() && !e.defaultPrevented) {
-		closeDrawer();
-		return;
-	}
-	if (typing || mod || e.altKey) return;
-	const k = e.key.toLowerCase();
-	if (state.goPending && Date.now() - state.goPending < 1200 && GO_KEYS[k]) {
-		e.preventDefault();
-		state.goPending = 0;
-		goTarget(GO_KEYS[k]);
-		return;
-	}
-	state.goPending = k === "g" ? Date.now() : 0;
-});
-// src/components/chat.js
-function toggleChat() {
-	if (state.noTitles) return;
-	if (dom.chat.hidden) openChat();
-	else closeChat();
-}
-function openChat() {
-	dom.chat.hidden = false;
-	dom.layout.classList.add("chat-open");
-	applyNav();
-	dom.chatToggle.classList.add("is-active");
-	dom.chatToggle.setAttribute("aria-expanded", "true");
-	if (state.chatHistory.length === 0) renderChatWelcome();
-	dom.chatText.focus();
-}
-function closeChat() {
-	const hadFocus = dom.chat.contains(document.activeElement);
-	dom.chat.hidden = true;
-	dom.layout.classList.remove("chat-open");
-	applyNav();
-	dom.chatToggle.classList.remove("is-active");
-	dom.chatToggle.setAttribute("aria-expanded", "false");
-	if (hadFocus) dom.chatToggle.focus();
-}
-function updateChatContext() {
-	if (state.currentSection) {
-		dom.chatContext.hidden = false;
-		dom.contextLabel.textContent = `${state.currentSection.label} (Title ${state.currentTitle})`;
-	} else dom.chatContext.hidden = true;
-	if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
-}
-var HOME_PROMPTS = {
-	29: [
-		"How do overtime exemptions work under Part 541?",
-		"What are OSHA’s main hazard communication rules?",
-		"What are employer responsibilities under FMLA?"
-	],
-	40: [
-		"What makes a waste “hazardous” under RCRA?",
-		"When does a facility need a Title V operating permit?",
-		"What has to be reported after a chemical spill, and to whom?"
-	],
-	49: [
-		"What are the placarding rules for hazmat shipments?",
-		"Who needs a CDL, and what disqualifies a driver?",
-		"Which carriers are subject to the FMCSA safety regulations?"
-	]
-};
-function renderChatWelcome() {
-	if (!state.chatConfig.configured) {
-		dom.chatMessages.innerHTML = `
-      <div class="setup-card">
-        <h3>Connect Claude</h3>
-        <p>Reading and search work without it. To ask questions and summarize sections, add an Anthropic API key:</p>
-        <ol>
-          <li>Create a key at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a></li>
-          <li>Save it to <code>reader/.env</code> using the built-in key editor (no restart required).</li>
-        </ol>
-        <div class="setup-card-actions">
-          <button type="button" class="btn btn-sm btn-accent" data-open-env="anthropic_api_key">${icon("key")} Enter Anthropic Key</button>
-          <a class="btn btn-sm" href="#/help">${icon("help")} Setup Guide</a>
-        </div>
-      </div>
-    `;
-		return;
-	}
-	if (state.chatConfig.error) {
-		dom.chatMessages.innerHTML = `
-      <div class="setup-card">
-        <h3>Claude isn’t available</h3>
-        <p class="setup-error">${escapeHtml(state.chatConfig.error)}</p>
-        <p>Reading and search still work in the meantime.</p>
-      </div>
-    `;
-		return;
-	}
-	let prompts = [
-		"What are the key requirements in this section?",
-		"Who is exempt and who is covered?",
-		"Draft an audit and compliance checklist for this rule."
-	];
-	if (!state.currentSection) prompts = HOME_PROMPTS[state.currentTitle] || [
-		"What does this title cover, at a high level?",
-		"What are the most important definitions in this title?",
-		"Find the penalty and enforcement provisions in this title."
-	];
-	const titleList = state.installedTitles.map((t) => "Title " + t.title).join(", ") || `Title ${state.currentTitle}`;
-	dom.chatMessages.innerHTML = `
-    <div class="chat-empty">
-      <h3>Ask Claude about ${state.currentSection ? escapeHtml(state.currentSection.label) : "Title " + state.currentTitle}</h3>
-      <p>Claude searches and reads the full regulation text across ${escapeHtml(titleList)}. Select any passage in a section to ask about it.</p>
-      <div class="suggestions">
-        ${prompts.map((p) => `<button type="button" data-prompt="${escapeHtml(p)}">${escapeHtml(p)}</button>`).join("")}
-      </div>
-    </div>
-  `;
-	dom.chatMessages.querySelectorAll(".suggestions button").forEach((b) => {
-		b.addEventListener("click", () => {
-			dom.chatText.value = b.dataset.prompt;
-			submitChat();
-		});
-	});
-}
-var TOOL_LABELS = {
-	search_regulations: "Searching the regulations…",
-	read_section: "Reading a section…",
-	list_part: "Looking through a part…"
-};
-async function submitChat() {
-	const text = dom.chatText.value.trim();
-	if (!text || state.isGenerating) return;
-	if (!state.chatConfig.configured) {
-		openChat();
-		return;
-	}
-	if (!(dom.modelSelect.value || state.chatConfig.default)) {
-		showToast(state.chatConfig.error || "Claude isn’t available right now.", 5e3);
-		return;
-	}
-	dom.chatText.value = "";
-	dom.chatText.style.height = "auto";
-	state.chatHistory.push({
-		role: "user",
-		content: text
-	});
-	appendChatMessage("user", text);
-	const assistantMsgEl = appendChatMessage("assistant", "");
-	state.isGenerating = true;
-	dom.chatSend.disabled = true;
-	const model = dom.modelSelect.value || state.chatConfig.default;
-	const sectionId = dom.contextToggle.checked && state.currentSection ? state.currentSection.id : null;
-	let replyText = "";
-	try {
-		const res = await fetch("/api/" + state.currentTitle + "/chat", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				messages: state.chatHistory,
-				section_id: sectionId,
-				model
-			})
-		});
-		if (!res.ok) {
-			assistantMsgEl.innerHTML = `<div class="msg-error">${escapeHtml((await res.json()).detail || "Request failed")}</div>`;
-			return;
-		}
-		const reader = res.body.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-		let toolsEl = null;
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
-			const lines = buffer.split("\n\n");
-			buffer = lines.pop();
-			for (const line of lines) {
-				if (!line.startsWith("data: ")) continue;
-				const ev = JSON.parse(line.slice(6));
-				if (ev.type === "tool") {
-					if (!toolsEl) {
-						toolsEl = document.createElement("div");
-						toolsEl.className = "tool-activity";
-						assistantMsgEl.prepend(toolsEl);
-					}
-					const chip = document.createElement("span");
-					chip.className = "tool-chip running";
-					chip.id = `tool-${Date.now()}`;
-					chip.textContent = TOOL_LABELS[ev.name] || `Using ${ev.name}…`;
-					toolsEl.appendChild(chip);
-				} else if (ev.type === "tool_result") {
-					if (toolsEl && toolsEl.lastElementChild) {
-						toolsEl.lastElementChild.className = "tool-chip";
-						toolsEl.lastElementChild.textContent = ev.summary || `Finished ${ev.name}`;
-					}
-				} else if (ev.type === "text") {
-					replyText += ev.text;
-					let contentDiv = assistantMsgEl.querySelector(".md");
-					if (!contentDiv) {
-						contentDiv = document.createElement("div");
-						contentDiv.className = "md";
-						assistantMsgEl.appendChild(contentDiv);
-					}
-					contentDiv.innerHTML = renderMarkdown(replyText);
-					dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
-				} else if (ev.type === "error") {
-					const errDiv = document.createElement("div");
-					errDiv.className = "msg-error";
-					errDiv.textContent = ev.message;
-					assistantMsgEl.appendChild(errDiv);
-				}
-			}
-		}
-	} catch (err) {
-		assistantMsgEl.innerHTML = `<div class="msg-error">Chat error: ${escapeHtml(err.message)}</div>`;
-	} finally {
-		if (replyText) state.chatHistory.push({
-			role: "assistant",
-			content: replyText
-		});
-		else state.chatHistory.pop();
-		state.isGenerating = false;
-		dom.chatSend.disabled = false;
-	}
-}
-function appendChatMessage(role, content) {
-	const empty = dom.chatMessages.querySelector(".chat-empty, .setup-card");
-	if (empty) empty.remove();
-	const msg = document.createElement("div");
-	msg.className = `msg msg-${role}`;
-	if (role === "user") msg.textContent = content;
-	else if (content) msg.innerHTML = `<div class="md">${renderMarkdown(content)}</div>`;
-	dom.chatMessages.appendChild(msg);
-	dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
-	return msg;
-}
-dom.chatText.addEventListener("input", () => {
-	dom.chatText.style.height = "auto";
-	dom.chatText.style.height = Math.min(dom.chatText.scrollHeight, 180) + "px";
-});
-dom.chatText.addEventListener("keydown", (e) => {
-	if (e.key === "Enter" && !e.shiftKey) {
-		e.preventDefault();
-		submitChat();
-	}
-});
-dom.chatForm.addEventListener("submit", (e) => {
-	e.preventDefault();
-	submitChat();
-});
-dom.chatNew.addEventListener("click", () => {
-	state.chatHistory = [];
-	renderChatWelcome();
-});
-dom.chatToggle.addEventListener("click", toggleChat);
-dom.chatClose.addEventListener("click", closeChat);
-// src/components/env_modal.js
-var envModalEl = document.getElementById("env-modal");
-var envModalDialog = envModalEl ? envModalEl.querySelector(".modal-dialog") : null;
-state.envModalReturnFocus = null;
-state.envModalSnapshot = null;
-function envPreviewText(form, snapshot) {
-	const keys = snapshot && snapshot.keys || {};
-	const dolInput = form.querySelector("#env-dol-key");
-	const dolClear = form.querySelector("#env-dol-clear");
-	const antInput = form.querySelector("#env-ant-key");
-	const antClear = form.querySelector("#env-ant-clear");
-	const modelInput = form.querySelector("#env-ant-model");
-	const syncInput = form.querySelector("#env-news-sync");
-	const retInput = form.querySelector("#env-news-retention");
-	const dolVal = dolClear && dolClear.checked ? "" : dolInput && dolInput.value.trim() ? "••••(new key)" : keys.DOL_API_KEY && keys.DOL_API_KEY.masked || "";
-	const antVal = antClear && antClear.checked ? "" : antInput && antInput.value.trim() ? "••••(new key)" : keys.ANTHROPIC_API_KEY && keys.ANTHROPIC_API_KEY.masked || "";
-	const modelVal = modelInput && modelInput.value.trim() || "";
-	const syncVal = syncInput && syncInput.checked ? "1" : "0";
-	const retVal = retInput && retInput.value.trim() || "365";
-	return [
-		`ANTHROPIC_API_KEY=${antVal}`,
-		`ANTHROPIC_MODEL=${modelVal}`,
-		`DOL_API_KEY=${dolVal}`,
-		`NEWS_SYNC=${syncVal}`,
-		`NEWS_RETENTION_DAYS=${retVal}`
-	].join("\n");
-}
-function renderEnvModal(env, focusKey = "") {
-	if (!envModalDialog) return;
-	const keys = env && env.keys || {};
-	const dol = keys.DOL_API_KEY || {};
-	const ant = keys.ANTHROPIC_API_KEY || {};
-	const model = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.value || "";
-	const modelDefault = keys.ANTHROPIC_MODEL && keys.ANTHROPIC_MODEL.default || "claude-sonnet-5-5";
-	const newsSync = keys.NEWS_SYNC ? Boolean(keys.NEWS_SYNC.value) : true;
-	const retDays = keys.NEWS_RETENTION_DAYS && keys.NEWS_RETENTION_DAYS.value || 365;
-	envModalDialog.innerHTML = `
-    <div class="modal-head">
-      <div>
-        <div class="doc-kicker">${env && env.env_exists ? "Update local settings" : "Create reader/.env"}</div>
-        <h2 id="env-modal-title" class="modal-title">Configure API Keys &amp; Sync Settings</h2>
-      </div>
-      <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button>
-    </div>
-    <form id="env-modal-form" class="modal-body" autocomplete="off">
-      <p class="modal-intro">Keys are saved privately to <code>reader/.env</code> on your computer and take effect immediately—no restart needed. Leave an existing key blank to keep it unchanged.</p>
-
-      <div class="env-field">
-        <div class="env-field-head">
-          <label for="env-dol-key">DOL API Key <code>DOL_API_KEY</code></label>
-          ${dol.configured ? statPill("synced", `Saved (${dol.masked || "set"})`) : statPill("uninstalled", "Not set")}
-        </div>
-        <p class="env-field-help">Free key from <a href="https://dataportal.dol.gov/registration" target="_blank" rel="noopener">dataportal.dol.gov/registration</a> for OSHA inspections and penalties.</p>
-        <div class="env-secret-row">
-          <input id="env-dol-key" name="dol_api_key" type="password" placeholder="${dol.configured ? "Leave blank to keep existing key, or paste new key" : "Paste your DOL X-API-KEY"}" spellcheck="false" autocomplete="off">
-          <button type="button" class="btn btn-sm" data-env-reveal="env-dol-key" aria-label="Show or hide DOL key">${icon("eye")}</button>
-        </div>
-        ${dol.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-dol-clear" name="clear_dol_api_key"> Remove saved DOL key</label>` : ""}
-      </div>
-
-      <div class="env-field">
-        <div class="env-field-head">
-          <label for="env-ant-key">Anthropic API Key <code>ANTHROPIC_API_KEY</code></label>
-          ${ant.configured ? statPill("synced", `Saved (${ant.masked || "set"})`) : statPill("uninstalled", "Not set")}
-        </div>
-        <p class="env-field-help">From <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> to enable the Ask Claude side panel.</p>
-        <div class="env-secret-row">
-          <input id="env-ant-key" name="anthropic_api_key" type="password" placeholder="${ant.configured ? "Leave blank to keep existing key, or paste new key" : "sk-ant-…"}" spellcheck="false" autocomplete="off">
-          <button type="button" class="btn btn-sm" data-env-reveal="env-ant-key" aria-label="Show or hide Anthropic key">${icon("eye")}</button>
-        </div>
-        ${ant.configured ? `<label class="env-clear-check"><input type="checkbox" id="env-ant-clear" name="clear_anthropic_api_key"> Remove saved Anthropic key</label>` : ""}
-      </div>
-
-      <details class="env-advanced"${focusKey === "news_sync" ? " open" : ""}>
-        <summary>Advanced options (Claude model &amp; News sync)</summary>
-        <div class="env-advanced-body">
-          <div class="env-field">
-            <label for="env-ant-model">Preferred Claude Model <code>ANTHROPIC_MODEL</code></label>
-            <input id="env-ant-model" name="anthropic_model" type="text" value="${escapeHtml(model)}" placeholder="${escapeHtml(modelDefault)}" spellcheck="false">
-          </div>
-          <div class="env-field-row">
-            <label class="env-toggle-row"><input type="checkbox" id="env-news-sync" name="news_sync"${newsSync ? " checked" : ""}> <span>Enable background news sync (<code>NEWS_SYNC</code>)</span></label>
-            <div class="env-days-field">
-              <label for="env-news-retention">Retention (days)</label>
-              <input id="env-news-retention" name="news_retention_days" type="number" min="1" max="3650" value="${Number(retDays)}">
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <div class="env-preview-wrap">
-        <span class="env-preview-label">Preview of <code>reader/.env</code></span>
-        <pre class="env-preview" id="env-preview"></pre>
-      </div>
-
-      <p class="modal-error" id="env-modal-error" hidden></p>
-
-      <div class="modal-foot">
-        <button type="button" class="btn" data-env-close>Cancel</button>
-        <button type="submit" class="btn btn-accent" id="env-modal-save">${icon("check")} Save to reader/.env</button>
-      </div>
-    </form>`;
-	const form = document.getElementById("env-modal-form");
-	const preview = document.getElementById("env-preview");
-	const syncPreview = () => {
-		if (preview) preview.textContent = envPreviewText(form, state.envModalSnapshot);
-	};
-	syncPreview();
-	form.addEventListener("input", syncPreview);
-	form.addEventListener("change", syncPreview);
-	form.addEventListener("submit", submitEnvModal);
-	requestAnimationFrame(() => {
-		const targetId = focusKey === "dol_api_key" ? "env-dol-key" : focusKey === "anthropic_api_key" ? "env-ant-key" : focusKey === "news_sync" ? "env-news-sync" : "env-dol-key";
-		(document.getElementById(targetId) || envModalDialog.querySelector("input, button"))?.focus();
-	});
-}
-async function openEnvModal(focusKey = "") {
-	if (!envModalEl || !envModalDialog) return;
-	state.envModalReturnFocus = document.activeElement;
-	envModalDialog.innerHTML = `<div class="modal-head"><h2 id="env-modal-title" class="modal-title">Configure reader/.env</h2>
-    <button type="button" class="icon-btn" data-env-close aria-label="Close modal">${icon("close")}</button></div>
-    <div class="modal-body"><div class="loading">Loading current configuration…</div></div>`;
-	envModalEl.hidden = false;
-	try {
-		state.envModalSnapshot = await getJSON("/api/settings/env");
-		state.navEnvStatus = state.envModalSnapshot;
-		renderEnvModal(state.envModalSnapshot, focusKey);
-	} catch (err) {
-		state.envModalSnapshot = {
-			env_exists: false,
-			env_file: "reader/.env",
-			keys: {}
-		};
-		renderEnvModal(state.envModalSnapshot, focusKey);
-	}
-}
-function closeEnvModal(restoreFocus = true) {
-	if (!envModalEl || envModalEl.hidden) return;
-	envModalEl.hidden = true;
-	if (restoreFocus && state.envModalReturnFocus && document.contains(state.envModalReturnFocus)) state.envModalReturnFocus.focus();
-	state.envModalReturnFocus = null;
-}
-async function refreshModelsConfig() {
-	if (state.noTitles) return;
-	try {
-		const modelsRes = await fetch("/api/" + state.currentTitle + "/models");
-		if (!modelsRes.ok) return;
-		state.chatConfig = await modelsRes.json();
-		if (state.chatConfig.configured && state.chatConfig.models.length > 0) {
-			dom.modelSelect.innerHTML = state.chatConfig.models.map((m) => `
-        <option value="${escapeHtml(m.id)}" ${m.id === state.chatConfig.default ? "selected" : ""}>
-          ${escapeHtml(m.name)}
-        </option>
-      `).join("");
-			dom.modelSelect.hidden = false;
-		} else {
-			dom.modelSelect.innerHTML = "";
-			dom.modelSelect.hidden = true;
-		}
-		if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
-	} catch (e) {}
-}
-async function submitEnvModal(e) {
-	e.preventDefault();
-	const form = e.currentTarget;
-	const saveBtn = document.getElementById("env-modal-save");
-	const errEl = document.getElementById("env-modal-error");
-	if (errEl) {
-		errEl.hidden = true;
-		errEl.textContent = "";
-	}
-	if (saveBtn) saveBtn.disabled = true;
-	const payload = {
-		dol_api_key: form.dol_api_key ? form.dol_api_key.value : null,
-		clear_dol_api_key: Boolean(form.clear_dol_api_key && form.clear_dol_api_key.checked),
-		anthropic_api_key: form.anthropic_api_key ? form.anthropic_api_key.value : null,
-		clear_anthropic_api_key: Boolean(form.clear_anthropic_api_key && form.clear_anthropic_api_key.checked),
-		anthropic_model: form.anthropic_model ? form.anthropic_model.value : null,
-		news_sync: Boolean(form.news_sync && form.news_sync.checked),
-		news_retention_days: form.news_retention_days ? Number(form.news_retention_days.value) || 365 : 365
-	};
-	try {
-		const res = await getJSON("/api/settings/env", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(payload)
-		});
-		state.navEnvStatus = res.status;
-		state.envModalSnapshot = res.status;
-		const [newsSt] = await Promise.all([getJSON("/api/news/status").catch(() => null), refreshModelsConfig()]);
-		if (newsSt) state.navNewsStatus = newsSt;
-		closeEnvModal(true);
-		showToast((res.news_sync_queued || []).length > 0 ? "Saved to reader/.env · Syncing DOL enforcement data…" : "Saved to reader/.env — active immediately");
-		refreshSettingsViews();
-		refreshHomeIfActive();
-		if (state.activeRoute === "/help" || state.activeRoute === "/help/") renderHelp(state.navEnvStatus);
-		else if (routeTarget() === "news") handleRoute();
-	} catch (err) {
-		if (errEl) {
-			errEl.textContent = err.message || "Could not save reader/.env";
-			errEl.hidden = false;
-		}
-		if (saveBtn) saveBtn.disabled = false;
-	}
-}
-if (envModalEl) envModalEl.addEventListener("click", (e) => {
-	if (e.target === envModalEl || e.target.closest("[data-env-close]")) {
-		closeEnvModal(true);
-		return;
-	}
-	const rev = e.target.closest("[data-env-reveal]");
-	if (rev) {
-		const inp = document.getElementById(rev.dataset.envReveal);
-		if (inp) {
-			const show = inp.type === "password";
-			inp.type = show ? "text" : "password";
-			rev.innerHTML = icon(show ? "eyeOff" : "eye");
-		}
-	}
-});
-document.addEventListener("keydown", (e) => {
-	if (e.key === "Escape" && envModalEl && !envModalEl.hidden) {
-		e.preventDefault();
-		closeEnvModal(true);
-	}
-});
-document.addEventListener("click", (e) => {
-	const trigger = e.target.closest("[data-open-env]");
-	if (trigger) {
-		e.preventDefault();
-		openEnvModal(trigger.dataset.openEnv || "");
-		return;
-	}
-	const copyBtn = e.target.closest("[data-copy-url]");
-	if (copyBtn) {
-		const url = copyBtn.dataset.copyUrl;
-		if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(() => showToast("RSS feed URL copied")).catch(() => showToast(url, 5e3));
-		else showToast(url, 5e3);
-		return;
-	}
-	const jump = e.target.closest("[data-help-jump]");
-	if (jump) {
-		const el = document.getElementById("help-" + jump.dataset.helpJump);
-		if (el) el.scrollIntoView({
-			behavior: reduceMotion.matches ? "auto" : "smooth",
-			block: "start"
-		});
-	}
-});
-async function loadStorage() {
-	try {
-		state.navStorage = await getJSON("/api/library/storage");
-	} catch (e) {
-		state.navStorage = {
-			titles: [],
-			legacy_bytes: 0,
-			temp_files: 0,
-			temp_bytes: 0,
-			total_bytes: 0
-		};
-	}
-	refreshSettingsViews();
-}
-// src/components/transfer_dock.js
-var DOCK_STEPS = [
-	["Checking eCFR", "Connecting to eCFR"],
-	["Downloading contents", "Reading the table of contents"],
-	["Downloading text", "Streaming the regulation text"],
-	["Reading text", "Extracting sections and appendices"],
-	["Indexing", "Building the search index"],
-	["Installing", "Swapping in the new edition"]
-];
-var dock = {
-	el: document.getElementById("transfer-dock"),
-	min: lsGet("dockMinimized") === "1",
-	key: "",
-	hideT: null,
-	srText: ""
-};
-var rate = {
-	id: null,
-	t: 0,
-	done: 0,
-	bps: 0
-};
-function recordJobProgress(j) {
-	const streaming = j && j.phase === "Downloading text" && j.done > 0 && (j.total == null || j.total > 1e5);
-	if (!streaming || j.id !== rate.id) {
-		Object.assign(rate, {
-			id: streaming ? j.id : null,
-			t: streaming ? performance.now() : 0,
-			done: streaming ? j.done : 0,
-			bps: 0
-		});
-		return;
-	}
-	const now = performance.now();
-	const dt = (now - rate.t) / 1e3;
-	if (dt < .5) return;
-	const delta = j.done - rate.done;
-	if (delta > 0) rate.bps = rate.bps ? rate.bps * .7 + delta / dt * .3 : delta / dt;
-	rate.t = now;
-	rate.done = j.done;
-}
-function fmtEta(seconds) {
-	if (!isFinite(seconds) || seconds <= 0) return "";
-	if (seconds < 60) return `${Math.ceil(seconds)}s left`;
-	const m = Math.floor(seconds / 60);
-	return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m}m ${Math.round(seconds % 60)}s left`;
-}
-function dockModel(j) {
-	if (!j) return {
-		step: -1,
-		label: "Starting…",
-		pct: null,
-		left: "",
-		right: ""
-	};
-	const step = DOCK_STEPS.findIndex(([phase]) => phase === j.phase);
-	const label = step >= 0 ? DOCK_STEPS[step][1] : j.phase === "Waiting" ? "Starting…" : j.phase;
-	const has = j.total != null && j.total > 0 && j.done != null;
-	const pct = has ? Math.min(99, Math.floor(j.done / j.total * 100)) : null;
-	let left = "", right = "";
-	if (j.phase === "Downloading text" && (j.total == null || j.total > 1e5) && j.done) {
-		left = j.total ? `${fmtBytes(Math.min(j.done, j.total))} of ${fmtBytes(j.total)}` : fmtBytes(j.done);
-		const speed = rate.id === j.id && rate.bps > 51200 ? `${fmtBytes(rate.bps)}/s` : "";
-		right = [speed, speed && j.total ? fmtEta((j.total - j.done) / rate.bps) : ""].filter(Boolean).join(" · ");
-	} else if (j.phase === "Downloading text" && has) left = `${fmt(j.done)} of ${plural(j.total, "file")}`;
-	else if ((j.phase === "Reading text" || j.phase === "Indexing") && has) left = `${fmt(j.done)} of ${fmtSections(j.total)}`;
-	return {
-		step,
-		label,
-		pct,
-		left,
-		right
-	};
-}
-function dockHtml(j, m) {
-	const pctText = m.pct == null ? "" : `${m.pct}%`;
-	const title = j ? escapeHtml(j.label) : "Preparing download";
-	if (dock.min) return `<button type="button" class="dock-mini" data-dock="expand" aria-label="Show download progress: ${title}">
-      <span class="stat-dot is-busy" aria-hidden="true"></span><span class="dock-mini-text">${title}</span>
-      <span class="dock-mini-pct" data-f="pct">${pctText}</span>${icon("chevronUp")}</button>`;
-	const cancelling = j && j.cancelling;
-	const locked = j && j.phase === "Installing";
-	const steps = DOCK_STEPS.map((_, i) => `<span class="${i < m.step ? "is-done" : i === m.step ? "is-now" : ""}"></span>`).join("");
-	const queued = state.jobs.queued;
-	return `<section class="dock-card" aria-label="Downloads">
-    <div class="dock-head">
-      <span class="stat-dot is-busy" aria-hidden="true"></span>
-      <span class="dock-title">${title}</span>
-      <span class="dock-pct" data-f="pct">${pctText}</span>
-      <button type="button" class="dock-icon" data-dock="minimize" title="Minimize" aria-label="Minimize downloads">${icon("chevronDown")}</button>
-    </div>
-    <div class="dock-phase">
-      <span class="dock-phase-text">${escapeHtml(cancelling ? "Cancelling…" : m.label)}</span>
-      ${m.step >= 0 ? `<span class="dock-steps" role="img" aria-label="Step ${m.step + 1} of ${DOCK_STEPS.length}">${steps}</span>` : ""}
-    </div>
-    ${transferTrackHtml(m.pct, { bindFill: true })}
-    <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
-    <div class="dock-foot">
-      <span class="dock-queue">${queued.length ? `<span class="dock-queue-count">+${queued.length} queued</span>${escapeHtml(queued.map((q) => q.label).join(", "))}` : "Nothing queued"}</span>
-      <span class="dock-acts">
-        ${queued.length ? "<button type=\"button\" class=\"lib-act\" data-dock=\"clear\">Clear queue</button>" : ""}
-        ${j ? `<button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${cancelling || locked ? " disabled" : ""}${locked ? " title=\"Installing: almost done\"" : ""}>${cancelling ? "Cancelling" : "Cancel"}</button>` : ""}
-      </span>
-    </div>
-  </section>`;
-}
-function updateDock() {
-	const el = dock.el;
-	if (!el) return;
-	const j = state.jobs.current;
-	if (!Boolean(j || state.jobs.queued.length)) {
-		if (!el.hidden && !dock.hideT) {
-			el.classList.remove("is-visible");
-			dock.hideT = setTimeout(() => {
-				dock.hideT = null;
-				if (!state.jobs.current && !state.jobs.queued.length) {
-					el.hidden = true;
-					el.innerHTML = "";
-					dock.key = "";
-				}
-			}, 260);
-		}
-		return;
-	}
-	clearTimeout(dock.hideT);
-	dock.hideT = null;
-	recordJobProgress(j);
-	const m = dockModel(j);
-	const key = [
-		dock.min,
-		j && j.id,
-		j && j.cancelling,
-		j && j.phase === "Installing",
-		m.step,
-		m.pct == null,
-		state.jobs.queued.map((q) => q.id).join(".")
-	].join("|");
-	if (key !== dock.key) {
-		const focused = el.contains(document.activeElement) ? document.activeElement.dataset.dock : null;
-		el.innerHTML = dockHtml(j, m);
-		dock.key = key;
-		if (focused) (el.querySelector(`[data-dock="${focused}"]`) || el.querySelector("[data-dock]"))?.focus();
-	} else {
-		const set = (f, v) => {
-			const n = el.querySelector(`[data-f="${f}"]`);
-			if (n && n.textContent !== v) n.textContent = v;
-		};
-		set("pct", m.pct == null ? "" : `${m.pct}%`);
-		set("left", m.left);
-		set("right", m.right);
-		const fill = el.querySelector("[data-f=\"fill\"]");
-		if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
-	}
-	const sr = `${j ? j.label : "Download"}: ${m.label}`;
-	if (sr !== dock.srText) {
-		dock.srText = sr;
-		const live = document.getElementById("transfer-dock-live");
-		if (live) live.textContent = sr;
-	}
-	if (el.hidden) {
-		el.hidden = false;
-		requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("is-visible")));
-	} else el.classList.add("is-visible");
-	el.classList.toggle("is-min", dock.min);
-}
-if (dock.el) dock.el.addEventListener("click", (e) => {
-	const btn = e.target.closest("[data-dock]");
-	if (btn) onDockAction(btn);
-});
-async function onDockAction(btn) {
-	{
-		const act = btn.dataset.dock;
-		if (act === "minimize" || act === "expand") {
-			dock.min = act === "minimize";
-			lsSet("dockMinimized", dock.min ? "1" : "0");
-			dock.key = "";
-			updateDock();
-			dock.el.querySelector("[data-dock]")?.focus();
-			return;
-		}
-		btn.disabled = true;
-		try {
-			if (act === "cancel") await getJSON(`/api/library/jobs/${btn.dataset.id}/cancel`, { method: "POST" });
-			else if (act === "clear") {
-				const res = await getJSON("/api/library/jobs/clear", { method: "POST" });
-				for (const j of res.cancelled || []) state.jobsSeenActive.delete(j.id);
-				if (res.count) showToast(`Cleared ${plural(res.count, "queued download")}`);
-			}
-			await pollJobs();
-		} catch (err) {
-			showToast(err.message, 5e3);
-			btn.disabled = false;
-		}
-	}
-}
-async function refreshTitles(changed = []) {
-	let list;
-	try {
-		list = await getJSON("/api/titles");
-	} catch (e) {
-		return;
-	}
-	const hadNone = state.noTitles;
-	state.installedTitles = list;
-	state.noTitles = list.length === 0;
-	fillTitleSelect();
-	updateRailHome();
-	if (hadNone && list.length) {
-		setReaderEnabled(true);
-		await switchTitle(list[0].title);
-		refreshModelsConfig();
-		if (dom.view.querySelector(".welcome")) {
-			const target = titleHref(list[0].title);
-			if (window.location.hash === target) handleRoute();
-			else window.location.hash = target;
-		}
-		return;
-	}
-	if (!list.some((t) => t.title === state.currentTitle) && list.length) await switchTitle(list[0].title);
-	else if (changed.includes(state.currentTitle)) {
-		state.treeData = null;
-		const meta = list.find((t) => t.title === state.currentTitle);
-		if (meta) state.metaInfo = meta;
-		await switchTitle(state.currentTitle);
-	}
-	if (dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
-}
-// src/components/cfr_resolver.js
-var titleInfoCache = /* @__PURE__ */ new Map();
-var INFO_TTL_MS = 3e5;
-var citePopEl = dom.citePop;
-var citePop = createPopover({
-	el: dom.citePop,
-	scrollContainer: dom.main,
-	padding: 12
-});
-function normalizeCfrTarget(raw = {}) {
-	const title = Number(raw.title || raw.cfrTitle) || 0;
-	const section = raw.section ? String(raw.section).trim() : null;
-	const part = raw.part ? String(raw.part).trim() : section && section.includes(".") ? section.split(".", 1)[0] : null;
-	return {
-		title,
-		part,
-		section,
-		para: raw.para ? String(raw.para).trim() : null,
-		kind: raw.kind === "appendix" ? "appendix" : section ? "section" : "part",
-		ecfrUrl: raw.ecfrUrl || (section ? `https://www.ecfr.gov/current/title-${title}/section-${encodeURIComponent(section)}` : part ? `https://www.ecfr.gov/current/title-${title}/part-${encodeURIComponent(part)}` : `https://www.ecfr.gov/current/title-${title}`)
-	};
-}
-async function fetchTitleInfo(title) {
-	const cached = titleInfoCache.get(title);
-	if (cached && Date.now() - cached.at < INFO_TTL_MS) return cached.info;
-	const info = await getJSON(`/api/library/${title}`);
-	titleInfoCache.set(title, {
-		info,
-		at: Date.now()
-	});
-	return info;
-}
-async function checkLocalCfrTarget(target) {
-	const meta = state.installedTitles.find((t) => t.title === target.title);
-	if (!meta) return {
-		installed: false,
-		meta: null
-	};
-	if (target.section) try {
-		if ((await fetch(`/api/${target.title}/section/${encodeURIComponent(target.section)}?unit=`)).ok) return {
-			installed: true,
-			meta,
-			kind: "section"
-		};
-		return {
-			installed: false,
-			meta,
-			partialMissing: true
-		};
-	} catch (e) {
-		return {
-			installed: false,
-			meta,
-			partialMissing: true
-		};
-	}
-	if (target.part) try {
-		if ((await fetch(`/api/${target.title}/part/${encodeURIComponent(target.part)}/full`)).ok) return {
-			installed: true,
-			meta,
-			kind: "part"
-		};
-		return {
-			installed: false,
-			meta,
-			partialMissing: true
-		};
-	} catch (e) {
-		return {
-			installed: false,
-			meta,
-			partialMissing: true
-		};
-	}
-	return {
-		installed: true,
-		meta,
-		kind: "title"
-	};
-}
-function activeJobForTarget(target) {
-	if (target.section) return jobFor(target.title, "section", target.section) || (target.part ? jobFor(target.title, "part", target.part) : null) || jobFor(target.title, "title");
-	if (target.part) return jobFor(target.title, "part", target.part) || jobFor(target.title, "title");
-	return jobFor(target.title, "title");
-}
-function targetDisplayTitle(target) {
-	if (target.section) return `${target.title} CFR § ${target.section}`;
-	if (target.part) return `${target.title} CFR Part ${target.part}`;
-	return `Title ${target.title}`;
-}
-function targetHashFor(target) {
-	if (target.section) return `#/title/${target.title}/section/${encodeURIComponent(target.section)}` + (target.para ? `?p=${encodeURIComponent(target.para)}` : "");
-	if (target.part) return `#/title/${target.title}/part/${encodeURIComponent(target.part)}`;
-	return `#/title/${target.title}/`;
-}
-function resolverBodyHtml(target, { info = null, error = null, loading = false, openInSplit = false, isPage = false } = {}) {
-	const titleNum = target.title;
-	const installedMeta = state.installedTitles.find((t) => t.title === titleNum);
-	const job = activeJobForTarget(target);
-	const reserved = Boolean(info && info.reserved);
-	const titleName = info && info.name || installedMeta && installedMeta.name || `Title ${titleNum}`;
-	const edition = info && info.latest ? ` · Edition ${fmtDate(info.latest)}` : "";
-	const statusMsg = reserved ? `Title ${titleNum} is reserved on eCFR and contains no regulatory text.` : installedMeta?.partial ? `Title ${titleNum} is partially installed — this ${target.section ? "section" : "part"} hasn’t been downloaded yet.` : `Title ${titleNum} is not installed in the local reader.`;
-	let jobHtml = "";
-	if (job) {
-		const m = dockModel(job);
-		const pctText = m.pct == null ? "" : ` · ${m.pct}%`;
-		const isQueued = job.state === "queued";
-		const note = openInSplit ? "Downloading in background — will open side-by-side when ready." : "Downloading in background — will open automatically when ready.";
-		jobHtml = `
-      <div class="resolver-progress" data-res-job="${job.id}">
-        <div class="resolver-progress-head">
-          <span class="stat-dot is-busy" aria-hidden="true"></span>
-          <span>${escapeHtml(isQueued ? `Queued · ${job.label}` : `${m.label}${pctText}`)}</span>
-        </div>
-        ${transferTrackHtml(m.pct)}
-        <p class="resolver-note">${escapeHtml(note)}</p>
-      </div>
-    `;
-	}
-	let actionsHtml = "";
-	if (!reserved && !job) {
-		const primaryCls = isPage ? "btn btn-accent" : "btn btn-small btn-accent";
-		const secCls = isPage ? "btn" : "btn btn-small";
-		const btns = [];
-		if (target.section) {
-			btns.push(`<button type="button" class="${primaryCls}" data-res-dl="section">${icon("download")} Download § ${escapeHtml(target.section)}</button>`);
-			if (target.part) btns.push(`<button type="button" class="${secCls}" data-res-dl="part">Download Part ${escapeHtml(target.part)}</button>`);
-		} else if (target.part) {
-			btns.push(`<button type="button" class="${primaryCls}" data-res-dl="part">${icon("download")} Download Part ${escapeHtml(target.part)}</button>`);
-			btns.push(`<button type="button" class="${secCls}" data-res-dl="title">Download Title ${titleNum}</button>`);
-		} else btns.push(`<button type="button" class="${primaryCls}" data-res-dl="title">${icon("download")} Download Title ${titleNum}</button>`);
-		actionsHtml = `<div class="resolver-acts">
-      ${btns.join("")}
-      <a class="${secCls}" href="${escapeHtml(target.ecfrUrl)}" target="_blank" rel="noopener noreferrer">${icon("external")} View on eCFR</a>
-    </div>`;
-	} else actionsHtml = `<div class="resolver-acts">
-      <a class="${isPage ? "btn" : "btn btn-small"}" href="${escapeHtml(target.ecfrUrl)}" target="_blank" rel="noopener noreferrer">${icon("external")} View on eCFR</a>
-      ${isPage ? `<a class="btn" href="#/library/${titleNum}">Open in Library</a>` : ""}
-    </div>`;
-	return `
-    <div class="resolver-meta">${escapeHtml(titleName)}${escapeHtml(edition)}${loading ? " · Checking eCFR…" : ""}</div>
-    <p class="resolver-msg">${escapeHtml(error || statusMsg)}</p>
-    ${jobHtml}
-    ${actionsHtml}
-  `;
-}
-var activeModalCtx = null;
-var activePageCtx = null;
-async function submitCfrDownload(scopeKind, target, openInSplit = false) {
-	const body = {
-		title: target.title,
-		part: scopeKind === "section" || scopeKind === "part" ? target.part : null,
-		section: scopeKind === "section" ? target.section : null,
-		kind: target.kind === "appendix" ? "appendix" : "section"
-	};
-	const job = await getJSON("/api/library/download", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(body)
-	});
-	state.jobsSeenActive.add(job.id);
-	state.pendingDownloads.set(job.id, {
-		title: target.title,
-		part: body.part,
-		section: body.section,
-		kind: body.section ? body.kind : body.part ? "part" : "title",
-		para: target.para || null,
-		openInSplit: Boolean(openInSplit && target.section),
-		fromHash: window.location.hash || "#/"
-	});
-	await pollJobs();
-	return job;
-}
-function renderPopResolver(ctx) {
-	if (!citePopEl || !citePop.isOpen() || !citePop.isInteractive()) return;
-	const { target, info, loading, error, openInSplit } = ctx;
-	citePopEl.innerHTML = `
-    <div class="pop-head-row">
-      <div class="pop-kicker">${escapeHtml(targetDisplayTitle(target))}</div>
-      <span class="peek-badge">UNINSTALLED</span>
-      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close download prompt">${icon("close")}</button>
-    </div>
-    ${resolverBodyHtml(target, {
-		info,
-		loading,
-		error,
-		openInSplit,
-		isPage: false
-	})}
-  `;
-	citePop.reposition();
-}
-async function openCfrDownloadCard(anchorEl, rawTarget, { openInSplit = false } = {}) {
-	const target = normalizeCfrTarget(rawTarget);
-	const ctx = {
-		target,
-		info: null,
-		loading: true,
-		error: null,
-		openInSplit
-	};
-	activeModalCtx = ctx;
-	citePop.open(anchorEl, "", {
-		interactive: true,
-		returnFocus: anchorEl,
-		refTier: "uninstalled"
-	});
-	renderPopResolver(ctx);
-	try {
-		const info = await fetchTitleInfo(target.title);
-		if (activeModalCtx !== ctx || !citePop.isOpen()) return;
-		ctx.info = info;
-		ctx.loading = false;
-		renderPopResolver(ctx);
-	} catch (err) {
-		if (activeModalCtx !== ctx || !citePop.isOpen()) return;
-		ctx.loading = false;
-		ctx.error = err?.message || null;
-		renderPopResolver(ctx);
-	}
-}
-async function renderResolverPage(container, rawTarget) {
-	if (!container) return;
-	const target = normalizeCfrTarget(rawTarget);
-	const ctx = {
-		target,
-		info: null,
-		loading: true,
-		error: null,
-		container
-	};
-	activePageCtx = ctx;
-	const draw = () => {
-		if (activePageCtx !== ctx || !container.contains(container.querySelector(".resolver-card") || container)) return;
-		container.innerHTML = `
-      <div class="resolver-card">
-        <div class="doc-kicker">External Regulatory Reference</div>
-        <h1 class="doc-title">${escapeHtml(targetDisplayTitle(target))}</h1>
-        ${resolverBodyHtml(target, {
-			info: ctx.info,
-			loading: ctx.loading,
-			error: ctx.error,
-			isPage: true
-		})}
-      </div>
-    `;
-	};
-	document.title = `${targetDisplayTitle(target)} · FRAMEWORK`;
-	container.innerHTML = "";
-	container.innerHTML = `<div class="resolver-card">
-    <div class="doc-kicker">External Regulatory Reference</div>
-    <h1 class="doc-title">${escapeHtml(targetDisplayTitle(target))}</h1>
-    ${resolverBodyHtml(target, {
-		loading: true,
-		isPage: true
-	})}
-  </div>`;
-	enterView();
-	try {
-		ctx.info = await fetchTitleInfo(target.title);
-		ctx.loading = false;
-	} catch (err) {
-		ctx.loading = false;
-		ctx.error = err?.message || null;
-	}
-	if (activePageCtx === ctx && container.querySelector(".resolver-card")) draw();
-}
-async function handleResolverActionClick(btn, ctx, redraw) {
-	if (!btn || !ctx) return;
-	const scope = btn.dataset.resDl;
-	if (!scope) return;
-	btn.disabled = true;
-	try {
-		await submitCfrDownload(scope, ctx.target, Boolean(ctx.openInSplit));
-		ctx.error = null;
-		redraw();
-	} catch (err) {
-		btn.disabled = false;
-		ctx.error = err?.message || "Download failed";
-		showToast(ctx.error, 5e3);
-		redraw();
-	}
-}
-if (dom.citePop) dom.citePop.addEventListener("click", (e) => {
-	if (e.target.closest("[data-pop-close]")) {
-		activeModalCtx = null;
-		citePop.close(true);
-		return;
-	}
-	const dlBtn = e.target.closest("[data-res-dl]");
-	if (dlBtn && activeModalCtx) handleResolverActionClick(dlBtn, activeModalCtx, () => renderPopResolver(activeModalCtx));
-});
-dom.view.addEventListener("click", (e) => {
-	const dlBtn = e.target.closest(".resolver-card [data-res-dl]");
-	if (dlBtn && activePageCtx && dom.view.contains(dlBtn)) handleResolverActionClick(dlBtn, activePageCtx, () => {
-		if (activePageCtx && dom.view.querySelector(".resolver-card")) dom.view.querySelector(".resolver-card").innerHTML = `
-          <div class="doc-kicker">External Regulatory Reference</div>
-          <h1 class="doc-title">${escapeHtml(targetDisplayTitle(activePageCtx.target))}</h1>
-          ${resolverBodyHtml(activePageCtx.target, {
-			info: activePageCtx.info,
-			loading: activePageCtx.loading,
-			error: activePageCtx.error,
-			isPage: true
-		})}
-        `;
-	});
-});
-document.addEventListener("framework:jobs-updated", () => {
-	if (activeModalCtx && citePop.isOpen() && citePop.isInteractive() && citePopEl.querySelector("[data-res-dl], [data-res-job]")) renderPopResolver(activeModalCtx);
-	if (activePageCtx && dom.view.querySelector(".resolver-card")) {
-		const card = dom.view.querySelector(".resolver-card");
-		card.innerHTML = `
-      <div class="doc-kicker">External Regulatory Reference</div>
-      <h1 class="doc-title">${escapeHtml(targetDisplayTitle(activePageCtx.target))}</h1>
-      ${resolverBodyHtml(activePageCtx.target, {
-			info: activePageCtx.info,
-			loading: activePageCtx.loading,
-			error: activePageCtx.error,
-			isPage: true
-		})}
-    `;
-	}
-});
-async function upgradeDomExternalLinks(finishedTitles) {
-	if (!finishedTitles.size) return;
-	for (const key of [...state.peekCache.keys()]) {
-		const tNum = Number(key.split("|", 1)[0]);
-		if (finishedTitles.has(tNum)) state.peekCache.delete(key);
-	}
-	for (const tNum of finishedTitles) state.refsCache.delete(tNum);
-	for (const key of [...state.graphCache.keys()]) {
-		const tNum = Number(key.split("|", 1)[0]);
-		if (finishedTitles.has(tNum)) state.graphCache.delete(key);
-	}
-	for (const root of [dom.view, dom.splitPane].filter(Boolean)) for (const a of root.querySelectorAll("a.xref-external[data-cfr-title]")) {
-		const t = Number(a.dataset.cfrTitle);
-		if (!finishedTitles.has(t)) continue;
-		const target = normalizeCfrTarget({
-			title: t,
-			part: a.dataset.cfrPart,
-			section: a.dataset.cfrSection,
-			para: a.dataset.cfrPara
-		});
-		if (!(await checkLocalCfrTarget(target)).installed || !a.isConnected) continue;
-		a.href = targetHashFor(target);
-		a.className = "xref xref-cross";
-		a.removeAttribute("target");
-		a.removeAttribute("rel");
-		a.removeAttribute("title");
-		delete a.dataset.cfrTitle;
-		delete a.dataset.cfrPart;
-		delete a.dataset.cfrSection;
-		delete a.dataset.cfrPara;
-	}
-}
-document.addEventListener("framework:jobs-finished", async (e) => {
-	const finished = e.detail?.finished || [];
-	if (!finished.length) return;
-	const doneJobs = finished.filter((j) => j.state === "done");
-	await upgradeDomExternalLinks(new Set(doneJobs.map((j) => j.title)));
-	for (const j of finished) {
-		const entry = state.pendingDownloads.get(j.id);
-		if (!entry) continue;
-		state.pendingDownloads.delete(j.id);
-		if (j.state !== "done") continue;
-		const target = normalizeCfrTarget(entry);
-		const label = targetDisplayTitle(target);
-		if (entry.openInSplit && target.section) {
-			if (activeModalCtx && citePop.isOpen()) {
-				activeModalCtx = null;
-				citePop.close(false);
-			}
-			openSplitPane({
-				title: target.title,
-				sectionId: target.section,
-				para: target.para,
-				pushHistory: true
-			});
-			showToast(`Ready — opened ${label} side-by-side`);
-			continue;
-		}
-		const onResolverPage = Boolean(dom.view.querySelector(".resolver-card"));
-		if (window.location.hash === entry.fromHash || onResolverPage) {
-			if (activeModalCtx && citePop.isOpen()) {
-				activeModalCtx = null;
-				citePop.close(false);
-			}
-			if (activePageCtx) activePageCtx = null;
-			window.location.hash = targetHashFor(target);
-			showToast(`Ready — opened ${label}`);
-		} else showToast(`${label} ready in library`);
-	}
-});
-window.addEventListener("hashchange", () => {
-	activeModalCtx = null;
-	if (!dom.view.querySelector(".resolver-card")) activePageCtx = null;
-});
-// src/views/reader_part.js
-var TOC_VIEW_KEY = "tocViewMode";
-function getTocViewMode() {
-	return lsGet(TOC_VIEW_KEY) === "compact" ? "compact" : "cards";
-}
-function shortSubpartCode(label = "", idx = 0) {
-	const m = /Subpart\s+([A-Z0-9\-]+)/i.exec(label);
-	if (m) return m[1];
-	const m2 = /Subject Group\s+([A-Z0-9\-]+)/i.exec(label);
-	if (m2) return m2[1];
-	return String(idx + 1);
-}
-function buildPartTocView({ partNode, front = {
-	part: "",
-	subparts: {}
-}, titleNum = state.currentTitle, tier = "cfr", isSplit = false } = {}) {
-	const usage = loadUsage();
-	const projects = loadProjects();
-	const pinnedMap = /* @__PURE__ */ new Map();
-	for (const p of projects) for (const s of p.sections || []) if (Number(s.title) === Number(titleNum)) pinnedMap.set(String(s.id), (pinnedMap.get(String(s.id)) || 0) + 1);
-	let sectionCount = 0;
-	let activeCount = 0;
-	let reservedCount = 0;
-	let appendixCount = 0;
-	let readCount = 0;
-	let pinnedCount = 0;
-	const subparts = [];
-	const rawBlocks = [];
-	const prefix = isSplit ? "sp-toc-grp-" : "toc-grp-";
-	const hrefFor = (secId) => `#/title/${titleNum}/section/${encodeURIComponent(secId)}`;
-	const countNode = (s) => {
-		sectionCount++;
-		if (s.r) reservedCount++;
-		else activeCount++;
-		if (s.t === "appendix") appendixCount++;
-		if (usage.s?.[`${titleNum}|${s.id}`]) readCount++;
-		if (pinnedMap.has(String(s.id))) pinnedCount++;
-	};
-	let flatRun = [];
-	const flushFlat = () => {
-		if (!flatRun.length) return;
-		rawBlocks.push({
-			type: "flat",
-			children: flatRun
-		});
-		flatRun = [];
-	};
-	for (const child of partNode.c || []) if (child.t === "subpart" || child.t === "subject_group") {
-		flushFlat();
-		const children = child.c || [];
-		children.forEach(countNode);
-		const spIdx = subparts.length;
-		const anchorId = `${prefix}${spIdx}`;
-		const rawLabel = cleanInlineLabel(child.l || "");
-		const rawDesc = cleanInlineLabel(child.d || "");
-		const fullTitle = rawDesc && rawDesc !== rawLabel ? rawDesc : rawLabel;
-		const code = shortSubpartCode(rawLabel, spIdx);
-		subparts.push({
-			code,
-			rawLabel,
-			fullTitle,
-			anchorId,
-			count: children.length
-		});
-		rawBlocks.push({
-			type: "subpart",
-			child,
-			children,
-			anchorId,
-			code,
-			rawLabel,
-			fullTitle,
-			spIdx
-		});
-	} else if (child.t === "section" || child.t === "appendix") {
-		countNode(child);
-		flatRun.push(child);
-	}
-	flushFlat();
-	const totalSecs = Math.max(1, sectionCount);
-	const itemHtml = (s, idx = 0) => {
-		const tTitle = tocTitle(s);
-		const uEntry = usage.s?.[`${titleNum}|${s.id}`];
-		const isPinned = pinnedMap.has(String(s.id));
-		const pinCount = pinnedMap.get(String(s.id)) || 0;
-		const isApp = s.t === "appendix";
-		const isRes = Boolean(s.r);
-		const badges = [
-			isApp ? "<span class=\"toc-pill is-app\">Appendix</span>" : "",
-			isRes ? "<span class=\"toc-pill is-res\">Reserved</span>" : "",
-			uEntry && !isRes ? `<span class="toc-pill is-read">${uEntry.u ? escapeHtml(uEntry.ul || uEntry.u) : "Visited"}</span>` : "",
-			isPinned ? `<span class="toc-pill is-pin">${pinCount > 1 ? `Pinned ×${pinCount}` : "Pinned"}</span>` : ""
-		].filter(Boolean).join("");
-		const hay = `${s.l || ""} ${s.id || ""} ${tTitle} ${isPinned ? "pinned" : ""} ${uEntry ? "read" : ""}`.toLowerCase();
-		const seqStr = String(idx + 1).padStart(2, "0");
-		const initialMode = isApp ? "Appendix" : isRes ? "Reserved" : "CFR Section";
-		const initialInfo = isRes ? "<span class=\"toc-fact is-muted\">No active text</span>" : uEntry?.n > 1 ? `<span class="toc-fact">${uEntry.n} reads</span>` : "<span class=\"toc-fact is-loading\" data-sec-info-loading>Loading preview…</span>";
-		return `
-      <li class="toc-item toc-slide${isRes ? " reserved" : ""}${isApp ? " is-appendix" : ""}${uEntry ? " is-read" : ""}${isPinned ? " is-pinned" : ""}" data-slide-idx="${idx}" data-sec-id="${escapeHtml(s.id)}" data-hay="${escapeHtml(hay)}">
-        <article class="toc-card">
-          <div class="toc-card-top">
-            <span class="toc-card-eyebrow">
-              <span class="toc-seq">${seqStr}</span>
-              <span class="toc-num">${escapeHtml(s.l)}</span>
-            </span>
-            ${badges ? `<span class="toc-card-badges">${badges}</span>` : ""}
-          </div>
-          <h4 class="toc-title"><a class="toc-card-link" href="${hrefFor(s.id)}">${escapeHtml(tTitle)}</a></h4>
-          <div class="toc-thumb-sheet">
-            <p class="toc-card-excerpt" data-sec-excerpt="${escapeHtml(s.id)}">${isRes ? "This section is reserved." : ""}</p>
-            <div class="toc-thumb-facts">
-              <span class="toc-fact toc-card-meta" data-sec-meta="${escapeHtml(s.id)}">${initialMode}</span>
-              <span class="toc-thumb-info" data-sec-info="${escapeHtml(s.id)}">${initialInfo}</span>
-            </div>
-          </div>
-          <div class="toc-card-foot">
-            <div class="toc-card-acts">
-              ${!isSplit && !isRes ? `<button type="button" class="btn btn-small toc-card-split" data-toc-split="${escapeHtml(s.id)}" title="Open ${escapeHtml(s.l)} side-by-side" aria-label="Open ${escapeHtml(s.l)} side-by-side">Side-by-side</button>` : ""}
-              <a class="btn btn-small toc-card-read" href="${hrefFor(s.id)}">Read ${icon("arrowRight")}</a>
-            </div>
-          </div>
-        </article>
-      </li>`;
-	};
-	const carouselCtrlHtml = (label, count) => `
-    <div class="toc-car-ctrl" aria-label="${escapeHtml(label)} carousel controls">
-      <button type="button" class="icon-btn toc-cbtn" data-car-dir="-1" title="Previous sections" aria-label="Previous sections" disabled>${icon("chevronLeft")}</button>
-      <span class="toc-ccnt">01–03 / ${String(count).padStart(2, "0")}</span>
-      <button type="button" class="icon-btn toc-cbtn" data-car-dir="1" title="Next sections" aria-label="Next sections">${icon("chevronRight")}</button>
-    </div>`;
-	let groupsHtml = "";
-	for (const blk of rawBlocks) {
-		const count = blk.children.length;
-		const isCarousel = count > 3;
-		if (blk.type === "subpart") {
-			const sharePct = Math.max(4, Math.round(count / totalSecs * 100));
-			const subpartFront = front.subparts?.[blk.child.id] || "";
-			const headingText = blk.rawLabel && blk.fullTitle !== blk.rawLabel ? `<span class="toc-group-code">${escapeHtml(blk.rawLabel)}</span><span class="toc-group-name">${escapeHtml(blk.fullTitle)}</span>` : `<span class="toc-group-name">${escapeHtml(blk.fullTitle)}</span>`;
-			groupsHtml += `
-        <section class="toc-group" id="${escapeHtml(blk.anchorId)}" data-ref-tier="${tier}">
-          <header class="toc-group-head">
-            <div class="toc-group-titles">${headingText}</div>
-            <div class="toc-group-right">
-              <span class="toc-group-bar" title="${sharePct}% of part"><span style="width:${sharePct}%"></span></span>
-              <span class="toc-group-count">${count}</span>
-              ${isCarousel ? carouselCtrlHtml(blk.fullTitle, count) : ""}
-            </div>
-          </header>
-          ${subpartFront ? `<div class="front-matter"><details><summary>Subpart notes</summary>${subpartFront}</details></div>` : ""}
-          <div class="toc-carousel${isCarousel ? " is-carousel" : " is-static"}" data-count="${count}" data-active-idx="0">
-            <div class="toc-viewport" tabindex="${isCarousel ? "0" : "-1"}" role="region" aria-label="${escapeHtml(blk.fullTitle)} thumbnails">
-              <ul class="toc-list toc-carousel-track">${blk.children.map((c, idx) => itemHtml(c, idx)).join("")}</ul>
-            </div>
-            ${isCarousel ? `<div class="toc-cpips" role="tablist" aria-label="Jump to page in ${escapeHtml(blk.fullTitle)}"></div>` : ""}
-          </div>
-        </section>`;
-		} else {
-			const flatHead = isCarousel ? `<header class="toc-group-head">
-            <div class="toc-group-titles"><span class="toc-group-name">Sections</span></div>
-            <div class="toc-group-right">
-              <span class="toc-group-count">${count}</span>
-              ${carouselCtrlHtml("Sections", count)}
-            </div>
-          </header>` : "";
-			groupsHtml += `
-        <section class="toc-group is-flat" data-ref-tier="${tier}">
-          ${flatHead}
-          <div class="toc-carousel${isCarousel ? " is-carousel" : " is-static"}" data-count="${count}" data-active-idx="0">
-            <div class="toc-viewport" tabindex="${isCarousel ? "0" : "-1"}" role="region" aria-label="Part sections thumbnails">
-              <ul class="toc-list toc-carousel-track">${blk.children.map((c, idx) => itemHtml(c, idx)).join("")}</ul>
-            </div>
-            ${isCarousel ? `<div class="toc-cpips" role="tablist" aria-label="Jump to page in sections"></div>` : ""}
-          </div>
-        </section>`;
-		}
-	}
-	const statItems = [
-		subparts.length ? `<div class="toc-stat"><span class="toc-stat-val">${subparts.length}</span><span class="toc-stat-lbl">${subparts.length === 1 ? "Subpart" : "Subparts"}</span></div>` : "",
-		`<div class="toc-stat"><span class="toc-stat-val">${activeCount}</span><span class="toc-stat-lbl">${activeCount === 1 ? "Active §" : "Active §§"}</span></div>`,
-		appendixCount ? `<div class="toc-stat is-app"><span class="toc-stat-val">${appendixCount}</span><span class="toc-stat-lbl">${appendixCount === 1 ? "Appendix" : "Appendices"}</span></div>` : "",
-		reservedCount ? `<div class="toc-stat is-muted"><span class="toc-stat-val">${reservedCount}</span><span class="toc-stat-lbl">Reserved</span></div>` : "",
-		readCount ? `<div class="toc-stat is-read"><span class="toc-stat-val">${readCount}</span><span class="toc-stat-lbl">Visited</span></div>` : "",
-		pinnedCount ? `<div class="toc-stat is-pin"><span class="toc-stat-val">${pinnedCount}</span><span class="toc-stat-lbl">Pinned</span></div>` : ""
-	].filter(Boolean).join("");
-	const mapBarHtml = subparts.length >= 2 ? `<div class="toc-map-bar" role="navigation" aria-label="Part structure map">
-        ${subparts.map((sp, i) => {
-		const pct = Math.max(2, Math.round(sp.count / totalSecs * 100));
-		return `<button type="button" class="toc-map-seg" style="flex:${Math.max(1, sp.count)} 1 0;--seg-i:${i % 6}" data-toc-jump="${escapeHtml(sp.anchorId)}" title="${escapeHtml(sp.rawLabel)}: ${escapeHtml(sp.fullTitle)} (${plural(sp.count, "section")}, ${pct}%)"><span class="toc-map-code">${escapeHtml(sp.code)}</span></button>`;
-	}).join("")}
-      </div>
-      <div class="toc-subpart-chips">
-        ${subparts.map((sp) => `<button type="button" class="toc-sub-chip" data-toc-jump="${escapeHtml(sp.anchorId)}"><span class="toc-sub-code">${escapeHtml(sp.code)}</span><span class="toc-sub-name">${escapeHtml(sp.fullTitle)}</span><span class="toc-sub-cnt">${sp.count}</span></button>`).join("")}
-      </div>` : "";
-	const atlasHtml = sectionCount > 0 ? `<section class="toc-atlas surface-card has-tier-bar" data-ref-tier="${tier}" aria-label="Part visual overview">
-        <div class="toc-atlas-stats">${statItems}</div>
-        ${mapBarHtml}
-      </section>` : "";
-	return {
-		sectionCount,
-		subpartCount: subparts.length,
-		atlasHtml,
-		groupsHtml
-	};
-}
-function excerptFromSectionData(data) {
-	if (!data) return {
-		excerpt: "",
-		refCount: 0,
-		docLen: 0
-	};
-	if (data.reserved) return {
-		excerpt: "This section is reserved.",
-		refCount: 0,
-		docLen: 0
-	};
-	const doc = new DOMParser().parseFromString(data.html || "", "text/html");
-	const raw = [...doc.body.querySelectorAll(".reg-p, .reg-callout")].slice(0, 3).map((p) => p.textContent).join(" ").replace(/\s+/g, " ").trim();
-	return {
-		excerpt: raw.length > 240 ? raw.slice(0, 239).trimEnd() + "…" : raw,
-		refCount: doc.body.querySelectorAll("a.xref, a.xref-cross, a.xref-external, a.xref-usc").length,
-		docLen: (doc.body.textContent || "").replace(/\s+/g, " ").trim().length
-	};
-}
-async function hydrateSlideExcerpt(slide, titleNum, signal) {
-	if (!slide || slide.dataset.hydrated === "1" || slide.classList.contains("reserved")) return;
-	if (signal?.aborted) return;
-	const secId = slide.dataset.secId;
-	if (!secId) return;
-	slide.dataset.hydrated = "1";
-	const cacheKey = `${titleNum}|${secId}|`;
-	let data = state.peekCache.get(cacheKey) || state.peekCache.get(`${titleNum}|${secId}|full`);
-	if (!data) try {
-		const res = await fetch(`/api/${titleNum}/section/${encodeURIComponent(secId)}?unit=`, { signal });
-		if (!res.ok) return;
-		data = await res.json();
-		state.peekCache.set(`${titleNum}|${secId}|${data.unit || "full"}`, data);
-	} catch (e) {
-		return;
-	}
-	if (!slide.isConnected) return;
-	const exEl = slide.querySelector("[data-sec-excerpt]");
-	const metaEl = slide.querySelector("[data-sec-meta]");
-	const infoEl = slide.querySelector("[data-sec-info]");
-	const { excerpt, refCount, docLen } = excerptFromSectionData(data);
-	if (exEl && excerpt) exEl.textContent = excerpt;
-	const outline = Array.isArray(data.outline) ? data.outline : [];
-	if (metaEl) {
-		if (outline.length > 1) metaEl.textContent = `${outline.length} units`;
-		else if (data.kind === "appendix") metaEl.textContent = "Appendix";
-		else metaEl.textContent = "Single page";
-	}
-	if (infoEl) {
-		const totalChars = outline.reduce((acc, u) => acc + (Number(u.chars) || 0), 0) || docLen;
-		const mins = totalChars > 0 ? Math.max(1, Math.round(totalChars / 1200)) : 0;
-		const appGroups = new Set(outline.filter((u) => u.kind === "appendix").map((u) => u.group || u.key));
-		const facts = [];
-		if (totalChars > 0) facts.push(`<span class="toc-fact">${totalChars < 700 ? "<1 min" : `~${mins} min`}</span>`);
-		if (appGroups.size > 0) facts.push(`<span class="toc-fact is-app">+${appGroups.size} app.</span>`);
-		if (refCount > 0) facts.push(`<span class="toc-fact">${refCount} ${refCount === 1 ? "ref" : "refs"}</span>`);
-		infoEl.innerHTML = facts.join("");
-	}
-}
-function getColsPerView(carousel) {
-	if (!carousel) return 3;
-	const raw = parseInt(getComputedStyle(carousel).getPropertyValue("--toc-cols"), 10);
-	return Number.isFinite(raw) && raw >= 1 ? Math.min(raw, 3) : 3;
-}
-function buildCarouselPipList(totalSlides, perView) {
-	const maxIdx = Math.max(0, totalSlides - perView);
-	if (maxIdx <= 0) return [];
-	const indices = [0];
-	for (let i = perView; i < maxIdx; i += perView) indices.push(i);
-	if (indices[indices.length - 1] !== maxIdx) indices.push(maxIdx);
-	return indices;
-}
-function positionCarousel(carousel) {
-	if (!carousel) return;
-	const viewport = carousel.querySelector(".toc-viewport");
-	const track = carousel.querySelector(".toc-carousel-track");
-	const wrap = carousel.closest(".toc-groups-wrap");
-	const grp = carousel.closest(".toc-group") || carousel;
-	if (!viewport || !track) return;
-	if (wrap && (wrap.classList.contains("is-compact") || wrap.classList.contains("is-filtering")) || !carousel.classList.contains("is-carousel")) {
-		track.style.transform = "none";
-		return;
-	}
-	const slides = [...track.querySelectorAll(".toc-slide:not([hidden])")];
-	const perView = getColsPerView(carousel);
-	const maxIdx = Math.max(0, slides.length - perView);
-	const rawIdx = Number(carousel.dataset.activeIdx) || 0;
-	const clamped = Math.max(0, Math.min(rawIdx, maxIdx));
-	carousel.dataset.activeIdx = String(clamped);
-	if (slides.length <= perView || !slides[0]) track.style.transform = "none";
-	else {
-		const targetSlide = slides[clamped] || slides[0];
-		const offsetX = Math.max(0, Math.round(targetSlide.offsetLeft - slides[0].offsetLeft));
-		track.style.transform = `translate3d(${-offsetX}px, 0, 0)`;
-	}
-	slides.forEach((s, i) => {
-		const visible = i >= clamped && i < clamped + perView;
-		s.classList.toggle("is-visible", visible);
-		s.setAttribute("aria-hidden", String(!visible));
-	});
-	const prevBtn = grp.querySelector("[data-car-dir=\"-1\"]");
-	const nextBtn = grp.querySelector("[data-car-dir=\"1\"]");
-	if (prevBtn) prevBtn.disabled = clamped <= 0;
-	if (nextBtn) nextBtn.disabled = clamped >= maxIdx;
-	const cntEl = grp.querySelector(".toc-ccnt");
-	if (cntEl) cntEl.textContent = `${String(clamped + 1).padStart(2, "0")}–${String(Math.min(slides.length, clamped + perView)).padStart(2, "0")} / ${String(slides.length).padStart(2, "0")}`;
-	const pipRow = carousel.querySelector(".toc-cpips");
-	if (pipRow) {
-		const pages = buildCarouselPipList(slides.length, perView);
-		const activePage = pages.reduce((best, pIdx) => pIdx <= clamped ? pIdx : best, 0);
-		pipRow.innerHTML = pages.map((pIdx, pageNo) => {
-			const on = pIdx === activePage;
-			const endP = Math.min(slides.length, pIdx + perView);
-			return `<button type="button" class="toc-cpip${on ? " is-active" : ""}" data-car-idx="${pIdx}" title="Show ${pIdx + 1}–${endP}" aria-label="Page ${pageNo + 1}: items ${pIdx + 1} to ${endP}" aria-selected="${on}"></button>`;
-		}).join("");
-	}
-}
-function setCarouselIndex(carousel, nextIdx, { titleNum = state.currentTitle, signal = state.routeAbort?.signal } = {}) {
-	if (!carousel) return;
-	const track = carousel.querySelector(".toc-carousel-track");
-	if (!track) return;
-	const slides = [...track.querySelectorAll(".toc-slide:not([hidden])")];
-	if (!slides.length) return;
-	const perView = getColsPerView(carousel);
-	const maxIdx = Math.max(0, slides.length - perView);
-	const clamped = Math.max(0, Math.min(nextIdx, maxIdx));
-	carousel.dataset.activeIdx = String(clamped);
-	positionCarousel(carousel);
-	const endIdx = Math.min(slides.length, clamped + perView + 1);
-	for (let i = clamped; i < endIdx; i++) hydrateSlideExcerpt(slides[i], titleNum, signal);
-}
-function initPartTocCarousels(container, { titleNum = state.currentTitle, signal = state.routeAbort?.signal } = {}) {
-	if (!container) return;
-	requestAnimationFrame(() => {
-		if (signal?.aborted) return;
-		for (const car of container.querySelectorAll(".toc-carousel")) if (car.classList.contains("is-carousel")) setCarouselIndex(car, Number(car.dataset.activeIdx) || 0, {
-			titleNum,
-			signal
-		});
-		else for (const slide of car.querySelectorAll(".toc-slide:not([hidden])")) hydrateSlideExcerpt(slide, titleNum, signal);
-		const wrap = container.querySelector(".toc-groups-wrap");
-		if (wrap && typeof ResizeObserver !== "undefined") {
-			const ro = new ResizeObserver(() => {
-				for (const car of wrap.querySelectorAll(".toc-carousel.is-carousel")) positionCarousel(car);
-			});
-			ro.observe(wrap);
-			if (signal) signal.addEventListener("abort", () => ro.disconnect(), { once: true });
-		}
-	});
-}
-async function loadPart(partId) {
-	dom.view.innerHTML = skeletonHtml("list", "Loading Part " + partId + "…");
-	state.currentSection = null;
-	state.currentPart = partId;
-	updateChatContext();
-	try {
-		const seq = state.routeSeq;
-		const signal = state.routeAbort?.signal;
-		const [frontRes] = await Promise.all([fetch("/api/" + state.currentTitle + "/part/" + encodeURIComponent(partId), { signal }), ensureTreeLoaded()]);
-		const front = frontRes.ok ? await frontRes.json() : {
-			part: "",
-			subparts: {}
-		};
-		if (seq !== state.routeSeq) return;
-		const partNode = findPartInTree(state.treeData, partId);
-		if (!partNode) {
-			if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
-				clearTreeSelection();
-				setViewHead("");
-				await renderResolverPage(dom.view, {
-					title: state.currentTitle,
-					part: partId
-				});
-				return;
-			}
-			renderNotFound();
-			return;
-		}
-		const toc = buildPartTocView({
-			partNode,
-			front,
-			titleNum: state.currentTitle,
-			tier: "cfr",
-			isSplit: false
-		});
-		const viewMode = getTocViewMode();
-		document.title = `Part ${partId} · Title ${state.currentTitle}`;
-		setViewHead(docStepHtml(partId, null, firstSectionOf(partId)));
-		const sep = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
-		const toolsHtml = toc.sectionCount >= 2 ? `<div class="part-toc-tools">
-          ${toc.sectionCount >= 6 ? `<input type="search" id="part-toc-filter" class="ui-input part-toc-filter" placeholder="Filter ${plural(toc.sectionCount, "section")} in Part ${escapeHtml(partId)}…" aria-label="Filter sections in part" autocomplete="off" spellcheck="false">` : "<span class=\"toc-tools-label\">Sections index</span>"}
-          <span class="toc-filter-meta" id="part-toc-matches"></span>
-          ${segmentedHtml({
-			label: "Table of contents layout",
-			value: viewMode,
-			cls: "seg toc-view-toggle",
-			dataAttr: "data-toc-view",
-			items: [{
-				value: "cards",
-				label: "Thumbnails"
-			}, {
-				value: "compact",
-				label: "Index"
-			}]
-		})}
-        </div>` : "";
-		dom.view.innerHTML = `
-      <div class="doc-kicker" data-ref-tier="cfr">
-        <span class="ref-badge">FEDERAL REG</span>${sep}<span>${state.currentTitle} CFR ${escapeHtml(partNode.l)}</span>
-        ${toc.sectionCount ? `${sep}<span>${plural(toc.sectionCount, "section")}</span>` : ""}
-        ${toc.subpartCount ? `${sep}<span>${plural(toc.subpartCount, "subpart")}</span>` : ""}
-      </div>
-      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
-      <div class="doc-actions">
-        <a class="btn btn-accent" href="#/part/${encodeURIComponent(partId)}/full">${icon("list")} See full part</a>
-        ${newsActivityButtonHtml()}
-        <div class="spacer"></div>
-        <div class="doc-actions-util">
-          <button type="button" class="btn" id="btn-part-copy" title="Copy part link">${icon("link")} Copy link</button>
-        </div>
-      </div>
-      ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ""}
-      ${toc.atlasHtml}
-      ${toolsHtml}
-      <div class="toc-groups-wrap${viewMode === "compact" ? " is-compact" : ""}">
-        ${toc.groupsHtml || "<p class=\"muted\">No sections listed in this part.</p>"}
-      </div>
-      <p class="part-toc-empty muted" id="part-toc-empty" hidden>No matching sections in Part ${escapeHtml(partId)}.</p>
-    `;
-		syncMainTabFromRoute({
-			kind: "part",
-			title: state.currentTitle,
-			partId,
-			full: false,
-			label: `${state.currentTitle} CFR Part ${partId}`,
-			heading: partNode.d || partNode.l || "",
-			href: window.location.hash || `#/title/${state.currentTitle}/part/${encodeURIComponent(partId)}`
-		});
-		const swapX = state.swapMotionX || 0;
-		state.swapMotionX = 0;
-		enterView({ fromX: swapX });
-		initPartTocCarousels(dom.view, {
-			titleNum: state.currentTitle,
-			signal
-		});
-		selectTreeNode("p-" + partId);
-		recordPartVisit(partId, partNode.d);
-		fillNewsActivity("part", partId, seq);
-	} catch (err) {
-		if (err && err.name === "AbortError") return;
-		console.error(err);
-		setViewHead("");
-		renderViewError(dom.view, "Failed to load part", err?.message || "Unexpected error", { onRetry: () => loadPart(partId) });
-	}
-}
-async function loadPartFull(partId, params) {
-	dom.view.innerHTML = skeletonHtml("doc", "Loading Part " + partId + "…");
-	state.currentSection = null;
-	state.currentPart = partId;
-	updateChatContext();
-	try {
-		const seq = state.routeSeq;
-		const signal = state.routeAbort?.signal;
-		await ensureTreeLoaded();
-		if (seq !== state.routeSeq) return;
-		const partNode = findPartInTree(state.treeData, partId);
-		if (!partNode) {
-			if (state.metaInfo?.partial && /^\d+[a-z]?(?:-\d+)?$/i.test(partId)) {
-				clearTreeSelection();
-				setViewHead("");
-				await renderResolverPage(dom.view, {
-					title: state.currentTitle,
-					part: partId
-				});
-				return;
-			}
-			renderNotFound();
-			return;
-		}
-		const res = await fetch("/api/" + state.currentTitle + "/part/" + encodeURIComponent(partId) + "/full", { signal });
-		if (seq !== state.routeSeq) return;
-		if (!res.ok) {
-			renderNotFound();
-			return;
-		}
-		const data = await res.json();
-		if (seq !== state.routeSeq) return;
-		const from = params && params.get("from");
-		const anchorId = (id) => "sec-" + String(id).replace(/[^a-zA-Z0-9.\-]/g, "_");
-		const sections = data.sections || [];
-		const sectionsHtml = sections.map((s) => {
-			const num = escapeHtml(s.label);
-			const title = escapeHtml(s.title || "");
-			const body = s.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : s.html || "";
-			return `<article class="full-section${s.id === from ? " is-from" : ""}" id="${anchorId(s.id)}">
-        <header class="full-section-head has-tier-bar" data-ref-tier="cfr">
-          <a class="full-section-anchor" href="${sectionHref(s.id)}" title="Open this section on its own">
-            <span class="full-section-num">${num}</span>
-            <span class="full-section-title">${title}</span>
-          </a>
-          <button type="button" class="lib-act full-section-split" data-full-split="${escapeHtml(s.id)}" title="Open ${num} side-by-side">Split</button>
-        </header>
-        ${body}
-      </article>`;
-		}).join("");
-		document.title = `Part ${partId} (full) · Title ${state.currentTitle}`;
-		const [prevPart, nextPart] = partNeighbors(partId);
-		const partBtn = (node, dir) => node ? docStepBtn("part", dir, `#/part/${encodeURIComponent(node.id)}/full`, `Part ${node.id}`, node.d, `<span class="step-word">Part </span>${escapeHtml(node.id)}`) : "";
-		setViewHead(prevPart || nextPart ? `<nav class="doc-step" aria-label="Previous and next part">${partBtn(prevPart, -1)}<span class="spacer"></span>${partBtn(nextPart, 1)}</nav>` : "");
-		const sep = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
-		dom.view.innerHTML = `
-      <div class="doc-kicker" data-ref-tier="cfr">
-        <span class="ref-badge">FULL PART</span>${sep}<span>${state.currentTitle} CFR ${escapeHtml(partNode.l)}</span>${sep}<span>${plural(sections.length, "section")}</span>${sep}<a href="#/part/${encodeURIComponent(partId)}">Table of contents</a>
-      </div>
-      <h1 class="doc-title">${escapeHtml(partNode.d || partNode.l)}</h1>
-      <div class="doc-actions">
-        <a class="btn" href="#/part/${encodeURIComponent(partId)}">${icon("list")} Table of contents</a>
-        ${newsActivityButtonHtml()}
-        <button type="button" class="btn" id="btn-part-refs-ledger" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("list")} <span>Refs</span></button>
-        <div class="spacer"></div>
-        <div class="doc-actions-util">
-          <button type="button" class="btn" id="btn-part-copy" title="Copy direct link">${icon("link")} Copy link</button>
-          <div class="size-ctl" role="group" aria-label="Text size">
-            <button type="button" id="part-font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
-            <button type="button" id="part-font-inc" title="Larger text" aria-label="Larger text">A+</button>
-          </div>
-        </div>
-      </div>
-      ${sectionsHtml || "<p class=\"muted\">No sections in this part.</p>"}
-    `;
-		enhanceDomAnchors(dom.view);
-		state.swapMotionX = 0;
-		syncMainTabFromRoute({
-			kind: "part",
-			title: state.currentTitle,
-			partId,
-			full: true,
-			label: `${state.currentTitle} CFR Part ${partId} · Full`,
-			heading: partNode.d || partNode.l || "",
-			href: window.location.hash || `#/title/${state.currentTitle}/part/${encodeURIComponent(partId)}/full`
-		});
-		const refs = collectSectionReferences(dom.view);
-		const ledgerBtn = document.getElementById("btn-part-refs-ledger");
-		if (ledgerBtn && refs.length) {
-			const span = ledgerBtn.querySelector("span");
-			if (span) span.textContent = `Refs ${refs.length}`;
-			ledgerBtn.hidden = false;
-		}
-		recordPartVisit(partId, partNode.d);
-		fillNewsActivity("part", partId, seq);
-		if (from) {
-			const el = document.getElementById(anchorId(from));
-			if (el) {
-				const start = performance.now();
-				let lastSet = -1;
-				const anchor = () => {
-					if (lastSet >= 0 && Math.abs(dom.main.scrollTop - lastSet) > 4) return;
-					const r = el.getBoundingClientRect();
-					const m = dom.main.getBoundingClientRect();
-					const rel = r.top - m.top;
-					if (rel < 60 || rel > 100) {
-						el.scrollIntoView({ block: "start" });
-						lastSet = dom.main.scrollTop;
-					}
-					if (performance.now() - start < 2500) requestAnimationFrame(anchor);
-				};
-				requestAnimationFrame(anchor);
-			}
-		} else dom.main.scrollTop = 0;
-		selectTreeNode("s-" + (from || sections[0] && sections[0].id));
-	} catch (err) {
-		if (err && err.name === "AbortError") return;
-		console.error(err);
-		setViewHead("");
-		renderViewError(dom.view, "Failed to load part", err?.message || "Unexpected error", { onRetry: () => loadPartFull(partId, params) });
-	}
-}
-function handlePartTocCarouselClick(e, root, { titleNum = state.currentTitle, signal = state.routeAbort?.signal } = {}) {
-	const dirBtn = e.target.closest("[data-car-dir]");
-	if (dirBtn) {
-		const car = dirBtn.closest(".toc-group")?.querySelector(".toc-carousel");
-		if (car) setCarouselIndex(car, (Number(car.dataset.activeIdx) || 0) + Number(dirBtn.dataset.carDir) * getColsPerView(car), {
-			titleNum,
-			signal
-		});
-		return true;
-	}
-	const pipBtn = e.target.closest("[data-car-idx]");
-	if (pipBtn) {
-		const car = pipBtn.closest(".toc-carousel");
-		if (car) setCarouselIndex(car, Number(pipBtn.dataset.carIdx) || 0, {
-			titleNum,
-			signal
-		});
-		return true;
-	}
-	const jumpBtn = e.target.closest("[data-toc-jump]");
-	if (jumpBtn) {
-		const id = jumpBtn.dataset.tocJump;
-		const target = root ? root.querySelector(`#${CSS.escape(id)}`) : document.getElementById(id);
-		if (target) {
-			target.hidden = false;
-			smoothScrollToTarget(target, { block: "start" });
-			target.classList.remove("flash");
-			target.offsetWidth;
-			target.classList.add("flash");
-		}
-		return true;
-	}
-	return false;
-}
-function handlePartTocCarouselKeydown(e, { titleNum = state.currentTitle, signal = state.routeAbort?.signal } = {}) {
-	if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return false;
-	const car = e.target.closest?.(".toc-carousel.is-carousel");
-	if (!car) return false;
-	const wrap = car.closest(".toc-groups-wrap");
-	if (wrap?.classList.contains("is-compact") || wrap?.classList.contains("is-filtering")) return false;
-	e.preventDefault();
-	setCarouselIndex(car, (Number(car.dataset.activeIdx) || 0) + (e.key === "ArrowRight" ? 1 : -1) * getColsPerView(car), {
-		titleNum,
-		signal
-	});
-	return true;
-}
-dom.view.addEventListener("input", (e) => {
-	if (e.target.id !== "part-toc-filter") return;
-	const q = e.target.value.trim().toLowerCase();
-	const wrap = dom.view.querySelector(".toc-groups-wrap");
-	if (wrap) wrap.classList.toggle("is-filtering", Boolean(q));
-	let visible = 0;
-	let total = 0;
-	for (const grp of dom.view.querySelectorAll(".toc-group")) {
-		let grpShown = 0;
-		for (const li of grp.querySelectorAll("li[data-hay]")) {
-			total++;
-			const show = !q || li.dataset.hay.includes(q);
-			li.hidden = !show;
-			if (show) {
-				grpShown++;
-				visible++;
-			}
-		}
-		grp.hidden = grpShown === 0;
-		const cnt = grp.querySelector(".toc-group-count");
-		if (cnt) cnt.textContent = String(grpShown);
-	}
-	if (!q) initPartTocCarousels(dom.view, { titleNum: state.currentTitle });
-	else for (const car of dom.view.querySelectorAll(".toc-carousel")) positionCarousel(car);
-	const metaEl = document.getElementById("part-toc-matches");
-	if (metaEl) metaEl.textContent = q ? `${visible} of ${total} shown` : "";
-	const emptyEl = document.getElementById("part-toc-empty");
-	if (emptyEl) emptyEl.hidden = visible > 0 || !q;
-});
-dom.view.addEventListener("click", async (e) => {
-	if (handlePartTocCarouselClick(e, dom.view)) return;
-	const viewBtn = e.target.closest("[data-toc-view]");
-	if (viewBtn) {
-		const mode = viewBtn.dataset.tocView === "compact" ? "compact" : "cards";
-		lsSet(TOC_VIEW_KEY, mode);
-		const wrap = dom.view.querySelector(".toc-groups-wrap");
-		if (wrap) wrap.classList.toggle("is-compact", mode === "compact");
-		for (const b of dom.view.querySelectorAll("[data-toc-view]")) b.setAttribute("aria-pressed", String(b.dataset.tocView === mode));
-		initPartTocCarousels(dom.view, { titleNum: state.currentTitle });
-		return;
-	}
-	const tocSplit = e.target.closest("[data-toc-split]");
-	if (tocSplit) {
-		e.preventDefault();
-		e.stopPropagation();
-		openSplitPane({
-			title: state.currentTitle,
-			sectionId: tocSplit.dataset.tocSplit,
-			pushHistory: true
-		});
-		return;
-	}
-	if (e.target.closest("#btn-part-refs-ledger")) {
-		openRefsLedgerPopover(e.target.closest("#btn-part-refs-ledger"));
-		return;
-	}
-	if (e.target.closest("#btn-part-copy")) {
-		try {
-			await navigator.clipboard.writeText(window.location.href);
-			showToast("Link copied");
-		} catch (err) {
-			showToast("Couldn’t copy the link");
-		}
-		return;
-	}
-	if (e.target.closest("#part-font-dec")) {
-		adjustFontSize(-1);
-		return;
-	}
-	if (e.target.closest("#part-font-inc")) {
-		adjustFontSize(1);
-		return;
-	}
-	const splitBtn = e.target.closest("[data-full-split]");
-	if (splitBtn) openSplitPane({
-		title: state.currentTitle,
-		sectionId: splitBtn.dataset.fullSplit,
-		pushHistory: true
-	});
-});
-dom.view.addEventListener("keydown", (e) => {
-	handlePartTocCarouselKeydown(e);
-});
-function tocTitle(node) {
-	const l = cleanInlineLabel(node.l || "");
-	const d = cleanInlineLabel(node.d || "");
-	return l && d.startsWith(l) && d.length > l.length ? d.slice(l.length).trim() : d;
-}
-function findPartInTree(node, partId) {
-	if (!node) return null;
-	if (node.t === "part" && String(node.id) === String(partId)) return node;
-	if (node.c) for (const ch of node.c) {
-		const found = findPartInTree(ch, partId);
-		if (found) return found;
-	}
-	return null;
-}
-// src/usage.js
-var USAGE_KEY = "usage";
-function loadUsage() {
-	try {
-		const u = JSON.parse(lsGet("usage") || "null");
-		if (u && u.v === 1 && u.s && u.p) return u;
-	} catch (e) {}
-	return {
-		v: 1,
-		since: Date.now(),
-		s: {},
-		p: {}
-	};
-}
-function bumpPart(u, title, part, heading, now) {
-	if (!part) return;
-	const key = title + "|" + part;
-	const e = u.p[key] || (u.p[key] = { n: 0 });
-	e.n += 1;
-	e.t = now;
-	if (heading) e.h = String(heading).trim();
-}
-function recordSectionVisit(data, unitInfo = null) {
-	if (!data || !data.id) return;
-	const u = loadUsage();
-	const now = Date.now();
-	const key = state.currentTitle + "|" + data.id;
-	const e = u.s[key] || (u.s[key] = { n: 0 });
-	e.n += 1;
-	e.t = now;
-	e.l = data.label || data.id;
-	e.h = data.section_title || data.title_label || "";
-	e.p = data.part || "";
-	if (unitInfo && unitInfo.key) {
-		e.u = unitInfo.key;
-		e.ul = unitInfo.label || unitInfo.key;
-	} else {
-		delete e.u;
-		delete e.ul;
-	}
-	const partNode = data.part && state.treeData ? findPartInTree(state.treeData, data.part) : null;
-	bumpPart(u, state.currentTitle, data.part, partNode && partNode.d, now);
-	lsSet(USAGE_KEY, JSON.stringify(u));
-}
-function recordSectionUnit(sectionId, unitInfo = null) {
-	if (!sectionId) return;
-	const u = loadUsage();
-	const key = state.currentTitle + "|" + sectionId;
-	const e = u.s[key];
-	if (!e) return;
-	e.t = Date.now();
-	if (unitInfo && unitInfo.key) {
-		e.u = unitInfo.key;
-		e.ul = unitInfo.label || unitInfo.key;
-	} else {
-		delete e.u;
-		delete e.ul;
-	}
-	lsSet(USAGE_KEY, JSON.stringify(u));
-}
-function recordPartVisit(partId, heading) {
-	const u = loadUsage();
-	bumpPart(u, state.currentTitle, partId, heading, Date.now());
-	lsSet(USAGE_KEY, JSON.stringify(u));
-}
-function visitedCountFor(title) {
-	try {
-		const raw = lsGet(title === 29 ? "visited" : "visited-" + title);
-		return raw ? JSON.parse(raw).length : 0;
-	} catch (e) {
-		return 0;
-	}
-}
-function timeAgo(ms) {
-	const s = Math.max(0, (Date.now() - ms) / 1e3);
-	if (s < 60) return "just now";
-	if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-	if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-	const d = Math.floor(s / 86400);
-	if (d === 1) return "yesterday";
-	if (d < 30) return `${d}d ago`;
-	return new Date(ms).toLocaleDateString(void 0, {
-		month: "short",
-		day: "numeric",
-		year: "numeric"
-	});
-}
-var fmt = (n) => Number(n || 0).toLocaleString();
-var titleHref = (t, rest) => `#/title/${t}/${rest || ""}`;
-// src/components/ui.js
-var SEP = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
-var joinSep = (xs) => xs.filter(Boolean).join(SEP);
-var fmtDate = (iso) => {
-	if (!iso) return "";
-	const d = /* @__PURE__ */ new Date(iso + "T00:00:00");
-	return isNaN(d) ? iso : d.toLocaleDateString(void 0, {
-		month: "short",
-		day: "numeric",
-		year: "numeric"
-	});
-};
-var shortDate = (iso) => {
-	if (!iso) return "";
-	const d = /* @__PURE__ */ new Date(iso + "T00:00:00");
-	if (isNaN(d)) return iso;
-	const opts = d.getFullYear() === (/* @__PURE__ */ new Date()).getFullYear() ? {
-		month: "short",
-		day: "numeric"
-	} : {
-		month: "short",
-		day: "numeric",
-		year: "numeric"
-	};
-	return d.toLocaleDateString(void 0, opts);
-};
-var fmtBytes = (bytes) => {
-	if (!bytes || bytes <= 0) return "";
-	if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-	const mb = bytes / 1048576;
-	if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-	return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`;
-};
-var fmtMB = (mb) => mb ? fmtBytes(mb * 1048576) : "";
-var fmtSections = (n) => n ? `${fmt(n)} ${n === 1 ? "section" : "sections"}` : "";
-function statPill(state, text, { bare = false, title = "" } = {}) {
-	return `<span class="stat-pill is-${state}${bare ? " is-bare" : ""}"${title ? ` title="${escapeHtml(title)}"` : ""}><span class="stat-dot is-${state}" aria-hidden="true"></span>${escapeHtml(text)}</span>`;
-}
-function metricCardHtml({ label, value, of = "", sub = "", alert = false }) {
-	return `<div class="metric-card${alert ? " is-alert" : ""}"><div class="metric-label">${label}</div><div class="metric-val">${value}${of ? `<span class="metric-of">${escapeHtml(of)}</span>` : ""}</div><div class="metric-sub">${sub}</div></div>`;
-}
-function emptyStateHtml({ title, body = "", actionsHtml = "", cls = "" } = {}) {
-	return `<div class="empty-state${cls ? " " + cls : ""}"><h2>${escapeHtml(title)}</h2>` + (body ? `<p>${body}</p>` : "") + (actionsHtml || "") + "</div>";
-}
-function segmentedHtml({ label, items, value, cls = "seg", role = "group", dataAttr = "data-value" }) {
-	return `<div class="${cls}" role="${role}" aria-label="${escapeHtml(label)}">${items.map((it) => {
-		const on = it.value === value;
-		return `<button type="button" ${dataAttr}="${escapeHtml(it.value)}" aria-pressed="${on}"${it.attrs ? " " + it.attrs : ""}>${it.label}</button>`;
-	}).join("")}</div>`;
-}
-function transferTrackHtml(pct, { bindFill = false } = {}) {
-	return `<div class="dock-track"><span class="dock-fill${pct == null ? " is-indeterminate" : ""}"${bindFill ? " data-f=\"fill\"" : ""} style="width:${pct == null ? 35 : pct}%"></span></div>`;
-}
-// src/components/palette.js
+// src/components/palette.ts
 function commandList() {
 	const mod = isMac ? "⌘" : "Ctrl ";
 	return [
@@ -16066,45 +15617,70 @@ function commandItemsHtml(q) {
 function runCommand(cmd) {
 	if (cmd === "drawer") toggleDrawer();
 	else if (cmd === "chat") toggleChat();
-	else if (cmd === "new-project") showNewProjectForm();
-	else if (cmd === "news-refresh") refreshNewsCommand();
+	else if (cmd === "new-project") emit("nav:new-project");
+	else if (cmd === "news-refresh") emit("news:refresh");
 	else if (cmd === "env-modal") openEnvModal();
 	else openPanel(cmd, { focus: true });
 }
-// src/components/search_bar.js
+// src/components/search_bar.ts
 state.searchTimer = null;
 state.sdActive = -1;
+var searchAbort = null;
+function setDropdownOpen(open) {
+	dom.searchDropdown.hidden = !open;
+	dom.search.setAttribute("aria-expanded", String(Boolean(open)));
+	if (!open) {
+		dom.search.removeAttribute("aria-activedescendant");
+		state.sdActive = -1;
+	}
+}
 function moveSdActive(delta) {
 	const items = [...dom.searchDropdown.querySelectorAll(".sd-item")];
 	if (dom.searchDropdown.hidden || !items.length) return;
-	state.sdActive = (state.sdActive + delta + items.length) % items.length;
-	items.forEach((el, i) => el.classList.toggle("active", i === state.sdActive));
+	state.sdActive = ((state.sdActive ?? -1) + delta + items.length) % items.length;
+	items.forEach((el, i) => {
+		const on = i === state.sdActive;
+		el.classList.toggle("active", on);
+		if (on) {
+			if (!el.id) el.id = `sd-opt-${i}`;
+			dom.search.setAttribute("aria-activedescendant", el.id);
+		}
+	});
 	items[state.sdActive].scrollIntoView({ block: "nearest" });
 }
 dom.search.addEventListener("input", () => {
-	clearTimeout(state.searchTimer);
+	if (state.searchTimer) clearTimeout(state.searchTimer);
+	if (searchAbort) {
+		try {
+			searchAbort.abort();
+		} catch {}
+		searchAbort = null;
+	}
 	state.sdActive = -1;
 	const q = dom.search.value.trim();
 	if (!q) {
-		dom.searchDropdown.hidden = true;
+		setDropdownOpen(false);
 		return;
 	}
 	if (q.startsWith(">")) {
 		dom.searchDropdown.innerHTML = commandItemsHtml(q.slice(1));
-		dom.searchDropdown.hidden = false;
+		setDropdownOpen(true);
 		moveSdActive(1);
 		return;
 	}
 	state.searchTimer = setTimeout(async () => {
+		searchAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+		const ctrl = searchAbort;
 		try {
-			const data = await (await fetch(`/api/${state.currentTitle}/search?q=${encodeURIComponent(q)}&limit=6`)).json();
+			const data = await fetchSearchResults(state.currentTitle, q, 6, { signal: ctrl?.signal });
+			if (ctrl?.signal?.aborted || dom.search.value.trim() !== q) return;
 			if (!data.results || data.results.length === 0) dom.searchDropdown.innerHTML = `<div class="sd-footer">No quick matches. Press <kbd>Enter</kbd> to search the full text.</div>`;
 			else {
-				const items = data.results.map((r) => {
-					let snip = (r.snippet || "").replace(/[\x02\x03]/g, "");
+				const items = data.results.map((r, i) => {
+					const snip = (r.snippet || "").replace(/[\x02\x03]/g, "");
 					const rTitle = r.title || state.currentTitle;
 					return `
-            <a class="sd-item" data-ref-tier="cfr" href="#/title/${rTitle}/section/${encodeURIComponent(r.id)}">
+            <a class="sd-item" id="sd-opt-${i}" role="option" data-ref-tier="cfr" href="#/title/${rTitle}/section/${encodeURIComponent(r.id)}">
               <div class="sd-item-top">
                 <span class="sd-label">${escapeHtml(r.label)}</span>
                 <span class="sd-item-title">${escapeHtml(r.title_label || r.title)}</span>
@@ -16116,9 +15692,10 @@ dom.search.addEventListener("input", () => {
 				}).join("");
 				dom.searchDropdown.innerHTML = items + `<div class="sd-footer"><kbd>Enter</kbd> All ${Number(data.total).toLocaleString()} results<span class="sd-hint">Type <kbd>&gt;</kbd> for commands</span></div>`;
 			}
-			dom.searchDropdown.hidden = false;
+			setDropdownOpen(true);
 		} catch (e) {
-			dom.searchDropdown.hidden = true;
+			if (e instanceof Error && e.name === "AbortError") return;
+			setDropdownOpen(false);
 		}
 	}, 180);
 });
@@ -16126,21 +15703,23 @@ dom.search.addEventListener("keydown", (e) => {
 	if (e.key === "Enter") {
 		e.preventDefault();
 		const items = dom.searchDropdown.querySelectorAll(".sd-item");
-		if (!dom.searchDropdown.hidden && state.sdActive >= 0 && items[state.sdActive]) {
-			const cmd = items[state.sdActive].dataset.cmd;
-			dom.searchDropdown.hidden = true;
+		const active = state.sdActive ?? -1;
+		if (!dom.searchDropdown.hidden && active >= 0 && items[active]) {
+			const cmd = items[active].dataset.cmd;
+			setDropdownOpen(false);
 			dom.search.blur();
 			if (cmd || dom.search.value.trim().startsWith(">")) dom.search.value = "";
 			if (cmd) {
 				runCommand(cmd);
 				return;
 			}
-			window.location.hash = items[state.sdActive].getAttribute("href");
-			dom.searchDropdown.hidden = true;
+			const href = items[active].getAttribute("href");
+			if (href) window.location.hash = href;
+			setDropdownOpen(false);
 			dom.search.blur();
 			return;
 		}
-		dom.searchDropdown.hidden = true;
+		setDropdownOpen(false);
 		const q = dom.search.value.trim();
 		if (q && !q.startsWith(">")) window.location.hash = `#/search?q=${encodeURIComponent(q)}`;
 	} else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -16148,12 +15727,12 @@ dom.search.addEventListener("keydown", (e) => {
 			e.preventDefault();
 			moveSdActive(e.key === "ArrowDown" ? 1 : -1);
 		}
-	} else if (e.key === "Escape") dom.searchDropdown.hidden = true;
+	} else if (e.key === "Escape") setDropdownOpen(false);
 });
 dom.searchDropdown.addEventListener("click", (e) => {
-	const item = e.target.closest(".sd-cmd");
+	const item = e.target?.closest(".sd-cmd");
 	if (!item) return;
-	dom.searchDropdown.hidden = true;
+	setDropdownOpen(false);
 	dom.search.value = "";
 	if (item.dataset.cmd) {
 		e.preventDefault();
@@ -16161,7 +15740,8 @@ dom.searchDropdown.addEventListener("click", (e) => {
 	}
 });
 document.addEventListener("click", (e) => {
-	if (!dom.search.contains(e.target) && !dom.searchDropdown.contains(e.target)) dom.searchDropdown.hidden = true;
+	const t = e.target;
+	if (!dom.search.contains(t) && !dom.searchDropdown.contains(t)) setDropdownOpen(false);
 });
 document.addEventListener("keydown", (e) => {
 	const active = document.activeElement;
@@ -16176,7 +15756,226 @@ document.addEventListener("keydown", (e) => {
 		toggleChat();
 	}
 });
-// src/panels/drawer_width.js
+// src/panels/projects_panel.ts
+state.newProjectOpen = false;
+function showNewProjectForm() {
+	state.newProjectOpen = true;
+	if (!drawerShown() || navState.panel !== "projects") openPanel("projects");
+	else renderProjectsPanel();
+	requestAnimationFrame(() => document.getElementById("dr-new-name")?.focus());
+}
+var projectRouteId = () => {
+	const m = /\/projects\/([^/?]+)/.exec(state.activeRoute || "");
+	return m ? decodeURIComponent(m[1]) : null;
+};
+function renderProjectsPanel() {
+	const list = loadProjects();
+	const current = projectRouteId();
+	const form = state.newProjectOpen ? `<form class="dr-new" id="dr-new-project">
+      <input class="dr-input" id="dr-new-name" name="name" placeholder="Workspace name" maxlength="80" autocomplete="off" aria-label="New workspace name">
+      <button type="submit" class="lib-act is-primary">Create</button></form>` : "";
+	const rows = list.map((p) => `<a class="dr-proj${p.id === current ? " is-current" : ""}" href="#/projects/${encodeURIComponent(p.id)}"${p.id === current ? " aria-current=\"page\"" : ""}>
+      ${projDot(p)}<span class="dr-proj-text"><span class="dr-name">${escapeHtml(p.name)}</span>
+      <span class="dr-proj-meta">${joinSep([plural(p.sections.length, "section"), escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))])}</span></span></a>`).join("");
+	const mod = isMac ? "⌘" : "Ctrl ";
+	setPanel("projects", `${form}
+    ${list.length ? `<section class="dr-sec">${drLabel("Workspaces", `<span class="dr-count">${list.length}</span>`)}${rows}</section>` : drEmpty("No workspaces yet", `Organize sections for program compliance, an audit, or a review. Open a section and press <strong>Pin</strong> or <kbd>${mod}D</kbd>.`) + (state.newProjectOpen ? "" : "<button type=\"button\" class=\"btn dr-empty-btn\" data-nav-act=\"new-project\">New workspace</button>")}
+    <div class="dr-foot">
+      <a class="dr-link" href="#/projects">All workspaces</a>
+      <span class="dr-foot-acts"><button type="button" class="dr-link" data-proj-act="export"${list.length ? "" : " disabled"}>Export</button><button type="button" class="dr-link" data-proj-act="import">Import</button></span>
+    </div>`);
+}
+dom.sidebar.addEventListener("submit", (e) => {
+	const form = e.target;
+	if (!form || form.id !== "dr-new-project") return;
+	e.preventDefault();
+	const name = form.elements.namedItem("name")?.value.trim() || "";
+	if (!name) return;
+	state.newProjectOpen = false;
+	const p = createProject(name);
+	window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
+});
+dom.sidebar.addEventListener("keydown", (e) => {
+	const t = e.target;
+	if (e.key === "Escape" && t?.id === "dr-new-name") {
+		e.preventDefault();
+		state.newProjectOpen = false;
+		renderProjectsPanel();
+	}
+});
+dom.sidebar.addEventListener("click", (e) => {
+	const navAct = e.target?.closest("[data-nav-act]");
+	if (navAct && navAct.dataset.navAct === "new-project") showNewProjectForm();
+});
+registerDrawerPanel("projects", renderProjectsPanel);
+on("nav:new-project", () => showNewProjectForm());
+// src/panels/library_panel.ts
+var navLib = {
+	data: null,
+	at: 0,
+	loading: null
+};
+async function ensureNavLibrary(force = false) {
+	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
+	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
+		navLib.data = d;
+		navLib.at = Date.now();
+		state.navLibData = d;
+		return d;
+	}).finally(() => {
+		navLib.loading = null;
+	});
+	return navLib.loading;
+}
+function transferHtml() {
+	const j = state.jobs.current;
+	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
+	const m = dockModel(j);
+	return (!j ? "" : `<div class="dr-job">
+      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
+      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
+      ${transferTrackHtml(m.pct, { bindFill: true })}
+      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
+    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
+}
+state.navTransferKey = "";
+function updateNavTransfers() {
+	updateRailBadge();
+	if (navState.panel !== "library" || !drawerShown()) return;
+	const box = document.getElementById("dr-transfers");
+	if (!box) return;
+	const j = state.jobs.current;
+	const m = dockModel(j);
+	const key = [
+		j && j.id,
+		j && j.cancelling,
+		j && j.phase === "Installing",
+		m.pct == null,
+		state.jobs.queued.map((q) => q.id).join(".")
+	].join("|");
+	if (key !== state.navTransferKey) {
+		state.navTransferKey = key;
+		box.innerHTML = transferHtml();
+		const count = document.getElementById("dr-transfers-count");
+		const n = (j ? 1 : 0) + state.jobs.queued.length;
+		if (count) count.textContent = n ? String(n) : "";
+		const sec = document.getElementById("dr-transfers-sec");
+		if (sec) sec.hidden = !n;
+		return;
+	}
+	const set = (f, v) => {
+		const n = box.querySelector(`[data-f="${f}"]`);
+		if (n && n.textContent !== v) n.textContent = v;
+	};
+	set("pct", m.pct == null ? "" : `${m.pct}%`);
+	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
+	set("left", m.left);
+	set("right", m.right);
+	const fill = box.querySelector("[data-f=\"fill\"]");
+	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+}
+function renderLibraryPanel() {
+	const d = navLib.data;
+	state.navTransferKey = "";
+	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
+	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
+	if (!d) {
+		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
+		ensureNavLibrary().then(() => {
+			if (navState.panel === "library") renderLibraryPanel();
+			updateRailBadge();
+		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
+		return;
+	}
+	const live = d.titles.filter((t) => !t.reserved);
+	const installed = live.filter((t) => t.installed);
+	const stale = installed.filter(isStale);
+	const rows = installed.map((t) => {
+		const st = titleStatus(t);
+		return `<a class="dr-row" href="#/title/${t.title}/">
+      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
+      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
+	}).join("");
+	const suites = Object.values(d.suites || {}).map((s) => {
+		const st = suiteState(s, d);
+		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
+		return `<div class="dr-suite">
+      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
+        <span class="dr-suite-meta">${joinSep([`${have} of ${st.total} installed`, fmtMB(s.size_mb)])}</span></div>
+      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : st.ts.length ? "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-uninstalled\" title=\"Not installed\" aria-hidden=\"true\"></span>"}
+    </div>`;
+	}).join("");
+	setPanel("library", `
+    <a class="dr-cta" href="#/library">
+      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
+    </a>
+    ${transfers}
+    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
+      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
+    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
+	updateRailBadge();
+}
+registerDrawerPanel("library", renderLibraryPanel);
+on("jobs:updated", () => updateNavTransfers());
+on("jobs:finished", () => {
+	navLib.at = 0;
+	if (drawerShown() && navState.panel === "library") ensureNavLibrary(true).then(renderLibraryPanel).catch(() => {});
+});
+dom.sidebar.addEventListener("click", async (e) => {
+	const t = e.target;
+	const dockBtn = t?.closest("[data-dock]");
+	if (dockBtn) {
+		onDockAction(dockBtn);
+		return;
+	}
+	const act = t?.closest("button[data-act]");
+	if (act && (act.dataset.act === "download-suite" || act.dataset.act === "update-all")) {
+		act.disabled = true;
+		try {
+			if (act.dataset.act === "download-suite") await queueBatch("/api/library/batch-download", { suite: act.dataset.suite }, "Every title in this suite is installed and current");
+			else await queueBatch("/api/library/update-all", null, "Every installed title is already current");
+		} catch (err) {
+			showToast(err instanceof Error ? err.message : "Download failed", 5e3);
+			act.disabled = false;
+		}
+	}
+});
+// src/panels/recent_panel.ts
+function renderHistoryPanel() {
+	const u = loadUsage();
+	const rows = Object.entries(u.s).map(([key, e]) => ({
+		key,
+		title: Number(key.split("|")[0]),
+		id: key.slice(key.indexOf("|") + 1),
+		...e
+	})).sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 24);
+	const dayOf = (ms) => {
+		const d = new Date(ms || 0);
+		const days = Math.floor((new Date((/* @__PURE__ */ new Date()).toDateString()).getTime() - new Date(d.toDateString()).getTime()) / 864e5);
+		return days === 0 ? "Today" : days === 1 ? "Yesterday" : days < 7 ? "This week" : "Earlier";
+	};
+	let lastDay = "";
+	const list = rows.map((r) => {
+		const day = dayOf(r.t);
+		const label = day !== lastDay ? `<div class="dr-day">${day}</div>` : "";
+		lastDay = day;
+		return `${label}<a class="dr-item" href="#/title/${r.title}/section/${encodeURIComponent(r.id)}">
+      <span class="dr-item-top"><span class="dr-item-kicker">${escapeHtml(r.l || "§ " + r.id)}<span class="sep" aria-hidden="true">·</span>Title ${r.title}</span><span class="dr-time">${escapeHtml(timeAgo(r.t || 0))}</span></span>
+      <span class="dr-item-name">${escapeHtml(r.h || "")}</span></a>`;
+	}).join("");
+	const pins = loadProjects().flatMap((p) => p.sections.map((s) => ({
+		...s,
+		project: p
+	}))).sort((a, b) => (b.pinned_at || "").localeCompare(a.pinned_at || "")).slice(0, 6);
+	setPanel("history", `
+    <section class="dr-sec">${drLabel("Recently read")}${list || drEmpty("Nothing read yet", "Sections you open appear here, newest first.")}</section>
+    ${pins.length ? `<section class="dr-sec">${drLabel("Recent pins")}${pins.map((s) => `<a class="dr-item" href="#/title/${s.title}/section/${encodeURIComponent(s.id)}">
+        <span class="dr-item-top"><span class="dr-item-kicker">§ ${escapeHtml(s.id)}<span class="sep" aria-hidden="true">·</span>${escapeHtml(s.project.name)}</span></span>
+        <span class="dr-item-name">${escapeHtml(s.heading || "")}</span></a>`).join("")}</section>` : ""}`);
+}
+registerDrawerPanel("history", renderHistoryPanel);
+// src/panels/drawer_width.ts
 function setSidebarWidth(px, save) {
 	const w = Math.round(Math.min(560, Math.max(220, px)));
 	document.documentElement.style.setProperty("--sidebar-w", w + "px");
@@ -16221,12 +16020,774 @@ dom.sidebarResizer.addEventListener("dblclick", () => {
 	saveNav();
 });
 dom.sidebarResizer.setAttribute("aria-valuenow", String(Math.round(dom.sidebar.getBoundingClientRect().width) || 288));
-// src/components/selection_tool.js
+// src/components/split_pane.ts
+var splitAbort = null;
+var splitSeq = 0;
+var activeSplitDoc = null;
+var activeSplitGraph = null;
+var activeSplitNewsCtx = null;
+var splitParaTools = createParaToolsController({
+	root: dom.splitPane,
+	bodySelector: ".split-body",
+	paraSelector: ".split-body .reg-p[id]",
+	isActive: () => Boolean(activeSplitDoc),
+	getSectionRef: activeSplitSectionRef
+});
+function activeSplitTab() {
+	return state.splitTabs.find((t) => t.id === state.activeSplitTabId) || state.splitTabs[0] || null;
+}
+function unitQueryFor(view, para) {
+	if (view === "full") return "";
+	if (view) return "?unit=" + encodeURIComponent(view);
+	const pClause = para && /^\(([a-z])\)/i.exec(para.trim());
+	return "?unit=" + encodeURIComponent(pClause ? pClause[1].toLowerCase() : "");
+}
+function buildSplitHash(entry = state.splitState) {
+	return buildReaderHref(entry);
+}
+function makeSplitTab(entry) {
+	return {
+		id: entry.id || `stab_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+		kind: entry.kind || (entry.partId && !entry.sectionId ? "part" : "section"),
+		title: Number(entry.title) || state.currentTitle || 29,
+		sectionId: entry.sectionId ? String(entry.sectionId) : void 0,
+		partId: entry.partId ? String(entry.partId) : void 0,
+		full: Boolean(entry.full),
+		para: entry.para || null,
+		unit: entry.unit || null,
+		label: entry.label || formatTabLabel(entry),
+		heading: entry.heading || "",
+		history: Array.isArray(entry.history) && entry.history.length ? entry.history : [{ ...entry }]
+	};
+}
+function syncSplitTabStripInPlace() {
+	const host = dom.splitPane?.querySelector("#split-tabs");
+	if (host) host.outerHTML = splitTabsBarHtml();
+}
+function splitTabsBarHtml() {
+	if (!state.splitTabs.length) return "";
+	return `
+    <div id="split-tabs" class="reader-tabs is-split-tabs" role="tablist" aria-label="Side-by-side reader tabs">
+      <div class="reader-tabs-strip">${state.splitTabs.map((tab) => {
+		const active = tab.id === state.activeSplitTabId;
+		const tier = Number(tab.title) !== Number(state.currentTitle) ? "cross" : "cfr";
+		const label = tab.label || formatTabLabel(tab);
+		const titleAttr = `${label}${tab.heading ? ` — ${tab.heading}` : ""}`;
+		return `
+      <div class="reader-tab${active ? " is-active" : ""}" data-ref-tier="${tier}" role="presentation">
+        <button type="button" class="reader-tab-btn" role="tab" aria-selected="${active ? "true" : "false"}" data-split-tab="${escapeHtml(tab.id)}" title="${escapeHtml(titleAttr)}">
+          <span class="tier-pip" aria-hidden="true"></span>
+          <span class="reader-tab-label">${escapeHtml(label)}</span>
+        </button>
+        <button type="button" class="reader-tab-close" data-split-tab-close="${escapeHtml(tab.id)}" aria-label="Close ${escapeHtml(label)}" title="Close tab">${icon("close")}</button>
+      </div>`;
+	}).join("")}</div>
+      <div class="reader-tabs-acts">
+        <button type="button" class="btn btn-small reader-tabs-save" data-split-tabs-act="save-group" title="Save current main & side-by-side tabs as a workspace tab group">${icon("folder")} <span>Save group</span></button>
+      </div>
+    </div>`;
+}
+function splitHeaderHtml({ splitTier = "cfr", kickerHtml, titleText, hasBack = false, isLoading = false }) {
+	const acts = isLoading ? `<button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>` : `<button type="button" class="icon-btn" data-split-act="swap" title="Swap with main reader" aria-label="Swap panes">${icon("stack")}</button>
+       <button type="button" class="icon-btn${state.splitWide ? " is-active" : ""}" data-split-act="wide" title="Toggle split width" aria-label="Toggle width">${icon("expand")}</button>
+       <button type="button" class="btn btn-small" data-split-act="to-main-tab" title="Move into a main reader tab">${icon("plus")} Main tab</button>
+       <button type="button" class="btn btn-small" data-split-act="promote" title="Open in main reading pane">Open</button>
+       <button type="button" class="icon-btn" data-split-act="close" title="Close split view" aria-label="Close split view">${icon("close")}</button>`;
+	return `
+    <header class="split-head" data-ref-tier="${splitTier}">
+      ${hasBack ? `<button type="button" class="icon-btn" data-split-act="back" title="Back in split pane" aria-label="Back">${icon("chevronLeft")}</button>` : ""}
+      <div class="split-head-meta">
+        <div class="doc-kicker"><span class="tier-pip" aria-hidden="true"></span> ${kickerHtml}</div>
+        <h2 class="split-head-title">${escapeHtml(titleText)}</h2>
+      </div>
+      <div class="split-head-acts">${acts}</div>
+    </header>`;
+}
+function closeSplitPane() {
+	splitParaTools.hide();
+	if (splitAbort) {
+		try {
+			splitAbort.abort();
+		} catch {}
+		splitAbort = null;
+	}
+	splitSeq++;
+	activeSplitDoc = null;
+	activeSplitGraph = null;
+	activeSplitNewsCtx = null;
+	state.splitState = null;
+	state.splitTabs = [];
+	state.activeSplitTabId = null;
+	persistSessionTabs();
+	renderMainTabs();
+	if (dom.splitPane) {
+		dom.splitPane.hidden = true;
+		dom.splitPane.innerHTML = "";
+	}
+	if (dom.mainStage) dom.mainStage.classList.remove("is-split", "is-split-wide");
+}
+function closeSplitTab(tabId) {
+	const idx = state.splitTabs.findIndex((t) => t.id === tabId);
+	if (idx < 0) return;
+	if (state.splitTabs.length <= 1) {
+		closeSplitPane();
+		return;
+	}
+	const wasActive = state.splitTabs[idx].id === state.activeSplitTabId;
+	state.splitTabs.splice(idx, 1);
+	if (wasActive) {
+		const next = state.splitTabs[Math.min(idx, state.splitTabs.length - 1)] || state.splitTabs[0];
+		state.activeSplitTabId = next.id || null;
+		persistSessionTabs();
+		openSplitPane({
+			...next,
+			tabId: next.id,
+			newTab: false,
+			pushHistory: false
+		});
+	} else {
+		persistSessionTabs();
+		syncSplitTabStripInPlace();
+	}
+}
+function promoteSplitToMain() {
+	if (!state.splitState) return;
+	const target = buildSplitHash(state.splitState);
+	closeSplitPane();
+	window.location.hash = target;
+}
+function moveActiveSplitToMainTab() {
+	const active = activeSplitTab() || state.splitState;
+	if (!active) return;
+	const target = {
+		kind: active.kind || (active.partId && !active.sectionId ? "part" : "section"),
+		title: active.title,
+		sectionId: active.sectionId,
+		partId: active.partId,
+		unit: active.unit || null,
+		full: Boolean(active.full),
+		para: active.para || null,
+		label: active.label || formatTabLabel(active),
+		heading: active.heading || "",
+		href: buildSplitHash(active)
+	};
+	if (active.id && state.splitTabs.length > 1) closeSplitTab(active.id);
+	else closeSplitPane();
+	openMainReaderTab(target);
+}
+function activeSplitSectionRef() {
+	if (!activeSplitDoc || !state.splitState || state.splitState.kind === "part") return null;
+	return {
+		title: state.splitState.title,
+		id: activeSplitDoc.id,
+		label: cleanInlineLabel(activeSplitDoc.label) || `§ ${activeSplitDoc.id}`,
+		heading: cleanInlineLabel(activeSplitDoc.section_title || activeSplitDoc.title_label || ""),
+		part: activeSplitDoc.part || "",
+		tier: "federal-reg",
+		jurisdiction: "US"
+	};
+}
+function swapSplitWithMain() {
+	if (!state.splitState) return;
+	const splitHref = buildSplitHash(state.splitState);
+	const mainSec = currentSectionRef();
+	const mainPart = !mainSec && state.currentPart ? {
+		kind: "part",
+		title: state.currentTitle,
+		partId: state.currentPart
+	} : null;
+	if (!mainSec && !mainPart) {
+		promoteSplitToMain();
+		return;
+	}
+	const nextSplit = mainSec ? {
+		kind: "section",
+		title: mainSec.title,
+		sectionId: mainSec.id,
+		unit: state.currentSection?.unit || null,
+		label: `${mainSec.title} CFR ${mainSec.label}`,
+		heading: mainSec.heading
+	} : {
+		kind: "part",
+		title: mainPart.title,
+		partId: mainPart.partId,
+		label: `${mainPart.title} CFR Part ${mainPart.partId}`
+	};
+	state.swapMotionX = 36;
+	window.location.hash = splitHref;
+	openSplitPane({
+		...nextSplit,
+		newTab: false,
+		pushHistory: true,
+		fromX: -36
+	});
+}
+async function loadTreeForTitle(tNum, signal) {
+	if (tNum === state.currentTitle && state.treeData) return state.treeData;
+	if (titleTreeCache.has(tNum)) return titleTreeCache.get(tNum) || null;
+	try {
+		return await fetchTitleTree(tNum, { signal });
+	} catch {
+		return null;
+	}
+}
+function renderSplitLoading(tNum, labelText) {
+	dom.splitPane.innerHTML = `
+    ${splitTabsBarHtml()}
+    ${splitHeaderHtml({
+		splitTier: tNum !== state.currentTitle ? "cross" : "cfr",
+		kickerHtml: `${tNum} CFR · ${escapeHtml(labelText)}`,
+		titleText: "Loading…",
+		isLoading: true
+	})}
+    <div class="split-body">${skeletonHtml("doc", `Loading ${labelText}…`)}</div>
+  `;
+}
+function renderSplitUnavailable(tNum, titleLabel, bodyMsg) {
+	dom.splitPane.innerHTML = `
+    ${splitTabsBarHtml()}
+    ${splitHeaderHtml({
+		splitTier: "uninstalled",
+		kickerHtml: `${tNum} CFR`,
+		titleText: titleLabel,
+		hasBack: (activeSplitTab()?.history?.length || 0) > 1
+	})}
+    <div class="split-body"><p class="muted">${escapeHtml(bodyMsg)}</p></div>
+  `;
+}
+function updateSplitRefsBtn() {
+	const btn = document.getElementById("split-btn-refs");
+	if (!btn || !state.splitState) return;
+	const refs = collectSectionReferences(dom.splitPane, state.splitState.title);
+	const span = btn.querySelector("span");
+	if (span) span.textContent = refs.length ? `Refs ${refs.length}` : "Refs";
+	btn.hidden = refs.length === 0;
+}
+function splitActionsBarHtml({ pinRef = null, partId = null, ecfrUrl = "", partFull = false } = {}) {
+	return `
+    <div class="split-tools">
+      ${partId ? `<button type="button" class="btn btn-small" data-split-part="${escapeHtml(partId)}" data-split-full="${partFull ? "1" : "0"}" title="${partFull ? "View Full Part text" : `View Part ${escapeHtml(partId)} TOC`}">${icon("list")} ${partFull ? "Full part" : `Part ${escapeHtml(partId)}`}</button>` : ""}
+      ${pinRef ? pinButtonHtml(pinRef, "split-btn-pin") : ""}
+      <button type="button" class="btn btn-small" id="split-btn-refs" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("list")} <span>Refs</span></button>
+      <button type="button" class="btn btn-small" id="split-btn-cited" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("link")} <span>Cited by</span></button>
+      <button type="button" class="btn btn-small" id="split-btn-news" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("news")} <span>Activity</span></button>
+      <div class="spacer"></div>
+      <button type="button" class="btn btn-small" data-split-act="copy" title="Copy link">${icon("link")} Copy</button>
+      ${ecfrUrl ? `<a class="btn btn-small" href="${escapeHtml(ecfrUrl)}" target="_blank" rel="noopener noreferrer" title="View on eCFR">${icon("external")} eCFR</a>` : ""}
+      <div class="size-ctl split-size-ctl" role="group" aria-label="Text size">
+        <button type="button" data-split-act="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+        <button type="button" data-split-act="font-inc" title="Larger text" aria-label="Larger text">A+</button>
+      </div>
+    </div>`;
+}
+async function openSplitPart(nextEntry, seq, signal, { fromX = 0 } = {}) {
+	const tNum = nextEntry.title;
+	const partId = nextEntry.partId || "";
+	const full = Boolean(nextEntry.full);
+	const tab = activeSplitTab();
+	const hasBack = (tab?.history?.length || 0) > 1;
+	if (full) {
+		const [tree, fullRes] = await Promise.all([loadTreeForTitle(tNum, signal), fetchPartFull(tNum, partId, { signal })]);
+		if (seq !== splitSeq) return;
+		if (!fullRes.ok) {
+			renderSplitUnavailable(tNum, `Part ${partId}`, `Couldn’t load full text for Title ${tNum} Part ${partId}.`);
+			return;
+		}
+		const data = await fullRes.json();
+		if (seq !== splitSeq) return;
+		const partNode = tree ? findPartInTree(tree, partId) : null;
+		const heading = cleanInlineLabel(partNode?.d || partNode?.l || `Part ${partId}`);
+		const splitTier = tNum !== state.currentTitle ? "cross" : "cfr";
+		if (tab) {
+			tab.label = `${tNum} CFR Part ${partId} · Full`;
+			tab.heading = heading;
+			persistSessionTabs();
+		}
+		const sectionsHtml = (data.sections || []).map((s) => `
+      <article class="full-section" id="split-sec-${escapeHtml(String(s.id).replace(/[^a-zA-Z0-9.\-]/g, "_"))}">
+        <header class="full-section-head has-tier-bar" data-ref-tier="${splitTier}">
+          <a class="full-section-anchor" href="#/title/${tNum}/section/${encodeURIComponent(s.id)}">
+            <span class="full-section-num">${escapeHtml(s.label)}</span>
+            <span class="full-section-title">${escapeHtml(s.title || "")}</span>
+          </a>
+        </header>
+        ${s.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : s.html || ""}
+      </article>`).join("");
+		dom.splitPane.innerHTML = `
+      ${splitTabsBarHtml()}
+      ${splitHeaderHtml({
+			splitTier,
+			kickerHtml: `${tNum} CFR · Full Part ${escapeHtml(partId)}`,
+			titleText: heading,
+			hasBack
+		})}
+      ${splitActionsBarHtml({
+			partId,
+			partFull: false
+		})}
+      <div class="split-body">${sectionsHtml || "<p class=\"muted\">No sections in this part.</p>"}</div>
+    `;
+		const bodyEl = dom.splitPane.querySelector(".split-body");
+		if (bodyEl) {
+			enhanceDomAnchors(bodyEl);
+			animateCalm(bodyEl, {
+				fromY: fromX ? 0 : 14,
+				fromX,
+				fromScale: .992,
+				duration: 640
+			});
+		}
+		updateSplitRefsBtn();
+		hydrateSplitNews(tNum, "part", partId, seq);
+		dom.splitPane.scrollTop = 0;
+		return;
+	}
+	const [tree, frontRes] = await Promise.all([loadTreeForTitle(tNum, signal), fetchPartFront(tNum, partId, { signal })]);
+	if (seq !== splitSeq) return;
+	const partNode = tree ? findPartInTree(tree, partId) : null;
+	if (!partNode) {
+		renderSplitUnavailable(tNum, `Part ${partId}`, `Title ${tNum} Part ${partId} isn’t installed yet.`);
+		return;
+	}
+	const front = frontRes.ok ? await frontRes.json() : {
+		part: "",
+		subparts: {}
+	};
+	const splitTier = tNum !== state.currentTitle ? "cross" : "cfr";
+	if (tab) {
+		tab.label = `${tNum} CFR Part ${partId}`;
+		tab.heading = cleanInlineLabel(partNode.d || partNode.l);
+		persistSessionTabs();
+	}
+	const toc = buildPartTocView({
+		partNode,
+		front,
+		titleNum: tNum,
+		tier: splitTier,
+		isSplit: true
+	});
+	dom.splitPane.innerHTML = `
+    ${splitTabsBarHtml()}
+    ${splitHeaderHtml({
+		splitTier,
+		kickerHtml: `${tNum} CFR · ${escapeHtml(partNode.l)}`,
+		titleText: partNode.d || partNode.l || `Part ${partId}`,
+		hasBack
+	})}
+    ${splitActionsBarHtml({
+		partId,
+		partFull: true
+	})}
+    <div class="split-body">
+      ${front.part ? `<div class="front-matter"><details><summary>Authority and source</summary>${front.part}</details></div>` : ""}
+      ${toc.atlasHtml}
+      <div class="toc-groups-wrap">
+        ${toc.groupsHtml || "<p class=\"muted\">No sections listed in this part.</p>"}
+      </div>
+    </div>
+  `;
+	animateCalm(dom.splitPane.querySelector(".split-body"), {
+		fromY: fromX ? 0 : 14,
+		fromX,
+		fromScale: .992,
+		duration: 640
+	});
+	initPartTocCarousels(dom.splitPane, {
+		titleNum: tNum,
+		signal
+	});
+	updateSplitRefsBtn();
+	hydrateSplitNews(tNum, "part", partId, seq);
+	dom.splitPane.scrollTop = 0;
+}
+async function hydrateSplitNews(tNum, kind, id, seq) {
+	if (tNum !== 29) return;
+	const data = await fetchNewsActivity(tNum, kind, id);
+	if (!data || !data.count || seq !== splitSeq) return;
+	activeSplitNewsCtx = {
+		kind,
+		id,
+		data
+	};
+	const btn = document.getElementById("split-btn-news");
+	if (btn) {
+		const span = btn.querySelector("span");
+		if (span) span.textContent = `${data.count} ${data.count === 1 ? "rule" : "rules"}`;
+		btn.hidden = false;
+	}
+}
+async function openSplitPane({ kind = null, title, sectionId = null, partId = null, full = false, para = null, unit = null, label = "", heading = "", pushHistory = true, newTab = true, tabId = null, fromX = 0 }) {
+	if (!dom.splitPane || !dom.mainStage) return;
+	const resolvedKind = kind || (partId && !sectionId ? "part" : "section");
+	if (resolvedKind === "section" && !sectionId) return;
+	if (resolvedKind === "part" && !partId) return;
+	splitParaTools.hide();
+	activeSplitGraph = null;
+	activeSplitNewsCtx = null;
+	const tNum = Number(title) || state.currentTitle || 29;
+	const nextEntry = resolvedKind === "part" ? {
+		kind: "part",
+		title: tNum,
+		partId: String(partId),
+		full: Boolean(full),
+		label: label || `${tNum} CFR Part ${partId}${full ? " · Full" : ""}`,
+		heading
+	} : {
+		kind: "section",
+		title: tNum,
+		sectionId: String(sectionId),
+		para: para || null,
+		unit: unit || null,
+		label: label || `${tNum} CFR § ${sectionId}`,
+		heading
+	};
+	let targetTab = tabId ? state.splitTabs.find((t) => t.id === tabId) || null : null;
+	if (!targetTab && newTab) {
+		targetTab = state.splitTabs.find((t) => tabIdentityMatch(t, nextEntry)) || null;
+		if (targetTab) Object.assign(targetTab, {
+			...nextEntry,
+			id: targetTab.id,
+			history: targetTab.history || []
+		});
+		else {
+			targetTab = makeSplitTab(nextEntry);
+			state.splitTabs.push(targetTab);
+		}
+	} else if (!targetTab) {
+		targetTab = activeSplitTab();
+		if (!targetTab) {
+			targetTab = makeSplitTab(nextEntry);
+			state.splitTabs.push(targetTab);
+		} else Object.assign(targetTab, {
+			...nextEntry,
+			id: targetTab.id,
+			history: targetTab.history || []
+		});
+	}
+	state.activeSplitTabId = targetTab.id || null;
+	if (pushHistory) {
+		const hist = targetTab.history || (targetTab.history = []);
+		const top = hist[hist.length - 1];
+		if (!(top && top.kind === nextEntry.kind && top.title === nextEntry.title && top.sectionId === nextEntry.sectionId && top.partId === nextEntry.partId && Boolean(top.full) === Boolean(nextEntry.full) && top.unit === nextEntry.unit && top.para === nextEntry.para)) hist.push({ ...nextEntry });
+	}
+	if (splitAbort) try {
+		splitAbort.abort();
+	} catch {}
+	splitAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+	const seq = ++splitSeq;
+	const wasClosed = dom.splitPane.hidden;
+	dom.splitPane.hidden = false;
+	if (wasClosed) {
+		dom.mainStage.classList.remove("is-split");
+		dom.mainStage.offsetWidth;
+	}
+	dom.mainStage.classList.add("is-split");
+	dom.mainStage.classList.toggle("is-split-wide", Boolean(state.splitWide));
+	state.splitState = nextEntry;
+	persistSessionTabs();
+	renderMainTabs();
+	if (wasClosed) {
+		renderSplitLoading(tNum, resolvedKind === "part" ? `Part ${partId}` : `§ ${sectionId}`);
+		animateCalm(dom.splitPane, {
+			fromX: 34,
+			fromY: 0,
+			fromScale: .985,
+			duration: 740
+		});
+	} else {
+		syncSplitTabStripInPlace();
+		const prevBody = dom.splitPane.querySelector(".split-body");
+		if (prevBody) {
+			prevBody.style.transition = "opacity var(--t-quick) var(--ease-calm)";
+			prevBody.style.opacity = "0.35";
+		}
+	}
+	try {
+		if (resolvedKind === "part") {
+			await openSplitPart(nextEntry, seq, splitAbort?.signal, { fromX });
+			return;
+		}
+		const res = await fetchSectionRaw(tNum, sectionId, unitQueryFor(unit, para), { signal: splitAbort?.signal });
+		if (seq !== splitSeq) return;
+		if (!res.ok) {
+			renderSplitUnavailable(tNum, `§ ${sectionId}`, `Couldn’t load § ${sectionId} from Title ${tNum}.`);
+			return;
+		}
+		const data = await res.json();
+		if (seq !== splitSeq) return;
+		activeSplitDoc = data;
+		state.peekCache.set(`${tNum}|${sectionId}|${data.unit || "full"}`, data);
+		const docHeading = cleanInlineLabel(data.section_title || data.title_label || "");
+		const docLabel = cleanInlineLabel(data.label);
+		targetTab.label = `${tNum} CFR ${docLabel}`;
+		targetTab.heading = docHeading;
+		persistSessionTabs();
+		const hasBack = (targetTab.history?.length || 0) > 1;
+		const outline = data.outline || [];
+		const unitsHtml = data.mode === "units" && outline.length > 1 ? `<div class="split-units" role="navigation" aria-label="Section parts">
+          ${outline.map((u) => `<button type="button" class="split-unit-chip${data.unit === u.key ? " is-active" : ""}" data-split-unit="${escapeHtml(u.key)}">${escapeHtml(unitShort(u))}</button>`).join("")}
+          <button type="button" class="split-unit-chip${!data.unit ? " is-active" : ""}" data-split-unit="full">Full</button>
+        </div>` : "";
+		const partKicker = data.part ? ` · <button type="button" class="split-kicker-link" data-split-part="${escapeHtml(data.part)}" data-split-full="0">Part ${escapeHtml(data.part)}</button>` : "";
+		const splitTier = tNum !== state.currentTitle ? "cross" : "cfr";
+		const pinRef = activeSplitSectionRef();
+		dom.splitPane.innerHTML = `
+      ${splitTabsBarHtml()}
+      ${splitHeaderHtml({
+			splitTier,
+			kickerHtml: `${tNum} CFR${partKicker}`,
+			titleText: `${docLabel} ${docHeading}`,
+			hasBack
+		})}
+      ${splitActionsBarHtml({
+			pinRef,
+			partId: data.part,
+			ecfrUrl: data.ecfr_url || "",
+			partFull: false
+		})}
+      ${unitsHtml}
+      <div class="split-body">
+        ${data.reserved ? "<div class=\"reserved-note\">This section is reserved.</div>" : ""}
+        ${data.html || ""}
+      </div>
+    `;
+		const bodyEl = dom.splitPane.querySelector(".split-body");
+		if (bodyEl) {
+			enhanceDomAnchors(bodyEl);
+			animateCalm(bodyEl, {
+				fromY: fromX ? 0 : 14,
+				fromX,
+				fromScale: .992,
+				duration: wasClosed ? 680 : 600,
+				delay: wasClosed ? 110 : 0
+			});
+			updateSplitRefsBtn();
+			const applyGraph = (g) => {
+				if (!g || seq !== splitSeq || !bodyEl.isConnected) return;
+				activeSplitGraph = g;
+				if (g.cited_by_count > 0) {
+					const citedBtn = document.getElementById("split-btn-cited");
+					if (citedBtn) {
+						const span = citedBtn.querySelector("span");
+						if (span) span.textContent = `Cited by ${g.cited_by_count}`;
+						citedBtn.hidden = false;
+					}
+				}
+				if (g.ibr?.length) {
+					wrapIbrMentions(bodyEl, g.ibr);
+					updateSplitRefsBtn();
+				}
+			};
+			fetchSectionGraph(tNum, data.id, { signal: splitAbort?.signal }).then(applyGraph).catch(() => {});
+			hydrateSplitNews(tNum, "section", data.id, seq);
+			if (para) highlightTarget(bodyEl, para, 60);
+			else dom.splitPane.scrollTop = 0;
+		}
+	} catch (err) {
+		if (err instanceof Error && err.name === "AbortError") return;
+		if (seq !== splitSeq) return;
+		renderSplitUnavailable(tNum, resolvedKind === "part" ? `Part ${partId}` : `§ ${sectionId}`, (err instanceof Error ? err.message : "") || "Error");
+	}
+}
+function restoreSplitTabs(entries, activeIdx = 0, wide = false) {
+	if (!entries || !entries.length) {
+		closeSplitPane();
+		return;
+	}
+	state.splitWide = Boolean(wide);
+	state.splitTabs = entries.map((e) => makeSplitTab(e));
+	const active = state.splitTabs[Math.min(activeIdx, state.splitTabs.length - 1)] || state.splitTabs[0];
+	state.activeSplitTabId = active.id || null;
+	persistSessionTabs();
+	openSplitPane({
+		...active,
+		tabId: active.id,
+		newTab: false,
+		pushHistory: false
+	});
+}
+registerSplitTabHandlers({
+	restore: restoreSplitTabs,
+	close: closeSplitPane
+});
+function getActiveSplitDoc() {
+	return activeSplitDoc;
+}
+if (dom.splitPane) {
+	dom.splitPane.addEventListener("click", async (e) => {
+		if (await splitParaTools.handleClick(e)) return;
+		const t = e.target;
+		const splitTabClose = t?.closest("[data-split-tab-close]");
+		if (splitTabClose?.dataset.splitTabClose) {
+			e.preventDefault();
+			e.stopPropagation();
+			closeSplitTab(splitTabClose.dataset.splitTabClose);
+			return;
+		}
+		const splitTabBtn = t?.closest("[data-split-tab]");
+		if (splitTabBtn) {
+			const tab = state.splitTabs.find((x) => x.id === splitTabBtn.dataset.splitTab);
+			if (tab) openSplitPane({
+				...tab,
+				tabId: tab.id,
+				newTab: false,
+				pushHistory: false
+			});
+			return;
+		}
+		const saveSplitGroupBtn = t?.closest("[data-split-tabs-act=\"save-group\"]");
+		if (saveSplitGroupBtn) {
+			openSaveTabGroupMenu(saveSplitGroupBtn);
+			return;
+		}
+		const splitPin = t?.closest("#split-btn-pin");
+		if (splitPin) {
+			const ref = activeSplitSectionRef();
+			if (ref) toggleSplitPinMenu(splitPin, ref);
+			return;
+		}
+		const splitRefs = t?.closest("#split-btn-refs");
+		if (splitRefs && state.splitState) {
+			openRefsLedgerPopover(splitRefs, dom.splitPane, state.splitState.title);
+			return;
+		}
+		const splitCited = t?.closest("#split-btn-cited");
+		if (splitCited && activeSplitGraph && state.splitState) {
+			openCitedByPopover(splitCited, activeSplitGraph, state.splitState.title);
+			return;
+		}
+		const splitNews = t?.closest("#split-btn-news");
+		if (splitNews && activeSplitNewsCtx) {
+			openNewsActivityFor(splitNews, activeSplitNewsCtx);
+			return;
+		}
+		const partBtn = t?.closest("[data-split-part]");
+		if (partBtn && state.splitState) {
+			openSplitPane({
+				kind: "part",
+				title: state.splitState.title,
+				partId: partBtn.dataset.splitPart,
+				full: partBtn.dataset.splitFull === "1",
+				newTab: false,
+				pushHistory: true
+			});
+			return;
+		}
+		const actBtn = t?.closest("[data-split-act]");
+		if (actBtn) {
+			const act = actBtn.dataset.splitAct;
+			if (act === "close") closeSplitPane();
+			else if (act === "promote") promoteSplitToMain();
+			else if (act === "to-main-tab") moveActiveSplitToMainTab();
+			else if (act === "swap") swapSplitWithMain();
+			else if (act === "wide") {
+				state.splitWide = !state.splitWide;
+				dom.mainStage?.classList.toggle("is-split-wide", state.splitWide);
+				actBtn.classList.toggle("is-active", state.splitWide);
+				persistSessionTabs();
+			} else if (act === "copy") {
+				const url = new URL(buildSplitHash(), window.location.href).href;
+				await copyText(url, "Link copied", "Couldn’t copy the link");
+			} else if (act === "font-dec") adjustFontSize(-1);
+			else if (act === "font-inc") adjustFontSize(1);
+			else if (act === "back") {
+				const tab = activeSplitTab();
+				if (tab && tab.history && tab.history.length > 1) {
+					tab.history.pop();
+					const prev = tab.history[tab.history.length - 1];
+					if (prev) openSplitPane({
+						...prev,
+						tabId: tab.id,
+						newTab: false,
+						pushHistory: false
+					});
+				}
+			}
+			return;
+		}
+		const unitBtn = t?.closest("[data-split-unit]");
+		if (unitBtn && state.splitState) {
+			openSplitPane({
+				kind: "section",
+				title: state.splitState.title,
+				sectionId: state.splitState.sectionId,
+				para: null,
+				unit: unitBtn.dataset.splitUnit,
+				newTab: false,
+				pushHistory: false
+			});
+			return;
+		}
+		if (handlePartTocCarouselClick(e, dom.splitPane, {
+			titleNum: state.splitState?.title || state.currentTitle,
+			signal: splitAbort?.signal
+		})) return;
+		const anchorTrigger = t?.closest("[data-anchor]");
+		if (anchorTrigger?.dataset.anchor) {
+			e.preventDefault();
+			scrollToAnchor(anchorTrigger.dataset.anchor, dom.splitPane);
+			return;
+		}
+		const localPara = t?.closest("a.xref-local[data-local-para]");
+		if (localPara) {
+			e.preventDefault();
+			highlightTarget(dom.splitPane, localPara.dataset.localPara || "", 0);
+			return;
+		}
+		const figLink = t?.closest("a.reg-figure:not(.is-broken)");
+		if (figLink && dom.splitPane.contains(figLink)) {
+			e.preventDefault();
+			openFigureModal(figLink);
+			return;
+		}
+		const link = t?.closest("a[href^=\"#\"]");
+		if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && link.getAttribute("target") !== "_blank") {
+			if (!link.classList.contains("xref-local") && Boolean(link.closest(".reg-body, .full-section .reg-body, .front-matter")) && link.classList.contains("xref")) return;
+			const parsed = parseCfrHref(link.getAttribute("href"), state.splitState?.title || state.currentTitle);
+			if (parsed && parsed.kind === "section") {
+				e.preventDefault();
+				openSplitPane({
+					kind: "section",
+					title: parsed.title,
+					sectionId: parsed.section,
+					para: parsed.para,
+					unit: parsed.unit,
+					newTab: false,
+					pushHistory: true
+				});
+			} else if (parsed && parsed.kind === "part") {
+				e.preventDefault();
+				openSplitPane({
+					kind: "part",
+					title: parsed.title,
+					partId: parsed.part,
+					newTab: false,
+					pushHistory: true
+				});
+			}
+		}
+	});
+	dom.splitPane.addEventListener("keydown", (e) => {
+		handlePartTocCarouselKeydown(e, {
+			titleNum: state.splitState?.title || state.currentTitle,
+			signal: splitAbort?.signal
+		});
+	});
+	bindBrokenImageFallback(dom.splitPane, () => activeSplitDoc?.ecfr_url || "");
+}
+on("split:open", (opts) => openSplitPane(opts));
+// src/components/selection_tool.ts
 state.selectedText = "";
 var selectedPara = "";
 var selectedFromSplit = false;
 document.addEventListener("mouseup", () => {
 	const sel = window.getSelection();
+	if (!sel) {
+		dom.askFloat.hidden = true;
+		selectedPara = "";
+		selectedFromSplit = false;
+		return;
+	}
 	const str = sel.toString().trim();
 	const inMain = dom.view.contains(sel.anchorNode);
 	const inSplit = Boolean(dom.splitPane && dom.splitPane.contains(sel.anchorNode));
@@ -16253,7 +16814,7 @@ for (const scroller of [dom.main, dom.splitPane]) if (scroller) scroller.addEven
 	if (!dom.askFloat.hidden) dom.askFloat.hidden = true;
 }, { passive: true });
 dom.askFloat.addEventListener("click", (e) => {
-	const action = e.target.dataset.ask;
+	const action = (e.target?.closest("[data-ask]"))?.dataset.ask;
 	if (!action || !state.selectedText) return;
 	if (action === "clip") {
 		const splitDoc = selectedFromSplit ? getActiveSplitDoc() : null;
@@ -16279,33 +16840,24 @@ dom.askFloat.addEventListener("click", (e) => {
 	dom.askFloat.hidden = true;
 	dom.chatText.focus();
 });
-// src/components/peek.js
-var MAX_PEEK_CACHE = 40;
+// src/components/peek.ts
 var hoverTimer = null;
 var closeTimer = null;
 var hoverTarget = null;
 var hoverAbort = null;
 var lastHoverContext = null;
 function cancelHoverTimers() {
-	clearTimeout(hoverTimer);
+	if (hoverTimer !== null) clearTimeout(hoverTimer);
 	hoverTimer = null;
-	clearTimeout(closeTimer);
+	if (closeTimer !== null) clearTimeout(closeTimer);
 	closeTimer = null;
 }
 function scheduleCloseHover() {
-	clearTimeout(closeTimer);
+	if (closeTimer !== null) clearTimeout(closeTimer);
 	closeTimer = setTimeout(() => {
 		if (citePop.isOpen() && !citePop.isInteractive()) citePop.close(false);
 		hoverTarget = null;
 	}, 180);
-}
-function cacheSet(key, val) {
-	if (state.peekCache.has(key)) state.peekCache.delete(key);
-	state.peekCache.set(key, val);
-	if (state.peekCache.size > MAX_PEEK_CACHE) {
-		const oldest = state.peekCache.keys().next().value;
-		if (oldest !== void 0) state.peekCache.delete(oldest);
-	}
 }
 function clipText(txt, max = 380) {
 	const s = (txt || "").replace(/\s+/g, " ").trim();
@@ -16317,12 +16869,12 @@ function extractBranchSnippet(root, paraEl) {
 	const idx = all.indexOf(paraEl);
 	const lvlM = /\blvl-(\d+)\b/.exec(paraEl.className);
 	const baseLvl = lvlM ? Number(lvlM[1]) : 0;
-	const parts = [paraEl.textContent];
-	if (idx >= 0 && baseLvl > 0 && paraEl.textContent.trim().length < 220) for (let i = idx + 1; i < Math.min(all.length, idx + 3); i++) {
+	const parts = [paraEl.textContent || ""];
+	if (idx >= 0 && baseLvl > 0 && (paraEl.textContent || "").trim().length < 220) for (let i = idx + 1; i < Math.min(all.length, idx + 3); i++) {
 		const next = all[i];
 		const m = /\blvl-(\d+)\b/.exec(next.className);
 		if ((m ? Number(m[1]) : 0) <= baseLvl) break;
-		parts.push(next.textContent);
+		parts.push(next.textContent || "");
 	}
 	return clipText(parts.join(" "), 440);
 }
@@ -16369,7 +16921,7 @@ function renderFootnotePeek(trigger, root) {
 	};
 	return `
     <div class="pop-head-row">
-      <div class="pop-kicker">Footnote ${escapeHtml(trigger.textContent.trim())}</div>
+      <div class="pop-kicker">Footnote ${escapeHtml((trigger.textContent || "").trim())}</div>
       <span class="peek-badge">FOOTNOTE</span>
     </div>
     <p class="peek-text">${escapeHtml(txt)}</p>
@@ -16388,7 +16940,7 @@ function renderAnchorPeek(trigger, root) {
 		jumpAnchor: anchorId
 	};
 	if (el.classList.contains("table-wrap")) {
-		const caption = el.querySelector("caption")?.textContent?.trim() || trigger.textContent.trim();
+		const caption = el.querySelector("caption")?.textContent?.trim() || (trigger.textContent || "").trim();
 		const table = el.querySelector("table");
 		const headRows = [...table?.querySelectorAll("thead tr") || []].slice(0, 2);
 		const bodyRows = [...table?.querySelectorAll("tbody tr") || table?.querySelectorAll("tr") || []].filter((r) => !r.closest("thead")).slice(0, 4);
@@ -16414,7 +16966,7 @@ function renderAnchorPeek(trigger, root) {
 	}
 	if (el.classList.contains("reg-figure")) {
 		const img = el.querySelector(".reg-img");
-		const caption = el.previousElementSibling?.classList.contains("reg-label") ? el.previousElementSibling.textContent.trim() : trigger.textContent.trim();
+		const caption = el.previousElementSibling?.classList.contains("reg-label") ? (el.previousElementSibling.textContent || "").trim() : (trigger.textContent || "").trim();
 		return `
       <div class="pop-head-row">
         <div class="pop-kicker">${escapeHtml(caption)}</div>
@@ -16427,7 +16979,7 @@ function renderAnchorPeek(trigger, root) {
     `;
 	}
 	if (el.classList.contains("reg-appendix")) {
-		const head = el.querySelector(".reg-subhead, .reg-label")?.textContent?.trim() || trigger.textContent.trim();
+		const head = el.querySelector(".reg-subhead, .reg-label")?.textContent?.trim() || (trigger.textContent || "").trim();
 		const para = clipText(el.querySelector(".reg-p")?.textContent || el.textContent, 360);
 		return `
       <div class="pop-head-row">
@@ -16489,7 +17041,7 @@ function renderFrPeek(trigger) {
     <p class="peek-text">Rulemaking history, preamble, and final rule publication at Volume ${escapeHtml(vol || "—")}, page ${escapeHtml(page || "—")}.</p>
   `;
 }
-function peekActionsHtml({ href, isSplitRoot = false, interactive = false } = {}) {
+function peekActionsHtml({ href, isSplitRoot = false, interactive = false }) {
 	if (isSplitRoot) return `
       <button type="button" class="btn btn-small${interactive ? " btn-accent" : ""}" data-peek-split="1">Open side-by-side tab</button>
       <button type="button" class="btn btn-small" data-peek-tab="1">Open in main tab</button>
@@ -16507,7 +17059,7 @@ async function openSectionHrefPeek(trigger, root, parsed, rootTitle, { interacti
 	const cacheKey = `${parsed.title}|${parsed.section}|${unitKey || "full"}`;
 	if (hoverAbort) try {
 		hoverAbort.abort();
-	} catch (e) {}
+	} catch {}
 	hoverAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
 	const sig = hoverAbort?.signal;
 	const isCross = Number(parsed.title) !== Number(rootTitle) || trigger.classList.contains("xref-cross");
@@ -16516,7 +17068,8 @@ async function openSectionHrefPeek(trigger, root, parsed, rootTitle, { interacti
 	const href = trigger.getAttribute("href") || targetHashFor({
 		title: parsed.title,
 		section: parsed.section,
-		para: parsed.para
+		para: parsed.para ?? null,
+		part: null
 	});
 	lastHoverContext = {
 		root,
@@ -16536,7 +17089,7 @@ async function openSectionHrefPeek(trigger, root, parsed, rootTitle, { interacti
         <span class="peek-badge">${isCross ? `CROSS-TITLE · ${parsed.title} CFR` : `${parsed.title} CFR`}</span>
         <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close reference actions">${icon("close")}</button>
       </div>
-      <div class="peek-foot" style="margin-top:4px;border-top:0;padding-top:2px">
+      <div class="peek-foot is-compact">
         ${peekActionsHtml({
 		href,
 		isSplitRoot,
@@ -16552,11 +17105,11 @@ async function openSectionHrefPeek(trigger, root, parsed, rootTitle, { interacti
 	if (!data) {
 		const qs = unitKey === null ? "" : "?unit=" + encodeURIComponent(unitKey);
 		try {
-			const res = await fetch(`/api/${parsed.title}/section/${encodeURIComponent(parsed.section)}${qs}`, { signal: sig });
+			const res = await fetchSectionRaw(parsed.title, parsed.section, qs, { signal: sig });
 			if (!res.ok) return;
 			data = await res.json();
-			cacheSet(cacheKey, data);
-		} catch (e) {
+			cachePeekSection(cacheKey, data);
+		} catch {
 			return;
 		}
 	}
@@ -16614,7 +17167,9 @@ function openPartHrefPeek(trigger, root, parsed, rootTitle, { interactive = fals
 	const isSplitRoot = root === dom.splitPane;
 	const href = trigger.getAttribute("href") || targetHashFor({
 		title: parsed.title,
-		part: parsed.part
+		part: parsed.part,
+		section: null,
+		para: null
 	});
 	lastHoverContext = {
 		root,
@@ -16677,12 +17232,12 @@ function renderIbrPeek(trigger, root) {
       ${app ? `<button type="button" class="btn btn-small" data-peek-split="1">Open side-by-side</button>` : ""}
       ${app ? `<button type="button" class="btn btn-small" data-peek-tab="1">Open in reader tab</button>` : ""}
       ${app ? `<a class="btn btn-small" href="${escapeHtml(appHref)}">Open ${escapeHtml(app.label)}</a>` : ""}
-      ${item.org_url ? `<a class="btn btn-small" href="${escapeHtml(item.org_url)}" target="_blank" rel="noopener noreferrer">${icon("external")} ${escapeHtml(item.org)}</a>` : ""}
+      ${safeHttpUrl(item.org_url) ? `<a class="btn btn-small" href="${escapeHtml(safeHttpUrl(item.org_url))}" target="_blank" rel="noopener noreferrer">${icon("external")} ${escapeHtml(item.org)}</a>` : ""}
     </div>
   `;
 }
 function getPeekTrigger(el) {
-	return el.closest?.("a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], button.xref-ibr[data-ibr-code], a.xref-external[data-cfr-title], a.xref-usc, a.xref-fr, a.xref[href], a.xref-cross[href], a.citation-chip[href*=\"/section/\"]") || null;
+	return el?.closest("a.xref-local[data-local-para], .ftref[data-anchor], button.xref-anchor[data-anchor], button.xref-ibr[data-ibr-code], a.xref-external[data-cfr-title], a.xref-usc, a.xref-fr, a.xref[href], a.xref-cross[href], a.citation-chip[href*=\"/section/\"]") || null;
 }
 function handleHoverOver(e, root) {
 	if (citePop.isOpen() && citePop.isInteractive()) return;
@@ -16691,7 +17246,7 @@ function handleHoverOver(e, root) {
 	const trigger = getPeekTrigger(e.target);
 	if (!trigger || !root.contains(trigger)) return;
 	if (trigger === hoverTarget) {
-		clearTimeout(closeTimer);
+		if (closeTimer !== null) clearTimeout(closeTimer);
 		closeTimer = null;
 		return;
 	}
@@ -16767,7 +17322,7 @@ function handleHoverOut(e) {
 	if (!hoverTarget) return;
 	const related = e.relatedTarget;
 	if (related && (hoverTarget.contains(related) || citePopEl?.contains(related))) return;
-	clearTimeout(hoverTimer);
+	if (hoverTimer !== null) clearTimeout(hoverTimer);
 	hoverTimer = null;
 	if (!citePop.isInteractive()) scheduleCloseHover();
 }
@@ -16775,7 +17330,7 @@ for (const root of [dom.view, dom.splitPane].filter(Boolean)) {
 	root.addEventListener("mouseover", (e) => handleHoverOver(e, root));
 	root.addEventListener("mouseout", handleHoverOut);
 	root.addEventListener("click", (e) => {
-		const ibrBtn = e.target.closest("button.xref-ibr[data-ibr-code]");
+		const ibrBtn = e.target?.closest("button.xref-ibr[data-ibr-code]");
 		if (!ibrBtn || !root.contains(ibrBtn)) return;
 		const html = renderIbrPeek(ibrBtn, root);
 		if (html) {
@@ -16791,14 +17346,15 @@ for (const root of [dom.view, dom.splitPane].filter(Boolean)) {
 }
 if (dom.citePop) {
 	dom.citePop.addEventListener("mouseenter", () => {
-		clearTimeout(closeTimer);
+		if (closeTimer !== null) clearTimeout(closeTimer);
 		closeTimer = null;
 	});
 	dom.citePop.addEventListener("mouseleave", () => {
 		if (!citePop.isInteractive()) scheduleCloseHover();
 	});
 	dom.citePop.addEventListener("click", (e) => {
-		const jumpBtn = e.target.closest("[data-peek-jump]");
+		const t = e.target;
+		const jumpBtn = t?.closest("[data-peek-jump]");
 		if (jumpBtn && lastHoverContext) {
 			const ctx = lastHoverContext;
 			citePop.close(false);
@@ -16806,7 +17362,7 @@ if (dom.citePop) {
 			else if (jumpBtn.dataset.peekJump === "anchor" && ctx.jumpAnchor) scrollToAnchor(ctx.jumpAnchor, ctx.root);
 			return;
 		}
-		if (e.target.closest("[data-peek-split]") && lastHoverContext?.split) {
+		if (t?.closest("[data-peek-split]") && lastHoverContext?.split) {
 			const sp = lastHoverContext.split;
 			citePop.close(false);
 			openSplitPane({
@@ -16816,7 +17372,7 @@ if (dom.citePop) {
 			});
 			return;
 		}
-		if (e.target.closest("[data-peek-replace-split]") && lastHoverContext?.split) {
+		if (t?.closest("[data-peek-replace-split]") && lastHoverContext?.split) {
 			const sp = lastHoverContext.split;
 			citePop.close(false);
 			openSplitPane({
@@ -16826,18 +17382,18 @@ if (dom.citePop) {
 			});
 			return;
 		}
-		if (e.target.closest("[data-peek-tab]") && lastHoverContext?.split) {
+		if (t?.closest("[data-peek-tab]") && lastHoverContext?.split) {
 			const sp = lastHoverContext.split;
 			citePop.close(false);
 			openMainReaderTab({ ...sp });
 			return;
 		}
-		if (e.target.closest("a[href^=\"#\"]")) citePop.close(false);
+		if (t?.closest("a[href^=\"#\"]")) citePop.close(false);
 	});
 }
 async function handleCfrLinkClick(e, root) {
 	if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
-	const link = e.target.closest("a");
+	const link = e.target?.closest("a");
 	if (!link || !root.contains(link)) return;
 	const isSplitChild = root === dom.splitPane;
 	const rootTitle = isSplitChild ? state.splitState?.title || state.currentTitle : state.currentTitle;
@@ -16861,25 +17417,22 @@ async function handleCfrLinkClick(e, root) {
 			} : {
 				kind: "part",
 				title: target.title,
-				partId: target.part,
+				partId: target.part || void 0,
 				pushHistory: true
 			});
-			else {
-				const parsedInstalled = target.section ? {
-					kind: "section",
-					title: target.title,
-					section: target.section,
-					para: target.para,
-					unit: null
-				} : {
-					kind: "part",
-					title: target.title,
-					part: target.part
-				};
-				if (parsedInstalled.section) await openSectionHrefPeek(link, root, parsedInstalled, rootTitle, { interactive: true });
-				else if (parsedInstalled.part) openPartHrefPeek(link, root, parsedInstalled, rootTitle, { interactive: true });
-				else window.location.hash = targetHashFor(target);
-			}
+			else if (target.section) await openSectionHrefPeek(link, root, {
+				kind: "section",
+				title: target.title,
+				section: target.section,
+				para: target.para,
+				unit: null
+			}, rootTitle, { interactive: true });
+			else if (target.part) openPartHrefPeek(link, root, {
+				kind: "part",
+				title: target.title,
+				part: target.part
+			}, rootTitle, { interactive: true });
+			else window.location.hash = targetHashFor(target);
 			return;
 		}
 		openCfrDownloadCard(link, target, { openInSplit: e.altKey || isSplitChild });
@@ -16948,24 +17501,21 @@ var chatKbd = document.getElementById("chat-kbd");
 if (chatKbd) chatKbd.textContent = isMac ? "⌘J" : "Ctrl J";
 async function init() {
 	try {
-		const titlesRes = await fetch("/api/titles");
-		if (titlesRes.ok) {
-			state.installedTitles = await titlesRes.json();
-			state.noTitles = state.installedTitles.length === 0;
-			syncCorporaState();
-			if (state.installedTitles.length && !state.installedTitles.some((t) => t.title === state.currentTitle)) await switchTitle(state.installedTitles[0].title);
-			fillTitleSelect();
-			updateRailHome();
-		}
+		state.installedTitles = await fetchInstalledTitles();
+		state.noTitles = state.installedTitles.length === 0;
+		syncCorporaState();
+		if (state.installedTitles.length && !state.installedTitles.some((t) => t.title === state.currentTitle)) await switchTitle(state.installedTitles[0].title);
+		fillTitleSelect();
+		updateRailHome();
 		if (state.noTitles) setReaderEnabled(false);
 		else {
-			const [metaRes] = await Promise.all([
-				fetch("/api/" + state.currentTitle + "/meta"),
+			const [meta] = await Promise.all([
+				fetchTitleMeta(state.currentTitle).catch(() => null),
 				refreshModelsConfig(),
 				ensureTreeLoaded()
 			]);
-			if (metaRes.ok) {
-				state.metaInfo = await metaRes.json();
+			if (meta) {
+				state.metaInfo = meta;
 				dom.edition.textContent = `eCFR ${state.metaInfo.edition || ""}`;
 			}
 			setReaderEnabled(true);

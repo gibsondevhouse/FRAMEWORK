@@ -189,6 +189,30 @@ class TestApiEndpoints(HermeticTestCase):
         self.assertEqual(t29["scope_parts"], ["1910", "1926"])
         self.assertEqual(t29["scope_sections_count"], 1)
 
+    def test_chat_search_tool_uses_section_heading(self):
+        from app import chat
+
+        out, _summary = chat.run_tool("search_regulations", {"query": "respirator", "title": 29})
+        self.assertIn("Respiratory protection.", out)
+        self.assertNotIn("§ 1910.134 29 ", out)
+
+    def test_settings_key_update_clears_models_cache(self):
+        from pathlib import Path
+        import shutil
+        import tempfile
+        from unittest import mock
+        from app import chat, config
+
+        chat._models_cache = (1e18, [{"id": "old-model", "name": "Old"}])
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            with mock.patch.object(config, "ROOT_DIR", tmp):
+                res = self.client.post("/api/settings/env", json={"anthropic_api_key": "sk-ant-new-test-key"})
+            self.assertEqual(res.status_code, 200)
+            self.assertIsNone(chat._models_cache)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

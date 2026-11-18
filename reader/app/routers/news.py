@@ -41,7 +41,7 @@ def get_news(
     part: str | None = Query(None, max_length=40),
     state: str | None = Query(None, pattern="^[A-Za-z]{2}$"),
     min_penalty: float | None = Query(None, ge=0),
-    gravity: str | None = Query(None, pattern="^[WRS]$"),
+    gravity: str | None = Query(None, pattern="^[WRSOU]$"),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict:

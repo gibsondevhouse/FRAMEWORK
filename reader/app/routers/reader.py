@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 
 from .. import config, library, news_store, profiles, store
@@ -109,10 +110,10 @@ def list_profiles() -> dict:
 
 @search_router.get("/api/search")
 async def search_global(
-    q: str,
+    q: str = Query(..., max_length=200),
     title: str | None = None,
-    part: str | None = None,
-    limit: int = 30,
+    part: str | None = Query(None, max_length=40),
+    limit: int = Query(30, ge=1, le=100),
 ) -> dict:
     """Search within a specific title, or across all installed titles if title='all' or omitted."""
     target_title: int | str = title if title else config.DEFAULT_TITLE
@@ -125,13 +126,15 @@ async def search_global(
 
 @title_router.get("/meta")
 def get_title_meta(title: int = Depends(deps.valid_installed_title)) -> dict:
-    m = store.meta(title)
+    m, unreadable = store.safe_meta(title)
+    if unreadable:
+        raise HTTPException(503, f"Title {title} database is temporarily unavailable.")
     return {
         "title": title,
         "name": m.get("title_name") or f"Title {title}",
         "edition": m.get("edition"),
         "built_at": m.get("built_at"),
-        "section_count": int(m.get("section_count", 0)),
+        "section_count": _safe_int(m.get("section_count"), 0),
         "ai_configured": config.anthropic_key() is not None,
     }
 
@@ -151,7 +154,12 @@ def get_title_section(
     unit: str | None = None,
 ) -> dict:
     """`?unit=KEY` (or `?unit=` for the first) returns just that unit of a long section."""
-    sec = store.get_section(section_id, title=title, unit=unit)
+    try:
+        sec = store.get_section(section_id, title=title, unit=unit)
+    except FileNotFoundError:
+        raise HTTPException(404, f"CFR Title {title} is not installed on this server.")
+    except sqlite3.Error:
+        raise HTTPException(503, f"Title {title} database is temporarily unavailable.")
     if not sec:
         raise HTTPException(404, f"No section {section_id!r} in Title {title}")
     return sec
@@ -159,12 +167,22 @@ def get_title_section(
 
 @title_router.get("/part/{part}")
 def get_title_part(part: str, title: int = Depends(deps.valid_installed_title)) -> dict:
-    return store.get_part_front_matter(part, title=title)
+    try:
+        return store.get_part_front_matter(part, title=title)
+    except FileNotFoundError:
+        raise HTTPException(404, f"CFR Title {title} is not installed on this server.")
+    except sqlite3.Error:
+        raise HTTPException(503, f"Title {title} database is temporarily unavailable.")
 
 
 @title_router.get("/part/{part}/full")
 def get_title_part_full(part: str, title: int = Depends(deps.valid_installed_title)) -> dict:
-    sections = store.part_full(part, title=title)
+    try:
+        sections = store.part_full(part, title=title)
+    except FileNotFoundError:
+        raise HTTPException(404, f"CFR Title {title} is not installed on this server.")
+    except sqlite3.Error:
+        raise HTTPException(503, f"Title {title} database is temporarily unavailable.")
     if not sections:
         raise HTTPException(404, f"No sections in Part {part} of Title {title}")
     return {"title": title, "part": part, "sections": sections}
@@ -172,9 +190,9 @@ def get_title_part_full(part: str, title: int = Depends(deps.valid_installed_tit
 
 @title_router.get("/search")
 async def search_title(
-    q: str,
-    part: str | None = None,
-    limit: int = 30,
+    q: str = Query(..., max_length=200),
+    part: str | None = Query(None, max_length=40),
+    limit: int = Query(30, ge=1, le=100),
     title: int = Depends(deps.valid_installed_title),
 ) -> dict:
     return await asyncio.to_thread(store.search, q, part=part, limit=limit, title=title)

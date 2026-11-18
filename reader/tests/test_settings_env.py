@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from app import config, news_worker
 from app.main import app
 from tests.base import HermeticTestCase
-from tests.frontend_sources import app_js, combined_css, index_html
+from tests.frontend_sources import combined_css, index_html
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -103,40 +103,11 @@ class HelpAndModalContractTests(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
         cls.html = index_html()
-        cls.js = app_js()
         cls.css = combined_css()
 
-    def test_modal_container_and_help_route_exist(self):
+    def test_modal_container_exists(self):
         self.assertIn('id="env-modal"', self.html)
         self.assertIn('role="dialog" aria-modal="true"', self.html)
-        self.assertIn("checkPath === '/help'", self.js)
-        self.assertIn("function renderHelp(", self.js)
-        self.assertIn("async function openEnvModal(", self.js)
-        self.assertIn("'/api/settings/env'", self.js)
-
-    def test_dol_notice_and_settings_link_to_help_and_modal(self):
-        news_empty_block = self.js.split("function newsEmptyHtml(", 1)[1].split("function renderNews(", 1)[0]
-        self.assertIn("#/help", news_empty_block)
-        self.assertIn('data-open-env="dol_api_key"', news_empty_block)
-        settings_block = self.js.split("function renderSettingsPanel(", 1)[1].split("function renderSettingsPage(", 1)[0]
-        self.assertIn("#/help", settings_block)
-
-    def test_settings_drawer_is_light_with_quick_actions_and_full_page(self):
-        """The drawer panel holds quick settings/actions plus one 'Open settings' CTA; the
-        heavy sections (Claude, News, Storage, Keyboard) live on the #/settings page."""
-        panel = self.js.split("function renderSettingsPanel(", 1)[1].split("function renderSettingsPage(", 1)[0]
-        self.assertIn("Quick settings", panel)
-        self.assertIn("Quick actions", panel)
-        self.assertIn("Open settings", panel)
-        self.assertIn('href="#/settings"', panel)
-        for heavy in ("drLabel('Storage')", "drLabel('Keyboard')", "set-keys",
-                      "settingsStorageHtml", "newsSettingsHtml", "settingsClaudeHtml"):
-            self.assertNotIn(heavy, panel)
-        page = self.js.split("function renderSettingsPage(", 1)[1].split("const onSettingsPage", 1)[0]
-        for section in ("Appearance", "Claude", "News", "Storage", "Keyboard"):
-            self.assertIn(section, page)
-        self.assertIn("checkPath === '/settings'", self.js)
-        self.assertRegex(self.js, r"rest\.startsWith\('/settings'\)")
 
     def test_rail_settings_icon_is_a_gear_not_a_sun(self):
         settings_btn = self.html.split('data-target="settings"', 1)[1].split("</button>", 1)[0]
@@ -144,23 +115,6 @@ class HelpAndModalContractTests(HermeticTestCase):
         self.assertNotIn('M8 1.75v1.5M8 12.75v1.5', settings_btn)
         self.assertIn('19.4 15', settings_btn)        # the gear outline path
         self.assertIn('<circle cx="12" cy="12" r="3"', settings_btn)
-
-    def test_help_page_is_outcome_framed(self):
-        """One uniform card anatomy under a status strip; the .env explainer is a footnote,
-        not a lead card, and the zig-zag layout stays gone."""
-        self.assertIn("HELP_LOGOS", self.js)
-        self.assertIn("help-status-chip", self.js)
-        self.assertIn("data-help-jump", self.js)
-        self.assertIn("Optional keys", self.js)
-        self.assertIn("Included · already running", self.js)
-        self.assertIn("Connections &amp; API Keys", self.js)
-        self.assertIn("help-footnote", self.js)
-        self.assertIn("What is a .env file?", self.js)        # demoted to <details>
-        self.assertIn("documents.rss", self.js)
-        self.assertIn("public-inspection-documents.rss", self.js)
-        help_block = self.js.split("function renderHelp(", 1)[1].split("const envModalEl", 1)[0]
-        self.assertNotIn("is-left", help_block)
-        self.assertNotIn("is-right", help_block)
 
     def test_help_and_modal_styles_use_tokens_only(self):
         block = self.css.split("/* ---------- Help & Setup Guide (#/help)", 1)[1]

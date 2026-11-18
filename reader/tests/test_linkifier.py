@@ -162,6 +162,12 @@ class TestLinkifier(HermeticTestCase):
                 continue
             self.assertIn(f".{cls}", css)
 
+    def test_hyphenated_section_not_split_into_range(self):
+        out = self.linkifier("See 41 CFR 50-201.1 and lowercase 40 cfr 261.3.")
+        self.assertIn('data-cfr-section="50-201.1"', out)
+        self.assertNotIn('data-cfr-section="50"', out)
+        self.assertIn('#/title/40/section/261.3', out)
+
 
 if __name__ == "__main__":
     unittest.main()

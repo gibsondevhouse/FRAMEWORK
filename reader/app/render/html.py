@@ -81,6 +81,7 @@ class Renderer:
         self._seen_anchors: set[str] = set()
         self._fn_refs: dict[str, str] = {}
         self._fn_open_ids: dict[str, str] = {}
+        self._in_extract = 0
 
     def _unique_anchor(self, base: str) -> str:
         cand = base
@@ -100,7 +101,7 @@ class Renderer:
         return fn_id
 
     # -- public -------------------------------------------------------------
-    def render_elements(self, elements: list[ET.Element], levels_map: dict[int, int]) -> str:
+    def render_elements(self, elements: list[ET.Element], levels_map: dict[int, int], in_extract: bool = False) -> str:
         """One unit of a section (a clause, an appendix chapter): its elements, in a .reg-body.
 
         `levels_map` comes from the whole section, so a slice indents exactly as it would in
@@ -109,7 +110,13 @@ class Renderer:
         self.unit_seq += 1
         self.levels_map = levels_map
         self.footnotes = []
-        body = "".join(self.node(e) + self.text(e.tail) for e in elements)
+        if in_extract:
+            self._in_extract += 1
+        try:
+            body = "".join(self.node(e) + self.text(e.tail) for e in elements)
+        finally:
+            if in_extract:
+                self._in_extract -= 1
         return self._wrap(body)
 
     def render_history(self, el: ET.Element) -> str:
@@ -143,6 +150,10 @@ class Renderer:
 
     # -- internals ----------------------------------------------------------
     def text(self, value: str | None) -> str:
+        if self._in_extract > 0:
+            fn = getattr(self.linkify, "without_self", None)
+            if callable(fn):
+                return fn(_esc(value))
         return self.linkify(_esc(value))
 
     def _try_ftref_pair(self, kids: list[ET.Element], i: int) -> str | None:
@@ -265,14 +276,18 @@ class Renderer:
         # An appendix embedded in a section is a document of its own, not a quoted extract:
         # render it plainly instead of inside an indented callout.
         app_head = appendix_heading(el)
-        if app_head:
-            m = _APP_ID_RE.match(app_head)
-            aid = self._unique_anchor(f"appendix-{_slug(m.group(1))}") if m else self._unique_anchor("appendix")
-            return f'<section class="reg-appendix" id="{aid}">{self.children(el)}</section>'
-        cls, default_title = CALLOUTS[el.tag]
-        has_head = len(el) and el[0].tag == "HED"
-        title = "" if has_head or not default_title else f'<p class="reg-label">{default_title}</p>'
-        return f'<aside class="reg-callout reg-{cls}">{title}{self.children(el)}</aside>'
+        self._in_extract += 1
+        try:
+            if app_head:
+                m = _APP_ID_RE.match(app_head)
+                aid = self._unique_anchor(f"appendix-{_slug(m.group(1))}") if m else self._unique_anchor("appendix")
+                return f'<section class="reg-appendix" id="{aid}">{self.children(el)}</section>'
+            cls, default_title = CALLOUTS[el.tag]
+            has_head = len(el) and el[0].tag == "HED"
+            title = "" if has_head or not default_title else f'<p class="reg-label">{default_title}</p>'
+            return f'<aside class="reg-callout reg-{cls}">{title}{self.children(el)}</aside>'
+        finally:
+            self._in_extract -= 1
 
     def table_part(self, el: ET.Element) -> str:
         t = TABLE_TAGS[el.tag]

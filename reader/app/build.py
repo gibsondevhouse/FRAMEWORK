@@ -10,20 +10,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import sqlite3
 import sys
 import time
 import tracemalloc
+from contextlib import closing
 from pathlib import Path
 from urllib.parse import quote
 
 import httpx
 
 from . import config
-from .ingest import (LEAF_TYPES, count_leaves, ecfr_path, front_matter_xml,  # noqa: F401
-                     leaf_paths, merge_scope, nest_loose_sections,
-                     normalize_scope, prune_tree, stream_parse_xml, trim_tree)
+from .ingest import (LEAF_TYPES, count_leaves, disambiguate_leaf_ids,  # noqa: F401
+                     ecfr_path, front_matter_xml, leaf_paths, merge_scope,
+                     nest_loose_sections, normalize_scope, prune_tree,
+                     raw_leaf_id, stream_parse_xml, trim_tree)
 from .ingest import tree as _tree
 from .ingest.tree import _crumb  # noqa: F401  (used by build()'s walk)
 
@@ -53,8 +56,14 @@ CREATE VIRTUAL TABLE sections_fts USING fts5(
 );
 """
 
+logger = logging.getLogger("framework.build")
+
+
 def log(msg: str) -> None:
-    print(f"[build] {msg}", flush=True)
+    if not logger.handlers and not logging.getLogger().handlers:
+        print(f"[build] {msg}", flush=True)
+    else:
+        logger.info("[build] %s", msg)
 
 
 def fetch_json(client: httpx.Client, url: str) -> dict:
@@ -177,32 +186,62 @@ def build(
         report("Downloading contents")
         log("downloading structure JSON...")
         structure = fetch_json(client, f"{config.ECFR_API}/structure/{edition}/title-{title}.json")
-        tree = nest_loose_sections(trim_tree(structure))
+        tree = disambiguate_leaf_ids(nest_loose_sections(trim_tree(structure)))
         if scope is not None:
             tree = prune_tree(tree, scope)
+            # Keep only parts/sections that actually exist in the pruned tree so invalid
+            # requests don't trigger 404 piece downloads or persist in meta.scope.
+            present_parts: set[str] = set()
+            present_leaves: set[tuple[str, str, str]] = set()
+
+            def _collect_present(node: dict, cur_part: str = "") -> None:
+                if node["t"] == "part":
+                    cur_part = str(node["id"])
+                    present_parts.add(cur_part)
+                elif node["t"] in LEAF_TYPES:
+                    nid = str(node["id"])
+                    present_leaves.add((node["t"], cur_part, nid))
+                    present_leaves.add((node["t"], cur_part, raw_leaf_id(nid, cur_part)))
+                    return
+                for c in node.get("c", []):
+                    _collect_present(c, cur_part)
+
+            _collect_present(tree)
+            scope = normalize_scope({
+                "parts": [p for p in scope["parts"] if p in present_parts],
+                "sections": [
+                    s for s in scope["sections"]
+                    if (s["t"], s["part"], s["id"]) in present_leaves
+                ],
+            })
         leaf_total = count_leaves(tree)
         if scope is not None and not leaf_total:
             raise ValueError("None of the selected parts or sections exist in the current edition")
 
         base = f"{config.ECFR_API}/full/{edition}/title-{title}.xml"
         if scope is None:
-            pieces = [(base, config.DATA_DIR / f"title-{title}.xml.tmp")]
+            pieces = [(base, config.DATA_DIR / f"title-{title}.xml.tmp", "")]
         else:
             # One request per selected part, section or appendix. Appendix ids repeat across
             # parts ("Appendix A to Subpart B"), so they're asked for within their part.
-            pieces = []
+            raw_pieces: list[tuple[str, str]] = []
             for p in scope["parts"]:
-                pieces.append((f"{base}?part={quote(p)}", None))
+                raw_pieces.append((f"{base}?part={quote(p)}", p))
             for s in scope["sections"]:
+                raw_sid = raw_leaf_id(s["id"], s["part"])
                 if s["t"] == "appendix":
-                    q = f"part={quote(s['part'])}&appendix={quote(s['id'])}" if s["part"] else f"appendix={quote(s['id'])}"
+                    q = f"part={quote(s['part'])}&appendix={quote(raw_sid)}" if s["part"] else f"appendix={quote(raw_sid)}"
                 else:
-                    q = f"section={quote(s['id'])}"
-                pieces.append((f"{base}?{q}", None))
-            pieces = [(u, config.DATA_DIR / f"title-{title}.piece{i}.xml.tmp") for i, (u, _) in enumerate(pieces)]
+                    q = f"section={quote(raw_sid)}"
+                raw_pieces.append((f"{base}?{q}", s["part"]))
+            pieces = [
+                (u, config.DATA_DIR / f"title-{title}.piece{i}.xml.tmp", p_hint)
+                for i, (u, p_hint) in enumerate(raw_pieces)
+            ]
 
         log(f"downloading full text XML via streaming ({len(pieces)} request{'s' if len(pieces) != 1 else ''})...")
-        for i, (url, path) in enumerate(pieces):
+        piece_parts: list[str] = []
+        for i, (url, path, p_hint) in enumerate(pieces):
             if len(pieces) == 1:
                 # Without a Content-Length, measure the XML written against the structure's own
                 # size of the title's text (eCFR's `size`), so progress, speed and ETA are real.
@@ -213,104 +252,117 @@ def build(
                 report("Downloading text", i, len(pieces))
             download_stream(client, url, path, on_bytes=on_bytes)
             xml_paths.append(path)
+            piece_parts.append(p_hint)
         report("Downloading text", 1, 1)
 
     log(f"parsing XML for Title {title} using iterparse (flat memory)...")
     tmp_db = target_db.with_suffix(".tmp")
     tmp_db.unlink(missing_ok=True)
-    con = sqlite3.connect(tmp_db)
-    con.executescript(SCHEMA)
+    with closing(sqlite3.connect(tmp_db)) as con:
+        con.executescript(SCHEMA)
 
-    parsed = 0
+        parsed = 0
 
-    def on_leaf() -> None:
-        nonlocal parsed
-        parsed += 1
-        if parsed % 200 == 0:
-            report("Reading text", min(parsed, leaf_total), leaf_total)
+        def on_leaf() -> None:
+            nonlocal parsed
+            parsed += 1
+            if parsed % 200 == 0:
+                report("Reading text", min(parsed, leaf_total), leaf_total)
 
-    front: dict[str, str] = {}
-    for path in xml_paths:
-        front.update(stream_parse_xml(path, con, on_leaf=on_leaf))
+        front: dict[str, str] = {}
+        for path, p_hint in zip(xml_paths, piece_parts):
+            front.update(stream_parse_xml(path, con, on_leaf=on_leaf, default_part=p_hint))
 
-    report("Indexing", 0, leaf_total)
-    log("walking structure and ordering sections...")
-    missing: list[str] = []
-    rows: list[tuple] = []
-    total_sections = 0
+        report("Indexing", 0, leaf_total)
+        log("walking structure and ordering sections...")
+        missing: list[str] = []
+        rows: list[tuple] = []
+        total_sections = 0
 
-    def flush() -> None:
-        nonlocal total_sections
-        con.executemany("INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
-        con.executemany(
-            "INSERT INTO sections_fts (id, label, title, text) VALUES (?,?,?,?)",
-            [(x[0], x[4], x[5], x[10]) for x in rows],
-        )
-        total_sections += len(rows)
-        rows.clear()
-        report("Indexing", total_sections, leaf_total)
+        def flush() -> None:
+            nonlocal total_sections
+            con.executemany("INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+            con.executemany(
+                "INSERT INTO sections_fts (id, label, title, text) VALUES (?,?,?,?)",
+                [(x[0], x[4], x[5], x[10]) for x in rows],
+            )
+            total_sections += len(rows)
+            rows.clear()
+            report("Indexing", total_sections, leaf_total)
 
-    def walk(node: dict, ancestors: list[dict]) -> None:
-        if node["t"] in LEAF_TYPES:
-            r = con.execute(
-                "SELECT ecfr_path, xml, text FROM staging_leaves WHERE kind = ? AND id = ?",
-                (node["t"], node["id"]),
-            ).fetchone()
-            if r is None:
-                missing.append(node["id"])
+        def walk(node: dict, ancestors: list[dict]) -> None:
+            if node["t"] in LEAF_TYPES:
+                part = next((a["id"] for a in reversed(ancestors) if a["t"] == "part"), None)
+                raw_id = raw_leaf_id(str(node["id"]), part)
+                r = con.execute(
+                    "SELECT ecfr_path, xml, text FROM staging_leaves WHERE kind = ? AND part = ? AND id = ?",
+                    (node["t"], part or "", raw_id),
+                ).fetchone()
+                if r is None and part:
+                    r = con.execute(
+                        "SELECT ecfr_path, xml, text FROM staging_leaves WHERE kind = ? AND part = '' AND id = ?",
+                        (node["t"], raw_id),
+                    ).fetchone()
+                if r is None:
+                    missing.append(node["id"])
+                    return
+                ecfr_p, xml_s, text_s = r
+                ord_num = total_sections + len(rows)
+                rows.append((
+                    node["id"], node["t"], ord_num, part, node["l"], node["d"],
+                    1 if node.get("r") else 0, json.dumps(ancestors), ecfr_p,
+                    xml_s, text_s,
+                ))
+                if len(rows) >= 500:
+                    flush()
                 return
-            part = next((a["id"] for a in reversed(ancestors) if a["t"] == "part"), None)
-            ecfr_p, xml_s, text_s = r
-            ord_num = total_sections + len(rows)
-            rows.append((
-                node["id"], node["t"], ord_num, part, node["l"], node["d"],
-                1 if node.get("r") else 0, json.dumps(ancestors), ecfr_p,
-                xml_s, text_s,
-            ))
-            if len(rows) >= 500:
-                flush()
-            return
-        next_ancestors = ancestors + [_crumb(node)] if node["t"] != "title" else ancestors
-        for child in node.get("c", []):
-            walk(child, next_ancestors)
+            next_ancestors = ancestors + [_crumb(node)] if node["t"] != "title" else ancestors
+            for child in node.get("c", []):
+                walk(child, next_ancestors)
 
-    walk(tree, [])
-    if rows:
-        flush()
+        walk(tree, [])
+        if rows:
+            flush()
 
-    if missing:
-        log(f"warning: {len(missing)} structure nodes had no XML text, e.g. {missing[:5]}")
+        if missing:
+            log(f"warning: {len(missing)} structure nodes had no XML text, e.g. {missing[:5]}")
 
-    con.execute("DROP TABLE staging_leaves")
-    con.executemany("INSERT INTO front_matter VALUES (?,?)", front.items())
-    meta_rows = [
-        ("edition", edition),
-        ("built_at", time.strftime("%Y-%m-%dT%H:%M:%S")),
-        ("section_count", str(total_sections)),
-        ("title", str(title)),
-        ("title_name", title_name),
-    ]
-    if scope is not None:
-        meta_rows.append(("scope", json.dumps(scope)))
-    con.executemany("INSERT INTO meta VALUES (?,?)", meta_rows)
-    con.commit()
-    con.close()
+        con.execute("DROP TABLE staging_leaves")
+        con.executemany("INSERT INTO front_matter VALUES (?,?)", front.items())
+        meta_rows = [
+            ("edition", edition),
+            ("built_at", time.strftime("%Y-%m-%dT%H:%M:%S")),
+            ("section_count", str(total_sections)),
+            ("title", str(title)),
+            ("title_name", title_name),
+        ]
+        if scope is not None:
+            meta_rows.append(("scope", json.dumps(scope)))
+        con.executemany("INSERT INTO meta VALUES (?,?)", meta_rows)
+        from .citations import graph
+        graph.persist_title_index(con, title)
+        con.commit()
 
     report("Installing")
     tmp_tree = target_tree.with_suffix(".json.tmp")
     tmp_tree.write_text(json.dumps(tree, separators=(",", ":")), encoding="utf-8")
     _replace_with_retry(tmp_db, target_db, before_install)
     _replace_with_retry(tmp_tree, target_tree, before_install)
+    if before_install is None:
+        from . import store
+        store.release_title(title)
 
     # Title 29 also keeps the legacy file names some older code paths look for.
     if title == 29:
         import shutil
         for src, legacy in ((target_db, config.DATA_DIR / "title29.sqlite3"), (target_tree, config.DATA_DIR / "tree.json")):
-            try:
-                if legacy.exists():
-                    shutil.copy2(src, legacy)
-            except OSError:
-                pass
+            if legacy.exists():
+                legacy_tmp = legacy.with_suffix(legacy.suffix + ".tmp")
+                try:
+                    shutil.copy2(src, legacy_tmp)
+                    _replace_with_retry(legacy_tmp, legacy, before_install)
+                except OSError:
+                    legacy_tmp.unlink(missing_ok=True)
 
     if not keep_xml:
         for path in xml_paths:

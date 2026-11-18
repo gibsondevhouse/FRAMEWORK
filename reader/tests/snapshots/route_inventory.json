@@ -5,6 +5,7 @@
   "GET,HEAD /redoc",
   "- /static",
   "GET /",
+  "GET /healthz",
   "GET /api/titles",
   "GET /api/titles/snapshot",
   "GET /api/profiles",

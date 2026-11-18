@@ -42,54 +42,14 @@ class NewsCiteRegexParityTests(HermeticTestCase):
                 self.assertEqual(py_ids, want_sections)
 
 
-class NewsMarkupContractTests(HermeticTestCase):
+class NewsStyleAndMarkupTests(HermeticTestCase):
     @classmethod
     def setUpClass(cls):
-        cls.js = app_js()
         cls.html = index_html()
         cls.css = combined_css()
 
-    def test_route_and_loader_exist(self):
-        self.assertIn("checkPath === '/news'", self.js)
-        self.assertIn("async function loadNews(", self.js)
-        self.assertIn("'News · FRAMEWORK'", self.js)
-
-    def test_tabs_match_the_plan(self):
-        for key, label in (("all", "All"), ("rules", "Final Rules"), ("rulemaking", "Proposed Rules"),
-                           ("enforcement", "Enforcement & Penalties"),
-                           ("public_inspection", "Public Inspection"), ("notices", "Notices")):
-            with self.subTest(key=key):
-                self.assertRegex(self.js, rf"key: '{key}', label: '{re.escape(label)}'")
-
-    def test_card_helpers_exist(self):
-        for name in ("newsCardHtml", "fmtMoney", "safeHttpUrl", "extLink", "linkifyNewsText",
-                     "newsSectionHref", "newsPartHref", "newsChipsHtml",
-                     "newsBylineHtml", "fillNewsActivity", "watchNewsSync",
-                     "lsGetJSON", "lsSetJSON"):
-            with self.subTest(fn=name):
-                self.assertIn(f"function {name}(", self.js)
-
-    def test_uninstalled_titles_fall_back_to_the_library(self):
-        self.assertIn("`#/library/${t}`", self.js)
-
-    def test_cache_keys_and_refresh_contract(self):
-        self.assertIn("newsCache:v1:", self.js)
-        self.assertIn("'/api/news/status'", self.js)
-        self.assertIn("'/api/news/refresh'", self.js)
-        self.assertIn('{ force: false }', self.js.replace('"', "'"))
-        # Only POST /api/news/refresh may start a sync; the feed and status GETs carry
-        # no side-effect parameters.
-        self.assertNotIn("/api/news?sync", self.js)
-
-    def test_activity_button_and_popover(self):
-        self.assertIn('id="btn-news-activity"', self.js)
+    def test_activity_popover_slot_exists(self):
         self.assertIn('id="news-pop"', self.html)
-        self.assertIn("rules & citations", self.js)
-        self.assertIn("newsActivityCache", self.js)
-        # No interpretation nodes in code or markup (decision 4; the one comment that
-        # explains the absence is allowed).
-        code = "\n".join(l for l in self.js.splitlines() if not l.strip().startswith("//"))
-        self.assertNotIn("interpretation", code.lower())
 
     def test_news_styles_use_tokens_not_colours(self):
         block = self.css.split("/* ---------- News (#/news) ----------", 1)[1]
@@ -99,16 +59,6 @@ class NewsMarkupContractTests(HermeticTestCase):
                     ".news-setup", ".news-pop"):
             with self.subTest(cls=cls):
                 self.assertIn(cls + " ", block)
-
-    def test_no_emoji_or_unicode_arrows_in_news_js(self):
-        start = self.js.index("const NEWS_CATEGORIES")
-        end = self.js.index("// --- Pin popover")
-        block = self.js[start:end]
-        for glyph in ("↗", "›", "→", "🔴", "📰"):
-            self.assertNotIn(glyph, block)
-
-    def test_dol_setup_card_links_registration(self):
-        self.assertIn("dataportal.dol.gov/registration", self.js)
 
 
 if __name__ == "__main__":

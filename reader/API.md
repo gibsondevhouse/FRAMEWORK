@@ -16,6 +16,9 @@ Welcome to the HTTP and streaming API behind **FRAMEWORK**, a local-first Regula
 
 ## Titles and metadata
 
+### `GET /healthz`
+Lightweight server liveness check returning `{"status": "ok", "installed_titles": [29, ...]}`.
+
 ### `GET /api/titles`
 Every installed title.
 
@@ -399,7 +402,7 @@ The feed, search and filters in one endpoint.
 | `part` | string | Articles with any citation inside that Title 29 part. |
 | `state` | string | Two-letter site state (enforcement only). |
 | `min_penalty` | number | Enforcement rows with `penalty_usd >=` this. |
-| `gravity` | string | `W`, `R` or `S` — enforcement rows whose `violation_types` contains it. |
+| `gravity` | string | `W`, `R`, `S`, `O`, or `U` — enforcement rows whose `violation_types` contains it. |
 | `limit` / `offset` | int | Default 30, max 100. |
 
 Returns `{"articles": [...], "total", "offset"}`. Each article carries `guid`

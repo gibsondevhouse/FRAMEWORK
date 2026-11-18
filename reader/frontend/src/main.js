@@ -1,8 +1,17 @@
 import './state_init';
+import './core/events';
+import './core/view_dispatch';
+import './data/home_content';
 import './dom';
+import './api/client';
+import './core/library_meta';
+import './core/projects_store';
+import './core/news_format';
+import './api/jobs';
 import './components/corpora';
 import './components/ui';
 import './router';
+import './views/ref_almanac';
 import './views/core';
 import './usage';
 import './views/home';
@@ -11,6 +20,8 @@ import './views/library';
 import './components/transfer_dock';
 import './components/title_switcher';
 import './components/view_head';
+import './components/part_toc';
+import './components/refs_popovers';
 import './views/reader';
 import './components/rail';
 import './views/reader_part';
@@ -19,6 +30,7 @@ import './components/search_bar';
 import './components/sidebar';
 import './views/projects';
 import './panels/projects_panel';
+import './views/news_case';
 import './views/news';
 import './components/news_activity';
 import './components/pin_pop';
@@ -39,6 +51,8 @@ import './components/split_pane';
 import './components/cfr_resolver';
 import './components/peek';
 import { state } from './state';
+import { fetchInstalledTitles, fetchTitleMeta, getJSON } from './api/client';
+import { pollJobsIfActive, setJobs } from './api/jobs';
 import { refreshModelsConfig } from './components/env_modal';
 import { ensureTreeLoaded, switchTitle } from './components/sidebar';
 import { syncCorporaState } from './components/corpora';
@@ -49,7 +63,6 @@ import { restoreSessionTabsSnapshot } from './components/reader_tabs';
 import { restoreSplitTabs } from './components/split_pane';
 import { handleRoute } from './router';
 import { dom } from './state_init';
-import { getJSON, pollJobsIfActive, setJobs } from './views/library';
 
 export const chatKbd = document.getElementById('chat-kbd');
 
@@ -60,32 +73,29 @@ if (chatKbd) chatKbd.textContent = isMac ? '⌘J' : 'Ctrl J';
 // --- Init ---
 export async function init() {
   try {
-    const titlesRes = await fetch('/api/titles');
-    if (titlesRes.ok) {
-      state.installedTitles = await titlesRes.json();
-      state.noTitles = state.installedTitles.length === 0;
-      syncCorporaState();
-      // Title 29 is the default, but it may have been removed in the library.
-      if (state.installedTitles.length && !state.installedTitles.some(t => t.title === state.currentTitle)) {
-        await switchTitle(state.installedTitles[0].title);
-      }
-      fillTitleSelect();
-      updateRailHome();
+    state.installedTitles = await fetchInstalledTitles();
+    state.noTitles = state.installedTitles.length === 0;
+    syncCorporaState();
+    // Title 29 is the default, but it may have been removed in the library.
+    if (state.installedTitles.length && !state.installedTitles.some(t => t.title === state.currentTitle)) {
+      await switchTitle(state.installedTitles[0].title);
     }
+    fillTitleSelect();
+    updateRailHome();
 
     if (state.noTitles) {
       // Fresh install: no contents, metadata or models to load. The router shows the
       // profile picker on reader/overview routes; cross-title pages stay reachable.
       setReaderEnabled(false);
     } else {
-      const [metaRes] = await Promise.all([
-        fetch('/api/' + state.currentTitle + '/meta'),
+      const [meta] = await Promise.all([
+        fetchTitleMeta(state.currentTitle).catch(() => null),
         refreshModelsConfig(),
         ensureTreeLoaded()
       ]);
 
-      if (metaRes.ok) {
-        state.metaInfo = await metaRes.json();
+      if (meta) {
+        state.metaInfo = meta;
         dom.edition.textContent = `eCFR ${state.metaInfo.edition || ''}`;
       }
       setReaderEnabled(true);
@@ -101,7 +111,7 @@ export async function init() {
     restoreSplitTabs(sessionSnap.splitTabs, idx, sessionSnap.splitWide);
   }
   // A download may already be running (started in another tab or before a reload).
-  getJSON('/api/library/jobs').then(snap => { setJobs(snap); pollJobsIfActive(); }).catch(() => {});
+  getJSON('/api/library/jobs').then(snap => { setJobs(/** @type {import('./state').JobsSnapshot} */ (snap)); pollJobsIfActive(); }).catch(() => {});
 }
 
 

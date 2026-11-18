@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import OrderedDict
 
 import httpx
 
@@ -13,8 +14,9 @@ from .. import library as lib
 CATALOG_TTL = 30 * 60  # seconds; eCFR's title list changes at most daily
 
 _cache_lock = threading.Lock()
+_catalog_fetch_lock = threading.Lock()
 _catalog: tuple[float, list[dict]] | None = None
-_structures: dict[tuple[int, str], dict] = {}
+_structures: OrderedDict[tuple[int, str], dict] = OrderedDict()
 
 def _client() -> httpx.Client:
     return httpx.Client(headers=build.HEADERS, timeout=httpx.Timeout(30.0, read=120.0), follow_redirects=True)
@@ -26,11 +28,15 @@ def ecfr_titles(refresh: bool = False) -> list[dict]:
     with _cache_lock:
         if _catalog and not refresh and time.time() - _catalog[0] < CATALOG_TTL:
             return _catalog[1]
-    with _client() as c:
-        titles = build.fetch_json(c, f"{config.ECFR_API}/titles.json").get("titles", [])
-    with _cache_lock:
-        _catalog = (time.time(), titles)
-    return titles
+    with _catalog_fetch_lock:
+        with _cache_lock:
+            if _catalog and not refresh and time.time() - _catalog[0] < CATALOG_TTL:
+                return _catalog[1]
+        with _client() as c:
+            titles = build.fetch_json(c, f"{config.ECFR_API}/titles.json").get("titles", [])
+        with _cache_lock:
+            _catalog = (time.time(), titles)
+        return titles
 
 
 def catalog_checked_at() -> float | None:
@@ -52,15 +58,17 @@ def structure(title: int) -> dict:
     key = (title, edition)
     with _cache_lock:
         if key in _structures:
+            _structures.move_to_end(key)
             return _structures[key]
     with _client() as c:
         raw = build.fetch_json(c, f"{config.ECFR_API}/structure/{edition}/title-{title}.json")
-    tree = build.nest_loose_sections(build.trim_tree(raw))
+    tree = build.disambiguate_leaf_ids(build.nest_loose_sections(build.trim_tree(raw)))
     with _cache_lock:
         # Keep a handful; a structure is a few MB for the largest titles.
-        if len(_structures) >= 8:
-            _structures.pop(next(iter(_structures)))
         _structures[key] = tree
+        _structures.move_to_end(key)
+        while len(_structures) > 8:
+            _structures.popitem(last=False)
     return tree
 
 

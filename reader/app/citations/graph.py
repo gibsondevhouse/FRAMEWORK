@@ -1,21 +1,26 @@
 """Corpus-wide citation graph, web reference directory, and IBR standard resolver."""
 from __future__ import annotations
 
+import json
 import re
+import sqlite3
+import threading
 from collections import defaultdict
-from functools import lru_cache
 from urllib.parse import urlparse
 
 from .parser import (
     CONTEXT_BARE_SEC_RE,
     CROSS_TITLE_EXT_RE,
     PARA_OF_SEC_RE,
+    SEC_TOKEN,
     SECTION_ITEM_RE,
     WEB_URL_RE,
     WORD_SEC_EXT_RE,
     XREF_EXT_RE,
     clean_url_tail,
 )
+
+_RANGE_PAIR_RE = re.compile(rf"({SEC_TOKEN})-({SEC_TOKEN})")
 
 # ---------------------------------------------------------------------------
 # Web domain categorization & retired-URL migration hints
@@ -152,7 +157,12 @@ def _normalize_standard(org_raw: str, des_raw: str) -> tuple[str, str, str, str]
 
 def _is_ibr_catalog_section(sec_title: str, sec_id: str) -> bool:
     tl = (sec_title or "").lower()
-    if "incorporation by reference" in tl:
+    if any(kw in tl for kw in (
+        "incorporation by reference",
+        "incorporations by reference",
+        "incorporated by reference",
+        "reference material",
+    )):
         return True
     if sec_id == "Appendix D to Subpart L of Part 1910":
         return True
@@ -164,14 +174,14 @@ def _clip(text: str, limit: int = 240) -> str:
     return s if len(s) <= limit else s[: limit - 1].rstrip() + "…"
 
 
-@lru_cache(maxsize=16)
-def _build_title_index(title: int) -> dict:
-    from .. import store
+_index_lock = threading.Lock()
+_index_cache: dict[int, dict] = {}
+_INDEX_CACHE_MAX = 16
 
-    con = store.db(title)
-    rows = con.execute(
-        "SELECT id, part, label, title, text FROM sections ORDER BY ord"
-    ).fetchall()
+
+def _compute_title_index(rows, title: int) -> dict:
+    from ..render.text import clean_label
+
     known_secs = {r["id"] for r in rows}
 
     # --- Accumulators ---
@@ -185,14 +195,15 @@ def _build_title_index(title: int) -> dict:
     for row in rows:
         sec_id = row["id"]
         sec_part = row["part"] or ""
-        sec_label = store.clean_label(row["label"])
-        sec_title = store.clean_label(row["title"])
+        sec_label = clean_label(row["label"])
+        sec_title = clean_label(row["title"])
         text = row["text"] or ""
+        low = text.lower()
         sec_meta = {"id": sec_id, "part": sec_part, "label": sec_label, "title": sec_title}
         sec_meta_by_id[sec_id] = sec_meta
 
         # 1. Web URLs (Phase 5 References Hub)
-        if "http" in text or "www." in text:
+        if "http" in low or "www." in low:
             for m in WEB_URL_RE.finditer(text):
                 clean, _ = clean_url_tail(m.group(1))
                 if not clean:
@@ -225,12 +236,13 @@ def _build_title_index(title: int) -> dict:
                     if tok in known_secs:
                         cited_targets.add(tok)
                     elif "-" in tok:
-                        a, b = tok.split("-", 1)
-                        if a in known_secs:
-                            cited_targets.add(a)
-                        if b in known_secs:
-                            cited_targets.add(b)
-        if "section" in text.lower():
+                        rm = _RANGE_PAIR_RE.fullmatch(tok)
+                        if rm:
+                            if rm.group(1) in known_secs:
+                                cited_targets.add(rm.group(1))
+                            if rm.group(2) in known_secs:
+                                cited_targets.add(rm.group(2))
+        if "section" in low:
             for m in WORD_SEC_EXT_RE.finditer(text):
                 for im in SECTION_ITEM_RE.finditer(m.group(2)):
                     tok = im.group(1)
@@ -241,12 +253,12 @@ def _build_title_index(title: int) -> dict:
                 tok = m.group(2)
                 if tok in known_secs:
                     cited_targets.add(tok)
-        if "paragraph" in text.lower():
+        if "paragraph" in low:
             for m in PARA_OF_SEC_RE.finditer(text):
                 tok = m.group(4)
                 if tok in known_secs:
                     cited_targets.add(tok)
-        if "CFR" in text or "C.F.R" in text:
+        if "cfr" in low or "c.f.r" in low:
             for m in CROSS_TITLE_EXT_RE.finditer(text):
                 if int(m.group(1)) == title:
                     src = m.group(3) or m.group(4) or ""
@@ -262,6 +274,7 @@ def _build_title_index(title: int) -> dict:
         # 3. Statutory IBR Catalog Extraction
         if _is_ibr_catalog_section(sec_title, sec_id):
             cur_top = ""
+            cur_num = ""
             for line in text.splitlines():
                 stripped = line.strip()
                 if not stripped:
@@ -269,13 +282,20 @@ def _build_title_index(title: int) -> dict:
                 tm = _TOP_MARKER_RE.match(stripped)
                 if tm:
                     cur_top = f"({tm.group(1)})"
+                    cur_num = f"({tm.group(2)})" if tm.group(2) else ""
                 im = _ITEM_MARKER_RE.match(stripped)
                 para = ""
                 if im:
                     item_tok = im.group(1).replace(" ", "")
-                    para = f"{cur_top}{item_tok}" if (cur_top and item_tok != cur_top) else cur_top or item_tok
+                    if item_tok.strip("()").isdigit():
+                        cur_num = item_tok
+                        para = f"{cur_top}{cur_num}" if cur_top else cur_num
+                    elif cur_top and item_tok != cur_top:
+                        para = f"{cur_top}{cur_num}{item_tok}"
+                    else:
+                        para = cur_top or item_tok
                 elif cur_top:
-                    para = cur_top
+                    para = f"{cur_top}{cur_num}"
 
                 if not any(ch.isdigit() for ch in stripped):
                     continue
@@ -285,11 +305,11 @@ def _build_title_index(title: int) -> dict:
                         prefix_slice = stripped[: sm.start()]
                         num_m = re.findall(r"\(\d+\)", prefix_slice)
                         if num_m:
-                            line_para = f"{cur_top}{num_m[-1]}"
+                            cur_num = num_m[-1]
+                            line_para = f"{cur_top}{cur_num}"
                     full_code, base_code, org, _des = _normalize_standard(sm.group("org"), sm.group("des"))
-                    # Skip common noise like "ISO 9001" if missing separator? No, that IS valid. Skip pure dates/sections if needed.
                     line_urls: list[str] = []
-                    if "http" in stripped or "www." in stripped:
+                    if "http" in stripped.lower() or "www." in stripped.lower():
                         for um in WEB_URL_RE.finditer(stripped):
                             c_u, _ = clean_url_tail(um.group(1))
                             if c_u:
@@ -428,9 +448,26 @@ def _pick_ibr_match(candidates: list[dict], part: str) -> dict | None:
     return candidates[0]
 
 
+def _get_title_index(title: int) -> dict:
+    from .. import store
+
+    if store._is_swapping(title):
+        return _build_title_index(title)
+    with _index_lock:
+        if title in _index_cache:
+            return _index_cache[title]
+    idx = _build_title_index(title)
+    if not store._is_swapping(title):
+        with _index_lock:
+            if len(_index_cache) >= _INDEX_CACHE_MAX and title not in _index_cache:
+                _index_cache.pop(next(iter(_index_cache)))
+            _index_cache[title] = idx
+    return idx
+
+
 def get_references(title: int) -> dict:
     """Return categorized web references, legacy URL warnings, and citing sections for `title`."""
-    idx = _build_title_index(title)
+    idx = _get_title_index(title)
     return {"title": title, **idx["references"]}
 
 
@@ -439,14 +476,15 @@ def get_section_graph(title: int, raw_section_id: str) -> dict | None:
     from .. import store
 
     section_id = store.normalize_id(raw_section_id, title)
-    row = store.db(title).execute(
-        "SELECT id, part, label, title, text FROM sections WHERE id = ?",
-        (section_id,),
-    ).fetchone()
+    with store.read_db(title) as con:
+        row = con.execute(
+            "SELECT id, part, label, title, text FROM sections WHERE id = ?",
+            (section_id,),
+        ).fetchone()
     if not row:
         return None
 
-    idx = _build_title_index(title)
+    idx = _get_title_index(title)
     cited_by = idx["backlinks"].get(row["id"], [])
     part = row["part"] or ""
     text = row["text"] or ""
@@ -484,5 +522,37 @@ def get_section_graph(title: int, raw_section_id: str) -> dict | None:
     }
 
 
-def clear_caches() -> None:
-    _build_title_index.cache_clear()
+def persist_title_index(con: sqlite3.Connection, title: int) -> None:
+    """Precompute and store the title's citation/IBR index inside its SQLite DB."""
+    con.row_factory = sqlite3.Row
+    rows = con.execute("SELECT id, part, label, title, text FROM sections ORDER BY ord").fetchall()
+    idx = _compute_title_index(rows, title)
+    con.execute("CREATE TABLE IF NOT EXISTS title_graph (key TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+    con.execute(
+        "INSERT OR REPLACE INTO title_graph (key, payload) VALUES ('index', ?)",
+        (json.dumps(idx, separators=(",", ":")),),
+    )
+
+
+def _build_title_index(title: int) -> dict:
+    from .. import store
+
+    with store.read_db(title) as con:
+        try:
+            cached_row = con.execute("SELECT payload FROM title_graph WHERE key = 'index'").fetchone()
+            if cached_row:
+                return json.loads(cached_row["payload"])
+        except (sqlite3.OperationalError, ValueError, TypeError):
+            pass
+        rows = con.execute(
+            "SELECT id, part, label, title, text FROM sections ORDER BY ord"
+        ).fetchall()
+    return _compute_title_index(rows, title)
+
+
+def clear_caches(title: int | None = None) -> None:
+    with _index_lock:
+        if title is None:
+            _index_cache.clear()
+        else:
+            _index_cache.pop(title, None)

@@ -158,9 +158,10 @@ class WorkerSyncTests(FetchTestCase):
 
     def test_failing_source_never_blocks_others(self):
         fake = FakeAPI(fail_paths=(FR_PATH,))
+        now = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)
         with mock.patch.dict("os.environ", {"DOL_API_KEY": "k"}), fake.patch_client():
             results = news_worker.sync_sources(
-                ["federal_register", "federal_register_pi", "dol_osha"])
+                ["federal_register", "federal_register_pi", "dol_osha"], now=now)
         self.assertEqual(results["federal_register_pi"], 2)
         self.assertEqual(results["dol_osha"], 2)
         self.assertIsInstance(results["federal_register"], str)
@@ -173,6 +174,21 @@ class WorkerSyncTests(FetchTestCase):
             counts = news_store.category_counts(con)
         self.assertEqual(counts["enforcement"], 2)
         self.assertEqual(counts["public_inspection"], 2)
+
+    def test_empty_agencies_and_malformed_payload_are_isolated(self):
+        fake = FakeAPI()
+        now = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)
+        with mock.patch.dict("os.environ", {"NEWS_AGENCIES": "", "DOL_API_KEY": "k"}), fake.patch_client():
+            self.assertEqual(news_worker.enabled_sources(), ["dol_osha"])
+            res = news_worker.sync_sources(["federal_register", "dol_osha"], now=now)
+        self.assertIsInstance(res["federal_register"], str)
+        self.assertEqual(res["dol_osha"], 2)
+
+        with mock.patch.object(news, "fetch_public_inspection", side_effect=KeyError("document_number")), \
+             mock.patch.dict("os.environ", {"DOL_API_KEY": "k"}), fake.patch_client():
+            res2 = news_worker.sync_sources(["federal_register_pi", "dol_osha"], now=now)
+        self.assertIn("unexpected response", str(res2["federal_register_pi"]))
+        self.assertEqual(res2["dol_osha"], 2)
 
     def test_without_key_no_dol_requests_and_not_enabled(self):
         self.assertEqual(news_worker.enabled_sources(),
@@ -195,26 +211,30 @@ class WorkerSyncTests(FetchTestCase):
             self.assertIn("dol_osha", news_worker.due_sources(now))  # never synced -> due
 
     def test_request_sync_force_semantics(self):
-        now = datetime.now(timezone.utc)
+        now = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)
         with closing(news_store.connect()) as con:
             news_store.record_ok(con, "federal_register", 3, now)
             news_store.record_ok(con, "federal_register_pi", 2, now)
             con.commit()
-        self.assertEqual(news_worker.request_sync(force=False), [])
-        self.assertFalse(news_worker._wake.is_set())
-        queued = news_worker.request_sync(force=True)
+        orig_due = news_worker.due_sources
+        with mock.patch.object(news_worker, "due_sources", lambda n=None: orig_due(n or now)):
+            self.assertEqual(news_worker.request_sync(force=False), [])
+            self.assertFalse(news_worker._wake.is_set())
+            queued = news_worker.request_sync(force=True)
         self.assertEqual(queued, ["federal_register", "federal_register_pi"])
         self.assertTrue(news_worker._wake.is_set())
 
     def test_request_sync_force_bypasses_backoff(self):
-        now = datetime.now(timezone.utc)
+        now = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)
         with closing(news_store.connect()) as con:
             news_store.record_error(con, "federal_register", "down", now)
             news_store.record_ok(con, "federal_register_pi", 2, now)
             con.commit()
-        self.assertEqual(news_worker.request_sync(force=False), [])   # backoff + fresh
-        self.assertEqual(news_worker.request_sync(force=True),
-                         ["federal_register", "federal_register_pi"])
+        orig_due = news_worker.due_sources
+        with mock.patch.object(news_worker, "due_sources", lambda n=None: orig_due(n or now)):
+            self.assertEqual(news_worker.request_sync(force=False), [])   # backoff + fresh
+            self.assertEqual(news_worker.request_sync(force=True),
+                             ["federal_register", "federal_register_pi"])
 
     def test_no_worker_thread_in_tests(self):
         self.assertNotIn("news-worker", [t.name for t in threading.enumerate()])

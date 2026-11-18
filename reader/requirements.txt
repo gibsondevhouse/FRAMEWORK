@@ -1,8 +1,8 @@
 # Runtime dependencies for the FRAMEWORK Regulatory Workstation.
 # Install: pip install -r reader/requirements.txt   (Python 3.10+ required)
-fastapi
-uvicorn[standard]
-httpx
-anthropic
-python-dotenv
-tzdata
+fastapi>=0.162.5,<1
+uvicorn[standard]>=0.54.0,<1
+httpx>=0.28.1,<1
+anthropic>=2.8.0,<3
+python-dotenv>=1.2.4,<2
+tzdata>=2026.6

@@ -704,6 +704,83 @@ class BehaviorTests(BrowserCase):
 
         self.assert_no_external_requests()
 
+    def test_help_settings_drawer_and_env_modal_behavior(self):
+        # 1. Settings drawer has quick actions + Open settings CTA without heavy page blocks.
+        page = self.open_page("/section/1910.135", "#activity-rail")
+        page.click('#activity-rail button[data-target="settings"]')
+        page.wait_for_selector('#panel-settings a[href="#/settings"]', timeout=5000)
+        drawer_text = page.inner_text('#panel-settings').lower()
+        self.assertIn("quick settings", drawer_text)
+        self.assertIn("quick actions", drawer_text)
+        self.assertIn("open settings", drawer_text)
+        self.assertEqual(page.locator('#panel-settings .set-card, #panel-settings #set-keys').count(), 0)
+
+        # 2. Settings page holds Appearance, Claude, News, Storage, and Keyboard.
+        page.click('#panel-settings a[href="#/settings"]')
+        page.wait_for_selector('#view [data-set], #view [data-open-env]', timeout=5000)
+        set_text = page.inner_text('#view').lower()
+        for section in ("appearance", "claude", "news", "storage", "keyboard"):
+            self.assertIn(section, set_text)
+
+        # 3. #/help renders outcome-framed cards, RSS links, and collapsible .env footnote.
+        page.goto(f"{ENV.base_url}/#/help")
+        page.wait_for_selector('.help-card .help-logo', timeout=5000)
+        help_text = page.inner_text('#view')
+        self.assertIn("Connections & API Keys", help_text)
+        self.assertIn("What is a .env file?", help_text)
+        self.assertEqual(page.locator(".help-card.is-left, .help-card.is-right").count(), 0)
+        page.click('[data-open-env="dol_api_key"]')
+        page.wait_for_selector('#env-modal:not([hidden])', timeout=5000)
+        page.keyboard.press("Escape")
+        page.wait_for_selector('#env-modal[hidden]', timeout=5000, state="attached")
+        self.assert_no_external_requests()
+
+    def test_newsroom_filters_setup_notice_and_activity_popover(self):
+        import json as _json
+        page = self.open_page("/news", "#news-q")
+        # 6 tabs rendered
+        self.assertEqual(page.locator('.news-tabs [role="tab"]').count(), 6)
+        # Filter input debounces into hash query
+        page.fill('#news-q', 'helmet')
+        page.wait_for_function("() => location.hash.includes('q=helmet')", timeout=5000)
+        page.fill('#news-q', '')
+        page.wait_for_function("() => !location.hash.includes('q=')", timeout=5000)
+        # Empty Enforcement state without DOL key links to #/help and opens #env-modal
+        page.route("**/api/news?category=enforcement*", lambda route: route.fulfill(
+            status=200, content_type="application/json", body=_json.dumps({"articles": [], "total": 0, "offset": 0})))
+        page.click('.news-tabs [data-news-cat="enforcement"]')
+        page.wait_for_selector('.news-setup [data-open-env="dol_api_key"]', timeout=5000)
+        self.assertEqual(page.locator('.news-setup a[href="#/help"]').count(), 1)
+        # Activity button on § 1910.134 opens #news-pop with seeded activity and "See all in News" link
+        page.goto(f"{ENV.base_url}/#/title/29/section/1910.134")
+        page.wait_for_selector('#btn-news-activity:not([hidden])', timeout=10000)
+        self.assertIn("rules & citations", (page.locator('#btn-news-activity').get_attribute('aria-label') or page.inner_text('#btn-news-activity')).lower())
+        page.click('#btn-news-activity')
+        page.wait_for_selector('#news-pop:not([hidden])', timeout=5000)
+        pop_text = page.inner_text('#news-pop').lower()
+        self.assertIn("federal register & osha activity", pop_text)
+        self.assertIn("see all in news", pop_text)
+        self.assert_no_external_requests()
+
+    def test_library_front_filter_sort_and_two_click_remove_arming(self):
+        page = self.open_page("/library", ".lib-front .lib-story")
+        # Sort toggle
+        page.click('.lib-seg [data-sort="number"]')
+        self.assertEqual(page.locator('.lib-seg [data-sort="number"]').get_attribute("aria-pressed"), "true")
+        # Live filter
+        page.fill('#lib-filter', 'zzznomatch')
+        page.wait_for_selector('#lib-none:not([hidden])', timeout=5000)
+        page.fill('#lib-filter', 'Labor')
+        self.assertGreaterEqual(page.locator('.lib-story:not([hidden])').count(), 1)
+        # Hover the story card so actions reveal, then first click on Remove arms the button + announces via #nav-live
+        story = page.locator('.lib-story:not([hidden])').first
+        story.hover()
+        rm_btn = story.locator('button[data-act="remove"]')
+        rm_btn.click()
+        self.assertIn("Confirm remove", rm_btn.inner_text())
+        self.assertIn("Press again", page.inner_text('#nav-live'))
+        self.assert_no_external_requests()
+
 
 class ScreenshotCase(BrowserCase):
     def assert_baseline(self, page, name: str):

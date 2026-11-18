@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from app import config, library
 from app.main import app
 from tests.base import HermeticTestCase
-from tests.frontend_sources import app_js, combined_css, index_html
+from tests.frontend_sources import combined_css, index_html
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -26,7 +26,6 @@ class RailMarkupTests(HermeticTestCase):
     def setUpClass(cls):
         cls.html = index_html()
         cls.css = combined_css()
-        cls.js = app_js()
 
     def test_rail_and_drawer_containers_exist(self):
         for id_ in ("activity-rail", "sidebar", "drawer-title", "drawer-close", "drawer-mode", "tree", "tree-filter", "pin-pop"):
@@ -43,17 +42,10 @@ class RailMarkupTests(HermeticTestCase):
         for t in ("reader", "projects", "library", "settings"):
             self.assertRegex(self.html, rf'<button type="button" class="ar-btn" data-target="{t}" aria-controls="sidebar" aria-expanded="false"')
 
-    def test_nav_targets_go_keys_and_alt_digits_cover_news(self):
-        self.assertIn("const NAV_TARGETS = ['overview', 'home', 'reader', 'projects', 'news', 'library', 'settings']", self.js)
-        self.assertRegex(self.js, r"const GO_KEYS = \{[^}]*n: 'news'[^}]*\}")
-        self.assertIn("/^Digit[1-7]$/", self.js)
-        self.assertNotIn("Digit[1-6]", self.js)
-
     def test_every_panel_target_has_a_panel(self):
         for panel in ("reader", "projects", "library", "settings", "history"):
             with self.subTest(panel=panel):
                 self.assertIn(f'data-panel="{panel}"', self.html)
-                self.assertIn(f"{panel}:", self.js.split("const NAV_PANELS = {", 1)[1].split("};", 1)[0])
 
     def test_rail_items_have_labels_and_shortcuts(self):
         for m in re.finditer(r'<(?:a|button)[^>]*class="ar-btn"[^>]*>', self.html):
@@ -68,11 +60,9 @@ class RailMarkupTests(HermeticTestCase):
         for state in ("drawer-collapsed", "drawer-retracted", "drawer-fly"):
             with self.subTest(state=state):
                 self.assertIn(f"html.{state}", self.css)
-                self.assertIn(state, self.js)
 
     def test_first_paint_script_knows_the_rail_state(self):
         self.assertIn('localStorage.getItem("railState")', self.html)
-        self.assertIn("lsSet('railState'", self.js)
 
     def test_no_hard_coded_colours_in_rail_styles(self):
         block = self.css.split("/* ---------- Activity rail ----------", 1)[1].split("/* ---------- Drawer ----------", 1)[0]

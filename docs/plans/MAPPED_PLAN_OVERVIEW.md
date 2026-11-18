@@ -3,7 +3,7 @@
 **Document Set:** `MAPPED_PLAN_OVERVIEW.md` + `MAPPED_PLAN_OVERVIEW.docx`  
 **Recorded:** 2026-11-17 · **Codebase:** `reader/` (FastAPI + SQLite FTS5 + Vite ES/TS) · **Plan Series:** `docs/plans/` (`10_`–`50_`)
 
-> **Executive Snapshot:** Across **5 subject series** (`10_`–`50_`), FRAMEWORK currently holds **9 numbered plans** plus **1 cleanup dev log** (`docs/notes/2026-11-16_pre-feature-orders.md`): **1** historical foundation record (`11`), **6** completed implementation plans (`12`, `21`, `22`, `23`, `31`, `41`), **1** queued next plan not yet executed (**`42_dol_api_expansion`**), and **1** long-horizon strategic blueprint (`51`).
+> **Executive Snapshot:** Across **5 subject series** (`10_`–`50_`), FRAMEWORK currently holds **11 numbered plans** plus **1 cleanup dev log** (`docs/notes/2026-11-16_pre-feature-orders.md`): **1** historical foundation record (`11`), **8** completed implementation plans (`12`, `13`, `21`, `22`, `23`, `24`, `31`, `41`), **2** queued/in-progress plans (**`25_white_glove_ui_ux_refinement`** and **`42_dol_api_expansion`**), and **1** long-horizon strategic blueprint (`51`).
 
 ---
 
@@ -12,8 +12,8 @@
 | Count | Bucket | Plans Included | Current State |
 | :--- | :--- | :--- | :--- |
 | **1** | Historical Foundation | `11_multi_title_foundation` | Superseded/archived record of expanding Title 29 to 50 CFR titles |
-| **6** | Shipped in `reader/` | `12`, `21`, `22`, `23`, `31`, `41` | Running in codebase; Plan `31` notes `win32` CI baseline refresh if merging on Windows |
-| **1** | **Next Plan (Queued)** | **`42_dol_api_expansion`** | **Planned — Not Executed** (5 stages extending DOL Open Data API v4) |
+| **8** | Shipped in `reader/` | `12`, `13`, `21`, `22`, `23`, `24`, `31`, `41` | Running in codebase; Plan `24`/`31` note `win32` CI baseline refresh if merging on Windows |
+| **2** | **Planned / In Progress** | **`25_white_glove_ui_ux_refinement`**, **`42_dol_api_expansion`** | `25` covers white-glove UI/UX polish (Phase 1 in progress); `42` covers DOL Open Data API v4 expansion |
 | **1** | Strategic Horizon | `51_hse_platform_roadmap` | Future multi-phase blueprint (MCP server, Policy Linter, Hybrid RAG, Bots) |
 
 ---
@@ -24,9 +24,12 @@
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **10** | Platform & Architecture | `11` | [Multi-Title Foundation](10_platform_and_architecture/11_multi_title_foundation/) | Historical | `app/build.py`, `app/store.py`, federated `title-N.sqlite3` |
 | **10** | Platform & Architecture | `12` | [Repo Structure Stabilization](10_platform_and_architecture/12_repo_structure_stabilization/MASTER_PLAN.md) | Completed | `app/routers/`, `render/`, `library/`, `ingest/`, Vite + TS + CSS split, `.github/workflows/ci.yml` |
+| **10** | Platform & Architecture | `13` | [Frontend Architecture & Hardening](10_platform_and_architecture/13_frontend_architecture_and_hardening/MASTER_PLAN.md) | Completed | `src/api/`, `src/core/`, `doc_utils.ts`, strict `.ts` (`checkJs: true`), perf/a11y, Node JS tests |
 | **20** | App Shell, Home & Library | `21` | [Sliding Rail Sidebar](20_app_shell_and_workspace/21_sliding_rail_sidebar/MASTER_PLAN.md) | Completed | `#activity-rail`, `#sidebar`, 4-track CSS grid, `views/projects.js` |
 | **20** | App Shell, Home & Library | `22` | [Editorial Download Refactor](20_app_shell_and_workspace/22_editorial_download_refactor/MASTER_PLAN.md) | Completed | `#/library`, `app/library/suites.py`, `#transfer-dock` |
 | **20** | App Shell, Home & Library | `23` | [Home Screen Refactor](20_app_shell_and_workspace/23_home_screen_refactor/MASTER_PLAN.md) | Completed | `#/`, `GET /api/titles/snapshot`, SQLite read-only `mode=ro` & lock hardening |
+| **20** | App Shell, Home & Library | `24` | [Dark Newsroom & Multi-Jurisdiction UI](20_app_shell_and_workspace/24_dark_newsroom_multi_jurisdiction_ui/MASTER_PLAN.md) | Completed *(macOS)* | Obsidian `:root`, 9-tier semantic links, `#/corpus/`, Desk ribbon, Subject Workspaces |
+| **20** | App Shell, Home & Library | **`25`** | [**White-Glove UI/UX Refinement**](20_app_shell_and_workspace/25_white_glove_ui_ux_refinement/MASTER_PLAN.md) | **Planned** | Tier bar polish, geometric mark, `0 of 0` fix, `.doc-actions` + mobile jumper, Audit Brief export, Obligation Lens |
 | **30** | CFR Reader & Citations | `31` | [CFR Reader Development](30_cfr_reader_and_citations/31_reader_development/MASTER_PLAN.md) | Completed *(macOS)* | `app/citations/`, peeks, `Alt+Click` split view, click-to-download, broadsheet Title Start & References Hub |
 | **40** | Regulatory Intel & DOL | `41` | [OSHA News Interface](40_regulatory_intelligence_and_dol/41_osha_news_interface/MASTER_PLAN.md) | Completed | `#/news`, `#/news/inspection/{activity_nr}`, `news.py`, `news_store.py`, `news_worker.py` |
 | **40** | Regulatory Intel & DOL | **`42`** | [**DOL API v4 Expansion**](40_regulatory_intelligence_and_dol/42_dol_api_expansion/MASTER_PLAN.md) | **Planned (Next)** | `OSHA/related_activity`, reduction/FTA metrics, NAICS + `5(a)(1)` index, `dol:` lookup, `/v4/datasets` |
@@ -46,6 +49,8 @@
   21 Rail + Drawer + Workspaces                 31 Reader Development (Milestones 1-3):
   22 Newsroom #/library + Transfer Dock  <--->    Unified citations, peeks, split pane,
   23 End-User #/ Home + SQLite Hardening          Title Start broadsheet & IBR graph
+  24 Dark Newsroom + Multi-Jurisdiction UI
+  25 White-Glove UI/UX Refinement (Planned)
          |                                                ^
          +------------------------+-----------------------+
                                   v
@@ -80,6 +85,7 @@
   - Stage 0–1: Hermetic env hygiene (`TRACKED_KEYS`), dual-transport httpx test guards, self-hosted variable `Geist`/`Inter` `.woff2` fonts, full API/SSE golden snapshots, and Playwright + Pillow visual CI on macOS & Windows.
   - Stage 2–3: Split `main.py` into domain routers (`routers/`) enforcing module-only imports and `news_router` before `title_router`; split `render/`, `library/`, and `ingest/` packages.
   - Stage 4–6: Preserved cascade across `frontend/src/styles/01_tokens.css`–`11_settings_help.css`, migrated frontend into Vite ES modules + TS entry emitting unminified committed `reader/static/dist/`, and synchronized docs.
+- **`13_frontend_architecture_and_hardening/` (Completed, Phases 1–5; closes Order 3):** Decoupled the 32-file frontend import web into unidirectional layers with **0 circular imports**, centralized `src/api/` (`client.ts`, `jobs.ts`) and shared reader/split controllers in `doc_utils.ts`, decomposed oversized view modules (`news.ts`/`news_case.ts`, `core.ts`/`ref_almanac.ts`, `library.ts`), migrated submodules under `src/` to strict `.ts` (`"checkJs": true`, `"strict": true` in `tsconfig.json`), hardened chat/search aborting, Part TOC scroll-scoped lazy hydration, URL/DOMPurify safety, and modal focus traps, and added Node JS unit tests (`npm test`) + CI checks alongside expanded Playwright coverage.
 
 ### 20 Series — App Shell, Home & Library (`20_app_shell_and_workspace/`)
 
@@ -87,6 +93,7 @@
 - **`22_editorial_download_refactor/` (Completed, Stages 1–4):** Redesigned `#/library` as an editorial front page (metrics tiles, featured Compliance Suite hero, 7-day Regulatory Wire, topic desks), backed by `COMPLIANCE_SUITES`, batch queue endpoints, and the persistent floating `#transfer-dock`.
 - **`23_home_screen_refactor/` (Completed, Stages 1–3):** Replaced developer clutter on `#/` with an end-user 3-band layout (**Band 1** Continue Reading + Workspaces, **Band 2** Downloaded Titles snapshot via `/api/titles/snapshot`, **Band 3** quiet Regulatory Pulse) while hardening `store.py` (`known_ids` uncached error guard, `PRAGMA query_only`), `library/jobs.py` lock transitions, and read-only `news_store.connect(readonly=True)`.
 - **`24_dark_newsroom_multi_jurisdiction_ui/` (Completed, Phases 1–5; macOS baselines current):** Locked the UI to an obsidian dark-mode-only "Yakuza Editorial" palette (`--bg: #070708`), implemented the 9-tier semantic reference chromatics across links/chips/peeks and `#btn-refs-ledger`, pre-wired multi-jurisdiction `AuthorityTier`/`DeskId`/`CorpusSummary` contracts with `#/corpus/...` routing and searchable Corpus Switcher, elevated Home/Title Start/Library/Search/News across regulatory desks, and added Authority grouping + nested Action Projects inside Subject Workspaces.
+- **`25_white_glove_ui_ux_refinement/` (Planned, Phases 1–5):** Fixes curved `border-left` tier-bar hooks, vestigial `"E"` mobile mark/favicon, `0 of 0 installed` suite counts, empty Wire/tier catalog clutter, CTA inflation, and multi-row `.doc-actions` wrapping; adds interactive mobile `.unit-context` jumping, `#view-head` scrolled position context, structured Workspace clips + **Audit Brief** (`.md`/print PDF) exports, offline **Obligation & Deadline Lens**, and `> Commands` / first-run discovery polish.
 
 ### 30 Series — CFR Reader & Citations (`30_cfr_reader_and_citations/`)
 

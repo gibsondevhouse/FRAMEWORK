@@ -6,15 +6,16 @@
   -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
   border-bottom: 1px solid var(--line);
 }
-/* The wordmark: FRAMEWORK. It is the home button. */
+/* The wordmark: geometric FRAMEWORK monogram + wordmark. It is the home button. */
 .brand {
-  display: flex; align-items: center; height: 28px; padding: 0 6px; margin-left: 0; border-radius: var(--r-6);
+  display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 7px 0 6px; margin-left: 0; border-radius: var(--r-6);
   color: var(--fg); font-weight: var(--w-semibold); font-size: 13px; letter-spacing: .08em; white-space: nowrap;
   transition: all var(--t-ui) var(--ease-out);
 }
 .brand:hover { text-decoration: none; background: var(--hover); color: var(--fg-strong); }
 .brand:active { transform: scale(.98); }
-.brand-e { color: var(--fg-strong); }
+.brand-mark { width: 16px; height: 16px; flex: 0 0 auto; color: var(--fg-strong); }
+.brand-mark-bar { stroke: var(--accent); }
 .topbar-sep { color: var(--fg-4); font-size: 14px; margin: 0 -2px 0 2px; }
 .search-wrap { position: relative; flex: 1 1 auto; max-width: 520px; margin: 0 auto; min-width: 0; }
 .search-wrap > .icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--fg-3); pointer-events: none; }

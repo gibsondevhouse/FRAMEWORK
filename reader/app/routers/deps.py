@@ -18,13 +18,13 @@ STREAM_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 class ChatMessage(BaseModel):
     role: str = Field(pattern="^(user|assistant)$")
-    content: str
+    content: str = Field(max_length=100_000)
 
 
 class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
-    section_id: str | None = None
-    model: str
+    messages: list[ChatMessage] = Field(max_length=100)
+    section_id: str | None = Field(default=None, max_length=200)
+    model: str = Field(min_length=1, max_length=120)
 
 
 def require_key() -> None:

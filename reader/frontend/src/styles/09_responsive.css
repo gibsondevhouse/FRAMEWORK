@@ -44,7 +44,8 @@
   .result .result-part { margin-left: 0; padding-left: 0; flex-basis: 100%; }
 }
 @media (max-width: 600px) {
-  .brand-rest, #chat-toggle .btn-label { display: none; } /* the wordmark shrinks to its E */
+  .brand-text, #chat-toggle .btn-label { display: none; } /* the wordmark shrinks to the geometric F mark */
+  .brand { padding: 0 6px; }
   .topbar { gap: 4px; padding: 0 8px; }
   .title-select { max-width: 132px; }
   .title-select-num { display: none; } /* name only on phones */

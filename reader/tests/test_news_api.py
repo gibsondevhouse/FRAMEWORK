@@ -185,13 +185,15 @@ class StatusTests(ApiTestCase):
         self.assertTrue(s["sources"]["dol_osha"]["stale"])   # never synced
 
     def test_source_rows_from_seeded_sync_status(self):
-        now = datetime.now(timezone.utc)
+        now = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)
         with closing(news_store.connect()) as con:
             news_store.record_ok(con, "federal_register", 3, now)             # fresh
             news_store.record_ok(con, "federal_register_pi", 2, now - timedelta(days=8))
             news_store.record_error(con, "federal_register_pi", "Public inspection unavailable", now)
             con.commit()
-        s = self.client.get("/api/news/status").json()
+        with mock.patch("app.routers.news.datetime") as dt_mock:
+            dt_mock.now.return_value = now
+            s = self.client.get("/api/news/status").json()
         fr = s["sources"]["federal_register"]
         self.assertFalse(fr["stale"])
         self.assertIsNone(fr["retry_after"])
@@ -223,23 +225,32 @@ class RefreshTests(ApiTestCase):
         self.assertEqual(r.json()["queued"], ["federal_register", "federal_register_pi"])
 
     def test_force_false_with_fresh_sources_queues_nothing(self):
-        now = datetime.now(timezone.utc)
+        now = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)
         with closing(news_store.connect()) as con:
             news_store.record_ok(con, "federal_register", 3, now)
             news_store.record_ok(con, "federal_register_pi", 2, now)
             con.commit()
-        r = self.client.post("/api/news/refresh", json={"force": False})
+        orig_due = news_worker.due_sources
+        with mock.patch.object(news_worker, "due_sources", lambda n=None: orig_due(n or now)):
+            r = self.client.post("/api/news/refresh", json={"force": False})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["queued"], [])
 
     def test_force_false_queues_only_due_sources(self):
-        now = datetime.now(timezone.utc)
+        now = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)
         with closing(news_store.connect()) as con:
             news_store.record_ok(con, "federal_register", 3, now)
             con.commit()
-        r = self.client.post("/api/news/refresh", json={"force": False})
+        orig_due = news_worker.due_sources
+        with mock.patch.object(news_worker, "due_sources", lambda n=None: orig_due(n or now)):
+            r = self.client.post("/api/news/refresh", json={"force": False})
         self.assertEqual(r.status_code, 202)
         self.assertEqual(r.json()["queued"], ["federal_register_pi"])
+
+    def test_gravity_accepts_other_and_unclassified(self):
+        for g in ("O", "U"):
+            res = self.client.get("/api/news", params={"gravity": g})
+            self.assertEqual(res.status_code, 200, g)
 
     def test_409_while_syncing(self):
         with news_worker._running:

@@ -11,6 +11,11 @@ class TestFtsSanitize(HermeticTestCase):
         out = fts_query(q)
         self.assertEqual(out, '"respirator"*')
 
+    def test_short_tokens_do_not_prefix_match(self):
+        self.assertEqual(fts_query("gas"), '"gas"')
+        self.assertEqual(fts_query("lead"), '"lead"')
+        self.assertEqual(fts_query("waste"), '"waste"*')
+
     def test_phrase_query(self):
         q = '"confined space"'
         out = fts_query(q)

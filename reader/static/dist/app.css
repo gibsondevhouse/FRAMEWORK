@@ -113,7 +113,7 @@
   --brand: #EDEDED;         /* High-contrast primary action */
   --brand-hover: #FFFFFF;
   --on-brand: #070708;
-  --accent: rgba(244, 244, 246, 0.92);
+  --accent: #E5B84B;        /* Signature editorial brass for brand mark, active rail & pins */
   --focus: rgba(250, 250, 252, 0.78);
   --danger: #ff8583;
   --mark: rgba(234, 179, 8, .24);
@@ -530,8 +530,12 @@ select option { background: var(--pop); color: var(--fg); }
   white-space: nowrap; font-variant-numeric: tabular-nums;
 }
 
-/* Yakuza 3px Left-Edge Chapter / Authority Bar */
-.has-tier-bar { position: relative; border-left: 3px solid var(--tier-hue, var(--line-strong)); }
+/* Yakuza 3px Left-Edge Chapter / Authority Bar (clipped cleanly against rounded card corners) */
+.has-tier-bar { position: relative; overflow: hidden; }
+.has-tier-bar::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; pointer-events: none;
+  background: var(--tier-hue, var(--line-strong));
+}
 
 /* Desk filter ribbon shared by Home Launchpad & Regulatory Catalog */
 .desk-ribbon { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; }
@@ -585,15 +589,16 @@ select option { background: var(--pop); color: var(--fg); }
   -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
   border-bottom: 1px solid var(--line);
 }
-/* The wordmark: FRAMEWORK. It is the home button. */
+/* The wordmark: geometric FRAMEWORK monogram + wordmark. It is the home button. */
 .brand {
-  display: flex; align-items: center; height: 28px; padding: 0 6px; margin-left: 0; border-radius: var(--r-6);
+  display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 7px 0 6px; margin-left: 0; border-radius: var(--r-6);
   color: var(--fg); font-weight: var(--w-semibold); font-size: 13px; letter-spacing: .08em; white-space: nowrap;
   transition: all var(--t-ui) var(--ease-out);
 }
 .brand:hover { text-decoration: none; background: var(--hover); color: var(--fg-strong); }
 .brand:active { transform: scale(.98); }
-.brand-e { color: var(--fg-strong); }
+.brand-mark { width: 16px; height: 16px; flex: 0 0 auto; color: var(--fg-strong); }
+.brand-mark-bar { stroke: var(--accent); }
 .topbar-sep { color: var(--fg-4); font-size: 14px; margin: 0 -2px 0 2px; }
 .search-wrap { position: relative; flex: 1 1 auto; max-width: 520px; margin: 0 auto; min-width: 0; }
 .search-wrap > .icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--fg-3); pointer-events: none; }
@@ -1491,6 +1496,7 @@ a.lib-main:hover .lib-name { color: var(--fg); }
 
 /* The Regulatory Wire */
 .reg-wire { display: flex; flex-direction: column; min-width: 0; padding: 24px 20px 18px; border-radius: var(--r-12); border: 1px solid var(--line); background: var(--card-bg); box-shadow: var(--card-top); transition: border-color var(--t-ui) var(--ease-out); }
+.reg-wire.is-empty { align-self: start; }
 .reg-wire:hover { border-color: var(--line-strong); }
 .wire-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px; }
 .wire-title { display: flex; align-items: center; gap: 7px; margin: 0; font: var(--w-semibold) 13.5px/1.3 var(--sans); letter-spacing: -.012em; color: var(--fg); }
@@ -1529,7 +1535,26 @@ a.lib-main:hover .lib-name { color: var(--fg); }
   animation: wire-shimmer 1.4s linear infinite;
 }
 @keyframes wire-shimmer { from { background-position: 100% 0; } to { background-position: -120% 0; } }
+.wire-empty { margin: 14px 4px 6px; font-size: 12.5px; line-height: 1.5; color: var(--fg-3); }
 .wire-foot { margin-top: auto; padding: 10px 6px 2px; border-top: 1px solid var(--line-soft); }
+
+/* Quiet planned jurisdiction connectors disclosure */
+.lib-planned {
+  margin-top: 32px; padding: 12px 16px;
+  border-radius: var(--r-10); border: 1px solid var(--line-soft); background: var(--field);
+}
+.lib-planned summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  cursor: pointer; list-style: none; font: var(--w-medium) 12.5px/1.4 var(--sans); color: var(--fg-2);
+}
+.lib-planned summary::-webkit-details-marker { display: none; }
+.lib-planned summary:hover { color: var(--fg-strong); }
+.lib-planned-sub { font-size: 11.5px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.lib-planned-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.lib-planned-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--r-8); border: 1px solid var(--line-soft); background: var(--panel); }
+.lib-planned-head { display: flex; align-items: center; gap: 6px; font: var(--w-semibold) 12px/1.3 var(--sans); color: var(--fg); }
+.lib-planned-desc { margin: 0; font-size: 12px; line-height: 1.45; color: var(--fg-3); }
+@container lib (max-width: 640px) { .lib-planned-grid { grid-template-columns: minmax(0, 1fr); } }
 
 /* More suites */
 .lib-suites { margin-top: 28px; }
@@ -2269,6 +2294,7 @@ a.xref-web:hover, a.xref-web:focus-visible { background: var(--hover); color: va
 .cite-pop[hidden] { display: none; }
 .peek-title { font: var(--w-semibold) 13px/1.35 var(--sans); color: var(--fg-strong); margin-bottom: 4px; }
 .peek-text { margin: 0; font-size: 13px; line-height: 1.55; color: var(--fg-2); }
+.peek-text.is-empty { padding: 8px 0; }
 .peek-badge {
   flex: none; padding: 2px 6px; border-radius: var(--r-4); border: 1px solid var(--line);
   font: var(--w-semibold) 10px/1.2 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--fg-3);
@@ -2293,6 +2319,7 @@ a.xref-web:hover, a.xref-web:focus-visible { background: var(--hover); color: va
 .refs-ledger-sub { flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .refs-ledger-link:hover .refs-ledger-sub { color: var(--fg-strong); }
 .peek-foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+.peek-foot.is-compact { margin-top: 4px; border-top: 0; padding-top: 2px; }
 .peek-table-box { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-6); margin-top: 4px; }
 .peek-table { width: 100%; border-collapse: collapse; font-size: 11.5px; line-height: 1.35; }
 .peek-table th, .peek-table td { border: 1px solid var(--line-soft); padding: 4px 7px; text-align: left; vertical-align: top; }
@@ -2301,8 +2328,11 @@ a.xref-web:hover, a.xref-web:focus-visible { background: var(--hover); color: va
 .peek-fig-img { max-width: 100%; max-height: 200px; height: auto; display: inline-block; filter: brightness(.90) contrast(1.04); }
 
 /* ---------- Uninstalled / Missing CFR Download Card ---------- */
-.resolver-card { max-width: 600px; margin: 28px auto 0; padding: 24px 26px; background: var(--card-bg); border: 1px solid var(--line); border-left: 3px solid var(--ref-uninstalled); border-radius: var(--r-12); box-shadow: var(--card-top); }
+.resolver-card { position: relative; overflow: hidden; max-width: 600px; margin: 28px auto 0; padding: 24px 26px; background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--r-12); box-shadow: var(--card-top); }
+.resolver-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; pointer-events: none; background: var(--tier-hue, var(--ref-uninstalled)); }
+.resolver-card.is-catalog-slot { margin-top: 8px; }
 .resolver-card .doc-title { font-size: 24px; margin: 6px 0 12px; }
+.resolver-card.is-catalog-slot .doc-title { font-size: 20px; }
 .resolver-meta { font: var(--w-medium) 12px/1.4 var(--sans); color: var(--fg-3); margin-bottom: 4px; }
 .resolver-msg { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
 .resolver-acts { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -2469,9 +2499,14 @@ a.xref-web:hover, a.xref-web:focus-visible { background: var(--hover); color: va
 .toc-group.is-flat { margin: 6px 0; }
 .toc-group.flash { animation: flash 2.4s var(--ease-calm); border-radius: var(--r-8); }
 .toc-group-head {
+  position: relative; overflow: hidden;
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
   margin: 0 0 10px; padding: 9px 13px;
-  background: var(--card); border: 1px solid var(--line-soft); border-left: 3px solid var(--tier-hue, var(--ref-cfr)); border-radius: var(--r-8);
+  background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-8);
+}
+.toc-group-head::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; pointer-events: none;
+  background: var(--tier-hue, var(--ref-cfr));
 }
 .toc-group-titles { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 200px; }
 .toc-group-code {
@@ -2843,7 +2878,8 @@ mark { background: var(--mark); color: var(--fg); border-radius: 2px; padding: 0
   .result .result-part { margin-left: 0; padding-left: 0; flex-basis: 100%; }
 }
 @media (max-width: 600px) {
-  .brand-rest, #chat-toggle .btn-label { display: none; } /* the wordmark shrinks to its E */
+  .brand-text, #chat-toggle .btn-label { display: none; } /* the wordmark shrinks to the geometric F mark */
+  .brand { padding: 0 6px; }
   .topbar { gap: 4px; padding: 0 8px; }
   .title-select { max-width: 132px; }
   .title-select-num { display: none; } /* name only on phones */
@@ -2902,14 +2938,15 @@ html[data-motion="less"] .dock-fill.is-indeterminate { animation: none; }
 .news-head-status { display: flex; align-items: center; gap: 8px; flex: none; padding-top: 6px; }
 
 .news-breaking {
+  position: relative; overflow: hidden;
   display: flex; align-items: center; gap: 10px;
-  height: 36px; padding: 0 12px; margin-bottom: 20px;
+  height: 36px; padding: 0 12px 0 14px; margin-bottom: 20px;
   background: color-mix(in srgb, var(--editorial-crimson) 10%, var(--field));
   border: 1px solid color-mix(in srgb, var(--editorial-crimson) 32%, transparent);
-  border-left: 3px solid var(--editorial-crimson);
   border-radius: var(--r-6);
   font-size: 13px; color: var(--fg); text-decoration: none;
 }
+.news-breaking::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; pointer-events: none; background: var(--editorial-crimson); }
 .news-breaking:hover { text-decoration: none; border-color: color-mix(in srgb, var(--editorial-crimson) 50%, transparent); }
 .news-breaking-tag {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
@@ -2964,16 +3001,21 @@ html[data-motion="less"] .dock-fill.is-indeterminate { animation: none; }
 }
 
 .news-card {
+  position: relative; overflow: hidden;
   display: flex; flex-direction: column; gap: 10px; padding: 24px;
-  background: var(--card-bg); border: 1px solid var(--line); border-left: 3px solid var(--news-stripe, var(--line-strong)); border-radius: var(--r-12); box-shadow: var(--card-top);
+  background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--r-12); box-shadow: var(--card-top);
   transition: transform var(--t-ui) var(--ease-out), background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out);
+}
+.news-card::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; pointer-events: none;
+  background: var(--news-stripe, var(--line-strong));
 }
 .news-card[data-cat="enforcement"],
 .news-card[data-cat="public_inspection"] { --news-stripe: var(--editorial-crimson); }
 .news-card[data-cat="rules"] { --news-stripe: var(--editorial-gold); }
 .news-card[data-cat="rulemaking"] { --news-stripe: var(--ref-cross); }
 .news-card[data-cat="notices"] { --news-stripe: var(--ref-local); }
-.news-card:hover { transform: translateY(-1px); background: var(--card-hover); border-color: var(--line-strong); border-left-color: var(--news-stripe, var(--fg-3)); box-shadow: var(--shadow-card-hover); }
+.news-card:hover { transform: translateY(-1px); background: var(--card-hover); border-color: var(--line-strong); box-shadow: var(--shadow-card-hover); }
 .news-hero { padding: 24px; margin-bottom: 28px; }
 .news-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .news-kicker {

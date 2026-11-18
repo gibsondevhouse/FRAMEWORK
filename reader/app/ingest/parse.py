@@ -30,7 +30,12 @@ def front_matter_xml(el: ET.Element) -> str:
     return ET.tostring(wrapper, encoding="unicode") if keep else ""
 
 
-def stream_parse_xml(xml_path: Path, con: sqlite3.Connection, on_leaf=None) -> dict[str, str]:
+def stream_parse_xml(
+    xml_path: Path,
+    con: sqlite3.Connection,
+    on_leaf=None,
+    default_part: str = "",
+) -> dict[str, str]:
     """Parse XML with iterparse, streaming sections to staging SQLite table and flatlining RAM.
     Can be called once per downloaded piece; leaves accumulate in the same staging table.
     `on_leaf()` is called after each section or appendix (for progress)."""
@@ -39,7 +44,8 @@ def stream_parse_xml(xml_path: Path, con: sqlite3.Connection, on_leaf=None) -> d
     batch: list[tuple] = []
 
     con.execute(
-        "CREATE TEMP TABLE IF NOT EXISTS staging_leaves (kind TEXT, id TEXT, ecfr_path TEXT, xml TEXT, text TEXT, PRIMARY KEY(kind, id))"
+        "CREATE TEMP TABLE IF NOT EXISTS staging_leaves "
+        "(kind TEXT, part TEXT, id TEXT, ecfr_path TEXT, xml TEXT, text TEXT, PRIMARY KEY(kind, part, id))"
     )
 
     with open(xml_path, "rb") as xml_file:
@@ -54,15 +60,16 @@ def stream_parse_xml(xml_path: Path, con: sqlite3.Connection, on_leaf=None) -> d
                 if elem.tag in ("DIV8", "DIV9"):
                     kind = "section" if elem.tag == "DIV8" else "appendix"
                     ident = elem.get("N")
+                    part = next((e.get("N") for e in reversed(stack) if e.tag == "DIV5"), None) or default_part or ""
                     elem.tail = None
                     p = ecfr_path(elem)
                     x = ET.tostring(elem, encoding="unicode")
                     t = element_to_text(elem)
-                    batch.append((kind, ident, p, x, t))
+                    batch.append((kind, part, ident, p, x, t))
                     if on_leaf:
                         on_leaf()
                     if len(batch) >= 500:
-                        con.executemany("INSERT OR REPLACE INTO staging_leaves VALUES (?,?,?,?,?)", batch)
+                        con.executemany("INSERT OR REPLACE INTO staging_leaves VALUES (?,?,?,?,?,?)", batch)
                         batch.clear()
                     elem.clear()
                     if parent is not None:
@@ -85,7 +92,7 @@ def stream_parse_xml(xml_path: Path, con: sqlite3.Connection, on_leaf=None) -> d
         del context
 
     if batch:
-        con.executemany("INSERT OR REPLACE INTO staging_leaves VALUES (?,?,?,?,?)", batch)
+        con.executemany("INSERT OR REPLACE INTO staging_leaves VALUES (?,?,?,?,?,?)", batch)
         batch.clear()
 
     return front

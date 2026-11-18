@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from .. import config, news_store, news_worker
+from .. import chat, config, news_store, news_worker
 
 router = APIRouter(prefix="/api/settings")
 
@@ -54,6 +54,9 @@ def update_settings_env(req: EnvUpdateRequest, response: Response) -> dict:
         status = config.write_env_updates(updates)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+    if "ANTHROPIC_API_KEY" in updates:
+        chat.clear_models_cache()
 
     now_sync = config.news_sync_enabled()
     if req.news_sync is not None and now_sync != prev_sync:

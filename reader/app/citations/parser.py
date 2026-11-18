@@ -178,8 +178,9 @@ def extract_reference_spans(text: str, current_title: int = 29) -> list[Citation
     spans: list[CitationSpan] = []
     if not text:
         return spans
+    low = text.lower()
 
-    if "http" in text or "www." in text:
+    if "http" in low or "www." in low:
         for m in WEB_URL_RE.finditer(text):
             clean, _ = clean_url_tail(m.group(1))
             if clean:
@@ -189,7 +190,7 @@ def extract_reference_spans(text: str, current_title: int = 29) -> list[Citation
                     start=m.start(1), end=m.start(1) + len(clean),
                 ))
 
-    if "U.S.C" in text or "USC" in text:
+    if "u.s.c" in low or "usc" in low:
         for m in USC_RE.finditer(text):
             u_title = int(m.group(1))
             for core, parens, raw in parse_usc_targets(m.group(3)):
@@ -200,7 +201,7 @@ def extract_reference_spans(text: str, current_title: int = 29) -> list[Citation
                     start=m.start(), end=m.end(),
                 ))
 
-    if " FR " in text:
+    if " fr " in low:
         for m in FR_RE.finditer(text):
             vol, page = m.group(1), m.group(2)
             spans.append(CitationSpan(
@@ -209,7 +210,7 @@ def extract_reference_spans(text: str, current_title: int = 29) -> list[Citation
                 start=m.start(), end=m.end(),
             ))
 
-    if "CFR" in text or "C.F.R" in text:
+    if "cfr" in low or "c.f.r" in low:
         for m in CROSS_TITLE_PARTS_RE.finditer(text):
             t_num = int(m.group(1))
             plural_pfx = m.group(2).strip().lower().endswith("s")

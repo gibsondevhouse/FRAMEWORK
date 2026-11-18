@@ -2,23 +2,40 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import threading
 import time
-from functools import lru_cache
+from collections import OrderedDict
+from contextlib import contextmanager
+from typing import Iterator
 
 from . import config
 from .render import SectionDoc, clean_label, render_fragment_html, section_doc
 
+logger = logging.getLogger(__name__)
+
 _local = threading.local()
-# Every open connection, across threads, so a title's file can be let go of before the
-# library replaces or deletes it (Windows refuses while any handle is open). Each title has a
-# generation; bumping it makes every thread reopen on its next query.
+# Every open connection, across threads, paired with its own RLock so release_title() can
+# close handles cleanly on Windows without closing a connection mid-query on another thread.
 _registry_lock = threading.Lock()
-_registry: list[tuple[int, sqlite3.Connection]] = []
+_registry: list[tuple[int, sqlite3.Connection, threading.RLock]] = []
+_con_locks: dict[int, threading.RLock] = {}
 _generation: dict[int, int] = {}
 _swapping: set[int] = set()
+
+_cache_lock = threading.Lock()
+_meta_cache: dict[int, dict] = {}
+_known_ids_cache: dict[int, frozenset[str]] = {}
+_known_parts_cache: dict[int, frozenset[str]] = {}
+_section_doc_cache: OrderedDict[tuple[str, int], SectionDoc | None] = OrderedDict()
+_section_html_cache: OrderedDict[tuple[str, int], str | None] = OrderedDict()
+_unit_html_cache: OrderedDict[tuple[str, str, int], str | None] = OrderedDict()
+
+_SECTION_DOC_MAX = 32
+_SECTION_HTML_MAX = 512
+_UNIT_HTML_MAX = 1024
 
 
 def db(title: int = config.DEFAULT_TITLE) -> sqlite3.Connection:
@@ -39,28 +56,47 @@ def db(title: int = config.DEFAULT_TITLE) -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA busy_timeout = 5000")
     con.execute("PRAGMA query_only = ON")
+    lock = threading.RLock()
     with _registry_lock:
-        _registry.append((title, con))
+        _registry.append((title, con, lock))
+        _con_locks[id(con)] = lock
     cons[title] = (con, gen)
     return con
 
 
+@contextmanager
+def read_db(title: int = config.DEFAULT_TITLE) -> Iterator[sqlite3.Connection]:
+    """Acquire the title's connection and hold its per-connection lock while querying."""
+    con = db(title)
+    with _registry_lock:
+        lock = _con_locks.get(id(con))
+    if lock is None:
+        yield con
+        return
+    with lock:
+        yield con
+
+
 def release_title(title: int) -> None:
-    """Close every thread's connection to `title` and drop cached renders, so its files can be
-    replaced or removed. The next query on any thread opens the new file."""
+    """Close every thread's connection to `title` and drop cached renders for `title`."""
+    to_close: list[tuple[sqlite3.Connection, threading.RLock]] = []
     with _registry_lock:
         _generation[title] = _generation.get(title, 0) + 1
         keep = []
-        for t, con in _registry:
+        for t, con, lock in _registry:
             if t == title:
-                try:
-                    con.close()
-                except Exception:
-                    pass
+                _con_locks.pop(id(con), None)
+                to_close.append((con, lock))
             else:
-                keep.append((t, con))
+                keep.append((t, con, lock))
         _registry[:] = keep
-    clear_caches()
+    for con, lock in to_close:
+        with lock:
+            try:
+                con.close()
+            except Exception:
+                pass
+    clear_caches(title)
 
 
 def begin_swap(title: int) -> None:
@@ -82,52 +118,80 @@ def _is_swapping(title: int) -> bool:
         return title in _swapping
 
 
-def clear_caches() -> None:
+def clear_caches(title: int | None = None) -> None:
     from .citations import graph
-    known_ids.cache_clear()
-    known_parts.cache_clear()
-    section_html.cache_clear()
-    unit_html.cache_clear()
-    _section_doc.cache_clear()
-    meta.cache_clear()
-    graph.clear_caches()
+    with _cache_lock:
+        if title is None:
+            _meta_cache.clear()
+            _known_ids_cache.clear()
+            _known_parts_cache.clear()
+            _section_doc_cache.clear()
+            _section_html_cache.clear()
+            _unit_html_cache.clear()
+        else:
+            _meta_cache.pop(title, None)
+            _known_ids_cache.pop(title, None)
+            _known_parts_cache.pop(title, None)
+            for k in [k for k in _section_doc_cache if k[1] == title]:
+                _section_doc_cache.pop(k, None)
+            for k in [k for k in _section_html_cache if k[1] == title]:
+                _section_html_cache.pop(k, None)
+            for k in [k for k in _unit_html_cache if k[2] == title]:
+                _unit_html_cache.pop(k, None)
+    graph.clear_caches(title)
 
 
 def reset_connections() -> None:
-    """Close all open connections and clear in-memory LRU caches."""
-    from .citations import graph
+    """Close all open connections and clear in-memory caches."""
+    to_close: list[tuple[sqlite3.Connection, threading.RLock]] = []
     with _registry_lock:
-        for t in {t for t, _ in _registry} | set(_generation):
+        for t in {t for t, _, _ in _registry} | set(_generation):
             _generation[t] = _generation.get(t, 0) + 1
         _swapping.clear()
-        for _, c in _registry:
+        for _, c, lock in _registry:
+            _con_locks.pop(id(c), None)
+            to_close.append((c, lock))
+        _registry.clear()
+    for c, lock in to_close:
+        with lock:
             try:
                 c.close()
             except Exception:
                 pass
-        _registry.clear()
     _local.__dict__.clear()
-    known_ids.cache_clear()
-    known_parts.cache_clear()
-    section_html.cache_clear()
-    unit_html.cache_clear()
-    _section_doc.cache_clear()
-    meta.cache_clear()
-    graph.clear_caches()
+    clear_caches(None)
 
 
-@lru_cache(maxsize=64)
-def _meta_cached(title: int = config.DEFAULT_TITLE) -> dict:
-    return {r["key"]: r["value"] for r in db(title).execute("SELECT key, value FROM meta")}
+def _lru_get(cache: OrderedDict, key):
+    with _cache_lock:
+        if key in cache:
+            cache.move_to_end(key)
+            return True, cache[key]
+    return False, None
+
+
+def _lru_put(cache: OrderedDict, key, val, maxsize: int) -> None:
+    with _cache_lock:
+        cache[key] = val
+        cache.move_to_end(key)
+        while len(cache) > maxsize:
+            cache.popitem(last=False)
 
 
 def meta(title: int = config.DEFAULT_TITLE) -> dict:
-    if _is_swapping(title):
-        return {r["key"]: r["value"] for r in db(title).execute("SELECT key, value FROM meta")}
-    return _meta_cached(title)
+    if not _is_swapping(title):
+        with _cache_lock:
+            if title in _meta_cache:
+                return _meta_cache[title]
+    with read_db(title) as con:
+        val = {r["key"]: r["value"] for r in con.execute("SELECT key, value FROM meta")}
+    if not _is_swapping(title):
+        with _cache_lock:
+            _meta_cache[title] = val
+    return val
 
 
-meta.cache_clear = _meta_cached.cache_clear  # type: ignore[attr-defined]
+meta.cache_clear = lambda: clear_caches(None)  # type: ignore[attr-defined]
 
 
 def safe_meta(title: int) -> tuple[dict, bool]:
@@ -142,40 +206,44 @@ def edition(title: int = config.DEFAULT_TITLE) -> str:
     return meta(title).get("edition", "")
 
 
-@lru_cache(maxsize=64)
-def _known_ids_cached(title: int = config.DEFAULT_TITLE) -> frozenset[str]:
-    return frozenset(r[0] for r in db(title).execute("SELECT id FROM sections"))
-
-
 def known_ids(title: int = config.DEFAULT_TITLE) -> frozenset[str]:
     """Return known section IDs for `title`, never caching transient read failures."""
     try:
-        if _is_swapping(title):
-            return frozenset(r[0] for r in db(title).execute("SELECT id FROM sections"))
-        return _known_ids_cached(title)
+        if not _is_swapping(title):
+            with _cache_lock:
+                if title in _known_ids_cache:
+                    return _known_ids_cache[title]
+        with read_db(title) as con:
+            val = frozenset(r[0] for r in con.execute("SELECT id FROM sections"))
+        if not _is_swapping(title):
+            with _cache_lock:
+                _known_ids_cache[title] = val
+        return val
     except (sqlite3.Error, OSError):
         return frozenset()
 
 
-known_ids.cache_clear = _known_ids_cached.cache_clear  # type: ignore[attr-defined]
-
-
-@lru_cache(maxsize=64)
-def _known_parts_cached(title: int = config.DEFAULT_TITLE) -> frozenset[str]:
-    return frozenset(r[0] for r in db(title).execute("SELECT DISTINCT part FROM sections WHERE part IS NOT NULL"))
+known_ids.cache_clear = lambda: _known_ids_cache.clear()  # type: ignore[attr-defined]
 
 
 def known_parts(title: int = config.DEFAULT_TITLE) -> frozenset[str]:
     """Return known part IDs for `title`, never caching transient read failures."""
     try:
-        if _is_swapping(title):
-            return frozenset(r[0] for r in db(title).execute("SELECT DISTINCT part FROM sections WHERE part IS NOT NULL"))
-        return _known_parts_cached(title)
+        if not _is_swapping(title):
+            with _cache_lock:
+                if title in _known_parts_cache:
+                    return _known_parts_cache[title]
+        with read_db(title) as con:
+            val = frozenset(r[0] for r in con.execute("SELECT DISTINCT part FROM sections WHERE part IS NOT NULL"))
+        if not _is_swapping(title):
+            with _cache_lock:
+                _known_parts_cache[title] = val
+        return val
     except (sqlite3.Error, OSError):
         return frozenset()
 
 
-known_parts.cache_clear = _known_parts_cached.cache_clear  # type: ignore[attr-defined]
+known_parts.cache_clear = lambda: _known_parts_cache.clear()  # type: ignore[attr-defined]
 
 
 def is_known_in_title(title: int, section_id: str) -> bool:
@@ -195,10 +263,9 @@ def normalize_id(raw: str, title: int = config.DEFAULT_TITLE) -> str:
     return s
 
 
-@lru_cache(maxsize=32)
-def _section_doc(section_id: str, title: int = config.DEFAULT_TITLE) -> SectionDoc | None:
-    """A parsed section (units, levels), shared by the full and per-unit renders."""
-    row = db(title).execute("SELECT xml FROM sections WHERE id = ?", (section_id,)).fetchone()
+def _build_section_doc(section_id: str, title: int) -> SectionDoc | None:
+    with read_db(title) as con:
+        row = con.execute("SELECT xml FROM sections WHERE id = ?", (section_id,)).fetchone()
     if not row:
         return None
     return section_doc(
@@ -211,16 +278,57 @@ def _section_doc(section_id: str, title: int = config.DEFAULT_TITLE) -> SectionD
     )
 
 
-@lru_cache(maxsize=512)
+def _section_doc(section_id: str, title: int = config.DEFAULT_TITLE) -> SectionDoc | None:
+    """A parsed section (units, levels), shared by the full and per-unit renders."""
+    key = (section_id, title)
+    if _is_swapping(title):
+        return _build_section_doc(section_id, title)
+    hit, val = _lru_get(_section_doc_cache, key)
+    if hit:
+        return val
+    val = _build_section_doc(section_id, title)
+    if not _is_swapping(title):
+        _lru_put(_section_doc_cache, key, val, _SECTION_DOC_MAX)
+    return val
+
+
+_section_doc.cache_clear = lambda: _section_doc_cache.clear()  # type: ignore[attr-defined]
+
+
 def section_html(section_id: str, title: int = config.DEFAULT_TITLE) -> str | None:
+    key = (section_id, title)
+    if _is_swapping(title):
+        doc = _section_doc(section_id, title)
+        return doc.full_html() if doc else None
+    hit, val = _lru_get(_section_html_cache, key)
+    if hit:
+        return val
     doc = _section_doc(section_id, title)
-    return doc.full_html() if doc else None
+    val = doc.full_html() if doc else None
+    if not _is_swapping(title):
+        _lru_put(_section_html_cache, key, val, _SECTION_HTML_MAX)
+    return val
 
 
-@lru_cache(maxsize=1024)
+section_html.cache_clear = lambda: _section_html_cache.clear()  # type: ignore[attr-defined]
+
+
 def unit_html(section_id: str, key: str, title: int = config.DEFAULT_TITLE) -> str | None:
+    ck = (section_id, key, title)
+    if _is_swapping(title):
+        doc = _section_doc(section_id, title)
+        return doc.unit_html(key) if doc else None
+    hit, val = _lru_get(_unit_html_cache, ck)
+    if hit:
+        return val
     doc = _section_doc(section_id, title)
-    return doc.unit_html(key) if doc else None
+    val = doc.unit_html(key) if doc else None
+    if not _is_swapping(title):
+        _lru_put(_unit_html_cache, ck, val, _UNIT_HTML_MAX)
+    return val
+
+
+unit_html.cache_clear = lambda: _unit_html_cache.clear()  # type: ignore[attr-defined]
 
 
 def _clean_path(raw: str) -> list:
@@ -247,19 +355,20 @@ def get_section(raw_id: str, title: int = config.DEFAULT_TITLE, unit: str | None
     """A section with its outline. With `unit` (possibly "" for the first) and a section long
     enough to read in parts, `html` is just that unit; otherwise it is the whole section."""
     section_id = normalize_id(raw_id, title)
-    row = db(title).execute(
-        "SELECT id, kind, ord, part, label, title, reserved, path, ecfr_path FROM sections WHERE id = ?",
-        (section_id,),
-    ).fetchone()
-    if not row:
-        return None
-    neighbors = {}
-    for name, op, order in (("prev", "<", "DESC"), ("next", ">", "ASC")):
-        n = db(title).execute(
-            f"SELECT id, label, title FROM sections WHERE ord {op} ? ORDER BY ord {order} LIMIT 1",
-            (row["ord"],),
+    with read_db(title) as con:
+        row = con.execute(
+            "SELECT id, kind, ord, part, label, title, reserved, path, ecfr_path FROM sections WHERE id = ?",
+            (section_id,),
         ).fetchone()
-        neighbors[name] = _clean_neighbor(n)
+        if not row:
+            return None
+        neighbors = {}
+        for name, op, order in (("prev", "<", "DESC"), ("next", ">", "ASC")):
+            n = con.execute(
+                f"SELECT id, label, title FROM sections WHERE ord {op} ? ORDER BY ord {order} LIMIT 1",
+                (row["ord"],),
+            ).fetchone()
+            neighbors[name] = _clean_neighbor(n)
 
     doc = _section_doc(row["id"], title)
     outline = doc.outline() if doc else []
@@ -300,9 +409,10 @@ def get_section(raw_id: str, title: int = config.DEFAULT_TITLE, unit: str | None
 
 def section_text(raw_id: str, title: int = config.DEFAULT_TITLE) -> dict | None:
     section_id = normalize_id(raw_id, title)
-    row = db(title).execute(
-        "SELECT id, kind, part, label, title, text FROM sections WHERE id = ?", (section_id,)
-    ).fetchone()
+    with read_db(title) as con:
+        row = con.execute(
+            "SELECT id, kind, part, label, title, text FROM sections WHERE id = ?", (section_id,)
+        ).fetchone()
     if not row:
         return None
     d = dict(row)
@@ -312,9 +422,10 @@ def section_text(raw_id: str, title: int = config.DEFAULT_TITLE) -> dict | None:
 
 
 def part_sections(part: str, title: int = config.DEFAULT_TITLE) -> list[dict]:
-    rows = db(title).execute(
-        "SELECT id, label, title, reserved, path FROM sections WHERE part = ? ORDER BY ord", (part,)
-    ).fetchall()
+    with read_db(title) as con:
+        rows = con.execute(
+            "SELECT id, label, title, reserved, path FROM sections WHERE part = ? ORDER BY ord", (part,)
+        ).fetchall()
     out = []
     for r in rows:
         d = dict(r)
@@ -326,10 +437,11 @@ def part_sections(part: str, title: int = config.DEFAULT_TITLE) -> list[dict]:
 
 def part_full(part: str, title: int = config.DEFAULT_TITLE) -> list[dict]:
     """Every section of a part in reading order, each with its rendered HTML."""
-    rows = db(title).execute(
-        "SELECT id, kind, label, title, reserved FROM sections WHERE part = ? ORDER BY ord",
-        (part,),
-    ).fetchall()
+    with read_db(title) as con:
+        rows = con.execute(
+            "SELECT id, kind, label, title, reserved FROM sections WHERE part = ? ORDER BY ord",
+            (part,),
+        ).fetchall()
     return [
         {
             "id": r["id"], "kind": r["kind"], "label": clean_label(r["label"]),
@@ -342,9 +454,10 @@ def part_full(part: str, title: int = config.DEFAULT_TITLE) -> list[dict]:
 
 def get_part_front_matter(part: str, title: int = config.DEFAULT_TITLE) -> dict:
     known = known_ids(title).__contains__
-    rows = db(title).execute(
-        "SELECT key, xml FROM front_matter WHERE key = ? OR key LIKE ?", (f"part/{part}", f"part/{part}/subpart/%")
-    ).fetchall()
+    with read_db(title) as con:
+        rows = con.execute(
+            "SELECT key, xml FROM front_matter WHERE key = ? OR key LIKE ?", (f"part/{part}", f"part/{part}/subpart/%")
+        ).fetchall()
     out = {"part": "", "subparts": {}}
     for r in rows:
         rendered = render_fragment_html(
@@ -385,7 +498,7 @@ def fts_query(q: str, prefix_last: bool = True) -> str | None:
     if not terms:
         return None
     last = terms[-1]
-    if prefix_last and " " not in last and len(last) >= 5 and not q.rstrip().endswith('"'):
+    if prefix_last and " " not in last and len(last.strip('"')) >= 5 and not q.rstrip().endswith('"'):
         terms[-1] = last + "*"
     return " ".join(terms)
 
@@ -394,49 +507,51 @@ def search_single_title(q: str, title: int, part: str | None = None, limit: int 
     """Search within a single title database. Returns (total_matches, results_list)."""
     results: list[dict] = []
     exact_id = normalize_id(q, title)
-    if exact_id in known_ids(title):
-        row = db(title).execute(
-            "SELECT id, kind, part, label, title FROM sections WHERE id = ?", (exact_id,)
-        ).fetchone()
-        if row:
-            d = dict(row)
-            d["label"] = clean_label(d.get("label"))
-            d["title"] = clean_label(d.get("title"))
-            results.append({**d, "title_label": d["title"], "title": title,
-                            "snippet": "", "exact": True, "score": -999.0})
-
-    match = fts_query(q)
-    total = 0
-    if match:
-        where = "sections_fts MATCH ?"
-        params: list = [match]
-        if part:
-            where += " AND s.part = ?"
-            params.append(part)
-        try:
-            total = db(title).execute(
-                f"SELECT count(*) FROM sections_fts JOIN sections s ON s.id = sections_fts.id WHERE {where}",
-                params,
-            ).fetchone()[0]
-            rows = db(title).execute(
-                f"""SELECT s.id, s.kind, s.part, s.label, s.title,
-                           snippet(sections_fts, 3, char(2), char(3), ' … ', 28) AS snippet,
-                           bm25(sections_fts, 0.0, 8.0, 6.0, 1.0) AS score
-                    FROM sections_fts JOIN sections s ON s.id = sections_fts.id
-                    WHERE {where}
-                    ORDER BY score, s.reserved
-                    LIMIT ?""",
-                params + [limit],
-            ).fetchall()
-        except sqlite3.OperationalError:
-            rows = []
-        seen = {r["id"] for r in results}
-        for r in rows:
-            if r["id"] not in seen:
-                d = dict(r)
+    with read_db(title) as con:
+        if exact_id in known_ids(title):
+            row = con.execute(
+                "SELECT id, kind, part, label, title FROM sections WHERE id = ?", (exact_id,)
+            ).fetchone()
+            if row:
+                d = dict(row)
                 d["label"] = clean_label(d.get("label"))
                 d["title"] = clean_label(d.get("title"))
-                results.append({**d, "title_label": d["title"], "title": title, "exact": False})
+                results.append({**d, "title_label": d["title"], "title": title,
+                                "snippet": "", "exact": True, "score": -999.0})
+
+        match = fts_query(q)
+        total = 0
+        if match:
+            where = "sections_fts MATCH ?"
+            params: list = [match]
+            if part:
+                where += " AND s.part = ?"
+                params.append(part)
+            try:
+                total = con.execute(
+                    f"SELECT count(*) FROM sections_fts JOIN sections s ON s.id = sections_fts.id WHERE {where}",
+                    params,
+                ).fetchone()[0]
+                rows = con.execute(
+                    f"""SELECT s.id, s.kind, s.part, s.label, s.title,
+                               snippet(sections_fts, 3, char(2), char(3), ' … ', 28) AS snippet,
+                               bm25(sections_fts, 0.0, 8.0, 6.0, 1.0) AS score
+                        FROM sections_fts JOIN sections s ON s.id = sections_fts.id
+                        WHERE {where}
+                        ORDER BY score, s.reserved
+                        LIMIT ?""",
+                    params + [limit],
+                ).fetchall()
+            except sqlite3.OperationalError as exc:
+                logger.warning("FTS query failed for title %s (%r): %s", title, q, exc)
+                rows = []
+            seen = {r["id"] for r in results}
+            for r in rows:
+                if r["id"] not in seen:
+                    d = dict(r)
+                    d["label"] = clean_label(d.get("label"))
+                    d["title"] = clean_label(d.get("title"))
+                    results.append({**d, "title_label": d["title"], "title": title, "exact": False})
     return max(total, len(results)), results
 
 
@@ -459,7 +574,8 @@ def search(
                 t_total, t_res = search_single_title(q, title=t, part=part, limit=safe_limit)
                 grand_total += t_total
                 all_results.extend(t_res)
-            except Exception:
+            except Exception as exc:
+                logger.warning("Federated search skipped title %s (%r): %s", t, q, exc)
                 continue
 
         # Sort combined results: exact matches first, then best BM25 score

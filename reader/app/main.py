@@ -61,6 +61,11 @@ def index() -> FileResponse:
     return FileResponse(config.STATIC_DIR / "dist" / "index.html", headers=NO_STORE)
 
 
+@app.get("/healthz", include_in_schema=False)
+def healthz() -> dict:
+    return {"status": "ok", "installed_titles": config.installed_titles()}
+
+
 app.include_router(reader_routes.titles_router)
 app.include_router(settings_routes.router)
 app.include_router(library_routes.router)

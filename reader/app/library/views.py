@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import re
+import threading
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
 from .. import build, config
 from .. import library as lib
-from .client import _cache_lock, _client
+from .client import _client
 
-_changes: dict[tuple[int, str], dict] = {}
+_changes_lock = threading.Lock()
+_changes: OrderedDict[tuple[int, str], dict] = OrderedDict()
 
 
 def _clean(name: str) -> str:
@@ -21,8 +24,9 @@ def changes(title: int, amended: str) -> dict:
     """What eCFR amended in a title on its latest amendment date: the count of sections and
     appendices, their parts, and the first one's heading. Cached per (title, date)."""
     key = (title, amended)
-    with _cache_lock:
+    with _changes_lock:
         if key in _changes:
+            _changes.move_to_end(key)
             return _changes[key]
     with _client() as c:
         raw = build.fetch_json(c, f"{config.ECFR_API}/versions/title-{title}.json?issue_date%5Bgte%5D={amended}")
@@ -44,10 +48,11 @@ def changes(title: int, amended: str) -> dict:
         "parts": parts,
         "first": None if not first else {"id": first.get("identifier"), "name": _clean(first.get("name", ""))},
     }
-    with _cache_lock:
-        if len(_changes) >= 64:
-            _changes.pop(next(iter(_changes)))
+    with _changes_lock:
         _changes[key] = out
+        _changes.move_to_end(key)
+        while len(_changes) > 64:
+            _changes.popitem(last=False)
     return out
 
 
@@ -81,9 +86,12 @@ def title_view(title: int) -> dict:
     scope = inst["scope"] if inst else None
     whole = inst is not None and scope is None
     parts_in = set(scope["parts"]) if scope else set()
-    sections_by_part: dict[str, int] = {}
+    sections_by_part: dict[str, set[tuple[str, str]]] = {}
     for s in (scope or {}).get("sections", []):
-        sections_by_part[s["part"]] = sections_by_part.get(s["part"], 0) + 1
+        p = s["part"]
+        sid = str(s["id"])
+        sections_by_part.setdefault(p, set()).add((s["t"], sid))
+        sections_by_part[p].add((s["t"], build.raw_leaf_id(sid, p)))
 
     groups: list[dict] = []
 
@@ -96,13 +104,19 @@ def title_view(title: int) -> dict:
                 groups.append({"label": label, "parts": []})
             pid = str(node["id"])
             # `leaves` counts what can be downloaded: reserved sections have no text.
-            leaves = sum(1 for leaf in _leaves(node) if not leaf.get("r"))
-            have = sections_by_part.get(pid, 0)
-            state = "all" if whole or pid in parts_in or (leaves and have >= leaves) else ("some" if have else None)
+            real_leaves = [leaf for leaf in _leaves(node) if not leaf.get("r")]
+            leaves = len(real_leaves)
+            have_set = sections_by_part.get(pid, set())
+            have = sum(
+                1 for leaf in real_leaves
+                if (leaf["t"], str(leaf["id"])) in have_set
+                or (leaf["t"], build.raw_leaf_id(str(leaf["id"]), pid)) in have_set
+            )
+            state = "all" if whole or pid in parts_in or (leaves and have == leaves) else ("some" if have else None)
             groups[-1]["parts"].append({
                 "id": pid, "l": node.get("l") or f"Part {pid}", "d": (node.get("d") or "").strip(),
                 "r": bool(node.get("r")), "leaves": leaves,
-                "installed": state, "installed_sections": sections_by_part.get(pid, 0),
+                "installed": state, "installed_sections": have,
             })
             return
         for c in node.get("c", []):
@@ -133,7 +147,12 @@ def part_view(title: int, part: str) -> dict:
     inst = lib.installed(title)
     scope = inst["scope"] if inst else None
     whole_part = inst is not None and (scope is None or part in scope["parts"])
-    have = {(s["t"], s["id"]) for s in (scope or {}).get("sections", [])}
+    have: set[tuple[str, str, str]] = set()
+    for s in (scope or {}).get("sections", []):
+        sp = str(s.get("part") or "")
+        sid = str(s["id"])
+        have.add((s["t"], sp, sid))
+        have.add((s["t"], sp, build.raw_leaf_id(sid, sp)))
 
     groups: list[dict] = []
 
@@ -141,9 +160,11 @@ def part_view(title: int, part: str) -> dict:
         if n["t"] in build.LEAF_TYPES:
             if not groups or groups[-1]["label"] != label:
                 groups.append({"label": label, "sections": []})
+            nid = str(n["id"])
+            is_in = whole_part or (n["t"], part, nid) in have or (n["t"], part, build.raw_leaf_id(nid, part)) in have
             groups[-1]["sections"].append({
-                "t": n["t"], "id": str(n["id"]), "l": n.get("l") or "", "d": (n.get("d") or "").strip(),
-                "r": bool(n.get("r")), "installed": whole_part or (n["t"], str(n["id"])) in have,
+                "t": n["t"], "id": nid, "l": n.get("l") or "", "d": (n.get("d") or "").strip(),
+                "r": bool(n.get("r")), "installed": is_in,
             })
             return
         if n["t"] in ("subpart", "subject_group") and n is not node:

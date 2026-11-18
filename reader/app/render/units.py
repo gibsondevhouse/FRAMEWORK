@@ -81,8 +81,14 @@ def split_units(root: ET.Element, levels: dict[int, int]) -> list[dict]:
             continue
         tokens = marker_tokens(child)
         letter = tokens[0][0] if tokens and not tokens[1] else ""
-        if (letter and len(letter) == 1 and letter.islower() and letter > last_letter
-                and levels.get(id(child)) == 1):
+        if (
+            letter
+            and letter.isalpha()
+            and letter.islower()
+            and len(set(letter)) == 1
+            and (len(letter), letter) > (len(last_letter), last_letter)
+            and levels.get(id(child)) == 1
+        ):
             current = new("clause", letter, f"({letter})", _runin_title(child), intro + [child])
             intro = []
             last_letter = letter
@@ -183,7 +189,8 @@ class SectionDoc:
         if unit is None:
             return ""
         from .html import Renderer  # deferred: html.py imports this module at top level
-        return Renderer(self.linkify).render_elements(unit["elements"], self.levels)
+        is_app = bool((unit.get("group") or "").startswith("appendix"))
+        return Renderer(self.linkify).render_elements(unit["elements"], self.levels, in_extract=is_app)
 
     def full_html(self) -> str:
         """Every unit in order, each in its own anchored <section>, then the source history."""
@@ -191,7 +198,8 @@ class SectionDoc:
         r = Renderer(self.linkify)
         parts = []
         for u in self.units:
-            body = r.render_elements(u["elements"], self.levels)
+            is_app = bool((u.get("group") or "").startswith("appendix"))
+            body = r.render_elements(u["elements"], self.levels, in_extract=is_app)
             parts.append(f'<section class="reg-unit" id="u-{html.escape(u["key"])}" data-unit="{html.escape(u["key"])}">{body}</section>')
         if not self.units:
             parts.append(r.render_elements([c for c in self.root if c.tag not in ("HEAD", "CITA")], self.levels))

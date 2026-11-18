@@ -108,7 +108,7 @@
   --brand: #EDEDED;         /* High-contrast primary action */
   --brand-hover: #FFFFFF;
   --on-brand: #070708;
-  --accent: rgba(244, 244, 246, 0.92);
+  --accent: #E5B84B;        /* Signature editorial brass for brand mark, active rail & pins */
   --focus: rgba(250, 250, 252, 0.78);
   --danger: #ff8583;
   --mark: rgba(234, 179, 8, .24);
