@@ -145,6 +145,36 @@ class DolFetchTests(FetchTestCase):
             with self.assertRaises(news.SourceUnavailable):
                 news.fetch_enforcement(c, "k", days=30, limit=1000, max_inspections=50)
 
+    def test_429_triggers_shared_cooldown_and_agency_param_works(self):
+        fake = FakeAPI(
+            rate_limit_paths=(VIOL_PATH,),
+            extra_routes={"/v4/get/WHD/whisard/json": {"data": [{"case_id": 1}]}},
+        )
+        with fake.patch_client(), news.client() as c:
+            rows = news._dol_get(c, "k", "whisard", {"limit": 1}, agency="WHD")
+            self.assertEqual(rows, [{"case_id": 1}])
+            with self.assertRaises(news.SourceUnavailable) as ctx:
+                news.fetch_enforcement(c, "k", days=30, limit=1000, max_inspections=50)
+            self.assertIn("HTTP 429", str(ctx.exception))
+            self.assertGreater(news.dol_cooldown_remaining(), 0.0)
+            before = len(fake.requests)
+            with self.assertRaises(news.SourceUnavailable) as ctx2:
+                news._dol_get(c, "k", "whisard", {"limit": 1}, agency="WHD")
+            self.assertIn("cooldown", str(ctx2.exception))
+            self.assertEqual(len(fake.requests), before)
+
+    def test_bidirectional_related_activity_and_hazsub5_fetched(self):
+        fake = FakeAPI()
+        with fake.patch_client(), news.client() as c:
+            case_parent = news.fetch_inspection_case(c, "k", 306953084)
+            case_child = news.fetch_inspection_case(c, "k", 307000001)
+        self.assertEqual([r["rel_act_nr"] for r in case_parent["related"]], [307000001])
+        self.assertEqual(case_parent["related"][0]["direction"], "related")
+        self.assertEqual([r["rel_act_nr"] for r in case_child["related"]], [306953084])
+        self.assertEqual(case_child["related"][0]["direction"], "parent")
+        viol_req = fake.requests_for(VIOL_PATH)[0]
+        self.assertIn("hazsub5", viol_req.url.params.get("fields"))
+
 
 class WorkerSyncTests(FetchTestCase):
     def test_pi_only_sync_touches_only_pi(self):
@@ -238,6 +268,30 @@ class WorkerSyncTests(FetchTestCase):
 
     def test_no_worker_thread_in_tests(self):
         self.assertNotIn("news-worker", [t.name for t in threading.enumerate()])
+
+    def test_priority_backfill_caps_and_aborts_on_429(self):
+        viols = [
+            {"activity_nr": 100 + i, "citation_id": "01001", "standard": "19101030 G02",
+             "viol_type": "S", "issuance_date": "2026-11-10", "initial_penalty": "1000", "current_penalty": "1000"}
+            for i in range(7)
+        ]
+        insps = [
+            {"activity_nr": 100 + i, "estab_name": f"CO {i}", "site_city": "A", "site_state": "TX",
+             "naics_code": "238990", "insp_type": "A", "open_date": "2026-11-01"}
+            for i in range(7)
+        ]
+        fake = FakeAPI(violations=viols, inspections=insps)
+        with fake.patch_client(), news.client() as c:
+            with closing(news_store.connect()) as con:
+                for insp, v in zip(insps, viols):
+                    news_store.upsert_article(con, news.enrich_item(news.build_enforcement_article(insp, [v])))
+                con.commit()
+            done = news_worker.enrich_priority_cases(c, "k", max_cases=5)
+        self.assertEqual(done, 5)
+
+        fake_429 = FakeAPI(rate_limit_paths=("/v4/get/OSHA/inspection/json",))
+        with fake_429.patch_client(), news.client() as c:
+            self.assertEqual(news_worker.enrich_priority_cases(c, "k", max_cases=5), 0)
 
 
 if __name__ == "__main__":

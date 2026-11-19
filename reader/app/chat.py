@@ -4,13 +4,14 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import re
 import sqlite3
 import time
 from typing import AsyncIterator
 
 import anthropic
 
-from . import config, store
+from . import config, news_store, store
 
 MAX_TOOL_ROUNDS = 10
 MAX_CONTEXT_CHARS = 120_000   # roughly 30k tokens of the open section
@@ -25,6 +26,7 @@ How to answer:
 - Specify the title in tool calls (e.g. title=29 for OSHA/FLSA, title=40 for EPA, title=49 for DOT, or title='all' for broad search).
 - Write in plain English for a smart non-lawyer. Lead with the direct answer, then supporting details. Prefer short paragraphs, bullet lists, and tables. Quote the regulation sparingly and only when exact wording matters.
 - Be clear about scope. Statutes (U.S.C.), state/local laws, agency guidance, and court decisions are outside this regulatory database. Say so when they matter.
+- When you call `search_enforcement`, note clearly that results come from the user's locally cached/synced OSHA inspection records (`osha_news.sqlite3`), not comprehensive nationwide OSHA statistics.
 - If the text is ambiguous or depends on facts you don't have, say what it depends on instead of guessing. You aren't a lawyer. When a decision has real consequences, mention that it's worth confirming with agency counsel."""
 
 TOOLS = [
@@ -71,6 +73,23 @@ TOOLS = [
                 "title": {"type": "integer", "description": "CFR Title number (e.g. 29, 40, 49). Defaults to active title."},
             },
             "required": ["part"],
+        },
+    },
+    {
+        "name": "search_enforcement",
+        "description": (
+            "Search the user's locally cached OSHA enforcement database (osha_news.sqlite3) by keyword, "
+            "29 CFR section (with paragraph hotspot counts), or NAICS code. Reads local SQLite only; never "
+            "makes live DOL API requests."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Optional keywords across company names, General Duty 5(a)(1), or accident narratives."},
+                "section_id": {"type": "string", "description": "Optional 29 CFR section, e.g. '1910.147'."},
+                "naics": {"type": "string", "description": "Optional 2-6 digit NAICS prefix, e.g. '23' or '455219'."},
+                "limit": {"type": "integer", "description": "Max matching cases to return (default 8, max 15)."},
+            },
         },
     },
 ]
@@ -244,6 +263,55 @@ def run_tool(name: str, args: dict, default_title: int = config.DEFAULT_TITLE) -
                 last_group = group
             lines.append(f"  {r['label']} {r['title']}" + (" [Reserved]" if r["reserved"] and "Reserved" not in r["title"] else ""))
         return "\n".join(lines), f"Listed Title {t_num} part {part}"
+
+    if name == "search_enforcement":
+        query = str(args.get("query") or "").strip() or None
+        sec = store.normalize_id(str(args.get("section_id") or "").strip()) if args.get("section_id") else None
+        naics = re.sub(r"\D", "", str(args.get("naics") or "").strip()) or None
+        limit = max(1, min(int(args.get("limit") or 8), 15))
+        with news_store.read_con() as con:
+            if con is None:
+                return (
+                    "No local OSHA enforcement cache exists yet (`osha_news.sqlite3` is absent).",
+                    "No cached enforcement DB",
+                )
+            lines = [
+                "[Local cached OSHA inspection sample — reflects synced/enriched rows in osha_news.sqlite3 only, "
+                "not comprehensive nationwide OSHA statistics.]"
+            ]
+            if sec:
+                st = news_store.section_enforcement_stats(con, sec)
+                lines.append(
+                    f"Section § {sec}: {st['case_count']} cached cases, {st['citation_count']} citations, "
+                    f"avg penalty ${st['avg_penalty']:,.0f}, {st['fta_count']} FTA."
+                )
+                if st["top_paragraphs"]:
+                    paras = ", ".join(f"{p['para']} ({p['count']})" for p in st["top_paragraphs"])
+                    lines.append(f"Top cited paragraphs in § {sec}: {paras}")
+            if naics:
+                ns = news_store.naics_summary(con, naics, limit=6)
+                lines.append(
+                    f"NAICS {ns['naics']}: {ns['case_count']} cached cases, "
+                    f"${ns['total_penalty_usd']:,.0f} total penalties, {ns['gdc_count']} GDC, {ns['fatality_count']} fatalities."
+                )
+                if ns["top_sections"]:
+                    lines.append("Top sections: " + ", ".join(f"§ {s['section_id']} ({s['count']})" for s in ns["top_sections"]))
+            res = news_store.query_articles(
+                con, category="enforcement", q=query, section=sec, naics=naics, limit=limit
+            )
+            if not res["articles"]:
+                lines.append("No matching local enforcement cases found.")
+            else:
+                lines.append(f"Matching cached inspections ({res['total']} total, showing {len(res['articles'])}):")
+                for a in res["articles"]:
+                    pen = f"${a['penalty_usd']:,.0f}" if a.get("penalty_usd") else "$0"
+                    loc = ", ".join(x for x in (a.get("city"), a.get("state")) if x)
+                    secs = ", ".join(f"§ {s}" for s in (a.get("sections") or [])[:4])
+                    lines.append(
+                        f"- {a.get('company') or a['title']} ({loc or 'US'}) · {a.get('published_at')} · {pen}"
+                        + (f" · {secs}" if secs else "")
+                    )
+            return "\n".join(lines), f"Searched local OSHA enforcement cache · {res['total']} cases"
 
     return f"Unknown tool {name}", name
 

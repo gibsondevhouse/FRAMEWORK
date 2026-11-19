@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -55,6 +57,96 @@ OWNER_TYPE_LABELS = {"A": "Private sector", "B": "Local government", "C": "State
 UNION_STATUS_LABELS = {"A": "Unionized", "B": "Non-union", "N": "Not specified"}
 VIOL_EVENT_LABELS = {"I": "Issued", "C": "Contested", "F": "Final order", "M": "Modified",
                      "S": "Informal settlement", "D": "Deleted", "P": "Penalty modified", "A": "Abated"}
+REL_TYPE_LABELS = {
+    **INSP_TYPE_LABELS,
+    "A": "Accident",
+    "B": "Complaint",
+    "C": "Referral / Complaint",
+    "D": "Unprogrammed related",
+    "F": "Follow-up",
+    "H": "Planned",
+    "I": "Companion inspection",
+    "M": "Fatality / catastrophe",
+    "R": "Related inspection",
+    "FTA": "Failure-to-Abate follow-up",
+}
+
+DOL_MIN_INTERVAL_SEC = 0.35
+DOL_COOLDOWN_SEC = 60.0
+_dol_rate_lock = threading.Lock()
+_dol_last_call = 0.0
+_dol_cooldown_until = 0.0
+
+
+def reset_dol_rate_state() -> None:
+    """Reset the shared DOL rate-pacer, 429 cooldown, and search TTL cache (used in tests)."""
+    global _dol_last_call, _dol_cooldown_until
+    with _dol_rate_lock:
+        _dol_last_call = 0.0
+        _dol_cooldown_until = 0.0
+    _dol_search_cache.clear()
+
+
+HAZSUB_LABELS = {
+    "0150": "Arsenic",
+    "0210": "Asbestos",
+    "0320": "Benzene",
+    "0430": "Beryllium",
+    "0480": "Cadmium",
+    "0660": "Carbon monoxide",
+    "0730": "Chlorine",
+    "0780": "Chromium (hexavalent)",
+    "0910": "Coal tar pitch volatiles",
+    "1010": "Copper",
+    "1050": "Cotton dust",
+    "1220": "Ethylene oxide",
+    "1300": "Formaldehyde",
+    "1490": "Hydrogen sulfide",
+    "1540": "Isocyanates",
+    "1590": "Lead",
+    "1660": "Manganese",
+    "1720": "Mercury",
+    "1790": "Methylene chloride",
+    "1950": "Nickel",
+    "2050": "Noise",
+    "2240": "Silica (crystalline)",
+    "2390": "Styrene",
+    "2460": "Sulfur dioxide",
+    "2530": "Toluene",
+    "2580": "Trichloroethylene",
+    "2640": "Vinyl chloride",
+    "2690": "Welding fumes",
+    "2730": "Wood dust",
+    "9010": "Silica (respirable)",
+}
+
+DOL_SEARCH_TTL_SEC = 600.0
+DOL_SEARCH_CACHE_MAX = 64
+_dol_search_cache: dict[tuple, tuple[float, dict]] = {}
+
+
+def hazsub_label(code: str | None) -> str:
+    c = (code or "").strip().zfill(4) if (code or "").strip().isdigit() else (code or "").strip()
+    lbl = HAZSUB_LABELS.get(c)
+    return f"{lbl} ({c})" if lbl else (code or "").strip()
+
+
+def cfr_to_imis_prefix(section: str) -> str:
+    """'1910.147' -> '19100147'; '1910.1200' -> '19101200'."""
+    s = re.sub(r"^§+\s*", "", (section or "").strip())
+    if "." in s:
+        p, sec = s.split(".", 1)
+        sec_digits = re.match(r"\d+", sec)
+        if p.isdigit() and sec_digits:
+            return f"{p.zfill(4)}{sec_digits.group(0).zfill(4)}"
+    return re.sub(r"\D", "", s)
+
+
+def dol_cooldown_remaining() -> float:
+    """Seconds remaining in an active HTTP 429 cooldown, or 0.0 if clear."""
+    with _dol_rate_lock:
+        rem = _dol_cooldown_until - time.monotonic()
+        return round(rem, 2) if rem > 0 else 0.0
 
 
 class SourceUnavailable(Exception):
@@ -194,7 +286,7 @@ def fetch_dol_recent_violations(
         "fields": "activity_nr,citation_id,delete_flag,standard,viol_type,issuance_date,"
                   "abate_date,abate_complete,initial_penalty,current_penalty,"
                   "contest_date,final_order_date,nr_instances,nr_exposed,gravity,emphasis,hazcat,"
-                  "fta_insp_nr,fta_issuance_date,fta_penalty,hazsub1,hazsub2,hazsub3",
+                  "fta_insp_nr,fta_issuance_date,fta_penalty,hazsub1,hazsub2,hazsub3,hazsub4,hazsub5",
         "filter_object": json.dumps({"field": "issuance_date", "operator": "gt", "value": since}),
     }
     return _dol_get(c, key, "violation", params)
@@ -221,16 +313,58 @@ def fetch_dol_inspections(c: httpx.Client, key: str, activity_nrs: list[int]) ->
     return rows
 
 
-def _dol_get(c: httpx.Client, key: str, dataset: str, params: dict) -> list[dict]:
+def _dol_should_pace(c: httpx.Client) -> bool:
+    return not isinstance(getattr(c, "_transport", None), httpx.MockTransport)
+
+
+def _dol_pace(c: httpx.Client, agency: str, dataset: str) -> None:
+    global _dol_last_call
+    while True:
+        with _dol_rate_lock:
+            now = time.monotonic()
+            if now < _dol_cooldown_until:
+                raise SourceUnavailable(f"DOL {agency}/{dataset}: HTTP 429 (cooldown)")
+            if not _dol_should_pace(c) or DOL_MIN_INTERVAL_SEC <= 0:
+                _dol_last_call = now
+                return
+            wait = (_dol_last_call + DOL_MIN_INTERVAL_SEC) - now
+            if wait <= 0:
+                _dol_last_call = now
+                return
+        time.sleep(wait)
+
+
+def _record_dol_429(headers: httpx.Headers | None = None) -> None:
+    global _dol_cooldown_until
+    delay = DOL_COOLDOWN_SEC
+    if headers:
+        raw = (headers.get("Retry-After") or "").strip()
+        if raw.isdigit():
+            delay = float(max(1, min(int(raw), 300)))
+    with _dol_rate_lock:
+        _dol_cooldown_until = max(_dol_cooldown_until, time.monotonic() + delay)
+
+
+def _dol_get(
+    c: httpx.Client,
+    key: str,
+    dataset: str,
+    params: dict,
+    *,
+    agency: str = "OSHA",
+) -> list[dict]:
+    _dol_pace(c, agency, dataset)
     try:
         # DOL v4 /v4/get/* endpoints reject header-only X-API-KEY with 401; pass it in
         # query params and strip URL/request details (`from None`) so errors never leak the key.
-        r = c.get(f"{DOL_BASE}/get/OSHA/{dataset}/json", params={**params, "X-API-KEY": key})
+        r = c.get(f"{DOL_BASE}/get/{agency}/{dataset}/json", params={**params, "X-API-KEY": key})
         r.raise_for_status()
         if r.status_code == 204 or not r.content.strip():
             return []
         return r.json().get("data", [])
     except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            _record_dol_429(e.response.headers)
         raise SourceUnavailable(f"DOL {dataset}: HTTP {e.response.status_code}") from None
     except (httpx.HTTPError, ValueError) as e:
         raise SourceUnavailable(f"DOL {dataset}: {type(e).__name__}") from None
@@ -302,6 +436,8 @@ def _norm_violation_row(v: dict) -> dict:
         "gravity": str(v.get("gravity") or "").strip() or None,
         "emphasis": str(v.get("emphasis") or "").strip() or None,
         "hazcat": str(v.get("hazcat") or "").strip() or None,
+        "fta_insp_nr": _opt_int(v.get("fta_insp_nr")),
+        "fta_issuance_date": _iso_day(v.get("fta_issuance_date")),
         "fta_penalty": round(fta_p, 2) if fta_p > 0 else None,
         "hazsubs": hazsubs,
     }
@@ -318,6 +454,9 @@ def build_enforcement_article(insp: dict, violations: list[dict]) -> dict:
 
     total, initial_total, sections, counts, gdc, unmapped = 0.0, 0.0, set(), {}, 0, 0
     total_instances, max_exposed = 0, 0
+    contested_count, fta_count, fta_total = 0, 0, 0.0
+    open_abate_count, overdue_abate_count = 0, 0
+    today_iso = date.today().isoformat()
     viol_rows: list[dict] = []
     for v in violations:
         if v.get("delete_flag"):
@@ -326,6 +465,16 @@ def build_enforcement_article(insp: dict, violations: list[dict]) -> dict:
         viol_rows.append(row)
         total += row["current_penalty"]
         initial_total += row["initial_penalty"]
+        if row["contest_date"]:
+            contested_count += 1
+        if row["fta_penalty"] or row["fta_insp_nr"]:
+            fta_count += 1
+            fta_total += row["fta_penalty"] or 0.0
+        ab_done = (row["abate_complete"] or "").upper() in ("X", "3", "Y")
+        if row["abate_date"] and not ab_done:
+            open_abate_count += 1
+            if row["abate_date"] < today_iso:
+                overdue_abate_count += 1
         if row["nr_instances"]:
             total_instances += row["nr_instances"]
         if row["nr_exposed"] and row["nr_exposed"] > max_exposed:
@@ -349,9 +498,13 @@ def build_enforcement_article(insp: dict, violations: list[dict]) -> dict:
     union_code = (insp.get("union_status") or "").strip().upper()
     address = (insp.get("site_address") or "").strip().title() or None
 
+    reduction_usd = round(max(0.0, initial_total - total), 2)
+    reduction_pct = round((initial_total - total) / initial_total * 100.0, 1) if initial_total > total and initial_total > 0 else 0.0
+
     inspection_detail = {
         "activity_nr": act_nr,
         "reporting_id": str(insp.get("reporting_id") or "").strip() or None,
+        "state_flag": str(insp.get("state_flag") or "").strip().upper() or None,
         "estab_name": company,
         "site_address": address,
         "site_city": city,
@@ -378,6 +531,13 @@ def build_enforcement_article(insp: dict, violations: list[dict]) -> dict:
         "case_mod_date": _iso_day(insp.get("case_mod_date")),
         "initial_penalty_usd": round(initial_total, 2),
         "current_penalty_usd": round(total, 2),
+        "reduction_usd": reduction_usd,
+        "reduction_pct": reduction_pct,
+        "contested_count": contested_count,
+        "fta_count": fta_count,
+        "fta_total_usd": round(fta_total, 2),
+        "open_abate_count": open_abate_count,
+        "overdue_abate_count": overdue_abate_count,
         "total_instances": total_instances,
         "max_exposed": max_exposed,
         "citation_count": len(viol_rows),
@@ -438,7 +598,7 @@ def fetch_inspection_case(c: httpx.Client, key: str, activity_nr: int) -> dict |
             "fields": "activity_nr,citation_id,delete_flag,standard,viol_type,issuance_date,"
                       "abate_date,abate_complete,initial_penalty,current_penalty,"
                       "contest_date,final_order_date,nr_instances,nr_exposed,gravity,emphasis,hazcat,"
-                      "fta_insp_nr,fta_issuance_date,fta_penalty,hazsub1,hazsub2,hazsub3",
+                      "fta_insp_nr,fta_issuance_date,fta_penalty,hazsub1,hazsub2,hazsub3,hazsub4,hazsub5",
             "filter_object": json.dumps({"field": "activity_nr", "operator": "eq", "value": activity_nr}),
         })
         viol_rows.extend(page)
@@ -464,6 +624,7 @@ def fetch_inspection_case(c: httpx.Client, key: str, activity_nr: int) -> dict |
             "penalty": round(_money(ev.get("hist_penalty")), 2) if ev.get("hist_penalty") not in (None, "") else None,
             "abate_date": _iso_day(ev.get("hist_abate_date")),
             "viol_type": str(ev.get("hist_vtype") or "").strip().upper() or None,
+            "pen_fta": str(ev.get("pen_fta") or "").strip().upper() or None,
         })
     events.sort(key=lambda e: (e["date"] or "", e["citation_id"]))
 
@@ -522,13 +683,263 @@ def fetch_inspection_case(c: httpx.Client, key: str, activity_nr: int) -> dict |
                     "abstract": narrative,
                 })
 
+    related_by_key: dict[tuple[int, str], dict] = {}
+    for direction, field in (("related", "activity_nr"), ("parent", "rel_act_nr")):
+        rel_rows = _dol_get_optional(c, key, "related_activity", {
+            "limit": 100,
+            "fields": "activity_nr,rel_type,rel_act_nr,rel_safety,rel_health",
+            "filter_object": json.dumps({"field": field, "operator": "eq", "value": activity_nr}),
+        })
+        for rr in rel_rows:
+            target_nr = _opt_int(rr.get("rel_act_nr") if field == "activity_nr" else rr.get("activity_nr"))
+            if target_nr is None or target_nr == activity_nr:
+                continue
+            rtype = str(rr.get("rel_type") or "").strip().upper() or "R"
+            k = (target_nr, rtype)
+            if k not in related_by_key:
+                related_by_key[k] = {
+                    "rel_act_nr": target_nr,
+                    "rel_type": rtype,
+                    "rel_label": REL_TYPE_LABELS.get(rtype, f"Related ({rtype})"),
+                    "direction": direction,
+                    "safety": str(rr.get("rel_safety") or "").strip().upper() == "Y",
+                    "health": str(rr.get("rel_health") or "").strip().upper() == "Y",
+                }
+    for vr in article.get("violations_list") or []:
+        fta_nr = vr.get("fta_insp_nr")
+        if fta_nr and fta_nr != activity_nr:
+            k = (int(fta_nr), "FTA")
+            if k not in related_by_key:
+                related_by_key[k] = {
+                    "rel_act_nr": int(fta_nr),
+                    "rel_type": "FTA",
+                    "rel_label": REL_TYPE_LABELS["FTA"],
+                    "direction": "fta",
+                    "safety": False,
+                    "health": False,
+                }
+    related = sorted(related_by_key.values(), key=lambda x: (x["rel_act_nr"], x["rel_type"]))
+
     return {
         "activity_nr": activity_nr,
         "article": article,
         "events": events,
         "gdc": gdc_list,
         "accidents": accidents,
+        "related": related,
     }
+
+
+def _dol_and_filter(clauses: list[dict]) -> dict | None:
+    if not clauses:
+        return None
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"and": clauses}
+
+
+def search_dol_inspections(
+    c: httpx.Client,
+    key: str,
+    *,
+    estab_name: str | None = None,
+    naics: str | None = None,
+    state: str | None = None,
+    since: str | None = None,
+    sort_by: str = "open_date",
+    offset: int = 0,
+    limit: int = 25,
+) -> list[dict]:
+    """Query DOL OSHA/inspection on explicit user submit (verified like/and/sort_by)."""
+    clauses: list[dict] = []
+    if estab_name and estab_name.strip():
+        clean = estab_name.strip().upper().replace("%", "")
+        clauses.append({"field": "estab_name", "operator": "like", "value": f"%{clean}%"})
+    if naics and naics.strip():
+        clean_n = re.sub(r"\D", "", naics.strip())
+        if clean_n:
+            op = "eq" if len(clean_n) == 6 else "like"
+            val = clean_n if op == "eq" else f"{clean_n}%"
+            clauses.append({"field": "naics_code", "operator": op, "value": val})
+    if state and state.strip():
+        clauses.append({"field": "site_state", "operator": "eq", "value": state.strip().upper()})
+    if since and since.strip():
+        clauses.append({"field": "open_date", "operator": "gt", "value": since.strip()[:10]})
+    params: dict = {
+        "limit": max(1, min(int(limit), 25)),
+        "offset": max(0, int(offset)),
+        "sort": "desc",
+        "sort_by": "open_date" if sort_by != "open_date" else "open_date",
+        "fields": "activity_nr,estab_name,site_city,site_state,naics_code,open_date,insp_type,state_flag",
+    }
+    fobj = _dol_and_filter(clauses)
+    if fobj:
+        params["filter_object"] = json.dumps(fobj)
+    rows = _dol_get(c, key, "inspection", params)
+    out: list[dict] = []
+    for r in rows:
+        act = _opt_int(r.get("activity_nr"))
+        if act is None:
+            continue
+        it = str(r.get("insp_type") or "").strip().upper() or None
+        out.append({
+            "activity_nr": act,
+            "estab_name": (r.get("estab_name") or "Unknown establishment").strip().title(),
+            "site_city": (r.get("site_city") or "").strip().title() or None,
+            "site_state": (r.get("site_state") or "").strip().upper() or None,
+            "naics_code": str(r.get("naics_code") or "").strip() or None,
+            "open_date": _iso_day(r.get("open_date")),
+            "insp_type": it,
+            "insp_type_label": INSP_TYPE_LABELS.get(it or "", "OSHA inspection"),
+            "state_flag": str(r.get("state_flag") or "").strip().upper() or None,
+        })
+    return out
+
+
+def search_dol_violations(
+    c: httpx.Client,
+    key: str,
+    *,
+    standard: str | None = None,
+    hazsub: str | None = None,
+    state: str | None = None,
+    min_penalty: float | None = None,
+    since: str | None = None,
+    sort_by: str = "open_date",
+    offset: int = 0,
+    limit: int = 25,
+) -> list[dict]:
+    """Query DOL OSHA/violation by IMIS CFR prefix or substance, joined with OSHA/inspection."""
+    clauses: list[dict] = []
+    if standard and standard.strip():
+        imis = cfr_to_imis_prefix(standard)
+        if imis:
+            clauses.append({"field": "standard", "operator": "like", "value": f"{imis}%"})
+    if hazsub and hazsub.strip():
+        hz = hazsub.strip()
+        if not hz.isdigit():
+            # Allow searching by common substance name from HAZSUB_LABELS.
+            low = hz.lower()
+            hit = next((k for k, v in HAZSUB_LABELS.items() if low in v.lower()), None)
+            hz = hit or hz
+        clauses.append({"field": "hazsub1", "operator": "eq", "value": hz})
+    if min_penalty is not None and min_penalty > 0:
+        clauses.append({"field": "current_penalty", "operator": "gt", "value": float(min_penalty)})
+    if since and since.strip():
+        clauses.append({"field": "issuance_date", "operator": "gt", "value": since.strip()[:10]})
+    params: dict = {
+        "limit": max(1, min(int(limit) * 2, 50)),
+        "offset": max(0, int(offset)),
+        "sort": "desc",
+        "sort_by": "current_penalty" if sort_by == "penalty" else "issuance_date",
+        "fields": "activity_nr,citation_id,delete_flag,standard,viol_type,issuance_date,current_penalty,hazsub1,hazsub2",
+    }
+    fobj = _dol_and_filter(clauses)
+    if fobj:
+        params["filter_object"] = json.dumps(fobj)
+    vrows = _dol_get(c, key, "violation", params)
+    by_act: dict[int, dict] = {}
+    for v in vrows:
+        if v.get("delete_flag") or not v.get("activity_nr"):
+            continue
+        act = int(v["activity_nr"])
+        pen = _money(v.get("current_penalty"))
+        parsed = parse_dol_standard(v.get("standard"))
+        cur = by_act.get(act)
+        if cur is None or pen > cur["current_penalty"]:
+            by_act[act] = {
+                "activity_nr": act,
+                "matched_standard": parsed["display"],
+                "section_id": parsed["section"],
+                "current_penalty": round(pen, 2),
+                "issuance_date": _iso_day(v.get("issuance_date")),
+                "hazsubs": [hazsub_label(v.get(k)) for k in ("hazsub1", "hazsub2") if v.get(k) not in (None, "", "0")],
+            }
+        if len(by_act) >= max(1, min(int(limit), 25)):
+            break
+    if not by_act:
+        return []
+    insp_rows = fetch_dol_inspections(c, key, list(by_act))
+    insp_map = {int(i["activity_nr"]): i for i in insp_rows}
+    out: list[dict] = []
+    want_state = state.strip().upper() if state and state.strip() else None
+    for act, meta in by_act.items():
+        insp = insp_map.get(act)
+        if not insp:
+            continue
+        st = (insp.get("site_state") or "").strip().upper() or None
+        if want_state and st != want_state:
+            continue
+        it = str(insp.get("insp_type") or "").strip().upper() or None
+        out.append({
+            "activity_nr": act,
+            "estab_name": (insp.get("estab_name") or "Unknown establishment").strip().title(),
+            "site_city": (insp.get("site_city") or "").strip().title() or None,
+            "site_state": st,
+            "naics_code": str(insp.get("naics_code") or "").strip() or None,
+            "open_date": _iso_day(insp.get("open_date")),
+            "insp_type": it,
+            "insp_type_label": INSP_TYPE_LABELS.get(it or "", "OSHA inspection"),
+            "state_flag": str(insp.get("state_flag") or "").strip().upper() or None,
+            **meta,
+        })
+    return out
+
+
+def live_dol_search(
+    c: httpx.Client,
+    key: str,
+    *,
+    q: str,
+    mode: str = "employer",
+    state: str | None = None,
+    since: str | None = None,
+    min_penalty: float | None = None,
+    sort_by: str = "open_date",
+    offset: int = 0,
+    limit: int = 25,
+) -> dict:
+    """Cached live DOL archive search across OSHA/inspection or OSHA/violation."""
+    norm_q = q.strip()
+    cache_key = (
+        mode, norm_q.lower(), (state or "").upper(), (since or "")[:10],
+        float(min_penalty or 0.0), sort_by, int(offset), int(limit),
+    )
+    now_m = time.monotonic()
+    hit = _dol_search_cache.get(cache_key)
+    if hit and (now_m - hit[0]) < DOL_SEARCH_TTL_SEC:
+        return {**hit[1], "cached": True}
+
+    if mode == "employer":
+        rows = search_dol_inspections(
+            c, key, estab_name=norm_q, state=state, since=since, sort_by=sort_by, offset=offset, limit=limit)
+    elif mode == "naics":
+        rows = search_dol_inspections(
+            c, key, naics=norm_q, state=state, since=since, sort_by=sort_by, offset=offset, limit=limit)
+    elif mode == "standard":
+        rows = search_dol_violations(
+            c, key, standard=norm_q, state=state, min_penalty=min_penalty, since=since,
+            sort_by=sort_by, offset=offset, limit=limit)
+    else:
+        rows = search_dol_violations(
+            c, key, hazsub=norm_q, state=state, min_penalty=min_penalty, since=since,
+            sort_by=sort_by, offset=offset, limit=limit)
+
+    payload = {
+        "mode": mode,
+        "query": norm_q,
+        "results": rows,
+        "count": len(rows),
+        "offset": offset,
+        "limit": limit,
+        "has_more": len(rows) >= limit,
+        "cached": False,
+    }
+    if len(_dol_search_cache) >= DOL_SEARCH_CACHE_MAX:
+        oldest = min(_dol_search_cache, key=lambda k: _dol_search_cache[k][0])
+        _dol_search_cache.pop(oldest, None)
+    _dol_search_cache[cache_key] = (now_m, payload)
+    return payload
 
 
 # ---------------------------------------------------------------------------

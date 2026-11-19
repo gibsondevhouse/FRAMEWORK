@@ -3,7 +3,7 @@
 **Document Set:** `MAPPED_PLAN_OVERVIEW.md` + `MAPPED_PLAN_OVERVIEW.docx`  
 **Recorded:** 2026-11-17 · **Codebase:** `reader/` (FastAPI + SQLite FTS5 + Vite ES/TS) · **Plan Series:** `docs/plans/` (`10_`–`50_`)
 
-> **Executive Snapshot:** Across **5 subject series** (`10_`–`50_`), FRAMEWORK currently holds **12 numbered plans** plus **1 cleanup dev log** (`docs/notes/2026-11-16_pre-feature-orders.md`): **1** historical foundation record (`11`), **9** completed implementation plans (`12`, `13`, `14`, `21`, `22`, `23`, `24`, `31`, `41`), **2** queued/in-progress plans (**`25_white_glove_ui_ux_refinement`** and **`42_dol_api_expansion`**), and **1** long-horizon strategic blueprint (`51`).
+> **Executive Snapshot:** Across **5 subject series** (`10_`–`50_`), FRAMEWORK currently holds **12 numbered plans** plus **1 cleanup dev log** (`docs/notes/2026-11-16_pre-feature-orders.md`): **1** historical foundation record (`11`), **10** completed implementation plans (`12`, `13`, `14`, `21`, `22`, `23`, `24`, `31`, `41`, `42`), **1** in-progress plan (**`25_white_glove_ui_ux_refinement`**), and **1** long-horizon strategic blueprint (`51`).
 
 ---
 
@@ -33,7 +33,7 @@
 | **20** | App Shell, Home & Library | **`25`** | [**White-Glove UI/UX Refinement**](20_app_shell_and_workspace/25_white_glove_ui_ux_refinement/MASTER_PLAN.md) | **Planned** | Tier bar polish, geometric mark, `0 of 0` fix, `.doc-actions` + mobile jumper, Audit Brief export, Obligation Lens |
 | **30** | CFR Reader & Citations | `31` | [CFR Reader Development](30_cfr_reader_and_citations/31_reader_development/MASTER_PLAN.md) | Completed *(macOS)* | `app/citations/`, peeks, `Alt+Click` split view, click-to-download, broadsheet Title Start & References Hub |
 | **40** | Regulatory Intel & DOL | `41` | [OSHA News Interface](40_regulatory_intelligence_and_dol/41_osha_news_interface/MASTER_PLAN.md) | Completed | `#/news`, `#/news/inspection/{activity_nr}`, `news.py`, `news_store.py`, `news_worker.py` |
-| **40** | Regulatory Intel & DOL | **`42`** | [**DOL API v4 Expansion**](40_regulatory_intelligence_and_dol/42_dol_api_expansion/MASTER_PLAN.md) | **Planned (Next)** | `OSHA/related_activity`, reduction/FTA metrics, NAICS + `5(a)(1)` index, `dol:` lookup, `/v4/datasets` |
+| **40** | Regulatory Intel & DOL | **`42`** | [**DOL API v4 Expansion**](40_regulatory_intelligence_and_dol/42_dol_api_expansion/MASTER_PLAN.md) | **Completed** | `OSHA/related_activity`, reduction/FTA/abatement & para hotspots, GDC+accident FTS5, `dol:` lookup + Claude `search_enforcement`, CLI `dol_catalog.py` |
 | **50** | Long-Term Strategy | `51` | [HSE Platform Roadmap](50_long_term_strategy/51_hse_platform_roadmap/HSE_PLATFORM_ROADMAP.md) | Strategic Blueprint | MCP server, automated Policy Linter, Hybrid RAG, Horizon Radar, Slack/Teams bots |
 
 ---
@@ -59,9 +59,10 @@
   41 OSHA News Interface (Completed): FR API v1 + DOL v4 + In-App Inspection Case File
          |
          v
-  42 DOL API v4 Expansion (NEXT PLAN - NOT EXECUTED):
-     Stage 1: Related Inspections -> Stage 2: Contested/FTA Analytics -> Stage 3: NAICS & 5(a)(1)
-     Stage 4: Live Search (Cmd-K & #/news) + Stage 5: Rate-Safe /v4/datasets Discovery
+  42 DOL API v4 Expansion (Completed):
+     Stage 1: Quota Pacer & Bidirectional Related/FTA -> Stage 2: Contested/Abatement & Paragraph Hotspots
+     Stage 3: GDC + Accident FTS5, NAICS, Emphasis/State-Flag & Priority Backfill
+     Stage 4: Live Search (Cmd-K & #/news), Workspaces & Local Claude + Stage 5: /v4/datasets Catalog & Schema Probe
                                   |
                                   v
 [50 SERIES: Long-Term Strategy]
@@ -111,16 +112,16 @@ Built exclusively on sanctioned government JSON APIs (`federalregister.gov/api/v
 - Schedule-gated daemon sync (`FR` 06:15 ET, `PI` 09:00/11:30/16:30 ET weekdays, `DOL` 24h) with persistent failure backoff (`sync_status.fail_count`).
 - Local `osha_news.sqlite3` (`articles`, `article_citations`, `articles_fts`, `enforcement_cases`), deterministic 3-bullet `news.takeaways`, `#/news` newsroom UI, Title 29 activity popover (`#btn-news-activity`), and the **in-app Inspection Case File** (`#/news/inspection/{activity_nr}`) with paragraph-level DOL standard decoding (`parse_dol_standard`), `POST /api/news/inspection/{activity_nr}/enrich`, and the 4-card Enforcement Briefing strip (`GET /api/news/enforcement/summary`).
 
-#### `42_dol_api_expansion/` (NEXT PLAN — NOT EXECUTED)
+#### `42_dol_api_expansion/` (Completed)
 Targets verified, live-probed capabilities on `https://apiprod.dol.gov/v4` while enforcing strict rate-limit (`HTTP 429`) and URL-size (`~2 KB`) guardrails (and excluding `OSHA/optional_info`, `OSHA/history`, and `OSHA/strategic_codes`, which returned upstream `HTTP 500`):
 
 | Stage | Target Capabilities | Primary Upstream / Local Assets | Key Guardrails |
 | :--- | :--- | :--- | :--- |
-| **Stage 1** | **Related Inspections Graph** | `OSHA/related_activity` (`rel_act_nr`, `rel_type`), `enforcement_cases.related_json` | Non-destructive `ALTER TABLE`; no key leakage |
-| **Stage 2** | **Contested & FTA Analytics** | `initial_penalty` vs `current_penalty`, `OSHA/violation_event`, `fta_*` fields | No `statPill()` misuse for alerts; hairline UI badges only |
-| **Stage 3** | **NAICS & `5(a)(1)` Index** | `naics_code` grouping, `gdc_fts` FTS5 over `OSHA/violation_gen_duty_std` | Parameterized prefix queries; FTS sentinel highlighting |
-| **Stage 4** | **Live DOL Lookup (`⌘K` & `#/news`)** | `GET /api/news/dol/search` (`estab_name`, `naics`, `hazsub1`–`5`, `standard`) | **Explicit submit only** (zero calls on typing) + 10m TTL cache + 429 cooldown |
-| **Stage 5** | **Rate-Safe Catalog Discovery** | `GET /v4/datasets` (`total_count: 45`), `dol_datasets` table -> Title 29/30 map | Spaced pagination (`delay_s`) + partial-save resume under 429 |
+| **Stage 1** | **Quota Foundation & Bidirectional Related Graph** | Shared `_dol_get()` pacer & `agency` param, `hazsub1`–`5`, `case_mod_date` skip, `OSHA/related_activity` (`activity_nr` & `rel_act_nr`), `fta_insp_nr` | Non-destructive `SCHEMA_VERSION` `2 -> 3`; `429` circuit breaker; no key leakage |
+| **Stage 2** | **Contested, Abatement & Paragraph Hotspots** | `initial_penalty` vs `current_penalty`, `OSHA/violation_event`, `fta_*`, `abate_complete`, `(section_id, para)` stats | No `statPill()` misuse for alerts; hairline UI badges only |
+| **Stage 3** | **Narratives FTS5, NAICS & Emphasis Facets** | `enforcement_narratives_fts` (GDC `5(a)(1)` + `OSHA/accident*`), `naics_code`, `emphasis`, `hazcat`, `state_flag`, worker trickle | Parameterized prefix queries; FTS sentinel highlighting; Federal vs State Plan split |
+| **Stage 4** | **Live DOL Lookup, Workspaces & Local Claude** | `GET /api/news/dol/search` (`sort_by`, `since`, `min_penalty`, `offset`, `hazsub1`–`5` labels), Case Clipping, `chat.py` `search_enforcement` | **Explicit submit only** + 10m TTL cache + `429` cooldown; Claude reads SQLite only |
+| **Stage 5** | **CLI-First Catalog & Schema Probe** | `python -m app.dol_catalog --probe` (`GET /v4/datasets` + `limit=1` probe) -> `dol_datasets` & `DOL_CATALOG_INVENTORY.md` | Spaced pagination (`delay_s`) + partial-save resume under `429`; UI deferred to Plan 43+ |
 
 ### 50 Series — Long-Term Strategy (`50_long_term_strategy/`)
 

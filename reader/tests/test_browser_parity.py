@@ -378,9 +378,11 @@ class BehaviorTests(BrowserCase):
 
     def test_news_inspection_case_file_and_popover_link(self):
         # 1. Reader activity popover on § 1910.134 routes enforcement links in-app (#/news/inspection/{id})
+        # and displays Stage 2 enforcement citation stats + top paragraph cues.
         page = self.open_page("/title/29/section/1910.134", "#btn-news-activity:not([hidden])")
         page.click("#btn-news-activity")
         page.wait_for_selector("#news-pop:not([hidden]) a[href='#/news/inspection/307000001']", timeout=15000)
+        self.assertIn("1 citation", page.inner_text("#news-pop").lower())
         page.click("#news-pop a[href='#/news/inspection/307000001']")
         page.wait_for_selector(".ins-front .ins-table", timeout=15000)
         text = page.inner_text("#view")
@@ -388,11 +390,29 @@ class BehaviorTests(BrowserCase):
         self.assertIn("1910.134(a)(1)", text)
         self.assertIn("$25,000", text)
         # 2. Direct inspection route for multi-citation case (306953084) shows paragraph-parsed standards
+        # and Stage 4 Case File Clip to Workspace persists into framework_projects_v1.
         page.goto(f"{ENV.base_url}/#/news/inspection/306953084")
         page.wait_for_selector(".ins-front .ins-table", timeout=15000)
         case_text = page.inner_text("#view")
         self.assertIn("1910.1030(g)(2)(ii)(A)", case_text)
         self.assertIn("1926.501(b)(13)", case_text)
+        page.click("[data-ins-act='clip']")
+        clipped = page.evaluate("""() => {
+          const list = JSON.parse(localStorage.getItem('framework_projects_v1') || '[]');
+          return list.some(p => (p.cases || []).some(c => c.activity_nr === 306953084));
+        }""")
+        self.assertTrue(clipped)
+        # 3. Typing `dol: amazon` in Cmd-K search fires zero /api/news/dol/search requests while typing.
+        dol_reqs = []
+        page.route("**/api/news/dol/search*", lambda route: (dol_reqs.append(route.request.url), route.fulfill(
+            status=200, content_type="application/json",
+            body='{"mode":"employer","query":"amazon","results":[],"count":0,"offset":0,"limit":25,"has_more":false,"cached":false}'
+        )))
+        page.fill("#search", "dol: amazon")
+        page.wait_for_selector("#search-dropdown .sd-dol-hint", timeout=5000)
+        self.assertEqual(dol_reqs, [])
+        page.press("#search", "Enter")
+        page.wait_for_function("() => location.hash.includes('dol_q=amazon')", timeout=5000)
         self.assert_no_external_requests()
 
     def test_first_run_profile_picker_when_empty(self):

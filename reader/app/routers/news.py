@@ -42,11 +42,15 @@ def get_news(
     state: str | None = Query(None, pattern="^[A-Za-z]{2}$"),
     min_penalty: float | None = Query(None, ge=0),
     gravity: str | None = Query(None, pattern="^[WRSOU]$"),
+    naics: str | None = Query(None, pattern="^[0-9]{2,6}$"),
+    gdc: bool = Query(False),
+    fatality: bool = Query(False),
+    jurisdiction: str | None = Query(None, pattern="^(all|federal|state_plan)$"),
+    emphasis: str | None = Query(None, max_length=24),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict:
-    """The feed, search and filters in one endpoint. `state`, `min_penalty` and `gravity`
-    only match enforcement rows, so combined with category=all they narrow to enforcement."""
+    """The feed, search and filters in one endpoint."""
     if section:
         section = reg_store.normalize_id(section)
     with news_store.read_con() as con:
@@ -55,7 +59,9 @@ def get_news(
         try:
             return news_store.query_articles(
                 con, category=category, q=q, section=section, part=part, state=state,
-                min_penalty=min_penalty, gravity=gravity, limit=limit, offset=offset)
+                min_penalty=min_penalty, gravity=gravity, naics=naics, gdc=gdc,
+                fatality=fatality, jurisdiction=jurisdiction, emphasis=emphasis,
+                limit=limit, offset=offset)
         except sqlite3.Error:
             return {"articles": [], "total": 0, "offset": offset}
 
@@ -120,14 +126,39 @@ def news_status() -> dict:
 
 @news_router.get("/facets")
 def news_facets() -> dict:
-    """States present among enforcement rows, with counts, for the state dropdown."""
+    """States, top NAICS, and emphasis codes present among enforcement rows."""
     with news_store.read_con() as con:
         if con is None:
-            return {"states": []}
+            return {"states": [], "top_naics": [], "emphasis_codes": []}
         try:
-            return {"states": news_store.state_facets(con)}
+            return {
+                "states": news_store.state_facets(con),
+                "top_naics": news_store.naics_summary(con, limit=8),
+                "emphasis_codes": news_store.emphasis_facets(con),
+            }
         except sqlite3.Error:
-            return {"states": []}
+            return {"states": [], "top_naics": [], "emphasis_codes": []}
+
+
+@news_router.get("/enforcement/naics/{code}")
+def enforcement_by_naics(code: str, federal_only: bool = Query(False)) -> dict:
+    """Cached industry enforcement summary for a 2-6 digit NAICS code/prefix."""
+    clean = code.strip()
+    if not clean.isdigit() or not (2 <= len(clean) <= 6):
+        raise HTTPException(422, "NAICS code must be 2 to 6 digits.")
+    with news_store.read_con() as con:
+        if con is None:
+            return {
+                "naics": clean, "case_count": 0, "total_penalty_usd": 0.0,
+                "gdc_count": 0, "fatality_count": 0, "top_sections": [],
+            }
+        try:
+            return news_store.naics_summary(con, clean, federal_only=federal_only)
+        except sqlite3.Error:
+            return {
+                "naics": clean, "case_count": 0, "total_penalty_usd": 0.0,
+                "gdc_count": 0, "fatality_count": 0, "top_sections": [],
+            }
 
 
 class RefreshRequest(BaseModel):
@@ -149,17 +180,23 @@ def news_refresh(req: RefreshRequest, response: Response) -> dict:
 
 
 def _related(section: str | None, part: str | None, title: int) -> dict:
+    empty_stats = {"case_count": 0, "citation_count": 0, "avg_penalty": 0.0, "fta_count": 0, "top_paragraphs": []}
     if title != 29:
         # No other title has news while OSHA is the only agency.
-        return {"count": 0, "articles": []}
+        return {"count": 0, "articles": [], "stats": empty_stats}
     with news_store.read_con() as con:
         if con is None:
-            return {"count": 0, "articles": []}
+            return {"count": 0, "articles": [], "stats": empty_stats}
         try:
             res = news_store.query_articles(con, section=section, part=part, title=title, limit=15)
+            stats = (
+                news_store.section_enforcement_stats(con, section)
+                if section
+                else news_store.part_enforcement_stats(con, str(part))
+            )
         except sqlite3.Error:
-            return {"count": 0, "articles": []}
-    return {"count": res["total"], "articles": res["articles"]}
+            return {"count": 0, "articles": [], "stats": empty_stats}
+    return {"count": res["total"], "articles": res["articles"], "stats": stats}
 
 
 @news_router.get("/section/{section_id:path}")
@@ -175,24 +212,25 @@ def news_for_part(part: str, title: int = Query(29, ge=1, le=50)) -> dict:
     return {"part": part, **_related(None, part, title)}
 
 
+_EMPTY_ENFORCEMENT_SUMMARY = {
+    "total_cases": 0, "total_penalty_usd": 0.0, "avg_penalty_usd": 0.0, "max_penalty_usd": 0.0,
+    "total_initial_usd": 0.0, "total_current_usd": 0.0, "avg_reduction_pct": 0.0,
+    "contested_cases": 0, "fta_cases": 0, "fta_total_usd": 0.0, "open_abate_cases": 0,
+    "gravity_counts": {"W": 0, "R": 0, "S": 0, "O": 0},
+    "top_sections": [], "top_states": [], "largest_case": None,
+}
+
+
 @news_router.get("/enforcement/summary")
 def enforcement_summary() -> dict:
     """Local enforcement analytics across cached DOL inspections."""
     with news_store.read_con() as con:
         if con is None:
-            return {
-                "total_cases": 0, "total_penalty_usd": 0.0, "avg_penalty_usd": 0.0, "max_penalty_usd": 0.0,
-                "gravity_counts": {"W": 0, "R": 0, "S": 0, "O": 0},
-                "top_sections": [], "top_states": [], "largest_case": None,
-            }
+            return dict(_EMPTY_ENFORCEMENT_SUMMARY)
         try:
             return news_store.enforcement_summary(con)
         except sqlite3.Error:
-            return {
-                "total_cases": 0, "total_penalty_usd": 0.0, "avg_penalty_usd": 0.0, "max_penalty_usd": 0.0,
-                "gravity_counts": {"W": 0, "R": 0, "S": 0, "O": 0},
-                "top_sections": [], "top_states": [], "largest_case": None,
-            }
+            return dict(_EMPTY_ENFORCEMENT_SUMMARY)
 
 
 @news_router.get("/inspection/{activity_nr}")
@@ -217,6 +255,9 @@ def get_inspection_case(activity_nr: int) -> dict:
             "events": [],
             "gdc": [],
             "accidents": [],
+            "related": [],
+            "enrich_ver": 0,
+            "enriched_mod_date": None,
             "enriched_at": None,
             "cached": False,
             "needs_enrichment": True,
@@ -225,17 +266,38 @@ def get_inspection_case(activity_nr: int) -> dict:
     return {
         **case,
         "cached": True,
-        "needs_enrichment": not case.get("violations") or not case.get("enriched_at"),
+        "needs_enrichment": (
+            not case.get("violations")
+            or not case.get("enriched_at")
+            or int(case.get("enrich_ver") or 0) < 1
+        ),
         "dol_configured": dol,
     }
 
 
 @news_router.post("/inspection/{activity_nr}/enrich")
-def enrich_inspection_case(activity_nr: int) -> dict:
+def enrich_inspection_case(activity_nr: int, force: bool = Query(False)) -> dict:
     """Fetch full case details, citations, GDC narratives, and accident abstracts from DOL v4."""
     key = config.dol_api_key()
     if not key:
         raise HTTPException(400, "DOL_API_KEY is not configured in reader/.env.")
+    if not force:
+        existing = None
+        with news_store.read_con() as con:
+            if con is not None:
+                try:
+                    existing = news_store.get_enforcement_case(con, activity_nr)
+                except sqlite3.Error:
+                    existing = None
+        if existing and existing.get("enriched_at") and int(existing.get("enrich_ver") or 0) >= 1:
+            detail_mod = (existing.get("detail") or {}).get("case_mod_date")
+            if existing.get("enriched_mod_date") == detail_mod:
+                return {
+                    **existing,
+                    "cached": True,
+                    "needs_enrichment": False,
+                    "dol_configured": True,
+                }
     try:
         with news.client() as c:
             fetched = news.fetch_inspection_case(c, key, activity_nr)
@@ -259,6 +321,9 @@ def enrich_inspection_case(activity_nr: int) -> dict:
             events=fetched["events"],
             gdc=fetched["gdc"],
             accidents=fetched["accidents"],
+            related=fetched.get("related") or [],
+            enrich_ver=1,
+            enriched_mod_date=(article["inspection_detail"] or {}).get("case_mod_date"),
             enriched_at=now.isoformat(),
             now=now,
         )
@@ -273,3 +338,31 @@ def enrich_inspection_case(activity_nr: int) -> dict:
         "needs_enrichment": False,
         "dol_configured": True,
     }
+
+
+@news_router.get("/dol/search")
+def dol_live_search(
+    q: str = Query(..., min_length=1, max_length=120),
+    mode: str = Query("employer", pattern="^(employer|naics|standard|hazsub)$"),
+    state: str | None = Query(None, pattern="^[A-Za-z]{2}$"),
+    since: str | None = Query(None, pattern="^\\d{4}-\\d{2}-\\d{2}$"),
+    min_penalty: float | None = Query(None, ge=0),
+    sort_by: str = Query("open_date", pattern="^(open_date|penalty)$"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=25),
+) -> dict:
+    """Explicit-submit live search against DOL Open Data API v4 with 10m TTL cache."""
+    key = config.dol_api_key()
+    if not key:
+        raise HTTPException(503, "DOL_API_KEY is not configured in reader/.env.")
+    try:
+        with news.client() as c:
+            return news.live_dol_search(
+                c, key, q=q, mode=mode, state=state, since=since,
+                min_penalty=min_penalty, sort_by=sort_by, offset=offset, limit=limit,
+            )
+    except news.SourceUnavailable as e:
+        msg = str(e)
+        if "HTTP 429" in msg:
+            raise HTTPException(429, "DOL API rate limit reached. Try again in a moment.") from None
+        raise HTTPException(503, f"DOL search unavailable ({msg}).") from None

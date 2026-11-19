@@ -272,6 +272,9 @@ class RelatedTests(ApiTestCase):
         self.assertEqual(r["section_id"], "1910.1030")
         self.assertEqual({a["guid"] for a in r["articles"]},
                          {"dol-insp:306953084", "fr:2026-20001"})
+        self.assertEqual(r["stats"]["case_count"], 1)
+        self.assertEqual(r["stats"]["top_paragraphs"][0]["para"], "(g)(2)(ii)(A)")
+        self.assertIsNone(r["stats"]["top_paragraphs"][0]["share_pct"])
 
     def test_part_matches_everything_inside(self):
         r = self.client.get("/api/news/part/1910").json()
@@ -291,7 +294,8 @@ class FreshInstallTests(ApiTestCase):
         s = self.client.get("/api/news/status").json()
         self.assertEqual(s["counts"]["all"], 0)
         self.assertTrue(s["due"])                          # never synced: everything due
-        self.assertEqual(self.client.get("/api/news/facets").json(), {"states": []})
+        self.assertEqual(self.client.get("/api/news/facets").json(),
+                         {"states": [], "top_naics": [], "emphasis_codes": []})
         self.assertEqual(self.client.get("/api/news/section/1910.1030").json()["count"], 0)
         self.assertEqual(self.client.get("/api/news/part/1910").json()["count"], 0)
         self.assertEqual(self.client.get("/api/news/enforcement/summary").json()["total_cases"], 0)
@@ -322,6 +326,39 @@ class InspectionCaseTests(ApiTestCase):
         self.assertEqual(len(data["events"]), 2)
         self.assertEqual(len(data["gdc"]), 1)
         self.assertIn("recognized hazards", data["gdc"][0]["text"])
+        self.assertEqual(len(data["related"]), 1)
+        self.assertEqual(data["related"][0]["rel_act_nr"], 307000001)
+        self.assertTrue(data["related"][0]["cached"])
+        self.assertEqual(data["related"][0]["estab_name"], "Acme Foundry Llc")
+
+        # Repeat non-forced enrich skips upstream DOL calls when case_mod_date is unchanged.
+        before = len(fake.requests)
+        with mock.patch.dict("os.environ", {"DOL_API_KEY": "secret-key"}), fake.patch_client():
+            res2 = self.client.post("/api/news/inspection/306953084/enrich")
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(len(fake.requests), before)
+
+        # Explicit force=true bypasses the delta guard.
+        with mock.patch.dict("os.environ", {"DOL_API_KEY": "secret-key"}), fake.patch_client():
+            res3 = self.client.post("/api/news/inspection/306953084/enrich?force=true")
+        self.assertEqual(res3.status_code, 200)
+        self.assertGreater(len(fake.requests), before)
+
+        res = self.client.get("/api/news/enforcement/naics/4552")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["case_count"], 1)
+        self.assertEqual(res.json()["top_sections"][0]["section_id"], "1910.1030")
+
+        # Stage 3: GDC narrative & NAICS filters + facets.
+        r_naics = self.client.get("/api/news?naics=4552").json()
+        self.assertEqual({a["guid"] for a in r_naics["articles"]}, {"dol-insp:306953084"})
+        r_gdc = self.client.get("/api/news?gdc=1").json()
+        self.assertEqual({a["guid"] for a in r_gdc["articles"]}, {"dol-insp:306953084"})
+        r_state_plan = self.client.get("/api/news?jurisdiction=state_plan").json()
+        self.assertEqual({a["guid"] for a in r_state_plan["articles"]}, {"dol-insp:306953084"})
+        r_fts_gdc = self.client.get("/api/news?q=recognized hazards").json()
+        self.assertEqual(r_fts_gdc["articles"][0]["guid"], "dol-insp:306953084")
+        self.assertIn("\x02", r_fts_gdc["articles"][0]["snippet"])
 
     def test_enrich_requires_key(self):
         res = self.client.post("/api/news/inspection/306953084/enrich")
@@ -329,6 +366,38 @@ class InspectionCaseTests(ApiTestCase):
 
     def test_no_worker_thread_is_alive(self):
         self.assertNotIn("news-worker", [t.name for t in threading.enumerate()])
+
+    def test_stage4_live_dol_search_cache_and_local_claude_tool(self):
+        from app import chat
+
+        # Missing DOL_API_KEY -> 503 cleanly.
+        self.assertEqual(self.client.get("/api/news/dol/search?q=acme").status_code, 503)
+
+        fake = FakeAPI()
+        with mock.patch.dict("os.environ", {"DOL_API_KEY": "secret-key"}), fake.patch_client():
+            r1 = self.client.get("/api/news/dol/search?q=acme&mode=employer")
+            self.assertEqual(r1.status_code, 200)
+            d1 = r1.json()
+            self.assertFalse(d1["cached"])
+            self.assertEqual(d1["results"][0]["activity_nr"], 307000001)
+            before = len(fake.requests)
+            # Second identical call hits TTL cache with 0 upstream requests.
+            r2 = self.client.get("/api/news/dol/search?q=acme&mode=employer")
+            self.assertEqual(r2.status_code, 200)
+            self.assertTrue(r2.json()["cached"])
+            self.assertEqual(len(fake.requests), before)
+
+            # Standard search maps 1910.1030 -> IMIS prefix 19101030% and joins inspection.
+            r_std = self.client.get("/api/news/dol/search?q=1910.1030&mode=standard")
+            self.assertEqual(r_std.status_code, 200)
+            self.assertEqual(r_std.json()["results"][0]["activity_nr"], 306953084)
+
+        # Claude local-only search_enforcement reads SQLite only (network guard proves 0 HTTP).
+        out, summary = chat.run_tool("search_enforcement", {"section_id": "1910.1030", "naics": "4552"})
+        self.assertIn("Local cached OSHA inspection sample", out)
+        self.assertIn("1910.1030", out)
+        self.assertIn("Christmas Tree Shops", out)
+        self.assertIn("cases", summary)
 
 
 if __name__ == "__main__":

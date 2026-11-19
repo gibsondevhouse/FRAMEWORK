@@ -12,7 +12,7 @@ export function commandList(): Array<[string, string, string]> {
   return [
     ['Go to Home', '#/', 'G H'], [`Go to Title ${state.currentTitle} start`, `#/title/${state.currentTitle}/`, 'G T'],
     ['Open contents', 'cmd:reader', 'G C'], ['Open workspaces', 'cmd:projects', 'G P'], ['All workspaces', '#/projects', ''],
-    ['Go to News', '#/news', 'G N'], ['Refresh news', 'cmd:news-refresh', ''],
+    ['Go to News', '#/news', 'G N'], ['Search DOL inspections (live archive)', '#/news?cat=enforcement', ''], ['Refresh news', 'cmd:news-refresh', ''],
     ['New workspace', 'cmd:new-project', ''], ['Open the library', '#/library', ''], ['Library drawer', 'cmd:library', 'G L'],
     ['Settings', 'cmd:settings', 'G S'], ['All settings', '#/settings', ''],
     ['Connections & API keys', '#/help', ''], ['Edit API keys', 'cmd:env-modal', ''],

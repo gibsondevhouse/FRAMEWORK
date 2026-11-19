@@ -50,6 +50,20 @@ dom.search.addEventListener('input', () => {
     moveSdActive(1);
     return;
   }
+  if (/^dol:/i.test(q)) {
+    const term = q.slice(4).trim();
+    dom.searchDropdown.innerHTML = term
+      ? `<a class="sd-item sd-dol-hint" href="#/news?cat=enforcement&dol_q=${encodeURIComponent(term)}">
+           <div class="sd-item-top">
+             <span class="sd-label">DOL Archive</span>
+             <span class="sd-item-title">Search live OSHA inspections for “${escapeHtml(term)}”</span>
+           </div>
+           <span class="sd-snippet">Press <kbd>Enter</kbd> to query DOL Open Data API v4 (no network calls while typing)</span>
+         </a>`
+      : `<div class="sd-footer">Type an employer, NAICS, or 29 CFR section after <code>dol:</code> and press <kbd>Enter</kbd>.</div>`;
+    setDropdownOpen(true);
+    return;
+  }
   state.searchTimer = setTimeout(async () => {
     searchAbort = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const ctrl = searchAbort;
@@ -102,6 +116,15 @@ dom.search.addEventListener('keydown', (e) => {
     }
     setDropdownOpen(false);
     const q = dom.search.value.trim();
+    if (/^dol:/i.test(q)) {
+      const term = q.slice(4).trim();
+      if (term) {
+        const mode = /^\d{4}\.\d+/.test(term) ? 'standard' : /^\d{2,6}$/.test(term) ? 'naics' : 'employer';
+        dom.search.blur();
+        window.location.hash = `#/news?cat=enforcement&dol_q=${encodeURIComponent(term)}&dol_mode=${mode}`;
+      }
+      return;
+    }
     if (q && !q.startsWith('>')) window.location.hash = `#/search?q=${encodeURIComponent(q)}`;
   } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     if (!dom.searchDropdown.hidden) {

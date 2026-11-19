@@ -50,6 +50,10 @@ class HermeticTestCase(unittest.TestCase):
 
         self.addCleanup(restore)
 
+        from app import news
+        news.reset_dol_rate_state()
+        self.addCleanup(news.reset_dol_rate_state)
+
         sync_guard = mock.patch.object(
             httpx.HTTPTransport, "handle_request",
             side_effect=AssertionError("a test attempted real network access (sync)"))

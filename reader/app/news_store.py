@@ -21,7 +21,7 @@ from typing import Iterator
 from . import config, store
 from .citations.parser import FR_RE as _FR_CITATION, SEC_NUM
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SOURCES = ("federal_register", "federal_register_pi", "dol_osha")
 CATEGORIES = ("rules", "rulemaking", "notices", "public_inspection", "enforcement")
@@ -89,8 +89,49 @@ CREATE TABLE IF NOT EXISTS enforcement_cases (
     events_json TEXT NOT NULL DEFAULT '[]',
     gdc_json TEXT NOT NULL DEFAULT '[]',
     accidents_json TEXT NOT NULL DEFAULT '[]',
+    related_json TEXT NOT NULL DEFAULT '[]',
+    enrich_ver INTEGER NOT NULL DEFAULT 0,
+    enriched_mod_date TEXT,
     enriched_at TEXT,
     fetched_at TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS enforcement_narratives_fts USING fts5(
+    activity_nr UNINDEXED,
+    kind UNINDEXED,
+    ref_id UNINDEXED,
+    body_text,
+    tokenize = 'porter unicode61'
+);
+
+CREATE TABLE IF NOT EXISTS dol_datasets (
+    slug TEXT PRIMARY KEY,
+    agency TEXT NOT NULL DEFAULT '',
+    dataset TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    frequency TEXT,
+    probe_status TEXT NOT NULL DEFAULT 'unprobed',
+    fields_json TEXT NOT NULL DEFAULT '[]',
+    cfr_title INTEGER,
+    cfr_parts_json TEXT NOT NULL DEFAULT '[]',
+    raw_json TEXT NOT NULL DEFAULT '{}',
+    discovered_at TEXT NOT NULL
+);
+"""
+
+_DOL_DATASETS_DDL = """
+CREATE TABLE IF NOT EXISTS dol_datasets (
+    slug TEXT PRIMARY KEY,
+    agency TEXT NOT NULL DEFAULT '',
+    dataset TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    frequency TEXT,
+    probe_status TEXT NOT NULL DEFAULT 'unprobed',
+    fields_json TEXT NOT NULL DEFAULT '[]',
+    cfr_title INTEGER,
+    cfr_parts_json TEXT NOT NULL DEFAULT '[]',
+    raw_json TEXT NOT NULL DEFAULT '{}',
+    discovered_at TEXT NOT NULL
 );
 """
 
@@ -102,8 +143,33 @@ CREATE TABLE IF NOT EXISTS enforcement_cases (
     events_json TEXT NOT NULL DEFAULT '[]',
     gdc_json TEXT NOT NULL DEFAULT '[]',
     accidents_json TEXT NOT NULL DEFAULT '[]',
+    related_json TEXT NOT NULL DEFAULT '[]',
+    enrich_ver INTEGER NOT NULL DEFAULT 0,
+    enriched_mod_date TEXT,
     enriched_at TEXT,
     fetched_at TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS enforcement_narratives_fts USING fts5(
+    activity_nr UNINDEXED,
+    kind UNINDEXED,
+    ref_id UNINDEXED,
+    body_text,
+    tokenize = 'porter unicode61'
+);
+
+CREATE TABLE IF NOT EXISTS dol_datasets (
+    slug TEXT PRIMARY KEY,
+    agency TEXT NOT NULL DEFAULT '',
+    dataset TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    frequency TEXT,
+    probe_status TEXT NOT NULL DEFAULT 'unprobed',
+    fields_json TEXT NOT NULL DEFAULT '[]',
+    cfr_title INTEGER,
+    cfr_parts_json TEXT NOT NULL DEFAULT '[]',
+    raw_json TEXT NOT NULL DEFAULT '{}',
+    discovered_at TEXT NOT NULL
 );
 """
 
@@ -152,23 +218,40 @@ def connect(readonly: bool = False) -> sqlite3.Connection | None:
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA busy_timeout=5000")
     version = con.execute("PRAGMA user_version").fetchone()[0]
-    if version == 1:
-        con.execute(_ENFORCEMENT_CASE_DDL)
-        con.executescript(
-            "DROP TABLE IF EXISTS articles_fts;"
-            "CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5("
-            "  title, description, company, tokenize = 'porter unicode61'"
-            ");"
-            "INSERT INTO articles_fts (rowid, title, description, company) "
-            "SELECT rowid, title, description, company FROM articles;"
+    if version in (1, 2):
+        if version == 1:
+            con.executescript(_ENFORCEMENT_CASE_DDL)
+            con.executescript(
+                "DROP TABLE IF EXISTS articles_fts;"
+                "CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5("
+                "  title, description, company, tokenize = 'porter unicode61'"
+                ");"
+                "INSERT INTO articles_fts (rowid, title, description, company) "
+                "SELECT rowid, title, description, company FROM articles;"
+            )
+        cols = {r[1] for r in con.execute("PRAGMA table_info(enforcement_cases)").fetchall()}
+        if "related_json" not in cols:
+            con.execute("ALTER TABLE enforcement_cases ADD COLUMN related_json TEXT NOT NULL DEFAULT '[]'")
+        if "enrich_ver" not in cols:
+            con.execute("ALTER TABLE enforcement_cases ADD COLUMN enrich_ver INTEGER NOT NULL DEFAULT 0")
+        if "enriched_mod_date" not in cols:
+            con.execute("ALTER TABLE enforcement_cases ADD COLUMN enriched_mod_date TEXT")
+        con.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS enforcement_narratives_fts USING fts5("
+            "  activity_nr UNINDEXED, kind UNINDEXED, ref_id UNINDEXED, body_text,"
+            "  tokenize = 'porter unicode61'"
+            ")"
         )
+        con.execute(_DOL_DATASETS_DDL)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         con.commit()
     elif version != SCHEMA_VERSION:
         if version:
             # The store is a cache of public data: on a schema mismatch, drop and let the
             # next sync refill it.
-            con.executescript("DROP TABLE IF EXISTS enforcement_cases;"
+            con.executescript("DROP TABLE IF EXISTS dol_datasets;"
+                              "DROP TABLE IF EXISTS enforcement_narratives_fts;"
+                              "DROP TABLE IF EXISTS enforcement_cases;"
                               "DROP TABLE IF EXISTS article_citations;"
                               "DROP TABLE IF EXISTS articles_fts;"
                               "DROP TABLE IF EXISTS articles;"
@@ -258,23 +341,34 @@ def save_enforcement_case(
     events: list[dict] | None = None,
     gdc: list[dict] | None = None,
     accidents: list[dict] | None = None,
+    related: list[dict] | None = None,
+    enrich_ver: int | None = None,
+    enriched_mod_date: str | None = None,
     enriched_at: str | None = None,
     now: datetime | None = None,
 ) -> None:
     """Persist structured DOL inspection details and individual citation rows."""
     fetched_iso = (now or datetime.now(timezone.utc)).isoformat()
-    if enriched_at is None and any(x is not None for x in (events, gdc, accidents)):
+    if enriched_at is None and any(x is not None for x in (events, gdc, accidents, related)):
         enriched_at = fetched_iso
+    if enrich_ver is None and related is not None:
+        enrich_ver = 1
+    if enriched_mod_date is None and enriched_at is not None:
+        enriched_mod_date = (details or {}).get("case_mod_date")
     con.execute(
         """INSERT INTO enforcement_cases
-             (activity_nr, details_json, violations_json, events_json, gdc_json, accidents_json, enriched_at, fetched_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             (activity_nr, details_json, violations_json, events_json, gdc_json, accidents_json,
+              related_json, enrich_ver, enriched_mod_date, enriched_at, fetched_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(activity_nr) DO UPDATE SET
              details_json = excluded.details_json,
              violations_json = excluded.violations_json,
              events_json = CASE WHEN ? THEN excluded.events_json ELSE enforcement_cases.events_json END,
              gdc_json = CASE WHEN ? THEN excluded.gdc_json ELSE enforcement_cases.gdc_json END,
              accidents_json = CASE WHEN ? THEN excluded.accidents_json ELSE enforcement_cases.accidents_json END,
+             related_json = CASE WHEN ? THEN excluded.related_json ELSE enforcement_cases.related_json END,
+             enrich_ver = CASE WHEN ? THEN excluded.enrich_ver ELSE enforcement_cases.enrich_ver END,
+             enriched_mod_date = CASE WHEN ? THEN excluded.enriched_mod_date ELSE enforcement_cases.enriched_mod_date END,
              enriched_at = COALESCE(excluded.enriched_at, enforcement_cases.enriched_at),
              fetched_at = excluded.fetched_at""",
         (
@@ -284,13 +378,46 @@ def save_enforcement_case(
             json.dumps(events or []),
             json.dumps(gdc or []),
             json.dumps(accidents or []),
+            json.dumps(related or []),
+            int(enrich_ver or 0),
+            enriched_mod_date,
             enriched_at,
             fetched_iso,
             1 if events is not None else 0,
             1 if gdc is not None else 0,
             1 if accidents is not None else 0,
+            1 if related is not None else 0,
+            1 if enrich_ver is not None else 0,
+            1 if enriched_mod_date is not None else 0,
         ),
     )
+    if gdc is not None or accidents is not None:
+        con.execute("DELETE FROM enforcement_narratives_fts WHERE activity_nr = ?", (int(activity_nr),))
+        row = con.execute(
+            "SELECT gdc_json, accidents_json FROM enforcement_cases WHERE activity_nr = ?",
+            (int(activity_nr),),
+        ).fetchone()
+        if row is not None:
+            fts_rows: list[tuple[int, str, str, str]] = []
+            for g in _json_load(row["gdc_json"], []):
+                txt = str(g.get("text") or "").strip()
+                if txt:
+                    fts_rows.append((int(activity_nr), "gdc", str(g.get("citation_id") or ""), txt))
+            for ac in _json_load(row["accidents_json"], []):
+                parts = [
+                    str(ac.get("event_desc") or "").strip(),
+                    str(ac.get("keywords") or "").strip(),
+                    "fatality" if ac.get("fatality") else "",
+                    str(ac.get("abstract") or "").strip(),
+                ]
+                body = " ".join(p for p in parts if p)
+                if body:
+                    fts_rows.append((int(activity_nr), "accident", str(ac.get("summary_nr") or ""), body))
+            if fts_rows:
+                con.executemany(
+                    "INSERT INTO enforcement_narratives_fts (activity_nr, kind, ref_id, body_text) VALUES (?, ?, ?, ?)",
+                    fts_rows,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +515,7 @@ def prune(con: sqlite3.Connection, today: date | None = None) -> None:
     # FTS5 has no foreign keys; article_citations goes by cascade.
     con.execute("DELETE FROM articles_fts WHERE rowid NOT IN (SELECT rowid FROM articles)")
     con.execute("DELETE FROM enforcement_cases WHERE 'dol-insp:' || activity_nr NOT IN (SELECT guid FROM articles)")
+    con.execute("DELETE FROM enforcement_narratives_fts WHERE activity_nr NOT IN (SELECT activity_nr FROM enforcement_cases)")
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +550,10 @@ def _citation_filter(section: str | None, part: str | None, title: int) -> tuple
 def query_articles(con: sqlite3.Connection, *, category: str = "all", q: str | None = None,
                    section: str | None = None, part: str | None = None, title: int = 29,
                    state: str | None = None, min_penalty: float | None = None,
-                   gravity: str | None = None, limit: int = 30, offset: int = 0) -> dict:
+                   gravity: str | None = None, naics: str | None = None,
+                   gdc: bool = False, fatality: bool = False,
+                   jurisdiction: str | None = None, emphasis: str | None = None,
+                   limit: int = 30, offset: int = 0) -> dict:
     filters: list[str] = []
     params: list = []
     if category and category != "all":
@@ -437,7 +568,35 @@ def query_articles(con: sqlite3.Connection, *, category: str = "all", q: str | N
     if gravity:
         filters.append("EXISTS (SELECT 1 FROM json_each(a.violation_types) WHERE value = ?)")
         params.append(gravity)
-    if state or min_penalty is not None or gravity:
+    if naics and naics.strip():
+        filters.append("a.naics LIKE ? || '%'")
+        params.append(naics.strip())
+    if gdc:
+        filters.append("a.general_duty > 0")
+    if fatality:
+        filters.append(
+            "(EXISTS (SELECT 1 FROM enforcement_cases ec, json_each(ec.accidents_json) ac "
+            "WHERE a.guid = 'dol-insp:' || ec.activity_nr AND COALESCE(json_extract(ac.value, '$.fatality'), '') != '') "
+            "OR EXISTS (SELECT 1 FROM enforcement_cases ec WHERE a.guid = 'dol-insp:' || ec.activity_nr "
+            "AND json_extract(ec.details_json, '$.insp_type') = 'M'))"
+        )
+    if jurisdiction == "federal":
+        filters.append(
+            "COALESCE((SELECT json_extract(ec.details_json, '$.state_flag') FROM enforcement_cases ec "
+            "WHERE a.guid = 'dol-insp:' || ec.activity_nr), '') != 'S'"
+        )
+    elif jurisdiction == "state_plan":
+        filters.append(
+            "((SELECT json_extract(ec.details_json, '$.state_flag') FROM enforcement_cases ec "
+            "WHERE a.guid = 'dol-insp:' || ec.activity_nr) = 'S' OR a.unmapped_standards > 0)"
+        )
+    if emphasis and emphasis.strip():
+        filters.append(
+            "EXISTS (SELECT 1 FROM enforcement_cases ec, json_each(ec.violations_json) vj "
+            "WHERE a.guid = 'dol-insp:' || ec.activity_nr AND upper(COALESCE(json_extract(vj.value, '$.emphasis'), '')) = ?)"
+        )
+        params.append(emphasis.strip().upper())
+    if state or min_penalty is not None or gravity or naics or gdc or fatality or jurisdiction in ("federal", "state_plan") or emphasis:
         filters.append("a.category = 'enforcement'")
     if section or part:
         sql, p = _citation_filter(section, part, title)
@@ -465,14 +624,47 @@ def query_articles(con: sqlite3.Connection, *, category: str = "all", q: str | N
 
     where = (" WHERE " + " AND ".join(filters)) if filters else ""
     if fts:
-        base = ("FROM articles_fts JOIN articles a ON a.rowid = articles_fts.rowid "
-                f"WHERE articles_fts MATCH ?{' AND ' + ' AND '.join(filters) if filters else ''}")
+        extra_where = (" AND " + " AND ".join(filters)) if filters else ""
+        has_narr_fts = False
+        if category in ("all", "enforcement"):
+            has_narr_fts = con.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='enforcement_narratives_fts'"
+            ).fetchone() is not None
         try:
-            total = con.execute(f"SELECT count(*) {base}", [fts, *params]).fetchone()[0]
-            rows = con.execute(
-                f"SELECT a.*, snippet(articles_fts, 1, ?, ?, '…', 24) AS snippet {base} "
-                "ORDER BY bm25(articles_fts, 2.0, 1.0, 1.5), a.published_at DESC LIMIT ? OFFSET ?",
-                [SNIPPET_OPEN, SNIPPET_CLOSE, fts, *params, limit, offset]).fetchall()
+            if has_narr_fts:
+                cte = (
+                    "WITH hits AS ("
+                    "  SELECT a.guid AS guid, bm25(articles_fts, 2.0, 1.0, 1.5) AS rank,"
+                    "         snippet(articles_fts, 1, ?, ?, '…', 24) AS snippet"
+                    "  FROM articles_fts JOIN articles a ON a.rowid = articles_fts.rowid"
+                    f"  WHERE articles_fts MATCH ?{extra_where}"
+                    "  UNION ALL"
+                    "  SELECT a.guid AS guid, bm25(enforcement_narratives_fts) AS rank,"
+                    "         snippet(enforcement_narratives_fts, 3, ?, ?, '…', 24) AS snippet"
+                    "  FROM enforcement_narratives_fts"
+                    "  JOIN articles a ON a.guid = 'dol-insp:' || enforcement_narratives_fts.activity_nr"
+                    f"  WHERE enforcement_narratives_fts MATCH ?{extra_where}"
+                    "), ranked AS ("
+                    "  SELECT guid, min(rank) AS best_rank,"
+                    "         max(CASE WHEN snippet IS NOT NULL AND snippet != '' THEN snippet ELSE NULL END) AS snippet"
+                    "  FROM hits GROUP BY guid"
+                    ")"
+                )
+                cte_params = [SNIPPET_OPEN, SNIPPET_CLOSE, fts, *params, SNIPPET_OPEN, SNIPPET_CLOSE, fts, *params]
+                total = con.execute(f"{cte} SELECT count(*) FROM ranked", cte_params).fetchone()[0]
+                rows = con.execute(
+                    f"{cte} SELECT a.*, r.snippet AS snippet FROM ranked r JOIN articles a ON a.guid = r.guid "
+                    "ORDER BY r.best_rank, a.published_at DESC LIMIT ? OFFSET ?",
+                    [*cte_params, limit, offset],
+                ).fetchall()
+            else:
+                base = ("FROM articles_fts JOIN articles a ON a.rowid = articles_fts.rowid "
+                        f"WHERE articles_fts MATCH ?{extra_where}")
+                total = con.execute(f"SELECT count(*) {base}", [fts, *params]).fetchone()[0]
+                rows = con.execute(
+                    f"SELECT a.*, snippet(articles_fts, 1, ?, ?, '…', 24) AS snippet {base} "
+                    "ORDER BY bm25(articles_fts, 2.0, 1.0, 1.5), a.published_at DESC LIMIT ? OFFSET ?",
+                    [SNIPPET_OPEN, SNIPPET_CLOSE, fts, *params, limit, offset]).fetchall()
         except sqlite3.OperationalError:
             total, rows = 0, []
     else:
@@ -528,6 +720,32 @@ def get_enforcement_case(con: sqlite3.Connection, activity_nr: int) -> dict | No
     events = _json_load(case_row["events_json"], []) if case_row else []
     gdc = _json_load(case_row["gdc_json"], []) if case_row else []
     accidents = _json_load(case_row["accidents_json"], []) if case_row else []
+    related_raw = _json_load(case_row["related_json"], []) if case_row and "related_json" in case_row.keys() else []
+    related: list[dict] = []
+    if related_raw:
+        rel_nrs = [int(r["rel_act_nr"]) for r in related_raw if r.get("rel_act_nr") is not None]
+        hints: dict[int, dict] = {}
+        if rel_nrs:
+            guids = [f"dol-insp:{n}" for n in set(rel_nrs)]
+            ph = ",".join("?" * len(guids))
+            for ar in con.execute(
+                f"SELECT guid, company, state, penalty_usd, published_at FROM articles WHERE guid IN ({ph})",
+                guids,
+            ).fetchall():
+                nr = int(str(ar["guid"]).split(":", 1)[1])
+                hints[nr] = {
+                    "cached": True,
+                    "estab_name": ar["company"],
+                    "site_state": ar["state"],
+                    "penalty_usd": ar["penalty_usd"],
+                    "open_date": ar["published_at"],
+                }
+        for r in related_raw:
+            nr = r.get("rel_act_nr")
+            hint = hints.get(int(nr), {}) if nr is not None else {}
+            related.append({**r, "cached": bool(hint), **hint})
+    enrich_ver = int(case_row["enrich_ver"] or 0) if case_row and "enrich_ver" in case_row.keys() else 0
+    enriched_mod_date = case_row["enriched_mod_date"] if case_row and "enriched_mod_date" in case_row.keys() else None
     enriched_at = case_row["enriched_at"] if case_row else None
     return {
         "activity_nr": int(activity_nr),
@@ -537,6 +755,9 @@ def get_enforcement_case(con: sqlite3.Connection, activity_nr: int) -> dict | No
         "events": events,
         "gdc": gdc,
         "accidents": accidents,
+        "related": related,
+        "enrich_ver": enrich_ver,
+        "enriched_mod_date": enriched_mod_date,
         "enriched_at": enriched_at,
     }
 
@@ -557,6 +778,13 @@ def enforcement_summary(con: sqlite3.Connection) -> dict:
             "total_penalty_usd": 0.0,
             "avg_penalty_usd": 0.0,
             "max_penalty_usd": 0.0,
+            "total_initial_usd": 0.0,
+            "total_current_usd": 0.0,
+            "avg_reduction_pct": 0.0,
+            "contested_cases": 0,
+            "fta_cases": 0,
+            "fta_total_usd": 0.0,
+            "open_abate_cases": 0,
             "gravity_counts": {"W": 0, "R": 0, "S": 0, "O": 0},
             "top_sections": [],
             "top_states": [],
@@ -622,13 +850,289 @@ def enforcement_summary(con: sqlite3.Connection) -> dict:
             "penalty_usd": round(float(largest_row["penalty_usd"] or 0.0), 2),
             "published_at": largest_row["published_at"],
         }
+    total_initial_usd = 0.0
+    total_current_usd = 0.0
+    contested_cases = 0
+    fta_cases = 0
+    fta_total_usd = 0.0
+    open_abate_cases = 0
+    red_pcts: list[float] = []
+    try:
+        case_rows = con.execute("SELECT details_json FROM enforcement_cases").fetchall()
+    except sqlite3.OperationalError:
+        case_rows = []
+    for cr in case_rows:
+        d = _json_load(cr["details_json"], {})
+        init_p = float(d.get("initial_penalty_usd") or 0.0)
+        cur_p = float(d.get("current_penalty_usd") or 0.0)
+        total_initial_usd += init_p
+        total_current_usd += cur_p
+        if init_p > cur_p and init_p > 0:
+            red_pcts.append((init_p - cur_p) / init_p * 100.0)
+        if int(d.get("contested_count") or 0) > 0:
+            contested_cases += 1
+        if int(d.get("fta_count") or 0) > 0 or float(d.get("fta_total_usd") or 0.0) > 0:
+            fta_cases += 1
+            fta_total_usd += float(d.get("fta_total_usd") or 0.0)
+        if int(d.get("open_abate_count") or 0) > 0:
+            open_abate_cases += 1
+
     return {
         "total_cases": total_cases,
         "total_penalty_usd": round(total_penalty, 2),
         "avg_penalty_usd": round(total_penalty / penalized, 2) if penalized else 0.0,
         "max_penalty_usd": round(max_penalty, 2),
+        "total_initial_usd": round(total_initial_usd, 2),
+        "total_current_usd": round(total_current_usd, 2),
+        "avg_reduction_pct": round(sum(red_pcts) / len(red_pcts), 1) if red_pcts else 0.0,
+        "contested_cases": contested_cases,
+        "fta_cases": fta_cases,
+        "fta_total_usd": round(fta_total_usd, 2),
+        "open_abate_cases": open_abate_cases,
         "gravity_counts": gravity_counts,
         "top_sections": top_sections,
         "top_states": top_states,
         "largest_case": largest_case,
     }
+
+
+def _empty_scope_stats() -> dict:
+    return {
+        "case_count": 0,
+        "citation_count": 0,
+        "avg_penalty": 0.0,
+        "fta_count": 0,
+        "top_paragraphs": [],
+    }
+
+
+def _scope_enforcement_stats(
+    con: sqlite3.Connection,
+    *,
+    section_id: str | None = None,
+    part: str | None = None,
+) -> dict:
+    """Aggregate case count, average citation penalty, FTA count, and paragraph hotspots
+    across cached enforcement cases for a Title 29 section or part."""
+    try:
+        rows = con.execute("SELECT activity_nr, details_json, violations_json FROM enforcement_cases").fetchall()
+    except sqlite3.OperationalError:
+        return _empty_scope_stats()
+
+    cases: set[int] = set()
+    penalties: list[float] = []
+    fta_count = 0
+    para_counts: dict[str, int] = {}
+    prefix = f"{part}." if part else None
+
+    for r in rows:
+        det = _json_load(r["details_json"], {})
+        # Keep Federal Title 29 hotspots cleanly separated from State Plan codes.
+        if det.get("state_flag") == "S":
+            continue
+        viols = _json_load(r["violations_json"], [])
+        for v in viols:
+            if v.get("is_state_plan"):
+                continue
+            sid = v.get("section_id") or ""
+            if section_id and sid != section_id:
+                continue
+            if prefix and not sid.startswith(prefix):
+                continue
+            cases.add(int(r["activity_nr"]))
+            penalties.append(float(v.get("current_penalty") or 0.0))
+            if v.get("fta_penalty") or v.get("fta_insp_nr"):
+                fta_count += 1
+            p = (v.get("para") or "").strip()
+            if p:
+                para_counts[p] = para_counts.get(p, 0) + 1
+
+    if not penalties:
+        return _empty_scope_stats()
+
+    total_para_hits = sum(para_counts.values())
+    top_paras = sorted(para_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+    return {
+        "case_count": len(cases),
+        "citation_count": len(penalties),
+        "avg_penalty": round(sum(penalties) / len(penalties), 2),
+        "fta_count": fta_count,
+        "top_paragraphs": [
+            {
+                "para": p,
+                "count": cnt,
+                "share_pct": round(cnt / total_para_hits * 100) if total_para_hits >= 10 else None,
+            }
+            for p, cnt in top_paras
+        ],
+    }
+
+
+def section_enforcement_stats(con: sqlite3.Connection, section_id: str) -> dict:
+    return _scope_enforcement_stats(con, section_id=section_id)
+
+
+def part_enforcement_stats(con: sqlite3.Connection, part: str) -> dict:
+    return _scope_enforcement_stats(con, part=str(part))
+
+
+def emphasis_facets(con: sqlite3.Connection) -> list[dict]:
+    """Distinct OSHA NEP/LEP emphasis codes across cached violations."""
+    try:
+        rows = con.execute(
+            """SELECT upper(trim(json_extract(j.value, '$.emphasis'))) AS code, count(DISTINCT ec.activity_nr) AS n
+               FROM enforcement_cases ec, json_each(ec.violations_json) j
+               WHERE COALESCE(trim(json_extract(j.value, '$.emphasis')), '') != ''
+               GROUP BY code ORDER BY n DESC, code LIMIT 16"""
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [{"code": r["code"], "count": int(r["n"])} for r in rows]
+
+
+def naics_summary(
+    con: sqlite3.Connection,
+    naics: str | None = None,
+    *,
+    federal_only: bool = False,
+    limit: int = 12,
+) -> dict | list[dict]:
+    """Aggregate cached enforcement benchmarks by NAICS code or prefix."""
+    fed_clause = (
+        " AND COALESCE((SELECT json_extract(ec.details_json, '$.state_flag') FROM enforcement_cases ec "
+        "WHERE a.guid = 'dol-insp:' || ec.activity_nr), '') != 'S'"
+        if federal_only else ""
+    )
+    if naics is not None:
+        prefix = naics.strip()
+        agg = con.execute(
+            f"""SELECT count(*) AS cnt,
+                       COALESCE(sum(CASE WHEN a.penalty_usd > 0 THEN a.penalty_usd ELSE 0 END), 0.0) AS pen,
+                       COALESCE(sum(a.general_duty), 0) AS gdc
+                FROM articles a
+                WHERE a.category = 'enforcement' AND a.naics LIKE ? || '%'{fed_clause}""",
+            (prefix,),
+        ).fetchone()
+        fat = 0
+        try:
+            fat = int(con.execute(
+                f"""SELECT count(*) FROM articles a
+                    WHERE a.category = 'enforcement' AND a.naics LIKE ? || '%'{fed_clause}
+                      AND (EXISTS (SELECT 1 FROM enforcement_cases ec, json_each(ec.accidents_json) ac
+                                   WHERE a.guid = 'dol-insp:' || ec.activity_nr
+                                     AND COALESCE(json_extract(ac.value, '$.fatality'), '') != '')
+                           OR EXISTS (SELECT 1 FROM enforcement_cases ec
+                                      WHERE a.guid = 'dol-insp:' || ec.activity_nr
+                                        AND json_extract(ec.details_json, '$.insp_type') = 'M'))""",
+                (prefix,),
+            ).fetchone()[0] or 0)
+        except sqlite3.OperationalError:
+            fat = 0
+        sec_rows = con.execute(
+            f"""SELECT c.section_id, count(*) AS cnt, COALESCE(sum(a.penalty_usd), 0.0) AS pen
+                FROM article_citations c
+                JOIN articles a ON a.guid = c.article_guid
+                WHERE a.category = 'enforcement' AND a.naics LIKE ? || '%'
+                  AND c.title_num = 29 AND c.section_id != ''{fed_clause}
+                GROUP BY c.section_id
+                ORDER BY cnt DESC, pen DESC, c.section_id
+                LIMIT ?""",
+            (prefix, limit),
+        ).fetchall()
+        return {
+            "naics": prefix,
+            "case_count": int(agg["cnt"] or 0),
+            "total_penalty_usd": round(float(agg["pen"] or 0.0), 2),
+            "gdc_count": int(agg["gdc"] or 0),
+            "fatality_count": fat,
+            "top_sections": [
+                {"section_id": r["section_id"], "count": int(r["cnt"]), "total_penalty_usd": round(float(r["pen"]), 2)}
+                for r in sec_rows
+            ],
+        }
+
+    rows = con.execute(
+        f"""SELECT a.naics AS code, count(*) AS cnt,
+                   COALESCE(sum(CASE WHEN a.penalty_usd > 0 THEN a.penalty_usd ELSE 0 END), 0.0) AS pen
+            FROM articles a
+            WHERE a.category = 'enforcement' AND a.naics IS NOT NULL AND trim(a.naics) != ''{fed_clause}
+            GROUP BY a.naics
+            ORDER BY cnt DESC, pen DESC, a.naics
+            LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    return [
+        {"code": r["code"], "count": int(r["cnt"]), "total_penalty_usd": round(float(r["pen"]), 2)}
+        for r in rows
+    ]
+
+
+def save_dol_catalog(con: sqlite3.Connection, entries: list[dict], now: datetime | None = None) -> int:
+    """Upsert discovered DOL Open Data API v4 datasets into `dol_datasets`."""
+    if not entries:
+        return 0
+    con.execute(_DOL_DATASETS_DDL)
+    iso = (now or datetime.now(timezone.utc)).isoformat()
+    rows = []
+    for e in entries:
+        slug = str(e.get("slug") or "").strip()
+        if not slug:
+            continue
+        rows.append((
+            slug,
+            str(e.get("agency") or "").strip(),
+            str(e.get("dataset") or "").strip(),
+            str(e.get("title") or "").strip(),
+            e.get("frequency"),
+            str(e.get("probe_status") or "unprobed"),
+            json.dumps(e.get("fields") or []),
+            e.get("cfr_title"),
+            json.dumps(e.get("cfr_parts") or []),
+            json.dumps(e.get("raw") or {}),
+            e.get("discovered_at") or iso,
+        ))
+    con.executemany(
+        """INSERT INTO dol_datasets
+             (slug, agency, dataset, title, frequency, probe_status, fields_json,
+              cfr_title, cfr_parts_json, raw_json, discovered_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(slug) DO UPDATE SET
+             agency = excluded.agency,
+             dataset = excluded.dataset,
+             title = excluded.title,
+             frequency = excluded.frequency,
+             probe_status = CASE WHEN excluded.probe_status != 'unprobed' THEN excluded.probe_status ELSE dol_datasets.probe_status END,
+             fields_json = CASE WHEN excluded.fields_json != '[]' THEN excluded.fields_json ELSE dol_datasets.fields_json END,
+             cfr_title = excluded.cfr_title,
+             cfr_parts_json = excluded.cfr_parts_json,
+             raw_json = excluded.raw_json,
+             discovered_at = excluded.discovered_at""",
+        rows,
+    )
+    return len(rows)
+
+
+def list_dol_catalog(con: sqlite3.Connection) -> list[dict]:
+    """Return cached DOL datasets ordered by agency and slug."""
+    try:
+        rows = con.execute(
+            "SELECT slug, agency, dataset, title, frequency, probe_status, fields_json, "
+            "cfr_title, cfr_parts_json, discovered_at FROM dol_datasets ORDER BY agency, slug"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    out = []
+    for r in rows:
+        out.append({
+            "slug": r["slug"],
+            "agency": r["agency"],
+            "dataset": r["dataset"],
+            "title": r["title"],
+            "frequency": r["frequency"],
+            "probe_status": r["probe_status"],
+            "fields": _json_load(r["fields_json"], []),
+            "cfr_title": r["cfr_title"],
+            "cfr_parts": _json_load(r["cfr_parts_json"], []),
+            "discovered_at": r["discovered_at"],
+        })
+    return out

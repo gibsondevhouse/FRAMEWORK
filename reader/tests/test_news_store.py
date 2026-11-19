@@ -34,7 +34,7 @@ class InitTests(StoreTestCase):
         news_store.init_db()
         self.assertTrue((self.tmp / "osha_news.sqlite3").exists())
         with closing(news_store.connect()) as con:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], news_store.SCHEMA_VERSION)
             self.assertEqual(con.execute("PRAGMA foreign_keys").fetchone()[0], 1)
 
     def test_version_mismatch_recreates(self):
@@ -45,7 +45,7 @@ class InitTests(StoreTestCase):
             con.commit()
         with closing(news_store.connect()) as con:
             self.assertEqual(self.counts(con), (0, 0, 0))
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], news_store.SCHEMA_VERSION)
 
     def test_v1_migrates_fts_without_losing_articles(self):
         news_store.init_db()
@@ -58,10 +58,35 @@ class InitTests(StoreTestCase):
             )
             con.commit()
         with closing(news_store.connect()) as con:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], news_store.SCHEMA_VERSION)
             self.assertEqual(self.counts(con), (1, 1, 1))
             res = news_store.query_articles(con, q="Rescission")
             self.assertEqual(res["total"], 1)
+
+    def test_v2_migrates_related_json_without_losing_cases(self):
+        news_store.init_db()
+        art = news.enrich_item(news.build_enforcement_article(
+            DOL_INSPECTIONS[0], news.group_violations(DOL_VIOLATIONS, 50)[306953084]))
+        with closing(news_store.connect()) as con:
+            news_store.upsert_article(con, art)
+            con.executescript(
+                "DROP TABLE enforcement_cases;"
+                "CREATE TABLE enforcement_cases ("
+                "  activity_nr INTEGER PRIMARY KEY, details_json TEXT NOT NULL DEFAULT '{}',"
+                "  violations_json TEXT NOT NULL DEFAULT '[]', events_json TEXT NOT NULL DEFAULT '[]',"
+                "  gdc_json TEXT NOT NULL DEFAULT '[]', accidents_json TEXT NOT NULL DEFAULT '[]',"
+                "  enriched_at TEXT, fetched_at TEXT NOT NULL);"
+                "INSERT INTO enforcement_cases (activity_nr, details_json, violations_json, enriched_at, fetched_at)"
+                "  VALUES (306953084, '{\"estab_name\":\"X\"}', '[]', '2026-11-17', '2026-11-17');"
+                "PRAGMA user_version = 2;"
+            )
+            con.commit()
+        with closing(news_store.connect()) as con:
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], news_store.SCHEMA_VERSION)
+            case = news_store.get_enforcement_case(con, 306953084)
+            self.assertIsNotNone(case)
+            self.assertEqual(case["related"], [])
+            self.assertEqual(case["enrich_ver"], 0)
 
 
 class UpsertTests(StoreTestCase):
@@ -121,6 +146,47 @@ class UpsertTests(StoreTestCase):
             self.assertEqual(summary["gravity_counts"]["W"], 1)
             self.assertEqual(summary["largest_case"]["activity_nr"], 306953084)
 
+    def test_stage2_reduction_fta_and_paragraph_hotspot_threshold(self):
+        # Verify $0 initial penalty safety, contested/FTA counts, and >=10 para % gating.
+        insp = {**DOL_INSPECTIONS[0], "activity_nr": 9001, "state_flag": None}
+        viols = [
+            {"activity_nr": 9001, "citation_id": "01001", "standard": "19101030 G02   IIA",
+             "viol_type": "S", "initial_penalty": "0", "current_penalty": "0",
+             "contest_date": "2026-11-11", "abate_date": "2026-11-01"},
+            {"activity_nr": 9001, "citation_id": "01002", "standard": "19101030 C01",
+             "viol_type": "W", "initial_penalty": "10000", "current_penalty": "7000",
+             "fta_insp_nr": 9002, "fta_penalty": "5000", "abate_complete": "X"},
+        ]
+        art = news.enrich_item(news.build_enforcement_article(insp, viols))
+        self.assertEqual(art["inspection_detail"]["reduction_usd"], 3000.0)
+        self.assertEqual(art["inspection_detail"]["reduction_pct"], 30.0)
+        self.assertEqual(art["inspection_detail"]["contested_count"], 1)
+        self.assertEqual(art["inspection_detail"]["fta_count"], 1)
+        self.assertEqual(art["inspection_detail"]["fta_total_usd"], 5000.0)
+        self.assertEqual(art["inspection_detail"]["open_abate_count"], 1)
+
+        with closing(news_store.connect()) as con:
+            news_store.upsert_article(con, art)
+            stats = news_store.section_enforcement_stats(con, "1910.1030")
+            self.assertEqual(stats["case_count"], 1)
+            self.assertEqual(stats["citation_count"], 2)
+            self.assertEqual(stats["fta_count"], 1)
+            # < 10 paragraph hits -> share_pct stays None to avoid small-sample false precision.
+            self.assertTrue(all(p["share_pct"] is None for p in stats["top_paragraphs"]))
+
+            # 10+ paragraph hits -> share_pct is populated.
+            many_viols = [
+                {"activity_nr": 9002, "citation_id": f"01{i:03d}", "standard": "19101030 C01",
+                 "viol_type": "S", "initial_penalty": "1000", "current_penalty": "1000"}
+                for i in range(10)
+            ]
+            art2 = news.enrich_item(news.build_enforcement_article({**insp, "activity_nr": 9002}, many_viols))
+            news_store.upsert_article(con, art2)
+            stats2 = news_store.section_enforcement_stats(con, "1910.1030")
+            c1 = next(p for p in stats2["top_paragraphs"] if p["para"] == "(c)(1)")
+            self.assertEqual(c1["count"], 11)
+            self.assertIsNotNone(c1["share_pct"])
+
     def test_delete_cascades_citations(self):
         item = news.enrich_item(news.fr_document_item(FR_DOC_RULE, AGENCY))
         with closing(news_store.connect()) as con:
@@ -164,6 +230,34 @@ class PruneTests(StoreTestCase):
             news_store.prune(con, today=date(2026, 11, 18))
             con.commit()
             self.assertIsNotNone(news_store.get_enforcement_case(con, 306953084))
+
+    def test_narratives_fts_and_prune_sync(self):
+        insp = {**DOL_INSPECTIONS[1], "activity_nr": 8801, "insp_type": "M", "state_flag": None}
+        viols = [{"activity_nr": 8801, "citation_id": "01001", "standard": "5A0001",
+                  "viol_type": "S", "initial_penalty": "5000", "current_penalty": "5000"}]
+        art = news.enrich_item(news.build_enforcement_article(insp, viols))
+        art["published_at"] = "2026-11-15"
+        with closing(news_store.connect()) as con:
+            news_store.upsert_article(con, art)
+            news_store.save_enforcement_case(
+                con, 8801, details=art["inspection_detail"], violations=art["violations_list"],
+                gdc=[{"citation_id": "01001", "text": "Combustible aluminum dust explosion hazard."}],
+                accidents=[{"summary_nr": 77, "event_desc": "Trench wall collapse",
+                            "keywords": "trench,cave-in", "fatality": "X",
+                            "abstract": "Worker buried during excavation."}],
+                related=[], enrich_ver=1, enriched_at="2026-11-16T00:00:00+00:00",
+            )
+            con.commit()
+            res_gdc = news_store.query_articles(con, q="aluminum dust")
+            self.assertEqual(res_gdc["total"], 1)
+            res_acc = news_store.query_articles(con, q="excavation")
+            self.assertEqual(res_acc["total"], 1)
+            res_fat = news_store.query_articles(con, fatality=True)
+            self.assertEqual(res_fat["total"], 1)
+            # Deleting article + calling prune cleans enforcement_narratives_fts.
+            con.execute("DELETE FROM articles WHERE guid = 'dol-insp:8801'")
+            news_store.prune(con, today=date(2026, 11, 18))
+            self.assertEqual(con.execute("SELECT count(*) FROM enforcement_narratives_fts").fetchone()[0], 0)
 
 
 class SyncStatusTests(StoreTestCase):

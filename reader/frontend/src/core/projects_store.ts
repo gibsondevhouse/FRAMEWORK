@@ -20,6 +20,16 @@ export interface WorkspaceSectionRef {
   note?: string;
 }
 
+export interface WorkspaceCaseClip {
+  activity_nr: number;
+  estab_name: string;
+  location?: string;
+  penalty_usd?: number;
+  open_date?: string;
+  sections?: string[];
+  clipped_at: string;
+}
+
 export interface WorkspaceRecord {
   id: string;
   name: string;
@@ -28,6 +38,7 @@ export interface WorkspaceRecord {
   created_at: string;
   updated_at: string;
   sections: WorkspaceSectionRef[];
+  cases?: WorkspaceCaseClip[];
   projects?: ActionProjectItem[];
   tab_groups?: TabGroupRecord[];
 }
@@ -40,6 +51,7 @@ const normalizeWorkspace = (p: WorkspaceRecord): WorkspaceRecord => ({
   ...p,
   tags: Array.isArray(p.tags) ? p.tags : [],
   sections: p.sections.map(s => ({ tier: 'federal-reg', jurisdiction: 'US', ...s })),
+  cases: Array.isArray(p.cases) ? p.cases : [],
   projects: Array.isArray(p.projects) ? p.projects : [],
   tab_groups: Array.isArray(p.tab_groups) ? p.tab_groups : [],
 });
@@ -179,6 +191,30 @@ export function clipToWorkspace(
     }
   });
   showToast(`Clipped ${clippedCite} to ${targetProj.name}`);
+  return targetProj;
+}
+
+export function clipCaseToWorkspace(
+  clip: Omit<WorkspaceCaseClip, 'clipped_at'>,
+  projectId: string | null = null,
+): WorkspaceRecord | null {
+  if (!clip || !clip.activity_nr) return null;
+  let list = loadProjects();
+  let targetProj = projectId ? list.find(x => x.id === projectId) : list[0];
+  if (!targetProj) {
+    targetProj = createProject('Research clips');
+    list = loadProjects();
+    targetProj = list.find(x => x.id === targetProj!.id) || list[0];
+  }
+  if (!targetProj) return null;
+  updateProject(targetProj.id, (p) => {
+    if (!Array.isArray(p.cases)) p.cases = [];
+    const idx = p.cases.findIndex(c => c.activity_nr === clip.activity_nr);
+    const rec: WorkspaceCaseClip = { ...clip, clipped_at: nowIso() };
+    if (idx >= 0) p.cases[idx] = rec;
+    else p.cases.unshift(rec);
+  });
+  showToast(`Clipped Inspection #${clip.activity_nr} to ${targetProj.name}`);
   return targetProj;
 }
 

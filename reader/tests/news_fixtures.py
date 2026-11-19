@@ -198,14 +198,22 @@ class FakeAPI:
 
     def __init__(self, fr_pages: list[dict] | None = None, pi: dict | None = None,
                  violations: list[dict] | None = None, inspections: list[dict] | None = None,
-                 fail_paths: tuple = (), malformed_paths: tuple = (), timeout_paths: tuple = ()):
+                 related_activities: list[dict] | None = None,
+                 fail_paths: tuple = (), malformed_paths: tuple = (), timeout_paths: tuple = (),
+                 rate_limit_paths: tuple = (), extra_routes: dict | None = None):
         self.fr_pages = fr_pages if fr_pages is not None else [FR_DOCS_JSON]
         self.pi = pi if pi is not None else PI_JSON
         self.violations = violations if violations is not None else DOL_VIOLATIONS
         self.inspections = inspections if inspections is not None else DOL_INSPECTIONS
+        self.related_activities = related_activities if related_activities is not None else [
+            {"activity_nr": 306953084, "rel_type": "A", "rel_act_nr": 307000001,
+             "rel_safety": "Y", "rel_health": None},
+        ]
         self.fail_paths = fail_paths
         self.malformed_paths = malformed_paths
         self.timeout_paths = timeout_paths
+        self.rate_limit_paths = rate_limit_paths
+        self.extra_routes = extra_routes or {}
         self.requests: list[httpx.Request] = []
         self._fr_page_index = 0
 
@@ -220,10 +228,17 @@ class FakeAPI:
         path = request.url.path
         if path in self.timeout_paths:
             raise httpx.ConnectTimeout("timed out", request=request)
+        if path in self.rate_limit_paths:
+            return httpx.Response(429, headers={"Retry-After": "30"}, json={"error": "rate limit"}, request=request)
         if path in self.fail_paths:
             return httpx.Response(500, json={"error": "server error"}, request=request)
         if path in self.malformed_paths:
             return httpx.Response(200, text="<html>not json</html>", request=request)
+        if path in self.extra_routes:
+            res = self.extra_routes[path]
+            if callable(res):
+                return res(request)
+            return httpx.Response(200, json=res, request=request)
         if path == "/api/v1/documents.json":
             i = min(self._fr_page_index, len(self.fr_pages) - 1)
             page = dict(self.fr_pages[i])
@@ -233,21 +248,11 @@ class FakeAPI:
             return httpx.Response(200, json=self.pi, request=request)
         if path == "/v4/get/OSHA/violation/json":
             filt = json.loads(request.url.params.get("filter_object") or "{}")
-            op = filt.get("operator")
-            val = filt.get("value")
-            if op == "eq":
-                rows = [r for r in self.violations if r["activity_nr"] == val]
-            elif op == "in":
-                wanted = set(val or [])
-                rows = [r for r in self.violations if r["activity_nr"] in wanted]
-            else:
-                rows = self.violations
+            rows = [r for r in self.violations if self._match_filter(r, filt)]
             return httpx.Response(200, json={"data": rows}, request=request)
         if path == "/v4/get/OSHA/inspection/json":
             filt = json.loads(request.url.params.get("filter_object") or "{}")
-            val = filt.get("value")
-            wanted = {val} if filt.get("operator") == "eq" else set(val or [])
-            rows = [r for r in self.inspections if r["activity_nr"] in wanted]
+            rows = [r for r in self.inspections if self._match_filter(r, filt)]
             return httpx.Response(200, json={"data": rows}, request=request)
         if path == "/v4/get/OSHA/violation_event/json":
             return httpx.Response(200, json={"data": [
@@ -263,7 +268,38 @@ class FakeAPI:
             ]}, request=request)
         if path in ("/v4/get/OSHA/accident_injury/json", "/v4/get/OSHA/accident/json", "/v4/get/OSHA/accident_abstract/json"):
             return httpx.Response(200, json={"data": []}, request=request)
+        if path == "/v4/get/OSHA/related_activity/json":
+            filt = json.loads(request.url.params.get("filter_object") or "{}")
+            fld = filt.get("field")
+            val = filt.get("value")
+            rows = [r for r in self.related_activities if r.get(fld) == val]
+            return httpx.Response(200, json={"data": rows}, request=request)
         raise AssertionError(f"unexpected request: {request.url}")
+
+    def _match_filter(self, row: dict, filt: dict) -> bool:
+        if not filt:
+            return True
+        if "and" in filt:
+            return all(self._match_filter(row, c) for c in filt["and"])
+        fld = filt.get("field")
+        op = filt.get("operator")
+        val = filt.get("value")
+        rv = row.get(fld)
+        if op == "eq":
+            return str(rv or "").upper() == str(val or "").upper() if isinstance(val, str) else rv == val
+        if op == "in":
+            return rv in set(val or [])
+        if op == "gt":
+            return str(rv or "") > str(val or "")
+        if op == "like":
+            pat = str(val or "").upper()
+            s = str(rv or "").upper()
+            if pat.startswith("%") and pat.endswith("%"):
+                return pat.strip("%") in s
+            if pat.endswith("%"):
+                return s.startswith(pat[:-1])
+            return s == pat
+        return True
 
     def patch_client(self):
         """Patch news.client so every fetch in the block goes through this transport,

@@ -231,10 +231,24 @@ export interface NewsArticle {
   title_num?: number;
 }
 
+export interface EnforcementParaHotspot {
+  para: string;
+  count: number;
+  share_pct?: number | null;
+}
+
+export interface EnforcementStats {
+  case_count: number;
+  citation_count: number;
+  avg_penalty: number;
+  fta_count: number;
+  top_paragraphs?: EnforcementParaHotspot[];
+}
+
 export interface NewsActivityCtx {
   kind: 'section' | 'part';
   id: string;
-  data: { count: number; articles: NewsArticle[] };
+  data: { count: number; articles: NewsArticle[]; stats?: EnforcementStats };
 }
 
 export interface TransferJob {

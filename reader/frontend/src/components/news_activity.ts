@@ -5,6 +5,7 @@ import { onView } from '../core/view_dispatch';
 import { createPopover } from './popover';
 import { fmtDate } from './ui';
 import { escapeHtml, icon } from '../dom';
+import { titleHref } from '../usage';
 
 // --- In-reader activity: "N rules & citations" next to Pin, with a timeline popover ---
 
@@ -81,10 +82,33 @@ export function newsTimelineHtml(ctx: NewsActivityCtx): string {
   const filterHtml = articles.length >= 6
     ? `<input type="search" class="pop-filter" id="news-pop-filter" placeholder="Filter ${articles.length} events…" aria-label="Filter activity events" autocomplete="off">`
     : '';
+  const stats = ctx.data.stats;
+  let statsHtml = '';
+  if (stats && stats.citation_count > 0) {
+    const bits = [
+      `${stats.citation_count} ${stats.citation_count === 1 ? 'citation' : 'citations'}`,
+      stats.avg_penalty ? `Avg ${fmtMoney(stats.avg_penalty)}` : '',
+      stats.fta_count ? `${stats.fta_count} FTA` : '',
+    ].filter(Boolean);
+    const paras = (stats.top_paragraphs || []).slice(0, 3);
+    const paraHtml = paras.length
+      ? `<div class="news-pop-paras">Top cited: ${paras.map(p => {
+          const cnt = p.share_pct != null ? `${p.share_pct}%` : `${p.count}`;
+          const text = `${p.para} (${cnt})`;
+          if (ctx.kind === 'section') {
+            const href = titleHref(29, 'section/' + encodeURIComponent(ctx.id) + '?p=' + encodeURIComponent(p.para));
+            return `<a class="citation-chip" href="${href}" data-pop-nav>${escapeHtml(text)}</a>`;
+          }
+          return `<span class="citation-chip">${escapeHtml(text)}</span>`;
+        }).join('')}</div>`
+      : '';
+    statsHtml = `<div class="news-pop-stats"><div class="news-pop-stats-line">${escapeHtml(bits.join(' · '))}</div>${paraHtml}</div>`;
+  }
   return `<div class="news-pop-head-row">
       <div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
       <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close activity">${icon('close')}</button>
     </div>
+    ${statsHtml}
     ${filterHtml}
     <ol class="reg-timeline">${nodes}</ol>
     <a class="news-pop-foot" href="${allHref}">${icon('news')} See all in News</a>`;

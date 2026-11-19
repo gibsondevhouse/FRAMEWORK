@@ -110,5 +110,18 @@
     }
   ],
   "count": 2,
-  "section_id": "1910.1030"
+  "section_id": "1910.1030",
+  "stats": {
+    "avg_penalty": 14000.0,
+    "case_count": 1,
+    "citation_count": 1,
+    "fta_count": 0,
+    "top_paragraphs": [
+      {
+        "count": 1,
+        "para": "(g)(2)(ii)(A)",
+        "share_pct": null
+      }
+    ]
+  }
 }

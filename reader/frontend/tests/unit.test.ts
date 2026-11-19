@@ -188,6 +188,13 @@ test('news helpers parse queries, build URLs/hashes, detect changes, and format 
     state: 'CA',
     min_penalty: '50000',
     gravity: 'W',
+    naics: '',
+    gdc: '',
+    fatality: '',
+    jurisdiction: '',
+    emphasis: '',
+    dol_q: '',
+    dol_mode: '',
   });
   assert.equal(isDefaultNewsView(view), false);
   assert.equal(newsHash(view), '#/news?cat=enforcement&q=silica&state=CA&min_penalty=50000&gravity=W');

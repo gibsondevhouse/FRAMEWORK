@@ -180,7 +180,8 @@ var handlers = {
 	click: [],
 	input: [],
 	change: [],
-	keydown: []
+	keydown: [],
+	submit: []
 };
 var initialized = false;
 function ensureBound() {
@@ -5422,6 +5423,7 @@ var normalizeWorkspace = (p) => ({
 		jurisdiction: "US",
 		...s
 	})),
+	cases: Array.isArray(p.cases) ? p.cases : [],
 	projects: Array.isArray(p.projects) ? p.projects : [],
 	tab_groups: Array.isArray(p.tab_groups) ? p.tab_groups : []
 });
@@ -5540,6 +5542,29 @@ function clipToWorkspace(sec, { para = "", quote = "", cite = "", projectId = nu
 		} else if (!item.note || !item.note.includes(entryLine)) item.note = item.note ? `${item.note}\n\n${entryLine}` : entryLine;
 	});
 	showToast(`Clipped ${clippedCite} to ${targetProj.name}`);
+	return targetProj;
+}
+function clipCaseToWorkspace(clip, projectId = null) {
+	if (!clip || !clip.activity_nr) return null;
+	let list = loadProjects();
+	let targetProj = projectId ? list.find((x) => x.id === projectId) : list[0];
+	if (!targetProj) {
+		targetProj = createProject("Research clips");
+		list = loadProjects();
+		targetProj = list.find((x) => x.id === targetProj.id) || list[0];
+	}
+	if (!targetProj) return null;
+	updateProject(targetProj.id, (p) => {
+		if (!Array.isArray(p.cases)) p.cases = [];
+		const idx = p.cases.findIndex((c) => c.activity_nr === clip.activity_nr);
+		const rec = {
+			...clip,
+			clipped_at: nowIso()
+		};
+		if (idx >= 0) p.cases[idx] = rec;
+		else p.cases.unshift(rec);
+	});
+	showToast(`Clipped Inspection #${clip.activity_nr} to ${targetProj.name}`);
 	return targetProj;
 }
 function downloadJson(name, data) {
@@ -12374,6 +12399,22 @@ onView("click", async (e) => {
 });
 // src/views/news_case.ts
 var autoEnrichedCases = /* @__PURE__ */ new Set();
+var lastCaseData = null;
+function clipCurrentInspection() {
+	if (!lastCaseData) return;
+	const d = lastCaseData.detail || {};
+	const art = lastCaseData.article || {};
+	const loc = [d.site_city || art.city, d.site_state || art.state].filter(Boolean).join(", ");
+	const secs = [...new Set((lastCaseData.violations || []).map((v) => v.section_id).filter((s) => Boolean(s)))];
+	clipCaseToWorkspace({
+		activity_nr: lastCaseData.activity_nr,
+		estab_name: d.estab_name || art.company || `Inspection #${lastCaseData.activity_nr}`,
+		location: loc || void 0,
+		penalty_usd: d.current_penalty_usd ?? art.penalty_usd ?? void 0,
+		open_date: d.open_date || art.opened_on || void 0,
+		sections: secs.length ? secs : art.sections || []
+	});
+}
 function citationStatusText(v) {
 	const bits = [];
 	if (v.contest_date) bits.push(`Contested ${fmtDate(v.contest_date)}`);
@@ -12401,6 +12442,14 @@ function inspectionViolationsHtml(data) {
         </div>`;
 		return "<div class=\"ins-panel-empty\"><p class=\"ins-muted\">Add a free DOL API key in Settings to load per-citation details on demand.</p></div>";
 	}
+	const eventsByCit = /* @__PURE__ */ new Map();
+	for (const ev of data.events || []) {
+		if (!ev.citation_id) continue;
+		const arr = eventsByCit.get(ev.citation_id) || [];
+		arr.push(ev);
+		eventsByCit.set(ev.citation_id, arr);
+	}
+	const todayIso = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 	return `
     <div class="ins-table-wrap">
       <table class="ins-table">
@@ -12416,13 +12465,23 @@ function inspectionViolationsHtml(data) {
         </thead>
         <tbody>
           ${viols.map((v) => {
-		const tags = [];
-		if (v.gravity) tags.push(`Grav ${v.gravity}`);
-		if (v.emphasis) tags.push(`NEP ${v.emphasis}`);
-		if (v.hazcat) tags.push(v.hazcat);
-		if (v.fta_penalty) tags.push(`FTA ${fmtMoney(v.fta_penalty)}`);
-		if ((v.hazsubs || []).length) tags.push(`HazSub ${v.hazsubs.join(", ")}`);
-		const penChanged = v.initial_penalty && v.initial_penalty !== v.current_penalty;
+		const tagHtml = [];
+		const pushTag = (txt, cls = "") => tagHtml.push(`<span class="ins-tag${cls ? " " + cls : ""}">${escapeHtml(txt)}</span>`);
+		if (v.gravity) pushTag(`Grav ${v.gravity}`);
+		if (v.emphasis) pushTag(`NEP ${v.emphasis}`);
+		if (v.hazcat) pushTag(v.hazcat);
+		if (v.contest_date) pushTag("Contested", "is-warn");
+		const abDone = v.abate_complete === "X" || v.abate_complete === "3" || v.abate_complete === "Y";
+		if (v.abate_date && !abDone) pushTag(v.abate_date < todayIso ? "Abatement overdue" : "Abatement open", v.abate_date < todayIso ? "is-danger" : "is-warn");
+		if (v.fta_penalty || v.fta_insp_nr) {
+			const ftaTxt = v.fta_penalty ? `FTA +${fmtMoney(v.fta_penalty)}` : "FTA";
+			if (v.fta_insp_nr) tagHtml.push(`<a class="ins-tag is-danger ins-tag-link" href="#/news/inspection/${v.fta_insp_nr}">${escapeHtml(ftaTxt)}</a>`);
+			else pushTag(ftaTxt, "is-danger");
+		}
+		if ((v.hazsubs || []).length) pushTag(`HazSub ${v.hazsubs.join(", ")}`);
+		const modEv = [...v.citation_id && eventsByCit.get(v.citation_id) || []].reverse().find((e) => e.event_label && e.event_label !== "Issued");
+		const penChanged = v.initial_penalty != null && v.current_penalty != null && v.initial_penalty !== v.current_penalty;
+		const deltaUsd = penChanged ? v.current_penalty - v.initial_penalty : 0;
 		const expBits = [v.nr_instances ? plural(v.nr_instances, "inst") : "", v.nr_exposed ? `${v.nr_exposed} exp` : ""].filter(Boolean).join(" · ");
 		return `
               <tr>
@@ -12430,7 +12489,8 @@ function inspectionViolationsHtml(data) {
                 <td>
                   <div class="ins-std-cell">
                     ${violationStandardHtml(v)}
-                    ${tags.length ? `<div class="ins-tags">${tags.map((t) => `<span class="ins-tag">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
+                    ${tagHtml.length ? `<div class="ins-tags">${tagHtml.join("")}</div>` : ""}
+                    ${modEv ? `<div class="ins-ev-inline">${escapeHtml(modEv.event_label)}${penChanged ? ` (${deltaUsd > 0 ? "+" : "-"}${escapeHtml(fmtMoney(Math.abs(deltaUsd)))})` : ""}</div>` : ""}
                   </div>
                 </td>
                 <td><span class="ins-viol-pill is-${escapeHtml((v.viol_type || "O").toLowerCase())}">${escapeHtml(v.viol_label || v.viol_type)}</span></td>
@@ -12456,7 +12516,39 @@ function inspectionSectionsHtml(data) {
 	}).join("")}
     </div>`;
 }
+function inspectionRelatedHtml(data) {
+	const related = data.related || [];
+	if (!related.length) return "";
+	return `
+    <section class="ins-panel" aria-label="Related OSHA inspections">
+      <div class="ins-panel-head">
+        <h2 class="ins-panel-title">Related Inspections</h2>
+        <span class="ins-panel-meta">${escapeHtml(plural(related.length, "linked inspection"))}</span>
+      </div>
+      <div class="ins-related-list">
+        ${related.map((r) => {
+		const scopes = [r.safety ? "Safety" : "", r.health ? "Health" : ""].filter(Boolean);
+		const metaBits = [
+			r.rel_label || r.rel_type || "Related",
+			...scopes,
+			r.cached && r.estab_name ? r.estab_name : "",
+			r.cached && r.site_state ? r.site_state : "",
+			r.cached && r.penalty_usd ? fmtMoney(r.penalty_usd) : ""
+		].filter(Boolean);
+		return `
+            <a class="ins-related-row" href="#/news/inspection/${r.rel_act_nr}">
+              <div class="ins-related-main">
+                <span class="ins-related-nr">Inspection #${r.rel_act_nr}</span>
+                <span class="ins-related-meta">${escapeHtml(metaBits.join(" · "))}</span>
+              </div>
+              <span class="ins-related-arrow">${icon("chevronRight")}</span>
+            </a>`;
+	}).join("")}
+      </div>
+    </section>`;
+}
 function renderInspectionCase(data, { enter = true, enriching = false, enrichError = "" } = {}) {
+	lastCaseData = data;
 	const actNr = data.activity_nr;
 	const art = data.article || {};
 	const d = data.detail || {};
@@ -12467,14 +12559,17 @@ function renderInspectionCase(data, { enter = true, enriching = false, enrichErr
 		[d.site_city || art.city, d.site_state || art.state].filter(Boolean).join(", "),
 		d.site_zip
 	].filter(Boolean);
+	const naicsCode = d.naics_code || art.naics;
 	const subLine = joinSep([
 		escapeHtml(docType),
 		addrParts.length ? escapeHtml(addrParts.join(" · ")) : "",
-		d.naics_code || art.naics ? `NAICS ${escapeHtml(d.naics_code || art.naics)}` : ""
+		naicsCode ? `<a class="citation-link" href="#/news?cat=enforcement&naics=${encodeURIComponent(naicsCode)}">NAICS ${escapeHtml(naicsCode)}</a>` : ""
 	]);
 	const curPen = d.current_penalty_usd ?? art.penalty_usd ?? 0;
 	const initPen = d.initial_penalty_usd ?? curPen;
-	const deltaPct = initPen > 0 && curPen !== initPen ? Math.round((curPen - initPen) / initPen * 100) : 0;
+	const deltaUsd = curPen - initPen;
+	const deltaPct = initPen > 0 && curPen !== initPen ? Math.round(deltaUsd / initPen * 100) : 0;
+	const penSub = deltaPct ? `Initial ${fmtMoney(initPen)} · ${deltaUsd < 0 ? "-" : "+"}${fmtMoney(Math.abs(deltaUsd))} (${deltaPct > 0 ? "+" : ""}${deltaPct}%)` : initPen ? `Initial ${fmtMoney(initPen)}` : "No penalty assessed";
 	const violCount = (data.violations || []).length || d.citation_count || 0;
 	const vCounts = (data.violations || []).reduce((m, v) => {
 		const k = v.viol_label || v.viol_type;
@@ -12517,6 +12612,7 @@ function renderInspectionCase(data, { enter = true, enriching = false, enrichErr
           ${subLine ? `<p class="ins-sub">${subLine}</p>` : ""}
         </div>
         <div class="ins-head-acts">
+          <button type="button" class="btn btn-sm" data-ins-act="clip">${icon("bookmark")} Clip to Workspace</button>
           ${data.dol_configured ? `<button type="button" class="btn btn-sm" data-ins-act="enrich" data-act-nr="${actNr}"${enriching ? " disabled" : ""}>${icon("activity")} Refresh from DOL</button>` : ""}
           ${oshaUrl ? `<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(oshaUrl)}" title="Opens OSHA.gov (may prompt human verification)">${icon("external")} OSHA.gov</a>` : ""}
         </div>
@@ -12526,7 +12622,7 @@ function renderInspectionCase(data, { enter = true, enriching = false, enrichErr
         ${metricCardHtml({
 		label: "Current penalty",
 		value: curPen ? escapeHtml(fmtMoney(curPen)) : "$0",
-		sub: deltaPct ? escapeHtml(`Initial ${fmtMoney(initPen)} (${deltaPct > 0 ? "+" : ""}${deltaPct}%)`) : escapeHtml(initPen ? `Initial ${fmtMoney(initPen)}` : "No penalty assessed")
+		sub: escapeHtml([penSub, d.fta_total_usd ? `FTA ${fmtMoney(d.fta_total_usd)}` : ""].filter(Boolean).join(" · "))
 	})}
         ${metricCardHtml({
 		label: "Citations",
@@ -12573,6 +12669,8 @@ function renderInspectionCase(data, { enter = true, enriching = false, enrichErr
             </div>`).join("")}
         </section>` : ""}
 
+      ${inspectionRelatedHtml(data)}
+
       ${accidents.length ? `
         <section class="ins-panel" aria-label="Accident investigation abstract">
           <div class="ins-panel-head">
@@ -12618,9 +12716,9 @@ function renderInspectionCase(data, { enter = true, enriching = false, enrichErr
     </div>`;
 	if (enter) enterView();
 }
-async function enrichInspection(activityNr, seq) {
+async function enrichInspection(activityNr, seq, force = false) {
 	try {
-		const res = await getJSON(`/api/news/inspection/${activityNr}/enrich`, { method: "POST" });
+		const res = await getJSON(`/api/news/inspection/${activityNr}/enrich${force ? "?force=true" : ""}`, { method: "POST" });
 		if (seq !== state.routeSeq) return;
 		renderInspectionCase(res, { enter: false });
 	} catch (err) {
@@ -12717,48 +12815,73 @@ var newsState = {
 	status: null,
 	facets: null,
 	summary: null,
+	naicsSummary: null,
+	dolArchive: {
+		loading: false,
+		error: "",
+		data: null
+	},
 	watchToken: 0
 };
 function newsViewFromParams(params) {
 	const get = (k) => (params?.get(k) || "").trim();
+	const cat = NEWS_CATEGORIES.some((c) => c.key === get("cat")) ? get("cat") : "all";
+	const jur = get("jurisdiction");
+	const dm = get("dol_mode");
 	return {
-		cat: NEWS_CATEGORIES.some((c) => c.key === get("cat")) ? get("cat") : "all",
+		cat,
 		q: get("q"),
 		section: get("section"),
 		part: get("part"),
 		state: /^[A-Za-z]{2}$/.test(get("state")) ? get("state").toUpperCase() : "",
 		min_penalty: /^\d+$/.test(get("min_penalty")) ? get("min_penalty") : "",
-		gravity: /^[WRS]$/.test(get("gravity")) ? get("gravity") : ""
+		gravity: /^[WRSOU]$/.test(get("gravity")) ? get("gravity") : "",
+		naics: /^\d{2,6}$/.test(get("naics")) ? get("naics") : "",
+		gdc: get("gdc") === "1" || get("gdc") === "true" ? "1" : "",
+		fatality: get("fatality") === "1" || get("fatality") === "true" ? "1" : "",
+		jurisdiction: jur === "federal" || jur === "state_plan" ? jur : "",
+		emphasis: /^[A-Za-z0-9_-]{1,24}$/.test(get("emphasis")) ? get("emphasis").toUpperCase() : "",
+		dol_q: get("dol_q"),
+		dol_mode: [
+			"employer",
+			"naics",
+			"standard",
+			"hazsub"
+		].includes(dm) ? dm : get("dol_q") ? "employer" : ""
 	};
 }
 function isDefaultNewsView(view) {
-	return !view.q && !view.section && !view.part && !view.state && !view.min_penalty && !view.gravity;
+	return !view.q && !view.section && !view.part && !view.state && !view.min_penalty && !view.gravity && !view.naics && !view.gdc && !view.fatality && !view.jurisdiction && !view.emphasis && !view.dol_q;
 }
+var NEWS_QUERY_KEYS = [
+	"q",
+	"section",
+	"part",
+	"state",
+	"min_penalty",
+	"gravity",
+	"naics",
+	"gdc",
+	"fatality",
+	"jurisdiction",
+	"emphasis",
+	"dol_q",
+	"dol_mode"
+];
 function newsHash(view) {
 	const p = new URLSearchParams();
 	if (view.cat && view.cat !== "all") p.set("cat", view.cat);
-	for (const k of [
-		"q",
-		"section",
-		"part",
-		"state",
-		"min_penalty",
-		"gravity"
-	]) if (view[k]) p.set(k, view[k]);
+	for (const k of NEWS_QUERY_KEYS) if (view[k]) p.set(k, view[k]);
 	const qs = p.toString();
 	return "#/news" + (qs ? "?" + qs : "");
 }
 function newsApiUrl(view, offset = 0) {
 	const p = new URLSearchParams();
 	if (view.cat && view.cat !== "all") p.set("category", view.cat);
-	for (const k of [
-		"q",
-		"section",
-		"part",
-		"state",
-		"min_penalty",
-		"gravity"
-	]) if (view[k]) p.set(k, view[k]);
+	for (const k of NEWS_QUERY_KEYS) {
+		if (k === "dol_q" || k === "dol_mode") continue;
+		if (view[k]) p.set(k, view[k]);
+	}
 	if (offset) p.set("offset", String(offset));
 	const qs = p.toString();
 	return "/api/news" + (qs ? "?" + qs : "");
@@ -12839,11 +12962,19 @@ async function loadNews(params) {
 			if (status.dol_configured && !newsState.facets) extras.push(getJSON("/api/news/facets").then((f) => {
 				newsState.facets = f;
 			}).catch(() => {}));
+			if (view.naics) {
+				const fed = view.jurisdiction === "federal" ? "?federal_only=true" : "";
+				extras.push(getJSON(`/api/news/enforcement/naics/${encodeURIComponent(view.naics)}${fed}`).then((n) => {
+					newsState.naicsSummary = n;
+				}).catch(() => {
+					newsState.naicsSummary = null;
+				}));
+			} else newsState.naicsSummary = null;
 			extras.push(getJSON("/api/news/enforcement/summary").then((s) => {
 				newsState.summary = s;
 			}).catch(() => {}));
 			await Promise.all(extras);
-		}
+		} else newsState.naicsSummary = null;
 	} catch (e) {
 		if (seq !== state.routeSeq) return;
 		const scope = newsScope(state.currentTitle);
@@ -12896,6 +13027,16 @@ async function loadNews(params) {
 		if (seq !== state.routeSeq) return;
 	}
 	if (watch) watchNewsSync(seq, view);
+	if (view.cat === "enforcement" && view.dol_q && status.dol_configured) runDolArchiveSearch({
+		q: view.dol_q,
+		mode: view.dol_mode || "employer",
+		state: view.state
+	}, seq, false);
+	else if (!view.dol_q) newsState.dolArchive = {
+		loading: false,
+		error: "",
+		data: null
+	};
 }
 function markNewsOffline(cachedAt) {
 	const slot = document.getElementById("news-head-status");
@@ -13055,13 +13196,23 @@ function newsFilterChipsHtml(view) {
 	if (view.gravity) chip("gravity", {
 		W: "Willful",
 		R: "Repeat",
-		S: "Serious"
+		S: "Serious",
+		O: "Other-than-Serious",
+		U: "Unclassified"
 	}[view.gravity] || view.gravity);
+	if (view.naics) chip("naics", `NAICS ${view.naics}`);
+	if (view.gdc) chip("gdc", "General Duty 5(a)(1)");
+	if (view.fatality) chip("fatality", "Fatality / Accident");
+	if (view.jurisdiction === "federal") chip("jurisdiction", "Federal OSHA");
+	else if (view.jurisdiction === "state_plan") chip("jurisdiction", "State Plan");
+	if (view.emphasis) chip("emphasis", `Emphasis ${view.emphasis}`);
 	return chips.length ? `<div class="news-filter-chips">${chips.join("")}</div>` : "";
 }
 function newsFacetsHtml(view, status) {
 	if (view.cat !== "enforcement" || !status || !status.dol_configured) return "";
 	const states = newsState.facets?.states || [];
+	const naicsList = newsState.facets?.top_naics || [];
+	const emphList = newsState.facets?.emphasis_codes || [];
 	const sel = (v, cur) => v === cur ? " selected" : "";
 	return `<div class="news-facets">
     <select data-news-facet="state" aria-label="State">
@@ -13084,6 +13235,21 @@ function newsFacetsHtml(view, status) {
 		["S", "Serious"]
 	].map(([v, l]) => `<option value="${v}"${sel(v, view.gravity)}>${l}</option>`).join("")}
     </select>
+    <select data-news-facet="jurisdiction" aria-label="Jurisdiction">
+      <option value="">Federal &amp; State Plan</option>
+      <option value="federal"${sel("federal", view.jurisdiction)}>Federal OSHA</option>
+      <option value="state_plan"${sel("state_plan", view.jurisdiction)}>State Plan</option>
+    </select>
+    ${naicsList.length ? `<select data-news-facet="naics" aria-label="Industry NAICS">
+      <option value="">All industries (NAICS)</option>
+      ${naicsList.map((n) => `<option value="${escapeHtml(n.code)}"${sel(n.code, view.naics)}>NAICS ${escapeHtml(n.code)} (${n.count})</option>`).join("")}
+    </select>` : ""}
+    ${emphList.length ? `<select data-news-facet="emphasis" aria-label="Emphasis program">
+      <option value="">All emphasis programs</option>
+      ${emphList.map((e) => `<option value="${escapeHtml(e.code)}"${sel(e.code, view.emphasis)}>${escapeHtml(e.code)} (${e.count})</option>`).join("")}
+    </select>` : ""}
+    <button type="button" class="btn btn-sm${view.gdc ? " is-active" : ""}" data-news-toggle="gdc" aria-pressed="${Boolean(view.gdc)}">5(a)(1) General Duty</button>
+    <button type="button" class="btn btn-sm${view.fatality ? " is-active" : ""}" data-news-toggle="fatality" aria-pressed="${Boolean(view.fatality)}">Fatality / Accident</button>
   </div>`;
 }
 function newsEmptyHtml(view, status) {
@@ -13130,7 +13296,11 @@ function enforcementSummaryHtml(view) {
       ${metricCardHtml({
 		label: "Tracked penalties",
 		value: escapeHtml(fmtMoney(s.total_penalty_usd || 0)),
-		sub: escapeHtml(`${plural(s.total_cases, "case")} · avg ${fmtMoney(s.avg_penalty_usd || 0)}`)
+		sub: escapeHtml([
+			`${plural(s.total_cases, "case")} · avg ${fmtMoney(s.avg_penalty_usd || 0)}`,
+			s.contested_cases ? `${s.contested_cases} contested` : "",
+			s.fta_cases ? `${s.fta_cases} FTA` : ""
+		].filter(Boolean).join(" · "))
 	})}
       ${metricCardHtml({
 		label: "High gravity",
@@ -13157,6 +13327,131 @@ function enforcementSummaryHtml(view) {
 		sub: "No state data"
 	})}
     </section>`;
+}
+function naicsBenchmarkHtml(view) {
+	const n = newsState.naicsSummary;
+	if (view.cat !== "enforcement" || !view.naics || !n || !n.case_count) return "";
+	const scope = newsScope(state.currentTitle);
+	const secs = (n.top_sections || []).slice(0, 6);
+	return `
+    <section class="ins-panel ins-naics-bench" aria-label="NAICS industry benchmark">
+      <div class="ins-panel-head">
+        <h2 class="ins-panel-title">Industry Benchmark · NAICS ${escapeHtml(n.naics)}</h2>
+        <span class="ins-panel-meta">${escapeHtml([
+		plural(n.case_count, "case"),
+		fmtMoney(n.total_penalty_usd),
+		n.gdc_count ? `${n.gdc_count} GDC` : "",
+		n.fatality_count ? `${n.fatality_count} fatality` : ""
+	].filter(Boolean).join(" · "))}</span>
+      </div>
+      ${secs.length ? `<div class="news-chips">${secs.map((s) => `<a class="citation-chip" href="${newsSectionHref(scope.title, s.section_id)}">§ ${escapeHtml(s.section_id)} (${s.count})</a>`).join("")}</div>` : "<p class=\"ins-muted\">No Federal 29 CFR sections mapped yet for this NAICS.</p>"}
+    </section>`;
+}
+function dolArchiveHtml(view, status) {
+	if (view.cat !== "enforcement" || !status?.dol_configured) return "";
+	const d = newsState.dolArchive;
+	const mode = view.dol_mode || d.data?.mode || "employer";
+	const sel = (v) => v === mode ? " selected" : "";
+	let bodyHtml = "";
+	if (d.loading) bodyHtml = `<div class="dol-archive-status">${statPill("busy", "Searching DOL Open Data API v4…")}</div>`;
+	else if (d.error) bodyHtml = `<div class="dol-archive-status">${statPill("stale", d.error)}</div>`;
+	else if (d.data) {
+		const rows = d.data.results || [];
+		if (!rows.length) bodyHtml = `<p class="ins-muted">No live DOL inspections matched “${escapeHtml(d.data.query)}”.</p>`;
+		else bodyHtml = `
+        <div class="dol-archive-meta">${escapeHtml(`${rows.length} live ${rows.length === 1 ? "result" : "results"}`)}${d.data.cached ? " · cached" : ""}</div>
+        <div class="dol-archive-list">
+          ${rows.map((r) => {
+			const loc = [r.site_city, r.site_state].filter(Boolean).join(", ");
+			const meta = [
+				r.insp_type_label || "OSHA inspection",
+				loc,
+				r.naics_code ? `NAICS ${r.naics_code}` : "",
+				r.open_date ? fmtDate(r.open_date) : "",
+				r.matched_standard || "",
+				r.current_penalty ? fmtMoney(r.current_penalty) : "",
+				(r.hazsubs || []).length ? r.hazsubs.join(", ") : ""
+			].filter(Boolean).join(" · ");
+			return `
+              <a class="ins-related-row" href="#/news/inspection/${r.activity_nr}">
+                <div class="ins-related-main">
+                  <span class="ins-related-nr">${escapeHtml(r.estab_name)} <span class="dol-act-id">#${r.activity_nr}</span></span>
+                  <span class="ins-related-meta">${escapeHtml(meta)}</span>
+                </div>
+                <span class="ins-related-arrow">${icon("chevronRight")}</span>
+              </a>`;
+		}).join("")}
+        </div>
+        ${d.data.has_more ? `<div class="dol-archive-more"><button type="button" class="btn btn-sm" data-news-act="dol-more">Load next 25</button></div>` : ""}`;
+	}
+	return `
+    <section class="ins-panel dol-archive-panel" aria-label="Search full DOL archive">
+      <div class="ins-panel-head">
+        <h2 class="ins-panel-title">Search Full DOL Archive</h2>
+        <span class="ins-panel-meta">Explicit submit only · cached 10m</span>
+      </div>
+      <form class="dol-archive-form" data-dol-search>
+        <select name="mode" aria-label="DOL search mode">
+          <option value="employer"${sel("employer")}>Employer</option>
+          <option value="naics"${sel("naics")}>NAICS</option>
+          <option value="standard"${sel("standard")}>29 CFR Section</option>
+          <option value="hazsub"${sel("hazsub")}>Hazard Substance</option>
+        </select>
+        <input type="search" name="q" class="news-q dol-q-input" value="${escapeHtml(view.dol_q)}"
+          placeholder="e.g. Amazon, 238160, 1910.147, or Silica…" aria-label="DOL archive query" autocomplete="off">
+        <button type="submit" class="btn btn-sm btn-accent">Search DOL</button>
+      </form>
+      <div id="dol-archive-body">${bodyHtml}</div>
+    </section>`;
+}
+async function runDolArchiveSearch(opts, seq, append = false) {
+	const q = opts.q.trim();
+	if (!q) return;
+	newsState.dolArchive = {
+		loading: !append,
+		error: "",
+		data: append ? newsState.dolArchive.data : null
+	};
+	const body = document.getElementById("dol-archive-body");
+	if (body && !append) body.innerHTML = `<div class="dol-archive-status">${statPill("busy", "Searching DOL Open Data API v4…")}</div>`;
+	try {
+		const p = new URLSearchParams({
+			q,
+			mode: opts.mode || "employer",
+			limit: "25"
+		});
+		if (opts.state) p.set("state", opts.state);
+		if (opts.offset) p.set("offset", String(opts.offset));
+		const res = await getJSON(`/api/news/dol/search?${p.toString()}`);
+		if (seq !== state.routeSeq) return;
+		if (append && newsState.dolArchive.data) {
+			const seen = new Set(newsState.dolArchive.data.results.map((r) => r.activity_nr));
+			const merged = newsState.dolArchive.data.results.concat(res.results.filter((r) => !seen.has(r.activity_nr)));
+			newsState.dolArchive = {
+				loading: false,
+				error: "",
+				data: {
+					...res,
+					results: merged
+				}
+			};
+		} else newsState.dolArchive = {
+			loading: false,
+			error: "",
+			data: res
+		};
+	} catch (err) {
+		if (seq !== state.routeSeq) return;
+		newsState.dolArchive = {
+			loading: false,
+			error: err instanceof Error ? err.message : "DOL search failed",
+			data: append ? newsState.dolArchive.data : null
+		};
+	}
+	if (newsState.view && newsState.status) {
+		const panel = dom.view.querySelector(".dol-archive-panel");
+		if (panel) panel.outerHTML = dolArchiveHtml(newsState.view, newsState.status);
+	}
 }
 function renderNews(view, data, status, opts = {}) {
 	newsState.view = view;
@@ -13194,6 +13489,8 @@ function renderNews(view, data, status, opts = {}) {
       </div>
       ${newsFilterChipsHtml(view)}
       ${newsFacetsHtml(view, status)}
+      ${dolArchiveHtml(view, status)}
+      ${naicsBenchmarkHtml(view)}
       ${enforcementSummaryHtml(view)}
       ${articles.length ? `
         ${hero ? newsCardHtml(hero, { hero: true }) : ""}
@@ -13271,6 +13568,16 @@ onView("click", (e) => {
 		}, { replace: true });
 		return;
 	}
+	const tog = target.closest("[data-news-toggle]");
+	if (tog && newsState.view && tog.dataset.newsToggle) {
+		const k = tog.dataset.newsToggle;
+		setNewsView({
+			...newsState.view,
+			cat: "enforcement",
+			[k]: newsState.view[k] ? "" : "1"
+		}, { replace: true });
+		return;
+	}
 	const insAct = target.closest("[data-ins-act=\"enrich\"]");
 	if (insAct) {
 		const actNr = parseInt(insAct.dataset.actNr || "", 10);
@@ -13278,8 +13585,12 @@ onView("click", (e) => {
 			insAct.disabled = true;
 			const slot = document.getElementById("ins-status-slot");
 			if (slot) slot.innerHTML = statPill("busy", "Refreshing from DOL…");
-			enrichInspection(actNr, state.routeSeq);
+			enrichInspection(actNr, state.routeSeq, true);
 		}
+		return;
+	}
+	if (target.closest("[data-ins-act=\"clip\"]")) {
+		clipCurrentInspection();
 		return;
 	}
 	const act = target.closest("[data-news-act]");
@@ -13288,7 +13599,15 @@ onView("click", (e) => {
 	if (kind === "refresh") refreshNewsCommand();
 	else if (kind === "reload") emit("route:refresh");
 	else if (kind === "more") loadMoreNews();
-	else if (kind === "search-all" && newsState.view) setNewsView({
+	else if (kind === "dol-more" && newsState.dolArchive.data && newsState.view) {
+		const prev = newsState.dolArchive.data;
+		runDolArchiveSearch({
+			q: prev.query,
+			mode: prev.mode,
+			state: newsState.view.state,
+			offset: prev.offset + prev.limit
+		}, state.routeSeq, true);
+	} else if (kind === "search-all" && newsState.view) setNewsView({
 		...newsState.view,
 		cat: "all"
 	});
@@ -13349,6 +13668,28 @@ onView("change", (e) => {
 		...newsState.view,
 		[facet.dataset.newsFacet]: facet.value
 	}, { replace: true });
+});
+onView("submit", (e) => {
+	const form = e.target?.closest("[data-dol-search]");
+	if (!form || !newsState.view) return;
+	e.preventDefault();
+	const fd = new FormData(form);
+	const q = String(fd.get("q") || "").trim();
+	const mode = String(fd.get("mode") || "employer").trim();
+	if (!q) return;
+	const next = {
+		...newsState.view,
+		cat: "enforcement",
+		dol_q: q,
+		dol_mode: mode
+	};
+	history.replaceState(null, "", newsHash(next));
+	newsState.view = next;
+	runDolArchiveSearch({
+		q,
+		mode,
+		state: next.state
+	}, state.routeSeq, false);
 });
 on("news:refresh", () => refreshNewsCommand());
 on("env:saved", () => {
@@ -13416,10 +13757,28 @@ function newsTimelineHtml(ctx) {
 	}).join("");
 	const allHref = ctx.kind === "part" ? `#/news?part=${encodeURIComponent(ctx.id)}` : `#/news?section=${encodeURIComponent(ctx.id)}`;
 	const filterHtml = articles.length >= 6 ? `<input type="search" class="pop-filter" id="news-pop-filter" placeholder="Filter ${articles.length} events…" aria-label="Filter activity events" autocomplete="off">` : "";
+	const stats = ctx.data.stats;
+	let statsHtml = "";
+	if (stats && stats.citation_count > 0) {
+		const bits = [
+			`${stats.citation_count} ${stats.citation_count === 1 ? "citation" : "citations"}`,
+			stats.avg_penalty ? `Avg ${fmtMoney(stats.avg_penalty)}` : "",
+			stats.fta_count ? `${stats.fta_count} FTA` : ""
+		].filter(Boolean);
+		const paras = (stats.top_paragraphs || []).slice(0, 3);
+		const paraHtml = paras.length ? `<div class="news-pop-paras">Top cited: ${paras.map((p) => {
+			const cnt = p.share_pct != null ? `${p.share_pct}%` : `${p.count}`;
+			const text = `${p.para} (${cnt})`;
+			if (ctx.kind === "section") return `<a class="citation-chip" href="${titleHref(29, "section/" + encodeURIComponent(ctx.id) + "?p=" + encodeURIComponent(p.para))}" data-pop-nav>${escapeHtml(text)}</a>`;
+			return `<span class="citation-chip">${escapeHtml(text)}</span>`;
+		}).join("")}</div>` : "";
+		statsHtml = `<div class="news-pop-stats"><div class="news-pop-stats-line">${escapeHtml(bits.join(" · "))}</div>${paraHtml}</div>`;
+	}
 	return `<div class="news-pop-head-row">
       <div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
       <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close activity">${icon("close")}</button>
     </div>
+    ${statsHtml}
     ${filterHtml}
     <ol class="reg-timeline">${nodes}</ol>
     <a class="news-pop-foot" href="${allHref}">${icon("news")} See all in News</a>`;
@@ -15543,6 +15902,11 @@ function commandList() {
 			"G N"
 		],
 		[
+			"Search DOL inspections (live archive)",
+			"#/news?cat=enforcement",
+			""
+		],
+		[
 			"Refresh news",
 			"cmd:news-refresh",
 			""
@@ -15668,6 +16032,18 @@ dom.search.addEventListener("input", () => {
 		moveSdActive(1);
 		return;
 	}
+	if (/^dol:/i.test(q)) {
+		const term = q.slice(4).trim();
+		dom.searchDropdown.innerHTML = term ? `<a class="sd-item sd-dol-hint" href="#/news?cat=enforcement&dol_q=${encodeURIComponent(term)}">
+           <div class="sd-item-top">
+             <span class="sd-label">DOL Archive</span>
+             <span class="sd-item-title">Search live OSHA inspections for “${escapeHtml(term)}”</span>
+           </div>
+           <span class="sd-snippet">Press <kbd>Enter</kbd> to query DOL Open Data API v4 (no network calls while typing)</span>
+         </a>` : `<div class="sd-footer">Type an employer, NAICS, or 29 CFR section after <code>dol:</code> and press <kbd>Enter</kbd>.</div>`;
+		setDropdownOpen(true);
+		return;
+	}
 	state.searchTimer = setTimeout(async () => {
 		searchAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
 		const ctrl = searchAbort;
@@ -15721,6 +16097,15 @@ dom.search.addEventListener("keydown", (e) => {
 		}
 		setDropdownOpen(false);
 		const q = dom.search.value.trim();
+		if (/^dol:/i.test(q)) {
+			const term = q.slice(4).trim();
+			if (term) {
+				const mode = /^\d{4}\.\d+/.test(term) ? "standard" : /^\d{2,6}$/.test(term) ? "naics" : "employer";
+				dom.search.blur();
+				window.location.hash = `#/news?cat=enforcement&dol_q=${encodeURIComponent(term)}&dol_mode=${mode}`;
+			}
+			return;
+		}
 		if (q && !q.startsWith(">")) window.location.hash = `#/search?q=${encodeURIComponent(q)}`;
 	} else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
 		if (!dom.searchDropdown.hidden) {

@@ -11,6 +11,7 @@ test (tests build TestClient(app) without a `with` block, so lifespan doesn't ru
 """
 from __future__ import annotations
 
+import sqlite3
 import threading
 from contextlib import closing
 from datetime import datetime, timezone
@@ -143,10 +144,77 @@ def sync_sources(sources: list[str], now: datetime | None = None) -> dict[str, i
                     c, k, days=d, limit=l, max_inspections=cp, today=today_et
                 )
             results[s] = _run(s, fetch, now)
+            if s == "dol_osha" and isinstance(results[s], int) and results[s] > 0:
+                key = config.dol_api_key()
+                if key and news.dol_cooldown_remaining() == 0:
+                    enrich_priority_cases(c, key, max_cases=5, now=now)
     with closing(news_store.connect()) as con:
         news_store.prune(con, today=today_et)
         con.commit()
     return results
+
+
+def enrich_priority_cases(
+    c,
+    key: str,
+    *,
+    max_cases: int = 5,
+    now: datetime | None = None,
+) -> int:
+    """Rate-paced trickle enrichment for up to `max_cases` highest-signal un-enriched cases."""
+    now = now or datetime.now(timezone.utc)
+    with news_store.read_con() as con:
+        if con is None:
+            return 0
+        try:
+            rows = con.execute(
+                """SELECT ec.activity_nr
+                   FROM enforcement_cases ec
+                   LEFT JOIN articles a ON a.guid = 'dol-insp:' || ec.activity_nr
+                   WHERE ec.enriched_at IS NULL
+                   ORDER BY
+                     CASE WHEN json_extract(ec.details_json, '$.insp_type') IN ('A', 'M') THEN 0 ELSE 1 END,
+                     CASE WHEN COALESCE(a.general_duty, 0) > 0 THEN 0 ELSE 1 END,
+                     COALESCE(a.penalty_usd, 0) DESC,
+                     ec.activity_nr DESC
+                   LIMIT ?""",
+                (max_cases,),
+            ).fetchall()
+        except sqlite3.Error:
+            return 0
+    done = 0
+    for r in rows:
+        if news.dol_cooldown_remaining() > 0:
+            break
+        act_nr = int(r["activity_nr"])
+        try:
+            fetched = news.fetch_inspection_case(c, key, act_nr)
+        except news.SourceUnavailable as e:
+            if "429" in str(e):
+                break
+            continue
+        if not fetched:
+            continue
+        article = fetched["article"]
+        with closing(news_store.connect()) as con:
+            news_store.upsert_article(con, article, now)
+            news_store.save_enforcement_case(
+                con,
+                act_nr,
+                details=article["inspection_detail"],
+                violations=article.get("violations_list") or [],
+                events=fetched["events"],
+                gdc=fetched["gdc"],
+                accidents=fetched["accidents"],
+                related=fetched.get("related") or [],
+                enrich_ver=1,
+                enriched_mod_date=(article["inspection_detail"] or {}).get("case_mod_date"),
+                enriched_at=now.isoformat(),
+                now=now,
+            )
+            con.commit()
+        done += 1
+    return done
 
 
 def _run(source: str, fetch, now: datetime | None = None) -> int | str:

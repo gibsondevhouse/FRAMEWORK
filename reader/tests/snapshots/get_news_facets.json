@@ -1,4 +1,5 @@
 {
+  "emphasis_codes": [],
   "states": [
     {
       "code": "NH",
@@ -7,6 +8,18 @@
     {
       "code": "TX",
       "count": 1
+    }
+  ],
+  "top_naics": [
+    {
+      "code": "455219",
+      "count": 1,
+      "total_penalty_usd": 30000.0
+    },
+    {
+      "code": "331511",
+      "count": 1,
+      "total_penalty_usd": 25000.0
     }
   ]
 }

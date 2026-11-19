@@ -1,6 +1,6 @@
 import { dom } from '../state_init';
 
-export type ViewEventType = 'click' | 'input' | 'change' | 'keydown';
+export type ViewEventType = 'click' | 'input' | 'change' | 'keydown' | 'submit';
 export type ViewHandler<E extends Event = Event> = (e: E) => void | Promise<void>;
 
 const handlers: Record<ViewEventType, ViewHandler[]> = {
@@ -8,6 +8,7 @@ const handlers: Record<ViewEventType, ViewHandler[]> = {
   input: [],
   change: [],
   keydown: [],
+  submit: [],
 };
 
 let initialized = false;

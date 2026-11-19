@@ -434,25 +434,39 @@ already running, `503` when `NEWS_SYNC` is off.
 
 ### `GET /api/news/section/{section_id}` · `GET /api/news/part/{part}`
 The reader's activity button. Both take `?title=29` (default; other titles return empty
-while OSHA is the only agency) and return `{"section_id"|"part", "count", "articles"}`
-with at most 15 articles, newest first. A section matches exact citations plus
-part-level references to its part; a part matches everything inside it.
+while OSHA is the only agency) and return `{"section_id"|"part", "count", "articles", "stats"}`
+with at most 15 articles, newest first, plus aggregated Federal Title 29 enforcement telemetry
+(`case_count`, `citation_count`, `avg_penalty`, `fta_count`, and `top_paragraphs`). A section
+matches exact citations plus part-level references to its part; a part matches everything inside it.
 
 ### `GET /api/news/enforcement/summary`
 Local enforcement analytics aggregated over cached DOL OSHA inspections (`total_cases`,
-`total_penalty_usd`, `avg_penalty_usd`, `max_penalty_usd`, `gravity_counts`,
-`top_sections`, `top_states`, `largest_case`). Makes no external HTTP calls.
+`total_penalty_usd`, `avg_penalty_usd`, `max_penalty_usd`, `total_initial_usd`, `total_current_usd`,
+`avg_reduction_pct`, `contested_cases`, `fta_cases`, `fta_total_usd`, `open_abate_cases`,
+`gravity_counts`, `top_sections`, `top_states`, `largest_case`). Makes no external HTTP calls.
+
+### `GET /api/news/enforcement/naics/{code}`
+Cached industry enforcement benchmark (`case_count`, `total_penalty_usd`, `gdc_count`,
+`fatality_count`, `top_sections`) for a 2–6 digit NAICS code or prefix. Optional `?federal_only=true`.
 
 ### `GET /api/news/inspection/{activity_nr}`
 Local inspection case file (`article`, `detail`, `violations` with parsed section &
-paragraph links, `events`, `gdc`, `accidents`, `needs_enrichment`, `dol_configured`).
+paragraph links, `events`, `gdc`, `accidents`, `related` bidirectional inspection links,
+`enrich_ver`, `needs_enrichment`, `dol_configured`).
 Returns `404` when absent locally and `DOL_API_KEY` is unconfigured.
 
 ### `POST /api/news/inspection/{activity_nr}/enrich`
 Requires `DOL_API_KEY`. Fetches live inspection details, individual violations, citation
 event history (`violation_event`), General Duty Clause narratives (`violation_gen_duty_std`),
-and accident investigation abstracts (`accident*`) from `apiprod.dol.gov/v4`, caches them
-in `osha_news.sqlite3`, and returns the full case file.
+accident investigation abstracts (`accident*`), and bidirectional `related_activity` links from
+`apiprod.dol.gov/v4`, caches them in `osha_news.sqlite3`, and returns the full case file.
+Skips redundant upstream calls when `case_mod_date` is unchanged and `enrich_ver >= 1` unless `?force=true`.
+
+### `GET /api/news/dol/search`
+Requires `DOL_API_KEY` (`503` if missing, `429` during rate-limit cooldown). Explicit-submit live
+lookup against `OSHA/inspection` or `OSHA/violation` (`q`, `mode=employer|naics|standard|hazsub`,
+optional `state`, `since`, `min_penalty`, `sort_by=open_date|penalty`, `offset`, `limit<=25`)
+backed by a 10-minute server TTL cache (`cached: true`).
 
 ---
 
@@ -490,7 +504,7 @@ Request:
 }
 ```
 
-`section_id` (optional) is the section open in the reader; its text is given to Claude as context. Claude may call three local tools, each taking an optional `title` (a number, or `'all'` for search): `search_regulations`, `read_section` (40,000 characters per call, continued with `offset`) and `list_part`. At most 10 tool rounds run per request.
+`section_id` (optional) is the section open in the reader; its text is given to Claude as context. Claude may call four local tools: `search_regulations`, `read_section` (40,000 characters per call, continued with `offset`), `list_part` (each taking an optional `title` or `'all'` for search), and `search_enforcement` (reads locally cached `osha_news.sqlite3` only). At most 10 tool rounds run per request.
 
 Response is **Server-Sent Events**: lines of `data: {json}\n\n` with these `type`s:
 

@@ -1,43 +1,43 @@
-# Stage 3: NAICS Industry Benchmarks & General Duty `5(a)(1)` Index
+# Stage 3: Narratives FTS5 (GDC + Accidents), NAICS Benchmarks & Emphasis Facets
 
 ## Goal
-Make non-CFR **General Duty Clause `5(a)(1)`** narratives (`OSHA/violation_gen_duty_std`) searchable alongside federal rules and turn `naics_code` + Title 29 citations into actionable **Industry Benchmarks** (*"What OSHA cites most in NAICS X"*).
+Index **both** General Duty Clause `5(a)(1)` (`OSHA/violation_gen_duty_std`) and **Accident / Fatality Abstracts** (`OSHA/accident*`) in SQLite FTS5, unlock unused DOL fields (`emphasis`, `hazcat`, `state_flag`), deliver `naics_code` industry benchmarks, and populate local search automatically via spaced priority enrichment.
 
 ---
 
 ## Motivation from Verified Data
 
-1. **General Duty Invisible Gap**: Many serious and fatality OSHA inspections cite `5A0001` (Section `5(a)(1)` of the OSH Act) when no specific `29 CFR 1910/1926` rule applies (e.g., heat illness, ergonomics, combustible dust hazards). Currently `normalize_dol_standard("5A0001")` returns no CFR section, so `article_citations` cannot match it on section pages and FTS doesn't index `OSHA/violation_gen_duty_std.line_text`.
-2. **NAICS Context**: Every `OSHA/inspection` row carries `naics_code` (6-digit industry classification). Aggregating local violations per NAICS reveals industry citation concentration.
+1. **Dual Narrative Blind Spot:** `fetch_inspection_case()` already fetches `OSHA/violation_gen_duty_std` (`5A0001` hazards with no CFR section) **and** `OSHA/accident` / `OSHA/accident_injury` / `OSHA/accident_abstract` (`event_desc`, `event_keyword`, `fatality`, `fall_distance`, `fat_cause`, `abstract_text`), yet neither is FTS-indexed today.
+2. **Unused High-Signal Fields:** `OSHA/violation` and `OSHA/inspection` already supply `emphasis` (NEP/LEP campaigns like Trenching, Silica, Heat), `hazcat`, and `state_flag` (Federal OSHA vs. State Plan — separating state-plan codes avoids skewing Title 29 metrics).
+3. **Empty Index Cold-Start:** If narrative indexes only fill on manual `/enrich` clicks, FTS over GDC/accidents starts mostly empty after a fresh sync.
 
 ---
 
 ## Implementation Plan
 
-### 1. Local FTS5 Indexing of General Duty Narratives (`reader/app/news_store.py`)
-1. Add a companion virtual table (idempotent `CREATE VIRTUAL TABLE IF NOT EXISTS` in `connect()`):
-   - `gdc_fts USING fts5(activity_nr UNINDEXED, citation_id UNINDEXED, line_text, tokenize = 'porter unicode61')`
-2. Populate `gdc_fts` whenever `save_enforcement_case()` persists non-empty `gdc` lines from `OSHA/violation_gen_duty_std` (idempotent delete-then-insert per `activity_nr`).
-3. Extend `fts_query()` (or add `search_gdc()` merged into `GET /api/news?q=...` when `category` is `all` or `enforcement`) so searching `"heat"`, `"struck-by"`, or `"5(a)(1)"` surfaces cases whose General Duty hazard description matches, with FTS snippets.
+### 1. Unified Narratives FTS5 Index (`reader/app/news_store.py`)
+1. Create virtual table (idempotent in `connect()`):
+   - `enforcement_narratives_fts USING fts5(activity_nr UNINDEXED, kind UNINDEXED, ref_id UNINDEXED, body_text, tokenize = 'porter unicode61')` (`kind` ∈ `'gdc' | 'accident'`).
+2. Whenever `save_enforcement_case()` persists non-empty `gdc` lines or `accidents` entries (`event_desc`, `keywords`, `fat_cause`, `abstract`), delete-and-reinsert that `activity_nr`'s rows atomically.
+3. Merge `search_narratives()` into `GET /api/news?q=...` (when `category` is `all` or `enforcement`) so searching `"heat"`, `"trench"`, `"forklift"`, or `"fall"` surfaces matching cases with `\x02`/`\x03` snippets.
 
-### 2. NAICS Aggregation & Facet Queries (`reader/app/news_store.py`)
-1. Add `naics_summary(con, naics: str | None = None, limit: int = 12)` aggregating from `articles` + `enforcement_cases`:
-   - Distinct inspections, total `penalty_usd`, and top cited `29 CFR` sections/parts per `naics_code` prefix (supporting 2-digit sector e.g. `23` Construction, 3-digit subsector, or full 6-digit code).
-2. Add optional `naics` filter param to `GET /api/news` (exact 6-digit or prefix match `naics LIKE ? || '%'`).
+### 2. Industry Benchmarks & High-Signal Facets (`reader/app/news_store.py`, `reader/app/routers/news.py`)
+1. Add `naics_summary(con, naics: str | None = None, *, federal_only: bool = False, limit: int = 12)` aggregating distinct inspections, total `penalty_usd`, GDC count, fatality count, and top cited `29 CFR` sections/parts by `naics_code` prefix (2/3/6-digit).
+2. Add optional query params to `GET /api/news`: `naics`, `gdc` (`1`), `fatality` (`1`), `emphasis`, `hazcat`, and `jurisdiction` (`all | federal | state_plan` via `state_flag`).
+3. Extend `GET /api/news/facets` with `top_naics`, `emphasis_codes`, and `jurisdictions`, and add `GET /api/news/enforcement/naics/{code}`.
 
-### 3. API Endpoints (`reader/app/routers/news.py`)
-1. Add `naics: str | None = Query(default=None)` to `GET /api/news`.
-2. Add `GET /api/news/facets` support for `top_naics` alongside `states` (additive fields, preserving snapshot contract or updating golden snapshots cleanly).
-3. Add `GET /api/news/enforcement/naics/{code}` returning top cited CFR sections, GDC count, and total penalties for that industry.
+### 3. Spaced Priority Background Enrichment (`reader/app/news_worker.py`, `reader/app/news.py`)
+1. After a scheduled DOL sync finishes, allow `news_worker` to trickle-enrich a strictly small cap (e.g., **max `3–5` un-enriched cases per 24h sync**) prioritized by `insp_type IN ('A', 'M')` or `general_duty > 0`.
+2. Run through `_dol_get()`'s shared rate-pacer (`>= 2s` spacing) and abort immediately on `HTTP 429` without failing the main sync status or starving interactive Stage 4 queries.
 
-### 4. Frontend UI (`reader/frontend/src/views/news.js` & `10_news.css`)
-1. Add interactive NAICS pills/facet selector in `#/news?cat=enforcement` (e.g., clicking `NAICS 221320` on an inspection card or Case File filters Enforcement to that industry).
-2. Add a clean `"General Duty Clause 5(a)(1)"` filter chip on `#/news?cat=enforcement` (`gdc=1`) reusing existing editorial chips.
-3. Inside `enforcementSummaryHtml` or an expandable Industry drawer, list the top cited CFR standards for the active `naics` filter with clickable links straight to the CFR Reader (`#/title/29/section/...`).
+### 4. Frontend UI (`reader/frontend/src/views/news.ts`, `10_news.css`)
+1. Keep `#/news?cat=enforcement` primary chips focused and uncluttered: **NAICS**, **`5(a)(1)` General Duty**, **`Fatality / Accident`**, and **Federal OSHA / State Plan** (`state_flag`), surfacing `emphasis` / `hazcat` inside Case File metadata and a compact secondary dropdown rather than top-bar chip sprawl.
+2. Surface top cited `29 CFR` sections (linking straight to `#/title/29/section/...`) for the active NAICS filter inside `enforcementSummaryHtml()` or a compact industry drawer.
 
 ---
 
 ## Exit Gate
-- Searching GDC narrative keywords on `GET /api/news?q=...` returns enriched inspections with `\x02`/`\x03` highlighted snippets.
-- Filtering by `naics` (prefix and full 6-digit) narrows Enforcement articles accurately and safely (`no SQL injection`, parameterized prefix `LIKE`).
+- Searching GDC or accident abstract terms on `GET /api/news?q=...` returns enriched inspections with `\x02`/`\x03` snippets.
+- `jurisdiction=federal` cleanly excludes state-plan `unmapped_standards` from federal Title 29 rollups.
+- `news_worker` priority backfill respects `429` circuit breaker and never starts under test.
 - Full offline unit + API + Playwright checks pass.

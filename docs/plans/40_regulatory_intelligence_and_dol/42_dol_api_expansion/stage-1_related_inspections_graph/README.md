@@ -1,7 +1,7 @@
-# Stage 1: Related Inspections Cross-Links (`OSHA/related_activity`)
+# Stage 1: Quota Foundation & Bidirectional Related Inspections (`OSHA/related_activity`)
 
 ## Goal
-Connect related OSHA inspections (follow-ups, referrals, multi-employer companion inspections, complaints) directly inside the **Inspection Case File** (`#/news/inspection/{activity_nr}`) so investigators can click across linked inspections in-app instead of dead-ending at external portals.
+Establish shared `DOL_API_KEY` quota stewardship inside `_dol_get()` and connect related OSHA inspections (follow-ups, referrals, multi-employer companion inspections, complaints, and Failure-to-Abate follow-ups) bidirectionally inside `#/news/inspection/{activity_nr}`.
 
 ---
 
@@ -16,34 +16,37 @@ Connect related OSHA inspections (follow-ups, referrals, multi-employer companio
 | `rel_health` | `"Y"` / `null` | Related health inspection flag |
 | `load_dt` | ISO timestamp | Warehouse load timestamp |
 
-> Also check bidirectional links: query `activity_nr eq {nr}` AND keep room to check `rel_act_nr eq {nr}` or resolve local metadata if `rel_act_nr` already exists in `enforcement_cases` / `articles`.
+> Also pair `fta_insp_nr` from `OSHA/violation` and query `OSHA/related_activity` bidirectionally (`activity_nr eq {nr}` and `rel_act_nr eq {nr}`) so parent and child inspections link both ways.
 
 ---
 
 ## Implementation Plan
 
-### 1. Storage Migration (`reader/app/news_store.py`)
-1. Add `related_json TEXT NOT NULL DEFAULT '[]'` column to `enforcement_cases`.
-2. In `connect()` (`readonly=False`), inspect `PRAGMA table_info(enforcement_cases)` and run `ALTER TABLE enforcement_cases ADD COLUMN related_json TEXT NOT NULL DEFAULT '[]'` when absent (preserving `PRAGMA user_version = 1` and all cached rows).
-3. Update `save_enforcement_case()` to accept `related: list[dict] | None` and `get_enforcement_case()` to parse and return `"related": [...]` plus local enrichment hints (whether each `rel_act_nr` is already cached with `estab_name`, `open_date`, `penalty_usd`).
+### 1. Shared Quota Stewardship & Client Generalization (`reader/app/news.py`)
+1. Generalize `_dol_get(c, key, dataset, params, *, agency="OSHA")` so `DOL_BASE/get/{agency}/{dataset}/json` supports non-OSHA DOL agencies in Stage 5 without breaking existing callers.
+2. Add a shared, thread-safe inter-request pacer and `HTTP 429` circuit breaker (`Retry-After` or default 60s cooldown) inside `_dol_get()` so background sync, `/enrich`, live search, and catalog discovery share one quota guard.
+3. Update `fetch_dol_recent_violations()` and `fetch_inspection_case()` field lists to request `hazsub1,hazsub2,hazsub3,hazsub4,hazsub5` (matching `_norm_violation_row()`).
+4. In `POST /api/news/inspection/{activity_nr}/enrich`, accept optional `force: bool = False`; skip redundant upstream sub-calls only when the cached `enforcement_cases` row already has `enriched_at`, its Stage 1+ `related_json` column is populated, **and** its `case_mod_date` matches the current summary header (when not `force=true`), returning `"cached": true` with `0` upstream sub-calls.
 
-### 2. Fetcher & Enricher (`reader/app/news.py`)
-1. Add `REL_TYPE_LABELS` map for `rel_type` codes (verify exact IMIS `rel_type` meanings against live `OSHA/related_activity` records or display clean normalized codes when unmapped).
-2. In `fetch_inspection_case(c, key, activity_nr)`, fetch `OSHA/related_activity` filtered by `activity_nr eq {activity_nr}` (limit `100`). Also hydrate summary headers for up to 1 batch (`DOL_INSP_BATCH`) of `rel_act_nr`s via `OSHA/inspection` if they are not already in `enforcement_cases`, or defer individual inspection fetch until clicked (`GET /api/news/inspection/{rel_act_nr}` + auto-enrich on demand).
+### 2. Storage Migration (`reader/app/news_store.py`)
+1. Add `related_json TEXT NOT NULL DEFAULT '[]'` to `enforcement_cases`.
+2. In `connect()` (`readonly=False`), inspect `PRAGMA table_info(enforcement_cases)` and apply a non-destructive `ALTER TABLE` / `SCHEMA_VERSION` `2 -> 3` upgrade without dropping `articles` or `enforcement_cases` (updating `connect(readonly=True)` to match `SCHEMA_VERSION`).
+3. Update `save_enforcement_case()` to accept `related: list[dict] | None` and `get_enforcement_case()` to return `"related": [...]` enriched with local cache hints (`estab_name`, `open_date`, `penalty_usd` when `rel_act_nr` is already stored locally).
 
-### 3. API Contract (`reader/app/routers/news.py`)
-1. Return `"related": [...]` inside `GET /api/news/inspection/{activity_nr}` and `POST /api/news/inspection/{activity_nr}/enrich`.
-2. When `GET /api/news/inspection/{activity_nr}` is requested for an `activity_nr` not yet stored in `osha_news.sqlite3` (e.g., clicking an uncached `rel_act_nr`), either return `{ "cached": false, "activity_nr": ... }` cleanly for the UI to trigger `POST /enrich`, or document explicit `Refresh from DOL` CTA inside the uncached shell.
+### 3. Bidirectional Fetcher & API Contract (`reader/app/news.py`, `reader/app/routers/news.py`)
+1. Add `REL_TYPE_LABELS` for `rel_type` codes (gracefully falling back to normalized code labels when unmapped).
+2. In `fetch_inspection_case()`, query `OSHA/related_activity` for `activity_nr eq {nr}` and `rel_act_nr eq {nr}` (deduped by `(rel_act_nr, rel_type)`), plus any distinct `fta_insp_nr` values from violations.
+3. Return `"related": [...]` inside `GET /api/news/inspection/{activity_nr}` and `POST /api/news/inspection/{activity_nr}/enrich`.
 
-### 4. Frontend Case File Panel (`reader/frontend/src/views/news.js` & `10_news.css`)
-1. Add `inspectionRelatedHtml(data)` rendered inside `renderInspectionCase()` as a subtle editorial panel below Citations / General Duty when `related.length > 0`.
-2. Each row shows `Inspection #{rel_act_nr}` (linked to `#/news/inspection/${rel_act_nr}`), relationship label (`rel_type`), Safety/Health scope tags, and if cached locally, establishment name + total penalty.
-3. Add CSS rules in `10_news.css` using tokens from `01_tokens.css` only (no raw hex values).
+### 4. Frontend Case File Panel (`reader/frontend/src/views/news_case.ts`, `10_news.css`)
+1. Add `inspectionRelatedHtml(data)` rendered inside `renderInspectionCase()` below Citations / General Duty when `related.length > 0`.
+2. Render each row as `Inspection #{rel_act_nr}` (`#/news/inspection/${rel_act_nr}`), relationship label (`rel_type` or `FTA Follow-Up`), Safety/Health scope tags, and local establishment + penalty metadata when cached.
+3. Keep all styles in `10_news.css` using `01_tokens.css` variables only (zero raw `#hex`).
 
 ---
 
 ## Exit Gate
-- `FakeAPI` in `reader/tests/news_fixtures.py` serves `OSHA/related_activity` fixtures.
-- `test_news_store.py` verifies non-destructive `ALTER TABLE` upgrade on a legacy v1 `enforcement_cases` table without `related_json`.
-- `test_news_api.py` and `test_browser_parity.py` verify clicking a related inspection navigates `#/news/inspection/{A}` -> `#/news/inspection/{B}`.
-- `REQUIRE_BROWSER=1 pytest tests -q` passes with rebuilt `reader/static/dist/`.
+- `FakeAPI` in `reader/tests/news_fixtures.py` serves bidirectional `OSHA/related_activity` and `429` `Retry-After` responses.
+- `test_news_store.py` verifies non-destructive `SCHEMA_VERSION` `2 -> 3` migration preserving legacy rows.
+- Tests verify unchanged `case_mod_date` skips redundant `/enrich` fetches (`0` sub-calls) and shared `429` cooldown blocks immediate follow-up bursts.
+- `test_news_api.py` and `test_browser_parity.py` verify `#/news/inspection/{A}` → `#/news/inspection/{B}` navigation, with `REQUIRE_BROWSER=1 pytest tests -q` passing.

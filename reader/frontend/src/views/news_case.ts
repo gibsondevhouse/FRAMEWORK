@@ -1,6 +1,7 @@
 import { state } from '../state';
 import { getJSON } from '../api/client';
 import { fmtMoney, linkifyNewsText, newsSectionHref, titleInstalled } from '../core/news_format';
+import { clipCaseToWorkspace } from '../core/projects_store';
 import { updateChatContext } from '../components/chat';
 import { clearTreeSelection, plural } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
@@ -22,6 +23,8 @@ export interface InspectionViolation {
   gravity?: string;
   emphasis?: string;
   hazcat?: string;
+  fta_insp_nr?: number | null;
+  fta_issuance_date?: string | null;
   fta_penalty?: number;
   hazsubs?: string[];
   initial_penalty?: number;
@@ -34,10 +37,25 @@ export interface InspectionViolation {
   abate_date?: string;
 }
 
+export interface RelatedInspection {
+  rel_act_nr: number;
+  rel_type?: string;
+  rel_label?: string;
+  direction?: string;
+  safety?: boolean;
+  health?: boolean;
+  cached?: boolean;
+  estab_name?: string | null;
+  site_state?: string | null;
+  penalty_usd?: number | null;
+  open_date?: string | null;
+}
+
 export interface InspectionCaseData {
   activity_nr: number;
   dol_configured?: boolean;
   enriched_at?: string;
+  enrich_ver?: number;
   needs_enrichment?: boolean;
   article?: {
     company?: string;
@@ -64,6 +82,13 @@ export interface InspectionCaseData {
     sic_code?: string;
     current_penalty_usd?: number;
     initial_penalty_usd?: number;
+    reduction_usd?: number;
+    reduction_pct?: number;
+    contested_count?: number;
+    fta_count?: number;
+    fta_total_usd?: number;
+    open_abate_count?: number;
+    overdue_abate_count?: number;
     citation_count?: number;
     open_date?: string;
     case_mod_date?: string;
@@ -82,9 +107,27 @@ export interface InspectionCaseData {
   gdc?: Array<{ citation_id?: string; text: string }>;
   accidents?: Array<{ event_date?: string; fatality?: boolean; event_desc?: string; abstract?: string; keywords?: string }>;
   events?: Array<{ date?: string; event_label?: string; citation_id?: string; penalty?: number | null }>;
+  related?: RelatedInspection[];
 }
 
 const autoEnrichedCases = new Set<number>();
+let lastCaseData: InspectionCaseData | null = null;
+
+export function clipCurrentInspection(): void {
+  if (!lastCaseData) return;
+  const d = lastCaseData.detail || {};
+  const art = lastCaseData.article || {};
+  const loc = [d.site_city || art.city, d.site_state || art.state].filter(Boolean).join(', ');
+  const secs = [...new Set((lastCaseData.violations || []).map(v => v.section_id).filter((s): s is string => Boolean(s)))];
+  clipCaseToWorkspace({
+    activity_nr: lastCaseData.activity_nr,
+    estab_name: d.estab_name || art.company || `Inspection #${lastCaseData.activity_nr}`,
+    location: loc || undefined,
+    penalty_usd: d.current_penalty_usd ?? art.penalty_usd ?? undefined,
+    open_date: d.open_date || art.opened_on || undefined,
+    sections: secs.length ? secs : (art.sections || []),
+  });
+}
 
 function citationStatusText(v: InspectionViolation): string {
   const bits: string[] = [];
@@ -123,6 +166,15 @@ function inspectionViolationsHtml(data: InspectionCaseData): string {
     return '<div class="ins-panel-empty"><p class="ins-muted">Add a free DOL API key in Settings to load per-citation details on demand.</p></div>';
   }
 
+  const eventsByCit = new Map<string, Array<{ date?: string; event_label?: string; penalty?: number | null }>>();
+  for (const ev of data.events || []) {
+    if (!ev.citation_id) continue;
+    const arr = eventsByCit.get(ev.citation_id) || [];
+    arr.push(ev);
+    eventsByCit.set(ev.citation_id, arr);
+  }
+  const todayIso = new Date().toISOString().slice(0, 10);
+
   return `
     <div class="ins-table-wrap">
       <table class="ins-table">
@@ -138,13 +190,30 @@ function inspectionViolationsHtml(data: InspectionCaseData): string {
         </thead>
         <tbody>
           ${viols.map(v => {
-            const tags: string[] = [];
-            if (v.gravity) tags.push(`Grav ${v.gravity}`);
-            if (v.emphasis) tags.push(`NEP ${v.emphasis}`);
-            if (v.hazcat) tags.push(v.hazcat);
-            if (v.fta_penalty) tags.push(`FTA ${fmtMoney(v.fta_penalty)}`);
-            if ((v.hazsubs || []).length) tags.push(`HazSub ${v.hazsubs!.join(', ')}`);
-            const penChanged = v.initial_penalty && v.initial_penalty !== v.current_penalty;
+            const tagHtml: string[] = [];
+            const pushTag = (txt: string, cls = '') =>
+              tagHtml.push(`<span class="ins-tag${cls ? ' ' + cls : ''}">${escapeHtml(txt)}</span>`);
+            if (v.gravity) pushTag(`Grav ${v.gravity}`);
+            if (v.emphasis) pushTag(`NEP ${v.emphasis}`);
+            if (v.hazcat) pushTag(v.hazcat);
+            if (v.contest_date) pushTag('Contested', 'is-warn');
+            const abDone = v.abate_complete === 'X' || v.abate_complete === '3' || v.abate_complete === 'Y';
+            if (v.abate_date && !abDone) {
+              pushTag(v.abate_date < todayIso ? 'Abatement overdue' : 'Abatement open', v.abate_date < todayIso ? 'is-danger' : 'is-warn');
+            }
+            if (v.fta_penalty || v.fta_insp_nr) {
+              const ftaTxt = v.fta_penalty ? `FTA +${fmtMoney(v.fta_penalty)}` : 'FTA';
+              if (v.fta_insp_nr) {
+                tagHtml.push(`<a class="ins-tag is-danger ins-tag-link" href="#/news/inspection/${v.fta_insp_nr}">${escapeHtml(ftaTxt)}</a>`);
+              } else {
+                pushTag(ftaTxt, 'is-danger');
+              }
+            }
+            if ((v.hazsubs || []).length) pushTag(`HazSub ${v.hazsubs!.join(', ')}`);
+            const citEvents = (v.citation_id && eventsByCit.get(v.citation_id)) || [];
+            const modEv = [...citEvents].reverse().find(e => e.event_label && e.event_label !== 'Issued');
+            const penChanged = v.initial_penalty != null && v.current_penalty != null && v.initial_penalty !== v.current_penalty;
+            const deltaUsd = penChanged ? v.current_penalty! - v.initial_penalty! : 0;
             const expBits = [
               v.nr_instances ? plural(v.nr_instances, 'inst') : '',
               v.nr_exposed ? `${v.nr_exposed} exp` : '',
@@ -155,7 +224,8 @@ function inspectionViolationsHtml(data: InspectionCaseData): string {
                 <td>
                   <div class="ins-std-cell">
                     ${violationStandardHtml(v)}
-                    ${tags.length ? `<div class="ins-tags">${tags.map(t => `<span class="ins-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+                    ${tagHtml.length ? `<div class="ins-tags">${tagHtml.join('')}</div>` : ''}
+                    ${modEv ? `<div class="ins-ev-inline">${escapeHtml(modEv.event_label)}${penChanged ? ` (${deltaUsd > 0 ? '+' : '-'}${escapeHtml(fmtMoney(Math.abs(deltaUsd)))})` : ''}</div>` : ''}
                   </div>
                 </td>
                 <td><span class="ins-viol-pill is-${escapeHtml((v.viol_type || 'O').toLowerCase())}">${escapeHtml(v.viol_label || v.viol_type)}</span></td>
@@ -185,24 +255,62 @@ function inspectionSectionsHtml(data: InspectionCaseData): string {
     </div>`;
 }
 
+function inspectionRelatedHtml(data: InspectionCaseData): string {
+  const related = data.related || [];
+  if (!related.length) return '';
+  return `
+    <section class="ins-panel" aria-label="Related OSHA inspections">
+      <div class="ins-panel-head">
+        <h2 class="ins-panel-title">Related Inspections</h2>
+        <span class="ins-panel-meta">${escapeHtml(plural(related.length, 'linked inspection'))}</span>
+      </div>
+      <div class="ins-related-list">
+        ${related.map(r => {
+          const scopes = [r.safety ? 'Safety' : '', r.health ? 'Health' : ''].filter(Boolean);
+          const metaBits = [
+            r.rel_label || r.rel_type || 'Related',
+            ...scopes,
+            r.cached && r.estab_name ? r.estab_name : '',
+            r.cached && r.site_state ? r.site_state : '',
+            r.cached && r.penalty_usd ? fmtMoney(r.penalty_usd) : '',
+          ].filter(Boolean);
+          return `
+            <a class="ins-related-row" href="#/news/inspection/${r.rel_act_nr}">
+              <div class="ins-related-main">
+                <span class="ins-related-nr">Inspection #${r.rel_act_nr}</span>
+                <span class="ins-related-meta">${escapeHtml(metaBits.join(' · '))}</span>
+              </div>
+              <span class="ins-related-arrow">${icon('chevronRight')}</span>
+            </a>`;
+        }).join('')}
+      </div>
+    </section>`;
+}
+
 export function renderInspectionCase(
   data: InspectionCaseData,
   { enter = true, enriching = false, enrichError = '' }: { enter?: boolean; enriching?: boolean; enrichError?: string } = {},
 ): void {
+  lastCaseData = data;
   const actNr = data.activity_nr;
   const art = data.article || {};
   const d = data.detail || {};
   const company = d.estab_name || art.company || `Inspection #${actNr}`;
   const docType = d.insp_type_label || art.doc_type || 'OSHA inspection';
   const addrParts = [d.site_address, [d.site_city || art.city, d.site_state || art.state].filter(Boolean).join(', '), d.site_zip].filter(Boolean);
+  const naicsCode = d.naics_code || art.naics;
   const subLine = joinSep([
     escapeHtml(docType),
     addrParts.length ? escapeHtml(addrParts.join(' · ')) : '',
-    (d.naics_code || art.naics) ? `NAICS ${escapeHtml(d.naics_code || art.naics)}` : '',
+    naicsCode ? `<a class="citation-link" href="#/news?cat=enforcement&naics=${encodeURIComponent(naicsCode)}">NAICS ${escapeHtml(naicsCode)}</a>` : '',
   ]);
   const curPen = d.current_penalty_usd ?? art.penalty_usd ?? 0;
   const initPen = d.initial_penalty_usd ?? curPen;
-  const deltaPct = initPen > 0 && curPen !== initPen ? Math.round((curPen - initPen) / initPen * 100) : 0;
+  const deltaUsd = curPen - initPen;
+  const deltaPct = initPen > 0 && curPen !== initPen ? Math.round(deltaUsd / initPen * 100) : 0;
+  const penSub = deltaPct
+    ? `Initial ${fmtMoney(initPen)} · ${deltaUsd < 0 ? '-' : '+'}${fmtMoney(Math.abs(deltaUsd))} (${deltaPct > 0 ? '+' : ''}${deltaPct}%)`
+    : initPen ? `Initial ${fmtMoney(initPen)}` : 'No penalty assessed';
   const violCount = (data.violations || []).length || d.citation_count || 0;
   const vCounts = (data.violations || []).reduce<Record<string, number>>((m, v) => {
     const k = v.viol_label || v.viol_type;
@@ -258,6 +366,7 @@ export function renderInspectionCase(
           ${subLine ? `<p class="ins-sub">${subLine}</p>` : ''}
         </div>
         <div class="ins-head-acts">
+          <button type="button" class="btn btn-sm" data-ins-act="clip">${icon('bookmark')} Clip to Workspace</button>
           ${data.dol_configured ? `<button type="button" class="btn btn-sm" data-ins-act="enrich" data-act-nr="${actNr}"${enriching ? ' disabled' : ''}>${icon('activity')} Refresh from DOL</button>` : ''}
           ${oshaUrl ? `<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(oshaUrl)}" title="Opens OSHA.gov (may prompt human verification)">${icon('external')} OSHA.gov</a>` : ''}
         </div>
@@ -267,7 +376,7 @@ export function renderInspectionCase(
         ${metricCardHtml({
           label: 'Current penalty',
           value: curPen ? escapeHtml(fmtMoney(curPen)) : '$0',
-          sub: deltaPct ? escapeHtml(`Initial ${fmtMoney(initPen)} (${deltaPct > 0 ? '+' : ''}${deltaPct}%)`) : escapeHtml(initPen ? `Initial ${fmtMoney(initPen)}` : 'No penalty assessed'),
+          sub: escapeHtml([penSub, d.fta_total_usd ? `FTA ${fmtMoney(d.fta_total_usd)}` : ''].filter(Boolean).join(' · ')),
         })}
         ${metricCardHtml({
           label: 'Citations',
@@ -314,6 +423,8 @@ export function renderInspectionCase(
             </div>`).join('')}
         </section>` : ''}
 
+      ${inspectionRelatedHtml(data)}
+
       ${accidents.length ? `
         <section class="ins-panel" aria-label="Accident investigation abstract">
           <div class="ins-panel-head">
@@ -357,9 +468,10 @@ export function renderInspectionCase(
   if (enter) enterView();
 }
 
-export async function enrichInspection(activityNr: number, seq: number): Promise<void> {
+export async function enrichInspection(activityNr: number, seq: number, force = false): Promise<void> {
   try {
-    const res = await getJSON<InspectionCaseData>(`/api/news/inspection/${activityNr}/enrich`, { method: 'POST' });
+    const url = `/api/news/inspection/${activityNr}/enrich${force ? '?force=true' : ''}`;
+    const res = await getJSON<InspectionCaseData>(url, { method: 'POST' });
     if (seq !== state.routeSeq) return;
     renderInspectionCase(res, { enter: false });
   } catch (err) {
