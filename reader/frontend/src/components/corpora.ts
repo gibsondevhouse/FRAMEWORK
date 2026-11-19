@@ -1,23 +1,78 @@
-import { CorpusSummary, DeskId, InstalledTitleMeta, RefTier, state, TitleSnapshotRow } from '../state';
+import {
+  AuthorityTier, CorpusSummary, DeskId, InstalledTitleMeta, NewsStatusSnapshot,
+  RefTier, state, TitleSnapshotRow,
+} from '../state';
 import { escapeHtml, lsGet, lsSet } from '../dom';
 
 const ACTIVE_DESK_KEY = 'framework_desk_v1';
 
-export const TIER_ORDER = ['federal-statute', 'federal-reg', 'state', 'county', 'standard'] as const;
+export const TIER_ORDER = [
+  'federal-statute',
+  'federal-reg',
+  'federal-register',
+  'state',
+  'county',
+  'standard',
+] as const;
+
+export const SYSTEM_TIERS: AuthorityTier[] = [
+  'federal-statute',
+  'federal-reg',
+  'federal-register',
+  'state',
+];
 
 export interface TierMeta {
   label: string;
   short: string;
   refTier: RefTier;
   tag: string;
+  subtitle: string;
 }
 
 export const TIER_META: Record<string, TierMeta> = {
-  'federal-statute': { label: 'Federal Statutes (U.S.C.)', short: 'U.S.C.', refTier: 'usc', tag: 'STATUTE' },
-  'federal-reg': { label: 'Federal Regulations (CFR)', short: 'CFR', refTier: 'cfr', tag: 'FEDERAL REG' },
-  'state': { label: 'State Codes', short: 'State', refTier: 'state', tag: 'STATE' },
-  'county': { label: 'County & Municipal', short: 'County', refTier: 'county', tag: 'LOCAL CODE' },
-  'standard': { label: 'Consensus Standards', short: 'Std', refTier: 'ibr', tag: 'STANDARD' },
+  'federal-statute': {
+    label: 'U.S. Code (U.S.C.)',
+    short: 'U.S.C.',
+    refTier: 'usc',
+    tag: 'STATUTE',
+    subtitle: 'Enabling federal statutes',
+  },
+  'federal-reg': {
+    label: 'Federal Regulations (CFR)',
+    short: 'CFR',
+    refTier: 'cfr',
+    tag: 'FEDERAL REG',
+    subtitle: 'Codified agency rules',
+  },
+  'federal-register': {
+    label: 'Federal Register (FR)',
+    short: 'FR',
+    refTier: 'fr',
+    tag: 'FED REGISTER',
+    subtitle: 'Daily rulemaking & notices',
+  },
+  'state': {
+    label: 'State Codes & Plans',
+    short: 'State',
+    refTier: 'state',
+    tag: 'STATE',
+    subtitle: 'State plans & delegated codes',
+  },
+  'county': {
+    label: 'County & Municipal',
+    short: 'County',
+    refTier: 'county',
+    tag: 'LOCAL CODE',
+    subtitle: 'Local ordinances & overlays',
+  },
+  'standard': {
+    label: 'Consensus Standards',
+    short: 'Std',
+    refTier: 'ibr',
+    tag: 'STANDARD',
+    subtitle: 'IBR technical standards',
+  },
 };
 
 export const DESK_DEFS: Array<{ id: DeskId; label: string }> = [
@@ -204,6 +259,171 @@ export function syncCorporaState(): CorpusSummary[] {
   state.corpora = normalizeCorporaList();
   state.activeCorpusId = corpusIdForTitle(state.currentTitle);
   return state.corpora;
+}
+
+const DEFAULT_STATE_OVERLAYS: Array<{
+  title: number;
+  corpus_id: string;
+  jurisdiction: string;
+  jurisdiction_label: string;
+  code: string;
+  name: string;
+  desk: DeskId;
+  agencies: string[];
+  summary: string;
+}> = [
+  {
+    title: 29,
+    corpus_id: 'us-ca:state:8-CCR',
+    jurisdiction: 'US-CA',
+    jurisdiction_label: 'California',
+    code: '8 CCR',
+    name: 'Cal/OSHA Workplace Safety & Health',
+    desk: 'ehs',
+    agencies: ['Cal/OSHA', 'DIR'],
+    summary: 'California State Plan workplace safety standards (Title 8 CCR) paralleling and extending 29 CFR 1910 & 1926.',
+  },
+  {
+    title: 29,
+    corpus_id: 'us-wa:state:WAC-296',
+    jurisdiction: 'US-WA',
+    jurisdiction_label: 'Washington',
+    code: 'WAC 296',
+    name: 'WA DOSH Safety & Health Rules',
+    desk: 'ehs',
+    agencies: ['L&I', 'DOSH'],
+    summary: 'Washington Division of Occupational Safety and Health core rules and state-plan compliance overlays.',
+  },
+  {
+    title: 40,
+    corpus_id: 'us-state:state:EPA-SIP',
+    jurisdiction: 'US-STATE',
+    jurisdiction_label: 'State Plans',
+    code: 'State EPA',
+    name: 'Delegated Environmental & SIP Programs',
+    desk: 'env',
+    agencies: ['State DEQ', 'Air Districts'],
+    summary: 'State Implementation Plans, NPDES delegated permits, and RCRA authorized hazardous waste regulations.',
+  },
+  {
+    title: 49,
+    corpus_id: 'us-state:state:DOT-CMV',
+    jurisdiction: 'US-STATE',
+    jurisdiction_label: 'State Plans',
+    code: 'State DOT',
+    name: 'State Commercial Motor & HazMat Adoptions',
+    desk: 'transport',
+    agencies: ['State DOT', 'HP'],
+    summary: 'State intrastate hazmat routing, commercial motor carrier adoptions, and permit overlays.',
+  },
+];
+
+/**
+ * Full multi-framework catalog spanning CFR, Federal Register (FR), U.S. Code (U.S.C.),
+ * and State Codes/Plans. Combines installed CFR titles, live FR status, any injected/installed
+ * extra corpora, and authority-linked U.S.C. & State frameworks for installed titles.
+ */
+export function allSystemFrameworks(
+  titles: InstalledTitleMeta[] = state.installedTitles,
+  snapshotRows: TitleSnapshotRow[] | undefined = state.homeSnapshot?.titles,
+  newsStatus: NewsStatusSnapshot | null | undefined = state.navNewsStatus,
+  extras: CorpusSummary[] = state.extraCorpora,
+): CorpusSummary[] {
+  const base = normalizeCorporaList(titles, snapshotRows, extras);
+  const byId = new Map<string, CorpusSummary>(base.map(c => [c.corpus_id, c]));
+  const installedSet = new Set((titles || []).map(t => t.title));
+
+  // 1. Federal Register (FR) — live rulemaking & daily filings framework
+  if (![...byId.values()].some(c => c.tier === 'federal-register')) {
+    const frSrc = newsStatus?.sources?.federal_register;
+    const piSrc = newsStatus?.sources?.federal_register_pi;
+    const hasErr = Boolean(frSrc?.retry_after || frSrc?.last_error || piSrc?.retry_after || piSrc?.last_error);
+    const articles = Number(newsStatus?.articles || 0);
+    const frTitleNums = [...installedSet].sort((a, b) => a - b);
+    byId.set('us:fr:daily', {
+      corpus_id: 'us:fr:daily',
+      tier: 'federal-register',
+      jurisdiction: 'US',
+      jurisdiction_label: 'Federal',
+      code: 'FR',
+      name: 'Federal Register & Rulemaking',
+      desk: 'ehs',
+      agencies: ['OFR', 'OSHA', 'EPA', 'DOT'].slice(0, 3),
+      edition: frSrc?.last_ok_at ? frSrc.last_ok_at.slice(0, 10) : null,
+      section_count: articles,
+      summary: 'Published Final Rules, Proposed Rules, Public Inspection filings, and DOL enforcement linked to installed CFR titles.',
+      installed: true,
+      linked_titles: frTitleNums,
+      status_label: hasErr ? 'Sync issue' : articles > 0 ? `${articles} cached` : 'Ready to sync',
+      update_available: hasErr,
+    });
+  }
+
+  // 2. U.S. Code (U.S.C.) — enabling federal statutes for installed CFR titles
+  const hasCustomUsc = [...byId.values()].some(c => c.tier === 'federal-statute');
+  if (!hasCustomUsc) {
+    const uscSourceTitles = installedSet.size ? [...installedSet].filter(n => KNOWN_TITLE_AUTHORITIES[n]) : [29];
+    for (const tNum of uscSourceTitles) {
+      const auth = KNOWN_TITLE_AUTHORITIES[tNum];
+      if (!auth) continue;
+      const shortCode = auth.statuteCode.split('§§')[0].trim();
+      const id = `us:usc:${shortCode.replace(/\s+/g, '-').toLowerCase()}`;
+      if (byId.has(id)) continue;
+      byId.set(id, {
+        corpus_id: id,
+        tier: 'federal-statute',
+        jurisdiction: 'US',
+        jurisdiction_label: 'Federal',
+        code: auth.statuteCode,
+        name: auth.statuteLabel,
+        desk: mapRawDeskToId('', tNum),
+        agencies: ['U.S. Congress'],
+        summary: `Enabling statutory authority underlying ${tNum} CFR rules, preemption scope, and agency rulemaking power.`,
+        installed: false,
+        linked_titles: [tNum],
+        external_url: auth.statuteHref,
+        status_label: `Linked · ${tNum} CFR`,
+      });
+    }
+  }
+
+  // 3. State Codes & Plans — delegated state frameworks mapped to installed titles
+  const hasCustomState = [...byId.values()].some(c => c.tier === 'state');
+  if (!hasCustomState) {
+    const matching = DEFAULT_STATE_OVERLAYS.filter(s => !installedSet.size || installedSet.has(s.title));
+    const list = matching.length ? matching : DEFAULT_STATE_OVERLAYS.slice(0, 2);
+    for (const s of list) {
+      if (byId.has(s.corpus_id)) continue;
+      byId.set(s.corpus_id, {
+        corpus_id: s.corpus_id,
+        tier: 'state',
+        jurisdiction: s.jurisdiction,
+        jurisdiction_label: s.jurisdiction_label,
+        code: s.code,
+        name: s.name,
+        desk: s.desk,
+        agencies: s.agencies,
+        summary: s.summary,
+        installed: false,
+        linked_titles: [s.title],
+        status_label: `State overlay · ${s.title} CFR`,
+      });
+    }
+  }
+
+  return [...byId.values()];
+}
+
+export function findSystemFramework(tier: string, jurisdiction: string, code: string): CorpusSummary | null {
+  const all = allSystemFrameworks();
+  const t = tier.toLowerCase();
+  const j = jurisdiction.toLowerCase();
+  const cd = code.toLowerCase();
+  return all.find(c =>
+    c.tier.toLowerCase() === t
+    && (c.jurisdiction || '').toLowerCase() === j
+    && String(c.code || '').toLowerCase() === cd,
+  ) || null;
 }
 
 export interface JurisdictionStackNode {

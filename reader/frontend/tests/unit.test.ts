@@ -25,7 +25,8 @@ import {
 import { dockModel, fmtEta } from '../src/components/transfer_dock';
 import { normalizeCfrTarget, targetHashFor } from '../src/components/cfr_resolver';
 import { buildReaderHref, formatTabLabel, tabIdentityMatch } from '../src/components/reader_tabs';
-import { corpusHashFor, parseCorpusPath, refTierForCorpus } from '../src/components/corpora';
+import { allSystemFrameworks, corpusHashFor, parseCorpusPath, refTierForCorpus } from '../src/components/corpora';
+import { isFrameworkRoute } from '../src/nav';
 import { formatCfrCitation, parseCfrHref } from '../src/views/doc_utils';
 import {
   articleNewsTitle,
@@ -166,7 +167,7 @@ test('transfer_dock dockModel and fmtEta compute progress phases and ETAs', () =
   assert.match(dm.left, /of/);
 });
 
-test('corpora helpers map paths, hashes, and authority tiers', () => {
+test('corpora helpers map paths, hashes, and authority tiers (CFR, FR, U.S.C., State)', () => {
   assert.equal(corpusHashFor({ corpus_id: 'us:cfr:29', tier: 'federal-reg', title_num: 29, jurisdiction: 'US', code: '29' }), '#/title/29/');
   assert.equal(corpusHashFor({ corpus_id: 'us-ca:state:8 CCR', tier: 'state', jurisdiction: 'US-CA', code: '8 CCR' }), '#/corpus/state/US-CA/8%20CCR/');
   assert.deepEqual(parseCorpusPath('/corpus/state/US-CA/8%20CCR/section/3203'), {
@@ -176,6 +177,23 @@ test('corpora helpers map paths, hashes, and authority tiers', () => {
     subPath: '/section/3203',
   });
   assert.equal(refTierForCorpus('federal-statute'), 'usc');
+  assert.equal(refTierForCorpus('federal-register'), 'fr');
+  const systems = allSystemFrameworks([{ title: 29, name: 'Labor' }], undefined, null, []);
+  const tiers = new Set(systems.map(s => s.tier));
+  assert.ok(tiers.has('federal-reg'));
+  assert.ok(tiers.has('federal-register'));
+  assert.ok(tiers.has('federal-statute'));
+  assert.ok(tiers.has('state'));
+});
+
+test('isFrameworkRoute opens the secondary drawer only on start, TOC, reader, and corpus pages', () => {
+  state.noTitles = false;
+  for (const p of ['/title/29/', '/title/29', '/title/29/part/1910', '/title/29/part/1910/full', '/title/29/section/1910.1200/b', '/part/1910', '/section/1910.135', '/corpus/state/US-CA/8%20CCR/']) {
+    assert.equal(isFrameworkRoute(p), true, `expected framework route: ${p}`);
+  }
+  for (const p of ['/', '/projects', '/projects/abc', '/news', '/news/inspection/123', '/news/fr/2026-1', '/library', '/library/29', '/settings', '/help', '/search']) {
+    assert.equal(isFrameworkRoute(p), false, `expected main page route: ${p}`);
+  }
 });
 
 test('news helpers parse queries, build URLs/hashes, detect changes, and format citations', () => {

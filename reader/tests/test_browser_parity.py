@@ -231,18 +231,39 @@ class BehaviorTests(BrowserCase):
         page.wait_for_selector(".hm-news[data-news-loaded='1']", timeout=15000)
         self.assertIn("FRAMEWORK", page.title())
         self.assertIn("Home", page.inner_text("#view h1"))
+        # Legal Systems strip covers all 4 authority systems: U.S.C., CFR, FR, State
+        systems_text = page.inner_text(".hm-systems")
+        for sys_lbl in ("U.S.C.", "CFR", "FR", "State"):
+            self.assertIn(sys_lbl, systems_text)
+        # Update status radar & work footprint are surfaced directly on Home
+        self.assertGreaterEqual(page.locator("#hm-updates").count(), 1)
+        self.assertGreaterEqual(page.locator(".hm-footprint").count(), 1)
         self.assertIn("Continue reading", page.text_content(".hm-resume"))
         self.assertIn("Workspaces", page.inner_text(".hm-ws"))
         self.assertIn("Regulatory Pulse", page.inner_text(".hm-news"))
         titles_text = page.inner_text(".hm-titles")
-        self.assertIn("Downloaded Frameworks", titles_text)
+        self.assertIn("Legal Frameworks", titles_text)
         self.assertIn("OSHA", titles_text)
+        # Filtering by system tier (FR, U.S.C., State) works directly from Home
+        page.click(".hm-sys-card[data-hm-tier='federal-statute']")
+        self.assertGreaterEqual(page.locator(".hm-title-card[data-ref-tier='usc']").count(), 1)
+        page.click(".hm-sys-card[data-hm-tier='state']")
+        self.assertGreaterEqual(page.locator(".hm-title-card[data-ref-tier='state']").count(), 1)
+        page.click(".hm-sys-card[data-hm-tier='federal-register']")
+        self.assertGreaterEqual(page.locator(".hm-title-card[data-ref-tier='fr']").count(), 1)
+        page.click("[data-hm-tier='all']")
+        # Secondary framework drawer is strictly closed on Home (main page)
+        self.assertTrue(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"))
+        self.assertFalse(page.evaluate("document.documentElement.classList.contains('in-framework')"))
         self.assertEqual(page.locator("#hm-jump-input").count(), 0)
         view_text = page.inner_text("#view").lower()
         for clutter in ("import json", "commands", "connections", "dol inspection sync"):
             self.assertNotIn(clutter, view_text)
+        # Entering a section reader opens the secondary framework drawer and compacts the primary rail
         page.goto(f"{ENV.base_url}/#/section/1910.135")
         page.wait_for_selector("text=protective helmet", timeout=15000)
+        self.assertTrue(page.evaluate("document.documentElement.classList.contains('in-framework')"))
+        self.assertFalse(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"))
         self.assert_no_external_requests()
 
     def test_home_quick_jump_and_chords(self):
@@ -304,22 +325,53 @@ class BehaviorTests(BrowserCase):
         page.keyboard.press("n")
         page.wait_for_selector("#news-q", timeout=15000)
         self.assertTrue(page.evaluate("location.hash").startswith("#/news"))
+        # Leaving a legal framework retracts the secondary drawer automatically
+        self.assertTrue(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"))
         # The news page focuses its search box; blur so the next chord isn't typed into it.
         page.evaluate("document.activeElement && document.activeElement.blur()")
-        # G,L targets the Library rail item: a button that opens the drawer's
-        # Library panel (only Overview/Home/News are links).
+        # G,L navigates directly to the Library main page (secondary drawer stays retracted).
         page.keyboard.press("g")
         page.keyboard.press("l")
-        page.wait_for_function(
-            "document.querySelector('#activity-rail [data-target=\"library\"]')?.getAttribute('aria-expanded') === 'true'",
-            timeout=15000)
+        page.wait_for_selector(".lib-front", timeout=15000)
+        self.assertTrue(page.evaluate("location.hash").startswith("#/library"))
+        self.assertTrue(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"))
         self.assert_no_external_requests()
 
     def test_alt_digit_navigation(self):
         page = self.open_page("/", "#activity-rail")
-        page.keyboard.press("Alt+Digit5")
+        page.keyboard.press("Alt+Digit3")
         page.wait_for_selector("#news-q", timeout=15000)
         self.assertTrue(page.evaluate("location.hash").startswith("#/news"))
+        self.assert_no_external_requests()
+
+    def test_secondary_drawer_scoped_to_legal_frameworks_and_home_updates(self):
+        import json as _json
+        page = self.context.new_page()
+        page.clock.set_fixed_time(FROZEN)
+        # Simulate an outdated Title 29 edition in /api/library so Home surfaces the Updates Radar
+        def _stale_library(route):
+            resp = route.fetch()
+            data = _json.loads(resp.text())
+            for row in data.get("titles", []):
+                if row.get("title") == 29:
+                    row["latest"] = "2026-09-14"
+            route.fulfill(status=200, content_type="application/json", body=_json.dumps(data))
+        page.route("**/api/library", _stale_library)
+        page.goto(f"{ENV.base_url}/#/")
+        page.wait_for_selector(".hm-updates.is-attention", timeout=15000)
+        self.assertIn("29 CFR", page.inner_text(".hm-updates.is-attention"))
+        self.assertIn("Update", page.inner_text(".hm-updates.is-attention"))
+        # Main pages keep the secondary framework drawer closed
+        for route_hash, ready in [("#/", ".hm"), ("#/projects", ".proj-page"), ("#/news", "#news-q"), ("#/library", ".lib-front"), ("#/settings", ".settings-front")]:
+            page.goto(f"{ENV.base_url}/{route_hash}")
+            page.wait_for_selector(ready, timeout=15000)
+            self.assertTrue(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"), f"drawer should be closed on {route_hash}")
+        # Legal framework views (Start page, Part TOC, Section Reader, and non-CFR Corpus) open the secondary drawer
+        for route_hash, ready in [("#/title/29/", ".ts-front"), ("#/title/29/part/1910", ".toc-atlas"), ("#/title/29/section/1910.135", ".reg-body"), ("#/corpus/state/US-CA/8%20CCR/", ".resolver-card")]:
+            page.goto(f"{ENV.base_url}/{route_hash}")
+            page.wait_for_selector(ready, timeout=15000)
+            self.assertTrue(page.evaluate("document.documentElement.classList.contains('in-framework')"), f"in-framework missing on {route_hash}")
+            self.assertFalse(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"), f"drawer should be open on {route_hash}")
         self.assert_no_external_requests()
 
     def test_command_palette(self):
@@ -474,17 +526,17 @@ class BehaviorTests(BrowserCase):
         self.assertEqual(news_overflow["count"], 6)
         self.assertLessEqual(news_overflow["sw"], news_overflow["cw"] + 1)
 
-        # 3. Workspaces label consistency in rail, drawer, and page heading.
+        # 3. Workspaces label consistency in primary sidebar and page heading (drawer stays retracted on main pages).
         page.goto(f"{ENV.base_url}/#/projects")
         page.wait_for_selector(".proj-page h1", timeout=15000)
         self.assertEqual(page.inner_text(".proj-page h1"), "Workspaces")
-        self.assertEqual(page.inner_text("#drawer-title"), "Workspaces")
         self.assertEqual(page.locator('#activity-rail [data-target="projects"]').get_attribute("data-tip"), "Workspaces")
+        self.assertTrue(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"))
 
-        # 4. Library panel uninstalled suites show hollow dot, not synced green dot.
-        page.goto(f"{ENV.base_url}/#/library/29")
-        page.wait_for_selector(".dr-suite", timeout=15000)
-        self.assertEqual(page.locator(".dr-suite .stat-dot.is-uninstalled").count(), 2)
+        # 4. Library page keeps secondary drawer retracted and displays suite status cleanly.
+        page.goto(f"{ENV.base_url}/#/library")
+        page.wait_for_selector(".lib-front .suite-card", timeout=15000)
+        self.assertTrue(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"))
         self.assert_no_external_requests()
 
     def test_dark_newsroom_and_multijurisdiction_ui(self):
@@ -725,24 +777,16 @@ class BehaviorTests(BrowserCase):
         self.assert_no_external_requests()
 
     def test_help_settings_drawer_and_env_modal_behavior(self):
-        # 1. Settings drawer has quick actions + Open settings CTA without heavy page blocks.
+        # 1. Clicking Settings in the primary sidebar navigates directly to #/settings (closing the framework drawer).
         page = self.open_page("/section/1910.135", "#activity-rail")
-        page.click('#activity-rail button[data-target="settings"]')
-        page.wait_for_selector('#panel-settings a[href="#/settings"]', timeout=5000)
-        drawer_text = page.inner_text('#panel-settings').lower()
-        self.assertIn("quick settings", drawer_text)
-        self.assertIn("quick actions", drawer_text)
-        self.assertIn("open settings", drawer_text)
-        self.assertEqual(page.locator('#panel-settings .set-card, #panel-settings #set-keys').count(), 0)
-
-        # 2. Settings page holds Appearance, Claude, News, Storage, and Keyboard.
-        page.click('#panel-settings a[href="#/settings"]')
+        page.click('#activity-rail a[data-target="settings"]')
         page.wait_for_selector('#view [data-set], #view [data-open-env]', timeout=5000)
+        self.assertTrue(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"))
         set_text = page.inner_text('#view').lower()
         for section in ("appearance", "claude", "news", "storage", "keyboard"):
             self.assertIn(section, set_text)
 
-        # 3. #/help renders outcome-framed cards, RSS links, and collapsible .env footnote.
+        # 2. #/help renders outcome-framed cards, RSS links, and collapsible .env footnote.
         page.goto(f"{ENV.base_url}/#/help")
         page.wait_for_selector('.help-card .help-logo', timeout=5000)
         help_text = page.inner_text('#view')

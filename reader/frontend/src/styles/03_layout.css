@@ -52,18 +52,20 @@
 .edition { font-size: 12px; color: var(--fg-3); white-space: nowrap; font-variant-numeric: tabular-nums; margin-right: 4px; }
 
 /* ---------- Layout ---------- */
-/* Four fixed tracks: activity rail · drawer · main · chat. The drawer and chat tracks
-   animate between 0 and their width, so opening either slides the page over instead of
-   jumping. The drawer's track is 0 when it's collapsed, retracted (Overview, title home)
-   or floating over the page (`drawer-fly`: overlay mode, narrow screens). */
+/* Four fixed tracks: primary sidebar · secondary framework drawer · main · chat.
+   On main pages the primary sidebar expands to 216px with legible labels and quick-jump
+   frameworks while the secondary drawer stays closed (`drawer-retracted`).
+   Inside a legal framework (`html.in-framework`), the primary sidebar compacts smoothly to
+   a 52px icon rail so the secondary framework drawer has generous breathing room. */
 .layout {
-  --rail-w: 48px; --drawer-col: var(--sidebar-w); --chat-col: 0px;
+  --rail-w: 216px; --drawer-col: var(--sidebar-w); --chat-col: 0px;
   display: grid;
   grid-template-columns: var(--rail-w) var(--drawer-col) minmax(0, 1fr) var(--chat-col);
   grid-template-rows: minmax(0, 1fr);
   height: 100vh; height: 100dvh; padding-top: var(--topbar-h);
   transition: grid-template-columns var(--t-pane) var(--ease-out);
 }
+html.in-framework .layout, html.rail-compact .layout { --rail-w: 52px; }
 .layout.chat-open { --chat-col: var(--chat-w); }
 html.drawer-collapsed .layout, html.drawer-retracted .layout, html.drawer-fly .layout { --drawer-col: 0px; }
 body.resizing .layout { transition: none; }
@@ -80,47 +82,132 @@ body.resizing .layout { transition: none; }
 .nav-backdrop { grid-column: 1 / -1; grid-row: 1; }
 
 /* ---------- Activity rail ----------
-   Landmarks in a 48px column of 32px icon buttons. The lit item gets the pressed fill and
-   a 3px accent bar on the rail's left edge; a label with its shortcut shows on hover. */
+   Primary navigation sidebar on main pages (icon + label + count pill + framework quick-jump);
+   compacts cleanly to a 52px icon rail when inside a legal framework or compacted via ⌘B. */
 .activity-rail {
-  position: relative; z-index: var(--z-rail); display: flex; flex-direction: column; justify-content: space-between; align-items: center;
-  padding: 6px 0 calc(var(--gutter) + 6px);
-  background: color-mix(in oklab, var(--bg) 82%, transparent);
+  position: relative; z-index: var(--z-rail); display: flex; flex-direction: column; justify-content: space-between;
+  min-width: 0; min-height: 0; padding: 10px 8px calc(var(--gutter) + 6px);
+  background: color-mix(in oklab, var(--bg) 86%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
   border-right: 1px solid var(--line-soft);
 }
-.ar-group { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.ar-sep { width: 18px; height: 1px; margin: 4px 0; background: var(--line); }
+.ar-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 6px; scrollbar-width: thin;
+}
+.ar-sec { display: flex; flex-direction: column; gap: 4px; }
+.ar-sec-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 2px; }
+.ar-sec-label {
+  padding: 4px 8px 2px; font: var(--w-semibold) 10px/1.2 var(--sans);
+  text-transform: uppercase; letter-spacing: .08em; color: var(--fg-4);
+}
+.ar-sec-head .ar-sec-label { padding: 0; }
+.ar-sec-link { font: var(--w-medium) 11px/1 var(--sans); color: var(--fg-3); text-decoration: none; transition: color var(--t-quick) var(--ease); }
+.ar-sec-link:hover { color: var(--fg-strong); text-decoration: none; }
+
+.ar-group { display: flex; flex-direction: column; gap: 2px; }
+.ar-bottom { flex: 0 0 auto; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+.ar-sep { display: none; width: 20px; height: 1px; margin: 4px auto; background: var(--line); }
+
 .ar-btn {
-  position: relative; display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
-  border: 0; border-radius: var(--r-6); background: transparent; color: var(--fg-3); cursor: pointer;
-  transition: all var(--t-ui) var(--ease-out);
+  position: relative; display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; padding: 0 9px;
+  border: 0; border-radius: var(--r-6); background: transparent; color: var(--fg-2); cursor: pointer; text-decoration: none;
+  font: var(--w-medium) 13px/1 var(--sans); text-align: left;
+  transition: background-color var(--t-ui) var(--ease-out), color var(--t-ui) var(--ease-out), transform var(--t-snap) var(--ease);
 }
 .ar-btn:hover { background: var(--hover); color: var(--fg-strong); text-decoration: none; }
 .ar-btn:active { transform: scale(.98); }
 .ar-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.ar-btn .icon { width: 16px; height: 16px; }
+.ar-btn .icon { width: 16px; height: 16px; flex: 0 0 auto; color: var(--fg-3); transition: color var(--t-ui) var(--ease-out); }
+.ar-btn:hover .icon, .ar-btn.is-active .icon { color: var(--fg-strong); }
+.ar-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ar-btn.is-active { background: var(--active); color: var(--fg-strong); box-shadow: var(--card-top); }
 .ar-btn::before {
   content: ""; position: absolute; left: -8px; top: 50%; width: 3px; height: 16px; border-radius: 0 2px 2px 0;
   background: var(--accent); transform: translateY(-50%) scaleY(0); transition: transform var(--t-base) var(--ease-out);
 }
 .ar-btn.is-active::before { transform: translateY(-50%) scaleY(1); }
-/* Label + shortcut, to the right of the rail, after a short hover. */
+
+/* Right-aligned counts & status pills in expanded sidebar */
+.ar-pill {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 17px;
+  padding: 0 5px; border-radius: var(--r-pill); background: var(--hover); border: 1px solid var(--line);
+  font: var(--w-medium) 10.5px/1 var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums;
+}
+.ar-pill.is-warn {
+  border-color: color-mix(in oklab, var(--warn) 38%, transparent);
+  background: color-mix(in oklab, var(--warn) 12%, transparent);
+  color: var(--warn);
+}
+.ar-pill.is-busy { border-color: var(--line-strong); color: var(--fg); }
+.ar-pill.is-fr {
+  border-color: color-mix(in oklab, var(--ref-fr) 30%, var(--line));
+  color: var(--fg-3);
+}
+
+/* Framework quick-jump list in expanded sidebar */
+.ar-fw-rail-group { display: none; }
+.ar-frameworks-sec { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+.ar-frameworks { display: flex; flex-direction: column; gap: 10px; padding-bottom: 8px; }
+.ar-fw-group { display: flex; flex-direction: column; gap: 1px; }
+.ar-fw-tier {
+  padding: 2px 8px 3px; font: var(--w-semibold) 10px/1.2 var(--mono);
+  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-4);
+}
+.ar-fw-row {
+  display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px;
+  border-radius: var(--r-6); color: var(--fg-2); text-decoration: none; font-size: 12px;
+  transition: background-color var(--t-snap) var(--ease), color var(--t-quick) var(--ease-out);
+}
+.ar-fw-row:hover { background: var(--hover); color: var(--fg-strong); text-decoration: none; }
+.ar-fw-row.is-current { background: var(--active); color: var(--fg-strong); }
+.ar-fw-code {
+  flex: 0 0 auto; font: var(--w-semibold) 11px/1 var(--mono); color: var(--tier-hue, var(--fg-2));
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.ar-fw-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
+.ar-fw-row:hover .ar-fw-name, .ar-fw-row.is-current .ar-fw-name { color: var(--fg); }
+.ar-fw-stale { margin-left: auto; }
+.ar-fw-empty { padding: 6px 8px; font-size: 12px; color: var(--fg-4); }
+
+/* Compact / In-framework 52px icon-rail state */
+html.in-framework .activity-rail, html.rail-compact .activity-rail { align-items: center; padding: 8px 0 calc(var(--gutter) + 6px); }
+html.in-framework .ar-scroll, html.rail-compact .ar-scroll { align-items: center; overflow: visible; gap: 4px; }
+html.in-framework .ar-sec, html.rail-compact .ar-sec { align-items: center; }
+html.in-framework .ar-group, html.rail-compact .ar-group { align-items: center; gap: 4px; }
+html.in-framework .ar-bottom, html.rail-compact .ar-bottom { width: 100%; align-items: center; }
+html.in-framework .ar-sec-label,
+html.rail-compact .ar-sec-label,
+html.in-framework .ar-label,
+html.rail-compact .ar-label,
+html.in-framework .ar-pill,
+html.rail-compact .ar-pill,
+html.in-framework .ar-frameworks-sec,
+html.rail-compact .ar-frameworks-sec { display: none; }
+html.in-framework .ar-sep, html.rail-compact .ar-sep { display: block; }
+html.in-framework .ar-fw-rail-group, html.rail-compact .ar-fw-rail-group { display: flex; }
+html.in-framework .ar-btn, html.rail-compact .ar-btn { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; }
+html.in-framework .ar-btn::before, html.rail-compact .ar-btn::before { left: -9px; }
+
+/* Label + shortcut tooltip, shown only in compact/icon-rail state */
 .ar-btn::after {
   content: attr(data-tip) "   " attr(data-keys); white-space: pre;
   position: absolute; left: calc(100% + 10px); top: 50%; z-index: var(--z-dock); transform: translate(-3px, -50%);
   padding: 5px 8px; border-radius: var(--r-6); background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow-pop);
-  font: var(--w-medium) 12px/1 var(--sans); color: var(--fg); pointer-events: none;
+  font: var(--w-medium) 12px/1 var(--sans); color: var(--fg); pointer-events: none; display: none;
   opacity: 0; transition: opacity var(--t-quick) var(--ease), transform var(--t-quick) var(--ease); transition-delay: 0s;
 }
-.ar-btn:hover::after { opacity: 1; transform: translate(0, -50%); transition-delay: .35s; }
-.ar-btn:focus-visible::after { opacity: 1; transform: translate(0, -50%); transition-delay: .55s; }
-.ar-btn.is-active:hover::after { transition-delay: .6s; }
+html.in-framework .ar-btn::after, html.rail-compact .ar-btn::after { display: block; }
+html.in-framework .ar-btn:hover::after, html.rail-compact .ar-btn:hover::after { opacity: 1; transform: translate(0, -50%); transition-delay: .3s; }
+html.in-framework .ar-btn:focus-visible::after, html.rail-compact .ar-btn:focus-visible::after { opacity: 1; transform: translate(0, -50%); transition-delay: .5s; }
+html.in-framework .ar-btn.is-active:hover::after, html.rail-compact .ar-btn.is-active:hover::after { transition-delay: .55s; }
+
 .ar-badge {
   position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; pointer-events: none;
   background: var(--accent); box-shadow: 0 0 0 2px var(--bg), 0 0 calc(6px * var(--glow)) var(--accent);
+  display: none;
 }
+html.in-framework .ar-badge:not([hidden]), html.rail-compact .ar-badge:not([hidden]) { display: block; }
 .ar-badge.is-busy::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 1px solid var(--accent); animation: stat-ring 1.6s cubic-bezier(.24, 0, .38, 1) infinite; }
 .ar-badge.is-stale { background: var(--warn); box-shadow: 0 0 0 2px var(--bg); }
 
@@ -128,6 +215,7 @@ body.resizing .layout { transition: none; }
 .sidebar {
   position: relative; z-index: var(--z-drawer); overflow: hidden; display: flex; flex-direction: column; min-width: 0; min-height: 0;
   background: var(--panel); border-right: 1px solid var(--line);
+  border-top: 2px solid color-mix(in oklab, var(--tier-hue, var(--ref-cfr)) 65%, transparent);
   transition: border-color var(--t-slow) var(--ease-out);
 }
 /* The content keeps the drawer's full width while the track animates, so it slides under
@@ -136,16 +224,24 @@ body.resizing .layout { transition: none; }
   display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: var(--sidebar-w); max-width: 100vw;
   transition: opacity var(--t-base) var(--ease), transform var(--t-slow) var(--ease-out);
 }
-html.drawer-collapsed .sidebar, html.drawer-retracted .sidebar { border-right-color: transparent; }
+html.drawer-collapsed .sidebar, html.drawer-retracted .sidebar { border-right-color: transparent; border-top-color: transparent; }
 html.drawer-collapsed .drawer-inner, html.drawer-retracted .drawer-inner { opacity: 0; transform: translateX(-16px); }
 html:not(.drawer-fly) .main { transition: margin-left var(--t-slow) var(--ease-out); }
 html.drawer-collapsed .main, html.drawer-retracted .main, html.drawer-fly .main { margin-left: var(--gutter); }
 
-.drawer-head { display: flex; align-items: center; gap: 4px; height: 40px; flex: 0 0 auto; padding: 0 6px 0 14px; border-bottom: 1px solid var(--line-soft); }
-.drawer-head-text { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-.drawer-title { margin: 0; font: var(--w-semibold) 13px/1 var(--sans); letter-spacing: -.005em; color: var(--fg); white-space: nowrap; }
+.drawer-head { display: flex; align-items: center; gap: 4px; height: 42px; flex: 0 0 auto; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line-soft); }
+.drawer-head-text { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 7px; }
+.drawer-title { margin: 0; font: var(--w-semibold) 12.5px/1 var(--mono); letter-spacing: .01em; color: var(--tier-hue, var(--fg)); white-space: nowrap; }
 .drawer-meta { min-width: 0; font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .drawer-acts { display: flex; align-items: center; gap: 2px; }
+.drawer-start-pill {
+  display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border-radius: var(--r-6);
+  border: 1px solid var(--line); background: var(--field); color: var(--fg-2);
+  font: var(--w-medium) 11px/1 var(--sans); text-decoration: none;
+  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
+}
+.drawer-start-pill:hover { border-color: var(--line-strong); background: var(--hover); color: var(--fg-strong); text-decoration: none; }
+.drawer-start-pill .icon { width: 12px; height: 12px; }
 .drawer-icon { width: 26px; height: 26px; }
 .drawer-icon[aria-pressed="true"] { color: var(--fg-2); }
 .drawer-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; animation: fade-in var(--t-base) var(--ease); }

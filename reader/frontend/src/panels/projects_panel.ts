@@ -12,10 +12,8 @@ import { joinSep } from '../components/ui';
 state.newProjectOpen = false;
 
 export function showNewProjectForm(): void {
-  state.newProjectOpen = true;
-  if (!drawerShown() || navState.panel !== 'projects') openPanel('projects');
-  else renderProjectsPanel();
-  requestAnimationFrame(() => document.getElementById('dr-new-name')?.focus());
+  const p = createProject('New workspace');
+  window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
 }
 
 export const projectRouteId = (): string | null => {

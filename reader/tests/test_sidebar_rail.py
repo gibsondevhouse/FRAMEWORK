@@ -28,36 +28,36 @@ class RailMarkupTests(HermeticTestCase):
         cls.css = combined_css()
 
     def test_rail_and_drawer_containers_exist(self):
-        for id_ in ("activity-rail", "sidebar", "drawer-title", "drawer-close", "drawer-mode", "tree", "tree-filter", "pin-pop"):
+        for id_ in ("activity-rail", "ar-frameworks", "sidebar", "drawer-pip", "drawer-title", "drawer-close", "drawer-mode", "tree", "tree-filter", "pin-pop"):
             with self.subTest(id=id_):
                 self.assertIn(f'id="{id_}"', self.html)
 
     def test_rail_targets_cover_every_vertical(self):
-        targets = re.findall(r'class="ar-btn"[^>]*data-target="(\w+)"', self.html)
-        self.assertEqual(targets, ["overview", "home", "reader", "projects", "news", "library", "settings"])
+        targets = re.findall(r'class="ar-btn[^"]*"[^>]*data-target="(\w+)"', self.html)
+        self.assertEqual(targets, ["overview", "projects", "news", "library", "home", "reader", "settings", "help"])
 
     def test_route_targets_are_links_and_panels_are_buttons(self):
-        for t in ("overview", "home", "news"):
-            self.assertRegex(self.html, rf'<a class="ar-btn" data-target="{t}" href="#/')
-        for t in ("reader", "projects", "library", "settings"):
-            self.assertRegex(self.html, rf'<button type="button" class="ar-btn" data-target="{t}" aria-controls="sidebar" aria-expanded="false"')
+        for t in ("overview", "projects", "news", "library", "home", "settings", "help"):
+            self.assertRegex(self.html, rf'<a class="ar-btn[^"]*" data-target="{t}" href="#/')
+        self.assertRegex(self.html, r'<button type="button" class="ar-btn[^"]*" data-target="reader"[^>]*aria-controls="sidebar" aria-expanded="false"')
 
     def test_every_panel_target_has_a_panel(self):
-        for panel in ("reader", "projects", "library", "settings", "history"):
+        for panel in ("reader", "corpus"):
             with self.subTest(panel=panel):
                 self.assertIn(f'data-panel="{panel}"', self.html)
 
     def test_rail_items_have_labels_and_shortcuts(self):
-        for m in re.finditer(r'<(?:a|button)[^>]*class="ar-btn"[^>]*>', self.html):
+        for m in re.finditer(r'<(?:a|button)[^>]*class="ar-btn[^"]*"[^>]*>', self.html):
             tag = m.group(0)
             with self.subTest(tag=tag[:60]):
                 self.assertIn("aria-label=", tag)
-                self.assertRegex(tag, r'data-keys="G [HTCPNLS]"')
+                self.assertIn("data-tip=", tag)
 
     def test_layout_tokens_and_states(self):
-        self.assertIn("--rail-w: 48px", self.css)
+        self.assertIn("--rail-w: 216px", self.css)
+        self.assertIn("html.in-framework .layout", self.css)
         self.assertIn("grid-template-columns: var(--rail-w) var(--drawer-col) minmax(0, 1fr) var(--chat-col)", self.css)
-        for state in ("drawer-collapsed", "drawer-retracted", "drawer-fly"):
+        for state in ("drawer-collapsed", "drawer-retracted", "drawer-fly", "in-framework", "rail-compact"):
             with self.subTest(state=state):
                 self.assertIn(f"html.{state}", self.css)
 

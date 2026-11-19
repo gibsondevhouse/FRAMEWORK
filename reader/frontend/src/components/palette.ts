@@ -10,13 +10,21 @@ import { NavPanelKey, openPanel, toggleDrawer } from '../nav';
 export function commandList(): Array<[string, string, string]> {
   const mod = isMac ? '⌘' : 'Ctrl ';
   return [
-    ['Go to Home', '#/', 'G H'], [`Go to Title ${state.currentTitle} start`, `#/title/${state.currentTitle}/`, 'G T'],
-    ['Open contents', 'cmd:reader', 'G C'], ['Open workspaces', 'cmd:projects', 'G P'], ['All workspaces', '#/projects', ''],
-    ['Go to News', '#/news', 'G N'], ['Search DOL inspections (live archive)', '#/news?cat=enforcement', ''], ['Refresh news', 'cmd:news-refresh', ''],
-    ['New workspace', 'cmd:new-project', ''], ['Open the library', '#/library', ''], ['Library drawer', 'cmd:library', 'G L'],
-    ['Settings', 'cmd:settings', 'G S'], ['All settings', '#/settings', ''],
-    ['Connections & API keys', '#/help', ''], ['Edit API keys', 'cmd:env-modal', ''],
-    ['Show or hide the drawer', 'cmd:drawer', `${mod}B`], ['Ask Claude', 'cmd:chat', `${mod}J`],
+    ['Go to Home', '#/', 'G H'],
+    ['Go to Workspaces', '#/projects', 'G P'],
+    ['Go to Newsroom', '#/news', 'G N'],
+    ['Go to Library', '#/library', 'G L'],
+    ['Go to Settings', '#/settings', 'G S'],
+    [`Go to Title ${state.currentTitle} start`, `#/title/${state.currentTitle}/`, 'G T'],
+    ['Open framework contents', 'cmd:reader', 'G C'],
+    ['Federal Register framework', '#/corpus/federal-register/US/FR/', ''],
+    ['Search DOL inspections (live archive)', '#/news?cat=enforcement', ''],
+    ['Refresh news', 'cmd:news-refresh', ''],
+    ['New workspace', 'cmd:new-project', ''],
+    ['Connections & API keys', '#/help', ''],
+    ['Edit API keys', 'cmd:env-modal', ''],
+    ['Toggle sidebar / framework drawer', 'cmd:drawer', `${mod}B`],
+    ['Ask Claude', 'cmd:chat', `${mod}J`],
     ...loadProjects().map((p): [string, string, string] => [`Workspace: ${p.name}`, `#/projects/${encodeURIComponent(p.id)}`, '']),
     ...state.installedTitles.filter(t => t.title !== state.currentTitle).map((t): [string, string, string] => [`Switch to Title ${t.title} ${t.name}`, `#/title/${t.title}/`, '']),
   ];

@@ -1,12 +1,12 @@
 import { CorpusSummary, state } from './state';
 import { on } from './core/events';
 import { renderResolverPage } from './components/cfr_resolver';
-import { parseCorpusPath, syncCorporaState } from './components/corpora';
+import { findSystemFramework, parseCorpusPath, syncCorporaState } from './components/corpora';
 import { clearTreeSelection, switchTitle } from './components/sidebar';
 import { renderCorpusStaging, renderNotFound } from './components/title_switcher';
 import { hideMainTabs } from './components/reader_tabs';
 import { setViewHead } from './components/view_head';
-import { syncNavToRoute } from './nav';
+import { applyNav, renderCorpusDrawer, syncNavToRoute } from './nav';
 import { renderSettingsPage } from './panels/settings_panel';
 import { dom } from './state_init';
 import { renderHome } from './views/core';
@@ -53,11 +53,12 @@ export async function handleRoute(): Promise<void> {
     if (isCfr && Number.isFinite(cfrTitleNum)) {
       titleMatch = [path, String(cfrTitleNum), corpusMatch.subPath];
     } else {
-      const matchedCorpus = state.corpora.find(c =>
-        c.tier === corpusMatch.tier
-        && c.jurisdiction.toLowerCase() === corpusMatch.jurisdiction.toLowerCase()
-        && String(c.code).toLowerCase() === String(corpusMatch.code).toLowerCase(),
-      );
+      const matchedCorpus = findSystemFramework(corpusMatch.tier, corpusMatch.jurisdiction, corpusMatch.code)
+        || state.corpora.find(c =>
+          c.tier === corpusMatch.tier
+          && c.jurisdiction.toLowerCase() === corpusMatch.jurisdiction.toLowerCase()
+          && String(c.code).toLowerCase() === String(corpusMatch.code).toLowerCase(),
+        );
       clearTreeSelection();
       setViewHead('');
       const fallbackCorpus: CorpusSummary = matchedCorpus || {
@@ -71,10 +72,14 @@ export async function handleRoute(): Promise<void> {
         agencies: [],
         installed: false,
       };
+      state.activeCorpus = fallbackCorpus;
+      renderCorpusDrawer(fallbackCorpus);
+      applyNav();
       renderCorpusStaging(fallbackCorpus);
       return;
     }
   }
+  state.activeCorpus = null;
   if (titleMatch) {
     const targetTitle = parseInt(titleMatch[1], 10);
     const subPath = titleMatch[2] || '/';

@@ -4,6 +4,7 @@
 export type AuthorityTier =
   | 'federal-statute'
   | 'federal-reg'
+  | 'federal-register'
   | 'state'
   | 'county'
   | 'standard';
@@ -46,6 +47,10 @@ export interface CorpusSummary {
   partial?: boolean;
   summary?: string;
   installed?: boolean;
+  linked_titles?: number[];
+  external_url?: string;
+  status_label?: string;
+  update_available?: boolean;
 }
 
 export interface JurisdictionStackNode {
@@ -447,7 +452,10 @@ export interface EnvStatusSnapshot {
 export interface AppState {
   currentTitle: number;
   activeCorpusId: string;
+  activeCorpus: CorpusSummary | null;
   activeDesk: DeskId;
+  homeTierFilter: 'all' | AuthorityTier;
+  homeHistoryExpanded: boolean;
   corpora: CorpusSummary[];
   extraCorpora: CorpusSummary[];
   installedTitles: InstalledTitleMeta[];
@@ -515,7 +523,10 @@ export interface AppState {
 export const state: AppState = {
   currentTitle: 29,
   activeCorpusId: 'us:cfr:29',
+  activeCorpus: null,
   activeDesk: 'all',
+  homeTierFilter: 'all',
+  homeHistoryExpanded: false,
   corpora: [],
   extraCorpora: [],
   installedTitles: [],

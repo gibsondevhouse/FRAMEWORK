@@ -279,6 +279,107 @@ a.ts-auth-node:hover { border-color: color-mix(in oklab, var(--tier-hue) 50%, va
 .hm-transfer-cta { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; font: var(--w-medium) 12px/1 var(--sans); color: var(--fg-3); transition: color var(--t-ui) var(--ease-out); }
 .hm-transfer:hover .hm-transfer-cta { color: var(--fg-strong); }
 
+/* Band 1: Legal Systems Architecture Strip (U.S.C. · CFR · FR · State) */
+.hm-systems { display: flex; flex-direction: column; gap: 10px; }
+.hm-sys-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.hm-sys-card {
+  display: flex; flex-direction: column; align-items: stretch; text-align: left; min-width: 0;
+  padding: 14px 16px 13px 18px; border-radius: var(--r-12); border: 1px solid var(--line);
+  background: var(--card-bg); box-shadow: var(--card-top); color: var(--fg); cursor: pointer; font: inherit;
+  transition: transform var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out), background-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out);
+}
+.hm-sys-card:hover {
+  transform: translateY(-1px); border-color: color-mix(in oklab, var(--tier-hue, var(--line-strong)) 45%, var(--line));
+  background: var(--card-hover-bg); box-shadow: var(--shadow-card-hover);
+}
+.hm-sys-card:active { transform: scale(.99); }
+.hm-sys-card.is-selected {
+  border-color: color-mix(in oklab, var(--tier-hue, var(--accent)) 62%, var(--line));
+  background: color-mix(in oklab, var(--tier-hue, var(--fg)) 7%, var(--card));
+  box-shadow: var(--shadow-card-hover);
+}
+.hm-sys-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 18px; }
+.hm-sys-kicker {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: var(--w-semibold) 10.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .07em;
+  color: var(--tier-hue, var(--fg-3));
+}
+.hm-sys-name { margin-top: 7px; font: var(--w-medium) 12px/1.3 var(--sans); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hm-sys-val { margin-top: 3px; font: var(--w-semibold) 17px/1.25 var(--sans); letter-spacing: -.02em; color: var(--fg-strong); font-variant-numeric: tabular-nums; }
+.hm-sys-sub { margin-top: 2px; font-size: 11.5px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.hm-sys-bar { height: 2px; margin-top: 10px; border-radius: 1px; background: var(--line-soft); overflow: hidden; }
+.hm-sys-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--tier-hue, var(--fg-2)); opacity: .85; transition: width var(--t-pane) var(--ease-out); }
+
+/* Band 2: Framework Updates & Health Radar */
+.hm-updates {
+  border-radius: var(--r-12); border: 1px solid var(--line); background: var(--card-bg); box-shadow: var(--card-top);
+}
+.hm-updates.is-synced { padding: 11px 16px; }
+.hm-upd-calm { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.hm-upd-calm-left { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.hm-upd-calm-title { font-weight: var(--w-medium); color: var(--fg); }
+.hm-upd-calm-meta { color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.hm-upd-calm-acts { display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+.hm-updates.is-attention {
+  padding: 16px 18px;
+  border-color: color-mix(in oklab, var(--warn) 36%, var(--line));
+  background: color-mix(in oklab, var(--warn) 5%, var(--card));
+}
+.hm-upd-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
+.hm-upd-title-wrap { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hm-upd-title { margin: 0; font: var(--w-semibold) 13.5px/1.3 var(--sans); color: var(--fg-strong); }
+.hm-upd-sub { font-size: 12px; color: var(--fg-3); }
+.hm-upd-head-acts { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hm-upd-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.hm-upd-row {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+  border-radius: var(--r-8); border: 1px solid var(--line-soft); background: var(--field);
+}
+.hm-upd-code { flex: 0 0 auto; font: var(--w-semibold) 11.5px/1 var(--mono); color: var(--tier-hue, var(--fg)); font-variant-numeric: tabular-nums; }
+.hm-upd-name { flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-weight: var(--w-medium); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hm-upd-detail { flex: 0 0 auto; font-size: 11.5px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+
+/* Work Footprint visual summary inside Band 3 */
+.hm-loc-tier { display: inline-flex; align-items: center; gap: 5px; font: var(--w-semibold) 11.5px/1 var(--mono); color: var(--tier-hue, var(--fg-2)); }
+.hm-footprint { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 10px; }
+.hm-fp-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.hm-fp-stat {
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
+  border-radius: var(--r-8); border: 1px solid var(--line-soft); background: var(--field);
+}
+.hm-fp-num { font: var(--w-semibold) 15.5px/1.2 var(--sans); color: var(--fg-strong); font-variant-numeric: tabular-nums; }
+.hm-fp-lbl { font-size: 10.5px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hm-fp-dist { display: flex; flex-direction: column; gap: 6px; }
+.hm-fp-bar { display: flex; gap: 2px; height: 5px; border-radius: var(--r-pill); background: var(--line-soft); overflow: hidden; }
+.hm-fp-seg { display: block; height: 100%; background: var(--tier-hue, var(--fg-2)); border-radius: 2px; }
+.hm-fp-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.hm-fp-leg-item { display: inline-flex; align-items: center; gap: 5px; }
+.hm-fp-leg-item strong { color: var(--fg-2); font-weight: var(--w-medium); }
+
+/* Filters & tier tabs in Band 4 (Legal Frameworks Directory) */
+.hm-filters { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.hm-filters .desk-ribbon { margin-bottom: 0; }
+.hm-tier-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hm-tier-tab {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px;
+  border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--field);
+  color: var(--fg-3); font: var(--w-medium) 12px/1 var(--sans); cursor: pointer;
+  transition: border-color var(--t-quick) var(--ease), background-color var(--t-quick) var(--ease), color var(--t-quick) var(--ease);
+}
+.hm-tier-tab:hover { color: var(--fg); border-color: var(--line-strong); background: var(--hover); }
+.hm-tier-tab.is-active {
+  background: color-mix(in oklab, var(--tier-hue, var(--fg)) 10%, var(--active));
+  border-color: color-mix(in oklab, var(--tier-hue, var(--line-strong)) 42%, var(--line-strong));
+  color: var(--fg-strong);
+}
+.hm-tier-count { font: var(--w-medium) 11px/1 var(--mono); color: var(--fg-4); font-variant-numeric: tabular-nums; }
+.hm-tier-tab.is-active .hm-tier-count { color: var(--fg-2); }
+.hm-inline-link.is-warn { color: var(--warn); }
+.hm-inline-link.is-warn:hover { color: var(--fg-strong); }
+.hm-sec-title { display: inline-flex; align-items: center; gap: 7px; }
+.hm-sec-title .icon { width: 15px; height: 15px; color: var(--fg-3); }
+
 .hm-top { display: grid; grid-template-columns: minmax(0, 1.38fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
 .hm-card {
   display: flex; flex-direction: column; min-width: 0; padding: 24px;
@@ -316,7 +417,7 @@ a.hm-resume-title:hover { color: var(--fg-strong); text-decoration: none; }
 }
 .hm-trail-row:hover { background: var(--hover); color: var(--fg-strong); text-decoration: none; }
 .hm-trail-row:active { transform: scale(.99); }
-.hm-tag { flex: 0 0 auto; font-size: 11px; font-weight: var(--w-medium); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.hm-tag { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; font: var(--w-medium) 11px/1 var(--mono); color: var(--tier-hue, var(--fg-3)); font-variant-numeric: tabular-nums; }
 .hm-row-num { flex: 0 0 auto; font-weight: var(--w-medium); color: var(--fg); font-variant-numeric: tabular-nums; }
 .hm-row-text { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hm-row-val { flex: 0 0 auto; font-size: 11.5px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
@@ -416,8 +517,13 @@ a.hm-resume-title:hover { color: var(--fg-strong); text-decoration: none; }
 }
 .hm-signal-link:hover { color: var(--fg-strong); text-decoration: none; }
 .hm-signal-muted { font-size: 12px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
-.hm-prog-track { height: 2px; margin-top: 8px; border-radius: 1px; background: var(--line-soft); overflow: hidden; }
-.hm-prog-track > span { display: block; height: 100%; border-radius: inherit; background: var(--fg-2); }
+.hm-prog-meta {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px;
+  font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums;
+}
+.hm-prog-track { height: 3px; margin-top: 5px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
+.hm-prog-track > span { display: block; height: 100%; border-radius: inherit; background: var(--tier-hue, var(--fg-2)); opacity: .88; }
+.hm-prog-track.is-tier { margin-top: 9px; }
 
 /* Regulatory Pulse: compact bottom digest */
 .hm-news-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -444,6 +550,7 @@ a.hm-resume-title:hover { color: var(--fg-strong); text-decoration: none; }
 .hm-news-skel-item { display: flex; flex-direction: column; gap: 8px; }
 
 @container hm (max-width: 860px) {
+  .hm-sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hm-top { grid-template-columns: minmax(0, 1fr); }
   .hm-title-grid, .hm-news-skel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hm-news-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
@@ -451,7 +558,9 @@ a.hm-resume-title:hover { color: var(--fg-strong); text-decoration: none; }
   .hm-news-item:last-child { padding-bottom: 0; border-bottom: 0; }
 }
 @container hm (max-width: 560px) {
-  .hm-title-grid, .hm-starter-grid, .hm-news-skel { grid-template-columns: minmax(0, 1fr); }
+  .hm-sys-grid, .hm-title-grid, .hm-starter-grid, .hm-news-skel { grid-template-columns: minmax(0, 1fr); }
+  .hm-fp-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hm-upd-row { flex-wrap: wrap; }
   .hm-head { flex-direction: column; align-items: flex-start; }
   .hm-transfer { flex-wrap: wrap; }
 }

@@ -4,24 +4,33 @@
 }
 @media (max-width: 900px) {
   .topbar { border-bottom: 1px solid var(--line); }
-  /* The rail becomes a bottom bar; the drawer slides over the page above it. */
-  .layout, .layout.chat-open { --rail-w: 0px; --drawer-col: 0px; --chat-col: 0px; padding-bottom: var(--bar-h); }
+  /* The primary sidebar becomes a bottom bar; the secondary framework drawer slides over it. */
+  .layout, html.in-framework .layout, html.rail-compact .layout, .layout.chat-open { --rail-w: 0px; --drawer-col: 0px; --chat-col: 0px; padding-bottom: var(--bar-h); }
   .main-stage.is-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(240px, 46%); gap: 6px; }
   .main, .layout.chat-open .main, html.drawer-fly .main { margin: 0; border: 0; border-radius: 0; }
   .split-pane { margin: 0; border-width: 1px 0 0 0; border-radius: 0; }
-  .activity-rail {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: calc(var(--z-rail) + 1); height: var(--bar-h); flex-direction: row; justify-content: center;
+  .activity-rail, html.in-framework .activity-rail, html.rail-compact .activity-rail {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: calc(var(--z-rail) + 1); height: var(--bar-h);
+    flex-direction: row; justify-content: center; align-items: center;
     padding: 0 8px env(safe-area-inset-bottom); border-right: 0; border-top: 1px solid var(--line);
-    background: color-mix(in oklab, var(--bg) 82%, transparent);
+    background: color-mix(in oklab, var(--bg) 86%, transparent);
     -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
   }
-  .ar-group { flex-direction: row; gap: 2px; }
-  .ar-bottom { margin-left: 2px; }
-  .ar-sep { width: 1px; height: 18px; margin: 0 6px; }
-  .ar-btn { width: 44px; height: 40px; }
-  .ar-btn::before { left: 50%; top: auto; bottom: -1px; width: 16px; height: 2.5px; border-radius: 2px 2px 0 0; transform: translateX(-50%) scaleX(0); }
-  .ar-btn.is-active::before { transform: translateX(-50%) scaleX(1); }
-  .ar-btn::after { display: none; }
+  .ar-scroll, html.in-framework .ar-scroll, html.rail-compact .ar-scroll {
+    flex: 0 1 auto; flex-direction: row; align-items: center; overflow: visible; gap: 2px;
+  }
+  .ar-sec, html.in-framework .ar-sec, html.rail-compact .ar-sec { flex-direction: row; align-items: center; }
+  .ar-group, html.in-framework .ar-group, html.rail-compact .ar-group { flex-direction: row; gap: 2px; }
+  .ar-bottom, html.in-framework .ar-bottom, html.rail-compact .ar-bottom { width: auto; margin-left: 2px; padding-top: 0; border-top: 0; }
+  .ar-sec-label, .ar-label, .ar-pill, .ar-frameworks-sec, .ar-desktop-only { display: none !important; }
+  .ar-fw-rail-group { display: none; }
+  html.in-framework .ar-fw-rail-group { display: flex; }
+  html.in-framework .ar-sep { display: block; width: 1px; height: 18px; margin: 0 4px; }
+  .ar-btn, html.in-framework .ar-btn, html.rail-compact .ar-btn { display: grid; place-items: center; width: 44px; height: 40px; padding: 0; }
+  .ar-btn::before, html.in-framework .ar-btn::before, html.rail-compact .ar-btn::before { left: 50%; top: auto; bottom: -1px; width: 16px; height: 2.5px; border-radius: 2px 2px 0 0; transform: translateX(-50%) scaleX(0); }
+  .ar-btn.is-active::before, html.in-framework .ar-btn.is-active::before, html.rail-compact .ar-btn.is-active::before { transform: translateX(-50%) scaleX(1); }
+  .ar-btn::after { display: none !important; }
+  .ar-badge:not([hidden]) { display: block; }
   html.drawer-fly .sidebar { left: 0; bottom: var(--bar-h); width: min(88vw, 340px); }
   .nav-backdrop { inset: var(--topbar-h) 0 var(--bar-h) 0; }
   .sidebar-resizer { display: none; }

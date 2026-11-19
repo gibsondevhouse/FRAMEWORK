@@ -2,11 +2,11 @@ import { CorpusSummary, state } from '../state';
 import { on } from '../core/events';
 import { closeAllPopovers, registerPopoverCloser } from './popover';
 import {
-  corpusHashFor, deskLabel, refTierForCorpus, syncCorporaState, TIER_META, TIER_ORDER,
+  allSystemFrameworks, corpusHashFor, deskLabel, refTierForCorpus, syncCorporaState, TIER_META, TIER_ORDER,
 } from './corpora';
 import { clearTreeSelection, switchTitle } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon } from '../dom';
+import { enterView, escapeHtml, icon, safeHttpUrl } from '../dom';
 import { dom } from '../state_init';
 
 // --- Tiered Corpus & Jurisdiction Switcher (top bar) ---
@@ -43,7 +43,8 @@ on('titles:refreshed', ({ hadNone, list }) => {
 });
 
 function switcherGroupsHtml(query = '', desk = switcherDeskFilter): string {
-  const corpora = syncCorporaState();
+  syncCorporaState();
+  const corpora = allSystemFrameworks();
   const q = query.trim().toLowerCase();
   const filtered = corpora.filter(c => {
     if (desk !== 'all' && c.desk !== desk) return false;
@@ -53,7 +54,7 @@ function switcherGroupsHtml(query = '', desk = switcherDeskFilter): string {
   });
 
   if (!filtered.length) {
-    return '<div class="tm-empty">No matching frameworks installed.</div>';
+    return '<div class="tm-empty">No matching frameworks found.</div>';
   }
 
   return TIER_ORDER.map(tier => {
@@ -64,11 +65,13 @@ function switcherGroupsHtml(query = '', desk = switcherDeskFilter): string {
       <div class="tm-group" data-ref-tier="${meta.refTier}">
         <div class="tm-group-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(meta.label)}</span><span class="tm-group-count">${items.length}</span></div>
         ${items.map(c => {
-          const isCurrent = c.tier === 'federal-reg' ? c.title_num === state.currentTitle : c.corpus_id === state.activeCorpusId;
+          const isCurrent = c.tier === 'federal-reg'
+            ? (!state.activeCorpus && c.title_num === state.currentTitle)
+            : (state.activeCorpus?.corpus_id === c.corpus_id || c.corpus_id === state.activeCorpusId);
           const numText = c.tier === 'federal-reg' ? `${c.code} CFR` : c.code;
-          const tag = c.partial ? 'Partial' : (c.jurisdiction !== 'US' ? (c.jurisdiction_label || c.jurisdiction) : (c.agencies?.[0] || ''));
+          const tag = c.partial ? 'Partial' : (c.status_label || (c.jurisdiction !== 'US' ? (c.jurisdiction_label || c.jurisdiction) : (c.agencies?.[0] || '')));
           return `<button type="button" class="tm-item${isCurrent ? ' is-current' : ''}" role="menuitemradio" aria-checked="${isCurrent}" data-ref-tier="${meta.refTier}" ${c.tier === 'federal-reg' ? `data-title="${c.title_num}"` : `data-corpus-hash="${escapeHtml(corpusHashFor(c))}"`} tabindex="-1">
-            <span class="tier-pip" aria-hidden="true"></span>
+            <span class="tier-pip${c.installed === false ? ' is-hollow' : ''}" aria-hidden="true"></span>
             <span class="tm-num">${escapeHtml(numText)}</span><span class="tm-name">${escapeHtml(c.name)}</span>
             ${tag ? `<span class="tm-meta">${escapeHtml(tag)}</span>` : ''}
             ${isCurrent ? icon('check', 'tm-check') : '<span class="tm-check" aria-hidden="true"></span>'}
@@ -223,15 +226,38 @@ dom.titlePop.addEventListener('click', async (e) => {
 export function renderCorpusStaging(corpus: CorpusSummary): void {
   const meta = TIER_META[corpus.tier] || TIER_META['state'];
   const refTier = refTierForCorpus(corpus);
+  const linked = (corpus.linked_titles || [])
+    .map(n => state.installedTitles.find(t => t.title === n))
+    .filter((t): t is NonNullable<typeof t> => Boolean(t));
+  const extUrl = safeHttpUrl(corpus.external_url);
+  const frQuick = corpus.tier === 'federal-register' ? `
+    <div class="hm-title-parts" style="margin-top:16px">
+      <a class="hm-part-chip" href="#/news?cat=rules"><span class="hm-part-num">Final Rules</span></a>
+      <a class="hm-part-chip" href="#/news?cat=rulemaking"><span class="hm-part-num">Proposed Rules</span></a>
+      <a class="hm-part-chip" href="#/news?cat=public_inspection"><span class="hm-part-num">Public Inspection</span></a>
+      <a class="hm-part-chip" href="#/news?cat=enforcement"><span class="hm-part-num">Enforcement</span></a>
+    </div>` : '';
+  const linkedChips = linked.length ? `
+    <div class="hm-title-parts" style="margin-top:14px">
+      ${linked.map(t => `<a class="citation-chip" data-ref-tier="cfr" href="#/title/${t.title}/">${t.title} CFR · ${escapeHtml(t.name)}</a>`).join('')}
+    </div>` : '';
+
+  const jurText = corpus.jurisdiction_label && corpus.jurisdiction && corpus.jurisdiction_label !== corpus.jurisdiction
+    ? `${corpus.jurisdiction_label} (${corpus.jurisdiction})`
+    : (corpus.jurisdiction_label || corpus.jurisdiction);
   document.title = `${corpus.code} · ${corpus.jurisdiction_label || corpus.jurisdiction} · FRAMEWORK`;
   dom.view.innerHTML = `
     <div class="resolver-card has-tier-bar" data-ref-tier="${refTier}">
-      <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span> <span class="sep" aria-hidden="true">·</span> ${escapeHtml(corpus.jurisdiction_label || corpus.jurisdiction)}</div>
+      <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span> <span class="sep" aria-hidden="true">·</span> ${escapeHtml(jurText)}${corpus.status_label ? ` <span class="sep" aria-hidden="true">·</span> ${escapeHtml(corpus.status_label)}` : ''}</div>
       <h1 class="doc-title">${escapeHtml(corpus.code)} — ${escapeHtml(corpus.name)}</h1>
-      <p class="resolver-msg">${escapeHtml(corpus.summary || `This ${meta.label.toLowerCase()} corpus is pre-wired in FRAMEWORK’s multi-jurisdiction UI router and awaiting its backend ingestion pack.`)}</p>
+      <p class="resolver-msg">${escapeHtml(corpus.summary || `This ${meta.label.toLowerCase()} framework is wired into FRAMEWORK’s multi-jurisdiction navigation and authority stack.`)}</p>
+      ${frQuick}
+      ${linkedChips}
       <div class="resolver-acts">
-        <a class="btn btn-accent" href="#/library">Browse Catalog</a>
-        <a class="btn" href="#/title/${state.currentTitle}/">Back to ${state.currentTitle} CFR</a>
+        ${corpus.tier === 'federal-register' ? `<a class="btn btn-accent" href="#/news">Open Newsroom ${icon('chevronRight')}</a>` : ''}
+        ${extUrl ? `<a class="btn btn-accent" href="${escapeHtml(extUrl)}" target="_blank" rel="noopener noreferrer">Open Official Statute ${icon('external')}</a>` : ''}
+        <a class="btn" href="#/library">Browse Catalog</a>
+        <a class="btn" href="#/">Back to Home</a>
       </div>
     </div>
   `;

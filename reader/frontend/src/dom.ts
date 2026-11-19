@@ -195,6 +195,10 @@ export const ICON_PATHS = {
   eyeOff: '<path d="M2.5 2.5 13.5 13.5M6.4 4.45A6.6 6.6 0 0 1 8 4.25C12 4.25 14.25 8 14.25 8a10.4 10.4 0 0 1-2.2 2.55M4.1 5.65A10.6 10.6 0 0 0 1.75 8s2.25 3.75 6.25 3.75c.9 0 1.75-.18 2.5-.48"/>',
   search: '<circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3"/>',
   arrowRight: '<path d="M3.25 8h9.5M9 4.25 12.75 8 9 11.75"/>',
+  home: '<path d="M2.5 7 8 2.75 13.5 7v5.25a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1Z"/><path d="M6.5 13.25V9.5h3v3.75"/>',
+  refresh: '<path d="M13 8a5 5 0 1 1-1.35-3.42"/><path d="M13 2.75v2.75h-2.75"/>',
+  layers: '<path d="M8 2.5 2.5 5.5 8 8.5 13.5 5.5 8 2.5Z"/><path d="m2.5 8.5 5.5 3 5.5-3"/><path d="m2.5 11.25 5.5 3 5.5-3"/>',
+  grid: '<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.25"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.25"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.25"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.25"/>',
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

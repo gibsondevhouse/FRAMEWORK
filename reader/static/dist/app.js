@@ -2,7 +2,10 @@
 var state = {
 	currentTitle: 29,
 	activeCorpusId: "us:cfr:29",
+	activeCorpus: null,
 	activeDesk: "all",
+	homeTierFilter: "all",
+	homeHistoryExpanded: false,
 	corpora: [],
 	extraCorpora: [],
 	installedTitles: [],
@@ -4890,7 +4893,11 @@ var ICON_PATHS = {
 	eye: "<path d=\"M1.75 8S4 4.25 8 4.25 14.25 8 14.25 8 12 11.75 8 11.75 1.75 8 1.75 8Z\"/><circle cx=\"8\" cy=\"8\" r=\"1.75\"/>",
 	eyeOff: "<path d=\"M2.5 2.5 13.5 13.5M6.4 4.45A6.6 6.6 0 0 1 8 4.25C12 4.25 14.25 8 14.25 8a10.4 10.4 0 0 1-2.2 2.55M4.1 5.65A10.6 10.6 0 0 0 1.75 8s2.25 3.75 6.25 3.75c.9 0 1.75-.18 2.5-.48\"/>",
 	search: "<circle cx=\"7\" cy=\"7\" r=\"4.25\"/><path d=\"m10.2 10.2 3.3 3.3\"/>",
-	arrowRight: "<path d=\"M3.25 8h9.5M9 4.25 12.75 8 9 11.75\"/>"
+	arrowRight: "<path d=\"M3.25 8h9.5M9 4.25 12.75 8 9 11.75\"/>",
+	home: "<path d=\"M2.5 7 8 2.75 13.5 7v5.25a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1Z\"/><path d=\"M6.5 13.25V9.5h3v3.75\"/>",
+	refresh: "<path d=\"M13 8a5 5 0 1 1-1.35-3.42\"/><path d=\"M13 2.75v2.75h-2.75\"/>",
+	layers: "<path d=\"M8 2.5 2.5 5.5 8 8.5 13.5 5.5 8 2.5Z\"/><path d=\"m2.5 8.5 5.5 3 5.5-3\"/><path d=\"m2.5 11.25 5.5 3 5.5-3\"/>",
+	grid: "<rect x=\"2.5\" y=\"2.5\" width=\"4.5\" height=\"4.5\" rx=\"1.25\"/><rect x=\"9\" y=\"2.5\" width=\"4.5\" height=\"4.5\" rx=\"1.25\"/><rect x=\"2.5\" y=\"9\" width=\"4.5\" height=\"4.5\" rx=\"1.25\"/><rect x=\"9\" y=\"9\" width=\"4.5\" height=\"4.5\" rx=\"1.25\"/>"
 };
 function icon(name, extraClass = "") {
 	return `<svg class="icon${extraClass ? " " + extraClass : ""}" viewBox="0 0 16 16" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
@@ -5786,40 +5793,59 @@ var ACTIVE_DESK_KEY = "framework_desk_v1";
 var TIER_ORDER = [
 	"federal-statute",
 	"federal-reg",
+	"federal-register",
 	"state",
 	"county",
 	"standard"
 ];
+var SYSTEM_TIERS = [
+	"federal-statute",
+	"federal-reg",
+	"federal-register",
+	"state"
+];
 var TIER_META = {
 	"federal-statute": {
-		label: "Federal Statutes (U.S.C.)",
+		label: "U.S. Code (U.S.C.)",
 		short: "U.S.C.",
 		refTier: "usc",
-		tag: "STATUTE"
+		tag: "STATUTE",
+		subtitle: "Enabling federal statutes"
 	},
 	"federal-reg": {
 		label: "Federal Regulations (CFR)",
 		short: "CFR",
 		refTier: "cfr",
-		tag: "FEDERAL REG"
+		tag: "FEDERAL REG",
+		subtitle: "Codified agency rules"
+	},
+	"federal-register": {
+		label: "Federal Register (FR)",
+		short: "FR",
+		refTier: "fr",
+		tag: "FED REGISTER",
+		subtitle: "Daily rulemaking & notices"
 	},
 	"state": {
-		label: "State Codes",
+		label: "State Codes & Plans",
 		short: "State",
 		refTier: "state",
-		tag: "STATE"
+		tag: "STATE",
+		subtitle: "State plans & delegated codes"
 	},
 	"county": {
 		label: "County & Municipal",
 		short: "County",
 		refTier: "county",
-		tag: "LOCAL CODE"
+		tag: "LOCAL CODE",
+		subtitle: "Local ordinances & overlays"
 	},
 	"standard": {
 		label: "Consensus Standards",
 		short: "Std",
 		refTier: "ibr",
-		tag: "STANDARD"
+		tag: "STANDARD",
+		subtitle: "IBR technical standards"
 	}
 };
 var DESK_DEFS = [
@@ -5998,6 +6024,144 @@ function syncCorporaState() {
 	state.corpora = normalizeCorporaList();
 	state.activeCorpusId = corpusIdForTitle(state.currentTitle);
 	return state.corpora;
+}
+var DEFAULT_STATE_OVERLAYS = [
+	{
+		title: 29,
+		corpus_id: "us-ca:state:8-CCR",
+		jurisdiction: "US-CA",
+		jurisdiction_label: "California",
+		code: "8 CCR",
+		name: "Cal/OSHA Workplace Safety & Health",
+		desk: "ehs",
+		agencies: ["Cal/OSHA", "DIR"],
+		summary: "California State Plan workplace safety standards (Title 8 CCR) paralleling and extending 29 CFR 1910 & 1926."
+	},
+	{
+		title: 29,
+		corpus_id: "us-wa:state:WAC-296",
+		jurisdiction: "US-WA",
+		jurisdiction_label: "Washington",
+		code: "WAC 296",
+		name: "WA DOSH Safety & Health Rules",
+		desk: "ehs",
+		agencies: ["L&I", "DOSH"],
+		summary: "Washington Division of Occupational Safety and Health core rules and state-plan compliance overlays."
+	},
+	{
+		title: 40,
+		corpus_id: "us-state:state:EPA-SIP",
+		jurisdiction: "US-STATE",
+		jurisdiction_label: "State Plans",
+		code: "State EPA",
+		name: "Delegated Environmental & SIP Programs",
+		desk: "env",
+		agencies: ["State DEQ", "Air Districts"],
+		summary: "State Implementation Plans, NPDES delegated permits, and RCRA authorized hazardous waste regulations."
+	},
+	{
+		title: 49,
+		corpus_id: "us-state:state:DOT-CMV",
+		jurisdiction: "US-STATE",
+		jurisdiction_label: "State Plans",
+		code: "State DOT",
+		name: "State Commercial Motor & HazMat Adoptions",
+		desk: "transport",
+		agencies: ["State DOT", "HP"],
+		summary: "State intrastate hazmat routing, commercial motor carrier adoptions, and permit overlays."
+	}
+];
+/**
+* Full multi-framework catalog spanning CFR, Federal Register (FR), U.S. Code (U.S.C.),
+* and State Codes/Plans. Combines installed CFR titles, live FR status, any injected/installed
+* extra corpora, and authority-linked U.S.C. & State frameworks for installed titles.
+*/
+function allSystemFrameworks(titles = state.installedTitles, snapshotRows = state.homeSnapshot?.titles, newsStatus = state.navNewsStatus, extras = state.extraCorpora) {
+	const base = normalizeCorporaList(titles, snapshotRows, extras);
+	const byId = new Map(base.map((c) => [c.corpus_id, c]));
+	const installedSet = new Set((titles || []).map((t) => t.title));
+	if (![...byId.values()].some((c) => c.tier === "federal-register")) {
+		const frSrc = newsStatus?.sources?.federal_register;
+		const piSrc = newsStatus?.sources?.federal_register_pi;
+		const hasErr = Boolean(frSrc?.retry_after || frSrc?.last_error || piSrc?.retry_after || piSrc?.last_error);
+		const articles = Number(newsStatus?.articles || 0);
+		const frTitleNums = [...installedSet].sort((a, b) => a - b);
+		byId.set("us:fr:daily", {
+			corpus_id: "us:fr:daily",
+			tier: "federal-register",
+			jurisdiction: "US",
+			jurisdiction_label: "Federal",
+			code: "FR",
+			name: "Federal Register & Rulemaking",
+			desk: "ehs",
+			agencies: [
+				"OFR",
+				"OSHA",
+				"EPA",
+				"DOT"
+			].slice(0, 3),
+			edition: frSrc?.last_ok_at ? frSrc.last_ok_at.slice(0, 10) : null,
+			section_count: articles,
+			summary: "Published Final Rules, Proposed Rules, Public Inspection filings, and DOL enforcement linked to installed CFR titles.",
+			installed: true,
+			linked_titles: frTitleNums,
+			status_label: hasErr ? "Sync issue" : articles > 0 ? `${articles} cached` : "Ready to sync",
+			update_available: hasErr
+		});
+	}
+	if (![...byId.values()].some((c) => c.tier === "federal-statute")) {
+		const uscSourceTitles = installedSet.size ? [...installedSet].filter((n) => KNOWN_TITLE_AUTHORITIES[n]) : [29];
+		for (const tNum of uscSourceTitles) {
+			const auth = KNOWN_TITLE_AUTHORITIES[tNum];
+			if (!auth) continue;
+			const id = `us:usc:${auth.statuteCode.split("§§")[0].trim().replace(/\s+/g, "-").toLowerCase()}`;
+			if (byId.has(id)) continue;
+			byId.set(id, {
+				corpus_id: id,
+				tier: "federal-statute",
+				jurisdiction: "US",
+				jurisdiction_label: "Federal",
+				code: auth.statuteCode,
+				name: auth.statuteLabel,
+				desk: mapRawDeskToId("", tNum),
+				agencies: ["U.S. Congress"],
+				summary: `Enabling statutory authority underlying ${tNum} CFR rules, preemption scope, and agency rulemaking power.`,
+				installed: false,
+				linked_titles: [tNum],
+				external_url: auth.statuteHref,
+				status_label: `Linked · ${tNum} CFR`
+			});
+		}
+	}
+	if (![...byId.values()].some((c) => c.tier === "state")) {
+		const matching = DEFAULT_STATE_OVERLAYS.filter((s) => !installedSet.size || installedSet.has(s.title));
+		const list = matching.length ? matching : DEFAULT_STATE_OVERLAYS.slice(0, 2);
+		for (const s of list) {
+			if (byId.has(s.corpus_id)) continue;
+			byId.set(s.corpus_id, {
+				corpus_id: s.corpus_id,
+				tier: "state",
+				jurisdiction: s.jurisdiction,
+				jurisdiction_label: s.jurisdiction_label,
+				code: s.code,
+				name: s.name,
+				desk: s.desk,
+				agencies: s.agencies,
+				summary: s.summary,
+				installed: false,
+				linked_titles: [s.title],
+				status_label: `State overlay · ${s.title} CFR`
+			});
+		}
+	}
+	return [...byId.values()];
+}
+function findSystemFramework(tier, jurisdiction, code) {
+	const all = allSystemFrameworks();
+	const t = tier.toLowerCase();
+	const j = jurisdiction.toLowerCase();
+	const cd = code.toLowerCase();
+	return all.find((c) => c.tier.toLowerCase() === t && (c.jurisdiction || "").toLowerCase() === j && String(c.code || "").toLowerCase() === cd) || null;
 }
 function jurisdictionStackForTitle(titleNum) {
 	const t = Number(titleNum) || state.currentTitle;
@@ -6206,6 +6370,7 @@ function createPopover({ el = null, triggerSelector = null, placement = "auto", 
 // src/nav.ts
 var NAV_PANELS = {
 	reader: "Contents",
+	corpus: "Framework",
 	projects: "Workspaces",
 	library: "Library",
 	settings: "Settings",
@@ -6213,12 +6378,12 @@ var NAV_PANELS = {
 };
 var NAV_TARGETS = [
 	"overview",
-	"home",
-	"reader",
 	"projects",
 	"news",
 	"library",
-	"settings"
+	"settings",
+	"home",
+	"reader"
 ];
 var navState = (() => {
 	let st = {};
@@ -6229,10 +6394,11 @@ var navState = (() => {
 	}
 	const w = Number(st.width) || parseInt(lsGet("sidebarW") || "", 10) || 0;
 	return {
-		panel: st.panel && st.panel in NAV_PANELS && st.panel !== "history" ? st.panel : "reader",
+		panel: st.panel === "corpus" ? "corpus" : "reader",
 		collapsed: st.collapsed != null ? Boolean(st.collapsed) : lsGet("sidebarHidden") === "1",
 		mode: st.mode === "flyout" ? "flyout" : "pinned",
-		width: w >= 220 && w <= 560 ? w : null
+		width: w >= 220 && w <= 560 ? w : null,
+		railCompact: Boolean(st.railCompact)
 	};
 })();
 var HAS_DOC = typeof document !== "undefined";
@@ -6252,6 +6418,7 @@ var mqNarrow = typeof window !== "undefined" && window.matchMedia ? window.match
 };
 var railEl = HAS_DOC ? document.getElementById("activity-rail") : null;
 var drawerEl = {
+	pip: HAS_DOC ? document.getElementById("drawer-pip") : null,
 	title: HAS_DOC ? document.getElementById("drawer-title") : null,
 	meta: HAS_DOC ? document.getElementById("drawer-meta") : null,
 	acts: HAS_DOC ? document.getElementById("drawer-acts") : null,
@@ -6261,68 +6428,106 @@ var drawerEl = {
 function saveNav() {
 	lsSet("railState", JSON.stringify(navState));
 }
-var isFly = () => navState.mode === "flyout" || mqMobile.matches || mqNarrow.matches && dom.layout.classList.contains("chat-open");
-var flyOpen = () => document.body.classList.contains("nav-open");
-var drawerShown = () => isFly() ? flyOpen() : !navState.collapsed && !state.navRetracted;
+/**
+* Returns true ONLY while the user is inside a legal framework:
+* - Framework Start page (`#/title/{n}/`, `#/corpus/{tier}/{jur}/{code}/`)
+* - Part Table of Contents or Full Part (`#/title/{n}/part/{p}`, `#/part/{p}`)
+* - Section Reader (`#/title/{n}/section/{id}`, `#/section/{id}`)
+*/
+function isFrameworkRoute(path = state.activeRoute) {
+	if (state.noTitles) return false;
+	const p = (path || "/").split("?")[0] || "/";
+	return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/|corpus\/)/.test(p);
+}
+var isFly = () => navState.mode === "flyout" || mqMobile.matches || mqNarrow.matches && Boolean(dom.layout?.classList.contains("chat-open"));
+var flyOpen = () => HAS_DOC && document.body.classList.contains("nav-open");
+var drawerShown = () => {
+	if (!isFrameworkRoute()) return false;
+	return isFly() ? flyOpen() : !navState.collapsed && !state.navRetracted;
+};
 function routeTarget(path = state.activeRoute) {
-	const p = path || "/";
+	const p = (path || "/").split("?")[0] || "/";
 	if (p === "/") return "overview";
+	if (p.startsWith("/corpus/")) return "corpus";
 	if (/^\/title\/\d+\/?$/.test(p)) return "home";
 	const rest = p.replace(/^\/title\/\d+/, "");
 	if (rest.startsWith("/library")) return "library";
 	if (rest.startsWith("/projects")) return "projects";
 	if (rest.startsWith("/news")) return "news";
-	if (rest.startsWith("/help") || rest.startsWith("/settings")) return "settings";
+	if (rest.startsWith("/settings")) return "settings";
+	if (rest.startsWith("/help")) return "help";
+	if (rest.startsWith("/search")) return "overview";
 	return "reader";
 }
 function announce(text) {
-	const live = document.getElementById("nav-live");
+	const live = HAS_DOC ? document.getElementById("nav-live") : null;
 	if (live) live.textContent = text;
 }
 function applyNav() {
+	if (!HAS_DOC || !dom.sidebar || !railEl) return;
 	const root = document.documentElement;
+	const inFw = isFrameworkRoute();
 	const fly = isFly();
-	if (!fly && flyOpen()) document.body.classList.remove("nav-open");
+	if ((!fly || !inFw) && flyOpen()) document.body.classList.remove("nav-open");
+	root.classList.toggle("in-framework", inFw);
+	root.classList.toggle("rail-compact", !inFw && navState.railCompact);
 	root.classList.toggle("drawer-fly", fly);
-	root.classList.toggle("drawer-collapsed", !fly && navState.collapsed);
-	root.classList.toggle("drawer-retracted", !fly && !navState.collapsed && Boolean(state.navRetracted));
+	root.classList.toggle("drawer-collapsed", inFw && !fly && navState.collapsed);
+	root.classList.toggle("drawer-retracted", !inFw || !fly && !navState.collapsed && Boolean(state.navRetracted));
 	const shown = drawerShown();
 	dom.sidebar.inert = !shown;
-	for (const el of dom.sidebar.querySelectorAll(".drawer-panel")) el.hidden = el.dataset.panel !== navState.panel;
-	drawerEl.title.textContent = NAV_PANELS[navState.panel];
-	drawerEl.meta.textContent = panelMeta(navState.panel);
-	drawerEl.acts.innerHTML = panelActions(navState.panel);
+	const activePanel = routeTarget() === "corpus" ? "corpus" : "reader";
+	navState.panel = activePanel;
+	for (const el of dom.sidebar.querySelectorAll(".drawer-panel")) el.hidden = el.dataset.panel !== activePanel;
+	const activeTier = activePanel === "corpus" && state.activeCorpus ? refTierForCorpus(state.activeCorpus) : "cfr";
+	dom.sidebar.dataset.refTier = activeTier;
+	if (drawerEl.pip) drawerEl.pip.dataset.refTier = activeTier;
+	drawerEl.title.textContent = activePanel === "corpus" && state.activeCorpus ? state.activeCorpus.code : state.noTitles ? "Contents" : `${state.currentTitle} CFR`;
+	drawerEl.meta.textContent = panelMeta(activePanel);
+	drawerEl.acts.innerHTML = panelActions(activePanel);
 	const pinned = navState.mode === "pinned";
-	drawerEl.mode.setAttribute("aria-pressed", String(pinned));
-	drawerEl.mode.title = pinned ? "Float the drawer over the page" : "Pin the drawer beside the page";
-	drawerEl.mode.setAttribute("aria-label", drawerEl.mode.title);
-	drawerEl.mode.innerHTML = icon(pinned ? "pin" : "pinOff");
-	drawerEl.mode.hidden = mqMobile.matches;
+	if (drawerEl.mode) {
+		drawerEl.mode.setAttribute("aria-pressed", String(pinned));
+		drawerEl.mode.title = pinned ? "Float the framework drawer over the page" : "Pin the framework drawer beside the page";
+		drawerEl.mode.setAttribute("aria-label", drawerEl.mode.title);
+		drawerEl.mode.innerHTML = icon(pinned ? "pin" : "pinOff");
+		drawerEl.mode.hidden = mqMobile.matches;
+	}
 	const route = routeTarget();
-	const lit = shown ? navState.panel === "history" ? state.historyFor : navState.panel : route;
 	for (const b of railEl.querySelectorAll(".ar-btn")) {
 		const t = b.dataset.target;
-		b.classList.toggle("is-active", t === lit);
+		let isActive = false;
+		if (t === "reader") {
+			isActive = inFw && (route === "reader" || route === "corpus" || shown && route !== "home");
+			b.setAttribute("aria-expanded", String(shown));
+		} else if (t === "home") isActive = route === "home";
+		else isActive = t === route;
+		b.classList.toggle("is-active", isActive);
 		if (b.tagName === "A") {
 			if (t === route) b.setAttribute("aria-current", "page");
 			else b.removeAttribute("aria-current");
-		} else b.setAttribute("aria-expanded", String(shown && navState.panel === t));
+		}
 	}
-	document.body.classList.toggle("drawer-library", shown && navState.panel === "library");
+	if (dom.navToggle) {
+		dom.navToggle.title = inFw ? "Show or hide framework drawer (⌘B)" : "Expand or compact sidebar (⌘B)";
+		dom.navToggle.setAttribute("aria-label", inFw ? "Show or hide framework drawer" : "Expand or compact sidebar");
+		dom.navToggle.setAttribute("aria-expanded", String(inFw ? shown : !navState.railCompact));
+	}
+	document.body.classList.remove("drawer-library");
+	updateSidebarFrameworkHighlight();
 }
 function panelMeta(panel) {
-	if (panel === "reader") return state.noTitles ? "No titles installed" : `Title ${state.currentTitle}`;
-	if (panel === "projects") {
-		const n = loadProjects().length;
-		return n ? plural(n, "workspace") : "";
+	if (panel === "corpus" && state.activeCorpus) return TIER_META[state.activeCorpus.tier]?.short || state.activeCorpus.jurisdiction_label || "";
+	if (panel === "reader") {
+		if (state.noTitles) return "No titles installed";
+		return state.installedTitles.find((t) => t.title === state.currentTitle)?.name || state.metaInfo.name || `Title ${state.currentTitle}`;
 	}
-	if (panel === "library") return state.installedTitles.length ? `${state.installedTitles.length} installed` : "";
-	if (panel === "history") return "Reading history";
 	return "";
 }
 function panelActions(panel) {
-	if (panel === "projects") return `<button type="button" class="icon-btn drawer-icon" data-nav-act="new-project" title="New workspace" aria-label="New workspace">${icon("plus")}</button>`;
-	if (panel === "library") return `<a class="icon-btn drawer-icon" href="#/library" title="Open the library" aria-label="Open the library">${icon("external")}</a>`;
+	if (panel === "reader" && !state.noTitles) {
+		if (!(routeTarget() === "home")) return `<a class="drawer-start-pill" href="#/title/${state.currentTitle}/" title="Open Title ${state.currentTitle} start page">${icon("grid")}<span>Start</span></a>`;
+	}
 	return "";
 }
 var panelRenderers = /* @__PURE__ */ new Map();
@@ -6340,43 +6545,83 @@ function focusPanel(panel) {
 	if (first) requestAnimationFrame(() => first.focus({ preventScroll: true }));
 }
 function openPanel(panel, { focus = false, toggle = false } = {}) {
-	if (toggle && drawerShown() && navState.panel === panel) {
+	if (panel === "projects") {
+		window.location.hash = "#/projects";
+		return;
+	}
+	if (panel === "library") {
+		window.location.hash = "#/library";
+		return;
+	}
+	if (panel === "settings") {
+		window.location.hash = "#/settings";
+		return;
+	}
+	if (panel === "history") {
+		window.location.hash = "#/";
+		return;
+	}
+	if (!isFrameworkRoute()) {
+		if (state.noTitles) {
+			window.location.hash = "#/library";
+			return;
+		}
+		navState.collapsed = false;
+		state.navRetracted = false;
+		saveNav();
+		window.location.hash = `#/title/${state.currentTitle}/`;
+		if (focus) setTimeout(() => focusPanel("reader"), 60);
+		return;
+	}
+	const resolved = routeTarget() === "corpus" ? "corpus" : "reader";
+	if (toggle && drawerShown() && navState.panel === resolved) {
 		closeDrawer();
 		return;
 	}
-	navState.panel = panel;
+	navState.panel = resolved;
 	if (isFly()) document.body.classList.add("nav-open");
 	else {
 		navState.collapsed = false;
 		state.navRetracted = false;
 	}
-	if (panel !== "history") saveNav();
-	renderPanel(panel);
+	saveNav();
+	renderPanel(resolved);
 	applyNav();
-	emit("nav:panel-opened", { panel });
-	if (focus) focusPanel(panel);
-	announce(`${NAV_PANELS[panel]} drawer open`);
+	emit("nav:panel-opened", { panel: resolved });
+	if (focus) focusPanel(resolved);
+	announce(`${NAV_PANELS[resolved]} drawer open`);
 }
 function closeDrawer() {
-	const hadFocus = dom.sidebar.contains(document.activeElement);
+	const hadFocus = dom.sidebar?.contains(document.activeElement);
 	if (isFly()) document.body.classList.remove("nav-open");
 	else navState.collapsed = true;
 	saveNav();
 	applyNav();
-	if (hadFocus) railEl.querySelector(".ar-btn.is-active, .ar-btn[aria-current]")?.focus();
-	announce("Drawer closed");
+	if (hadFocus) railEl?.querySelector(".ar-btn.is-active, .ar-btn[aria-current]")?.focus();
+	announce("Framework drawer closed");
 }
 function toggleDrawer(focus = true) {
+	if (!isFrameworkRoute()) {
+		navState.railCompact = !navState.railCompact;
+		saveNav();
+		applyNav();
+		announce(navState.railCompact ? "Sidebar compacted" : "Sidebar expanded");
+		return;
+	}
 	if (drawerShown()) closeDrawer();
-	else openPanel(navState.panel === "history" ? "reader" : navState.panel, { focus });
+	else openPanel(routeTarget() === "corpus" ? "corpus" : "reader", { focus });
 }
 function goTarget(t) {
 	if (t === "overview") window.location.hash = "#/";
-	else if (t === "home") window.location.hash = `#/title/${state.currentTitle}/`;
+	else if (t === "projects") window.location.hash = "#/projects";
+	else if (t === "library") window.location.hash = "#/library";
+	else if (t === "settings") window.location.hash = "#/settings";
+	else if (t === "help") window.location.hash = "#/help";
+	else if (t === "home") window.location.hash = state.noTitles ? "#/library" : `#/title/${state.currentTitle}/`;
 	else if (t === "news") {
 		if (routeTarget() === "news") dom.main.scrollTop = 0;
 		else window.location.hash = "#/news";
-	} else openPanel(t, { focus: true });
+	} else if (t === "reader") openPanel("reader", { focus: true });
 }
 function setNavMode(mode) {
 	navState.mode = mode === "flyout" ? "flyout" : "pinned";
@@ -6386,41 +6631,173 @@ function setNavMode(mode) {
 	emit("nav:mode-changed");
 }
 function syncNavToRoute(path) {
+	const inFw = isFrameworkRoute(path);
 	const t = routeTarget(path);
-	document.body.classList.remove("nav-open");
-	state.navRetracted = t === "overview" || t === "home" || t === "news" || t === "settings" || state.noTitles && t === "reader";
-	if (t === "library" && navState.panel !== "library") navState.panel = "library";
-	else if (t === "projects") navState.panel = "projects";
-	else if (t === "reader" && (navState.panel === "history" || navState.panel === "library")) navState.panel = "reader";
-	if (navState.panel !== "history") saveNav();
-	renderPanel(navState.panel);
+	if (HAS_DOC) document.body.classList.remove("nav-open");
+	state.navRetracted = !inFw;
+	if (inFw) {
+		navState.panel = t === "corpus" ? "corpus" : "reader";
+		saveNav();
+		renderPanel(navState.panel);
+	}
 	applyNav();
 }
 function updateRailHome() {
-	const home = document.getElementById("ar-home");
-	if (!home) return;
-	if (state.noTitles) {
-		home.href = "#/";
-		home.dataset.tip = "Pick a profile";
-		home.setAttribute("aria-label", "Pick a profile");
-		return;
+	const home = HAS_DOC ? document.getElementById("ar-home") : null;
+	if (home) {
+		if (state.noTitles) {
+			home.href = "#/library";
+			home.dataset.tip = "Browse library";
+			home.setAttribute("aria-label", "Browse library");
+		} else {
+			home.href = `#/title/${state.currentTitle}/`;
+			const t = state.installedTitles.find((x) => x.title === state.currentTitle);
+			home.dataset.tip = `Title ${state.currentTitle} start`;
+			home.setAttribute("aria-label", `Title ${state.currentTitle}${t ? " " + t.name : ""} start`);
+		}
 	}
-	home.href = `#/title/${state.currentTitle}/`;
-	const t = state.installedTitles.find((x) => x.title === state.currentTitle);
-	home.dataset.tip = `Title ${state.currentTitle} start`;
-	home.setAttribute("aria-label", `Title ${state.currentTitle}${t ? " " + t.name : ""} start`);
+	renderSidebarFrameworks();
 }
 function updateRailBadge() {
+	if (!HAS_DOC) return;
 	const badge = document.getElementById("ar-library-badge");
-	if (!badge) return;
+	const libPill = document.getElementById("ar-library-pill");
+	const projPill = document.getElementById("ar-projects-count");
+	const newsPill = document.getElementById("ar-news-pill");
 	const busy = Boolean(state.jobs.current || state.jobs.queued.length);
 	const libData = state.navLibData;
 	const stale = libData?.titles ? libData.titles.filter(isStale).length : 0;
-	badge.hidden = !busy && !stale;
-	badge.className = `ar-badge${busy ? " is-busy" : stale ? " is-stale" : ""}`;
-	const btn = badge.closest(".ar-btn");
-	if (btn) btn.dataset.tip = busy ? "Library · downloading" : stale ? `Library · ${plural(stale, "update")}` : "Library";
+	if (badge) {
+		badge.hidden = !busy && !stale;
+		badge.className = `ar-badge${busy ? " is-busy" : stale ? " is-stale" : ""}`;
+		const btn = badge.closest(".ar-btn");
+		if (btn) btn.dataset.tip = busy ? "Library · downloading" : stale ? `Library · ${plural(stale, "update")}` : "Library";
+	}
+	if (libPill) {
+		if (busy) {
+			libPill.hidden = false;
+			libPill.textContent = "Sync";
+			libPill.className = "ar-pill is-busy";
+		} else if (stale > 0) {
+			libPill.hidden = false;
+			libPill.textContent = `${stale}`;
+			libPill.className = "ar-pill is-warn";
+		} else libPill.hidden = true;
+	}
+	if (projPill) {
+		const n = loadProjects().length;
+		projPill.hidden = n === 0;
+		projPill.textContent = n ? String(n) : "";
+	}
+	if (newsPill) {
+		const frCount = Number(state.navNewsStatus?.articles || 0);
+		newsPill.hidden = frCount === 0;
+		newsPill.textContent = frCount ? String(frCount) : "";
+	}
+	renderSidebarFrameworks();
 }
+function updateSidebarFrameworkHighlight() {
+	if (!HAS_DOC) return;
+	const box = document.getElementById("ar-frameworks");
+	if (!box) return;
+	const inFw = isFrameworkRoute();
+	const activeHash = window.location.hash || "#/";
+	for (const link of box.querySelectorAll(".ar-fw-row")) {
+		const tNum = Number(link.dataset.fwTitle || 0);
+		const cid = link.dataset.fwId || "";
+		const isCurrent = inFw && (tNum > 0 && routeTarget() !== "corpus" && tNum === state.currentTitle || cid !== "" && state.activeCorpus?.corpus_id === cid || link.getAttribute("href") === activeHash);
+		link.classList.toggle("is-current", isCurrent);
+	}
+}
+function renderSidebarFrameworks() {
+	if (!HAS_DOC) return;
+	const box = document.getElementById("ar-frameworks");
+	if (!box) return;
+	const all = allSystemFrameworks();
+	const staleSet = new Set((state.navLibData?.titles || []).filter(isStale).map((t) => t.title));
+	const cfr = all.filter((c) => c.tier === "federal-reg");
+	const fr = all.filter((c) => c.tier === "federal-register");
+	const usc = all.filter((c) => c.tier === "federal-statute");
+	const states = all.filter((c) => c.tier === "state");
+	const rowHtml = (c, opts = {}) => {
+		const refTier = refTierForCorpus(c);
+		const href = corpusHashFor(c);
+		const code = c.tier === "federal-reg" ? `${c.code} CFR` : c.tier === "federal-statute" ? c.code.split("§§")[0].trim() : c.code;
+		const isInstalled = c.installed !== false;
+		return `<a class="ar-fw-row" href="${escapeHtml(href)}" data-ref-tier="${refTier}" data-fw-id="${escapeHtml(c.corpus_id)}"${c.title_num ? ` data-fw-title="${c.title_num}"` : ""} title="${escapeHtml(c.code + " · " + c.name)}">
+      <span class="tier-pip${isInstalled ? "" : " is-hollow"}" aria-hidden="true"></span>
+      <span class="ar-fw-code">${escapeHtml(code)}</span>
+      <span class="ar-fw-name">${escapeHtml(c.name)}</span>
+      ${opts.stale ? "<span class=\"stat-dot is-stale ar-fw-stale\" title=\"Update available\" aria-label=\"Update available\"></span>" : ""}
+    </a>`;
+	};
+	const parts = [];
+	if (cfr.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">CFR · Federal Rules</div>${cfr.map((c) => rowHtml(c, { stale: Boolean(c.title_num && staleSet.has(c.title_num)) })).join("")}</div>`);
+	if (fr.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">FR · Rulemaking</div>${fr.map((c) => rowHtml(c, { stale: Boolean(c.update_available) })).join("")}</div>`);
+	if (usc.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">U.S.C. · Statutes</div>${usc.slice(0, 3).map((c) => rowHtml(c)).join("")}</div>`);
+	if (states.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">State · Plans &amp; Codes</div>${states.slice(0, 3).map((c) => rowHtml(c)).join("")}</div>`);
+	box.innerHTML = parts.join("") || "<div class=\"ar-fw-empty\">No frameworks installed</div>";
+	updateSidebarFrameworkHighlight();
+}
+function renderCorpusDrawer(corpus = state.activeCorpus) {
+	if (!HAS_DOC) return;
+	const el = document.getElementById("panel-corpus");
+	if (!el) return;
+	if (!corpus) {
+		el.innerHTML = "<div class=\"dr-scroll\"><p class=\"dr-note\">Select a legal framework to view its outline.</p></div>";
+		return;
+	}
+	const meta = TIER_META[corpus.tier] || TIER_META.state;
+	const refTier = refTierForCorpus(corpus);
+	const startHref = corpusHashFor(corpus);
+	const linked = (corpus.linked_titles || []).map((n) => state.installedTitles.find((t) => t.title === n)).filter((t) => Boolean(t));
+	const frLinks = corpus.tier === "federal-register" ? `
+    <section class="dr-sec">
+      <h3 class="dr-label"><span>Rulemaking Feeds</span></h3>
+      <a class="dr-row" href="#/news?cat=rules"><span class="dr-name">Final Rules</span>${icon("chevronRight")}</a>
+      <a class="dr-row" href="#/news?cat=rulemaking"><span class="dr-name">Proposed Rules</span>${icon("chevronRight")}</a>
+      <a class="dr-row" href="#/news?cat=public_inspection"><span class="dr-name">Public Inspection</span>${icon("chevronRight")}</a>
+      <a class="dr-row" href="#/news?cat=enforcement"><span class="dr-name">Enforcement &amp; Citations</span>${icon("chevronRight")}</a>
+    </section>` : "";
+	const linkedHtml = linked.length ? `
+    <section class="dr-sec">
+      <h3 class="dr-label"><span>Linked CFR Frameworks</span><span class="dr-count">${linked.length}</span></h3>
+      ${linked.map((t) => `<a class="dr-row" href="#/title/${t.title}/">
+        <span class="tier-pip" data-ref-tier="cfr" aria-hidden="true"></span>
+        <span class="dr-num">${t.title}</span>
+        <span class="dr-name">${escapeHtml(t.name)}</span>
+      </a>`).join("")}
+    </section>` : "";
+	const peerFrameworks = allSystemFrameworks().filter((c) => c.tier === corpus.tier && c.corpus_id !== corpus.corpus_id);
+	const peersHtml = peerFrameworks.length ? `
+    <section class="dr-sec">
+      <h3 class="dr-label"><span>Other ${escapeHtml(meta.short)} Frameworks</span></h3>
+      ${peerFrameworks.map((p) => `<a class="dr-row" href="${escapeHtml(corpusHashFor(p))}">
+        <span class="tier-pip${p.installed === false ? " is-hollow" : ""}" data-ref-tier="${refTier}" aria-hidden="true"></span>
+        <span class="dr-name">${escapeHtml(p.code)} · ${escapeHtml(p.name)}</span>
+      </a>`).join("")}
+    </section>` : "";
+	el.innerHTML = `<div class="dr-scroll">
+    <section class="dr-sec">
+      <h3 class="dr-label"><span>Framework Navigation</span></h3>
+      <a class="dr-row is-current" href="${escapeHtml(startHref)}" aria-current="page">
+        <span class="tier-pip" data-ref-tier="${refTier}" aria-hidden="true"></span>
+        <span class="dr-name">Start page &amp; authority overview</span>
+      </a>
+      ${corpus.external_url ? `<a class="dr-row" href="${escapeHtml(corpus.external_url)}" target="_blank" rel="noopener noreferrer">
+        <span class="dr-name">Official statutory text</span>${icon("external")}
+      </a>` : ""}
+    </section>
+    ${frLinks}
+    ${linkedHtml}
+    ${peersHtml}
+    <div class="dr-foot">
+      <a class="dr-link" href="#/library">Browse catalog</a>
+      <a class="dr-link" href="#/">Back to Home</a>
+    </div>
+  </div>`;
+}
+registerDrawerPanel("corpus", () => renderCorpusDrawer(state.activeCorpus));
 if (railEl) {
 	railEl.addEventListener("click", (e) => {
 		const btn = e.target?.closest(".ar-btn");
@@ -6428,21 +6805,13 @@ if (railEl) {
 		const t = btn.dataset.target;
 		if (!t) return;
 		if (btn.tagName === "A") {
-			if (routeTarget() === t) {
+			if (t === "news" && routeTarget() === "news") {
 				e.preventDefault();
-				if (t === "news") {
-					dom.main.scrollTop = 0;
-					return;
-				}
-				state.historyFor = t;
-				openPanel("history", {
-					toggle: true,
-					focus: e.detail === 0
-				});
+				dom.main.scrollTop = 0;
 			}
 			return;
 		}
-		if (t in NAV_PANELS) openPanel(t, {
+		if (t === "reader") openPanel("reader", {
 			toggle: true,
 			focus: e.detail === 0
 		});
@@ -6450,7 +6819,7 @@ if (railEl) {
 	railEl.addEventListener("keydown", (e) => {
 		const i = (mqMobile.matches ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"]).indexOf(e.key);
 		if (i < 0 && e.key !== "Home" && e.key !== "End") return;
-		const items = [...railEl.querySelectorAll(".ar-btn")];
+		const items = [...railEl.querySelectorAll(".ar-btn, .ar-fw-row")].filter((el) => el.offsetParent !== null);
 		const at = items.indexOf(document.activeElement);
 		if (at < 0) return;
 		e.preventDefault();
@@ -6507,8 +6876,7 @@ if (HAS_DOC) document.addEventListener("keydown", (e) => {
 	state.goPending = k === "g" ? Date.now() : 0;
 });
 on("projects:changed", () => {
-	if (navState.panel === "projects" || navState.panel === "history") renderPanel(navState.panel);
-	if (navState.panel === "projects") drawerEl.meta.textContent = panelMeta("projects");
+	updateRailBadge();
 });
 on("title:switched", () => {
 	updateRailHome();
@@ -6516,6 +6884,7 @@ on("title:switched", () => {
 });
 on("titles:refreshed", () => {
 	updateRailHome();
+	updateRailBadge();
 });
 // src/components/sidebar.ts
 var LEAF_TYPES = /* @__PURE__ */ new Set(["section", "appendix"]);
@@ -7948,14 +8317,15 @@ on("titles:refreshed", ({ hadNone, list }) => {
 	if (hadNone && list.length) setReaderEnabled(true);
 });
 function switcherGroupsHtml(query = "", desk = switcherDeskFilter) {
-	const corpora = syncCorporaState();
+	syncCorporaState();
+	const corpora = allSystemFrameworks();
 	const q = query.trim().toLowerCase();
 	const filtered = corpora.filter((c) => {
 		if (desk !== "all" && c.desk !== desk) return false;
 		if (!q) return true;
 		return `${c.code} ${c.name} ${c.jurisdiction_label || ""} ${(c.agencies || []).join(" ")} ${deskLabel(c.desk || "ehs")}`.toLowerCase().includes(q);
 	});
-	if (!filtered.length) return "<div class=\"tm-empty\">No matching frameworks installed.</div>";
+	if (!filtered.length) return "<div class=\"tm-empty\">No matching frameworks found.</div>";
 	return TIER_ORDER.map((tier) => {
 		const items = filtered.filter((c) => c.tier === tier);
 		if (!items.length) return "";
@@ -7964,11 +8334,11 @@ function switcherGroupsHtml(query = "", desk = switcherDeskFilter) {
       <div class="tm-group" data-ref-tier="${meta.refTier}">
         <div class="tm-group-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(meta.label)}</span><span class="tm-group-count">${items.length}</span></div>
         ${items.map((c) => {
-			const isCurrent = c.tier === "federal-reg" ? c.title_num === state.currentTitle : c.corpus_id === state.activeCorpusId;
+			const isCurrent = c.tier === "federal-reg" ? !state.activeCorpus && c.title_num === state.currentTitle : state.activeCorpus?.corpus_id === c.corpus_id || c.corpus_id === state.activeCorpusId;
 			const numText = c.tier === "federal-reg" ? `${c.code} CFR` : c.code;
-			const tag = c.partial ? "Partial" : c.jurisdiction !== "US" ? c.jurisdiction_label || c.jurisdiction : c.agencies?.[0] || "";
+			const tag = c.partial ? "Partial" : c.status_label || (c.jurisdiction !== "US" ? c.jurisdiction_label || c.jurisdiction : c.agencies?.[0] || "");
 			return `<button type="button" class="tm-item${isCurrent ? " is-current" : ""}" role="menuitemradio" aria-checked="${isCurrent}" data-ref-tier="${meta.refTier}" ${c.tier === "federal-reg" ? `data-title="${c.title_num}"` : `data-corpus-hash="${escapeHtml(corpusHashFor(c))}"`} tabindex="-1">
-            <span class="tier-pip" aria-hidden="true"></span>
+            <span class="tier-pip${c.installed === false ? " is-hollow" : ""}" aria-hidden="true"></span>
             <span class="tm-num">${escapeHtml(numText)}</span><span class="tm-name">${escapeHtml(c.name)}</span>
             ${tag ? `<span class="tm-meta">${escapeHtml(tag)}</span>` : ""}
             ${isCurrent ? icon("check", "tm-check") : "<span class=\"tm-check\" aria-hidden=\"true\"></span>"}
@@ -8111,15 +8481,33 @@ dom.titlePop.addEventListener("click", async (e) => {
 function renderCorpusStaging(corpus) {
 	const meta = TIER_META[corpus.tier] || TIER_META["state"];
 	const refTier = refTierForCorpus(corpus);
+	const linked = (corpus.linked_titles || []).map((n) => state.installedTitles.find((t) => t.title === n)).filter((t) => Boolean(t));
+	const extUrl = safeHttpUrl(corpus.external_url);
+	const frQuick = corpus.tier === "federal-register" ? `
+    <div class="hm-title-parts" style="margin-top:16px">
+      <a class="hm-part-chip" href="#/news?cat=rules"><span class="hm-part-num">Final Rules</span></a>
+      <a class="hm-part-chip" href="#/news?cat=rulemaking"><span class="hm-part-num">Proposed Rules</span></a>
+      <a class="hm-part-chip" href="#/news?cat=public_inspection"><span class="hm-part-num">Public Inspection</span></a>
+      <a class="hm-part-chip" href="#/news?cat=enforcement"><span class="hm-part-num">Enforcement</span></a>
+    </div>` : "";
+	const linkedChips = linked.length ? `
+    <div class="hm-title-parts" style="margin-top:14px">
+      ${linked.map((t) => `<a class="citation-chip" data-ref-tier="cfr" href="#/title/${t.title}/">${t.title} CFR · ${escapeHtml(t.name)}</a>`).join("")}
+    </div>` : "";
+	const jurText = corpus.jurisdiction_label && corpus.jurisdiction && corpus.jurisdiction_label !== corpus.jurisdiction ? `${corpus.jurisdiction_label} (${corpus.jurisdiction})` : corpus.jurisdiction_label || corpus.jurisdiction;
 	document.title = `${corpus.code} · ${corpus.jurisdiction_label || corpus.jurisdiction} · FRAMEWORK`;
 	dom.view.innerHTML = `
     <div class="resolver-card has-tier-bar" data-ref-tier="${refTier}">
-      <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span> <span class="sep" aria-hidden="true">·</span> ${escapeHtml(corpus.jurisdiction_label || corpus.jurisdiction)}</div>
+      <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span> <span class="sep" aria-hidden="true">·</span> ${escapeHtml(jurText)}${corpus.status_label ? ` <span class="sep" aria-hidden="true">·</span> ${escapeHtml(corpus.status_label)}` : ""}</div>
       <h1 class="doc-title">${escapeHtml(corpus.code)} — ${escapeHtml(corpus.name)}</h1>
-      <p class="resolver-msg">${escapeHtml(corpus.summary || `This ${meta.label.toLowerCase()} corpus is pre-wired in FRAMEWORK’s multi-jurisdiction UI router and awaiting its backend ingestion pack.`)}</p>
+      <p class="resolver-msg">${escapeHtml(corpus.summary || `This ${meta.label.toLowerCase()} framework is wired into FRAMEWORK’s multi-jurisdiction navigation and authority stack.`)}</p>
+      ${frQuick}
+      ${linkedChips}
       <div class="resolver-acts">
-        <a class="btn btn-accent" href="#/library">Browse Catalog</a>
-        <a class="btn" href="#/title/${state.currentTitle}/">Back to ${state.currentTitle} CFR</a>
+        ${corpus.tier === "federal-register" ? `<a class="btn btn-accent" href="#/news">Open Newsroom ${icon("chevronRight")}</a>` : ""}
+        ${extUrl ? `<a class="btn btn-accent" href="${escapeHtml(extUrl)}" target="_blank" rel="noopener noreferrer">Open Official Statute ${icon("external")}</a>` : ""}
+        <a class="btn" href="#/library">Browse Catalog</a>
+        <a class="btn" href="#/">Back to Home</a>
       </div>
     </div>
   `;
@@ -9756,17 +10144,17 @@ function settingsKeysHtml() {
 		[`${mod} K`, "Search or jump to a section"],
 		["/", "Search"],
 		[">", "Commands, in search"],
-		[`${mod} B`, "Show or hide the drawer"],
+		[`${mod} B`, "Toggle sidebar or framework drawer"],
 		[`${mod} J`, "Ask Claude"],
 		[`${mod} D`, "Pin section to a workspace"],
 		["G H", "Home"],
-		["G T", "Title start"],
-		["G C", "Contents"],
 		["G P", "Workspaces"],
-		["G N", "News"],
+		["G N", "Newsroom"],
 		["G L", "Library"],
 		["G S", "Settings"],
-		[isMac ? "⌥ 1–7" : "Alt 1–7", "Rail items in order"],
+		["G T", "Framework start"],
+		["G C", "Framework contents"],
+		[isMac ? "⌥ 1–7" : "Alt 1–7", "Main pages & framework shortcuts"],
 		["Esc", "Close the floating drawer"]
 	].map(([k, v]) => `<div><dt>${k.split(" ").map((x) => `<kbd>${escapeHtml(x)}</kbd>`).join("")}</dt><dd>${escapeHtml(v)}</dd></div>`).join("")}</dl>`;
 }
@@ -10732,6 +11120,138 @@ onView("click", (e) => {
 		if (data) updateRefHubDom(data, state.currentTitle);
 	}
 });
+// src/panels/library_panel.ts
+var navLib = {
+	data: null,
+	at: 0,
+	loading: null
+};
+async function ensureNavLibrary(force = false) {
+	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
+	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
+		navLib.data = d;
+		navLib.at = Date.now();
+		state.navLibData = d;
+		return d;
+	}).finally(() => {
+		navLib.loading = null;
+	});
+	return navLib.loading;
+}
+function transferHtml() {
+	const j = state.jobs.current;
+	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
+	const m = dockModel(j);
+	return (!j ? "" : `<div class="dr-job">
+      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
+      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
+      ${transferTrackHtml(m.pct, { bindFill: true })}
+      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
+      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
+    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
+}
+state.navTransferKey = "";
+function updateNavTransfers() {
+	updateRailBadge();
+	if (navState.panel !== "library" || !drawerShown()) return;
+	const box = document.getElementById("dr-transfers");
+	if (!box) return;
+	const j = state.jobs.current;
+	const m = dockModel(j);
+	const key = [
+		j && j.id,
+		j && j.cancelling,
+		j && j.phase === "Installing",
+		m.pct == null,
+		state.jobs.queued.map((q) => q.id).join(".")
+	].join("|");
+	if (key !== state.navTransferKey) {
+		state.navTransferKey = key;
+		box.innerHTML = transferHtml();
+		const count = document.getElementById("dr-transfers-count");
+		const n = (j ? 1 : 0) + state.jobs.queued.length;
+		if (count) count.textContent = n ? String(n) : "";
+		const sec = document.getElementById("dr-transfers-sec");
+		if (sec) sec.hidden = !n;
+		return;
+	}
+	const set = (f, v) => {
+		const n = box.querySelector(`[data-f="${f}"]`);
+		if (n && n.textContent !== v) n.textContent = v;
+	};
+	set("pct", m.pct == null ? "" : `${m.pct}%`);
+	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
+	set("left", m.left);
+	set("right", m.right);
+	const fill = box.querySelector("[data-f=\"fill\"]");
+	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
+}
+function renderLibraryPanel() {
+	const d = navLib.data;
+	state.navTransferKey = "";
+	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
+	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
+	if (!d) {
+		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
+		ensureNavLibrary().then(() => {
+			if (navState.panel === "library") renderLibraryPanel();
+			updateRailBadge();
+		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
+		return;
+	}
+	const live = d.titles.filter((t) => !t.reserved);
+	const installed = live.filter((t) => t.installed);
+	const stale = installed.filter(isStale);
+	const rows = installed.map((t) => {
+		const st = titleStatus(t);
+		return `<a class="dr-row" href="#/title/${t.title}/">
+      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
+      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
+	}).join("");
+	const suites = Object.values(d.suites || {}).map((s) => {
+		const st = suiteState(s, d);
+		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
+		return `<div class="dr-suite">
+      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
+        <span class="dr-suite-meta">${joinSep([`${have} of ${st.total} installed`, fmtMB(s.size_mb)])}</span></div>
+      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : st.ts.length ? "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-uninstalled\" title=\"Not installed\" aria-hidden=\"true\"></span>"}
+    </div>`;
+	}).join("");
+	setPanel("library", `
+    <a class="dr-cta" href="#/library">
+      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
+    </a>
+    ${transfers}
+    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
+      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
+    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
+	updateRailBadge();
+}
+registerDrawerPanel("library", renderLibraryPanel);
+on("jobs:updated", () => updateNavTransfers());
+on("jobs:finished", () => {
+	navLib.at = 0;
+	if (drawerShown() && navState.panel === "library") ensureNavLibrary(true).then(renderLibraryPanel).catch(() => {});
+});
+dom.sidebar.addEventListener("click", async (e) => {
+	const t = e.target;
+	const dockBtn = t?.closest("[data-dock]");
+	if (dockBtn) {
+		onDockAction(dockBtn);
+		return;
+	}
+	const act = t?.closest("button[data-act]");
+	if (act && (act.dataset.act === "download-suite" || act.dataset.act === "update-all")) {
+		act.disabled = true;
+		try {
+			if (act.dataset.act === "download-suite") await queueBatch("/api/library/batch-download", { suite: act.dataset.suite }, "Every title in this suite is installed and current");
+			else await queueBatch("/api/library/update-all", null, "Every installed title is already current");
+		} catch (err) {
+			showToast(err instanceof Error ? err.message : "Download failed", 5e3);
+			act.disabled = false;
+		}
+	}
+});
 // src/views/projects.ts
 var armedTimers = /* @__PURE__ */ new WeakMap();
 var projectRouteId$1 = () => {
@@ -11106,6 +11626,102 @@ function installedFallbackList() {
 function sectionLinkHref(e) {
 	return titleHref(e.ti, "section/" + encodeURIComponent(e.id) + (e.u ? "/" + encodeURIComponent(e.u) : ""));
 }
+function recentSectionsFor(usage, installedSet) {
+	const split = (key) => {
+		const i = key.indexOf("|");
+		return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
+	};
+	return Object.entries(usage.s).map(([k, e]) => {
+		const [ti, id] = split(k);
+		return {
+			...e,
+			ti,
+			id
+		};
+	}).filter((e) => installedSet.has(e.ti)).sort((a, b) => (b.t || 0) - (a.t || 0));
+}
+function readCountForTitle(title, usage) {
+	const fromVisited = visitedCountFor(title);
+	const prefix = `${title}|`;
+	let fromUsage = 0;
+	for (const k of Object.keys(usage.s)) if (k.startsWith(prefix)) fromUsage += 1;
+	return Math.max(fromVisited, fromUsage);
+}
+function cachedNewsStatus() {
+	const cachedNews = lsGetJSON(HOME_NEWS_CACHE);
+	const fallbackTotal = Number(cachedNews?.data?.total ?? cachedNews?.data?.articles?.length ?? 0);
+	if (state.navNewsStatus) {
+		if (!state.navNewsStatus.articles && fallbackTotal > 0) return {
+			...state.navNewsStatus,
+			articles: fallbackTotal
+		};
+		return state.navNewsStatus;
+	}
+	const cached = lsGetJSON(HOME_STATUS_CACHE);
+	if (!cached?.data) return null;
+	return !cached.data.articles && fallbackTotal > 0 ? {
+		...cached.data,
+		articles: fallbackTotal
+	} : cached.data;
+}
+function libRowByTitle() {
+	return new Map((state.navLibData?.titles || []).map((r) => [r.title, r]));
+}
+function frAttentionReason(status) {
+	if (!status || !status.sync_enabled) return null;
+	const srcs = Object.values(status.sources || {}).filter((s) => s && s.enabled);
+	const errored = srcs.find((s) => s.retry_after || s.last_error);
+	if (errored) return errored.last_error || "Last sync failed";
+	const now = Date.now();
+	if (srcs.find((s) => s.next_due_at && Date.parse(s.next_due_at) <= now)) return "New filings due for sync";
+	return null;
+}
+function collectAttentionItems(titles, status) {
+	const items = [];
+	const libMap = libRowByTitle();
+	for (const t of titles) {
+		if (jobFor(t.title, "title")) continue;
+		if (t.unreadable) {
+			items.push({
+				id: `cfr-rebuild-${t.title}`,
+				tier: "cfr",
+				code: `${t.title} CFR`,
+				name: t.name,
+				detail: "Database unreadable — rebuild required",
+				actionLabel: "Rebuild",
+				act: "update-title",
+				titleNum: t.title
+			});
+			continue;
+		}
+		const row = libMap.get(t.title);
+		if (row && isStale(row)) {
+			const fromEd = shortDate(row.installed?.edition || t.edition) || "Installed";
+			const toEd = shortDate(row.latest) || "Latest";
+			items.push({
+				id: `cfr-stale-${t.title}`,
+				tier: "cfr",
+				code: `${t.title} CFR`,
+				name: t.name,
+				detail: `${fromEd} → eCFR ${toEd}`,
+				actionLabel: "Update",
+				act: "update-title",
+				titleNum: t.title
+			});
+		}
+	}
+	const frReason = frAttentionReason(status);
+	if (frReason) items.push({
+		id: "fr-sync",
+		tier: "fr",
+		code: "FR",
+		name: "Federal Register",
+		detail: frReason,
+		actionLabel: "Sync FR",
+		act: "sync-fr"
+	});
+	return items;
+}
 function activeTransfersHtml() {
 	const j = state.jobs.current;
 	const queued = state.jobs.queued || [];
@@ -11120,11 +11736,171 @@ function activeTransfersHtml() {
       <span class="hm-transfer-cta">Watch in Library ${icon("chevronRight")}</span>
     </a>`;
 }
-function resumeCardHtml(recent, titles) {
+function systemsStripHtml(allFrameworks, titles, totalSections, totalRead, status, attention) {
+	const activeTier = state.homeTierFilter || "all";
+	const cfrStaleCount = attention.filter((a) => a.tier === "cfr").length;
+	const frNeedsSync = attention.some((a) => a.tier === "fr");
+	const busy = Boolean(state.jobs.current || state.jobs.queued.length);
+	const cards = SYSTEM_TIERS.map((tier) => {
+		const meta = TIER_META[tier];
+		const list = allFrameworks.filter((c) => c.tier === tier);
+		const isSelected = activeTier === tier;
+		let countLabel = "";
+		let subLabel = "";
+		let statusHtml = "";
+		let pct = 0;
+		if (tier === "federal-statute") {
+			const installedCnt = list.filter((c) => c.installed).length;
+			countLabel = installedCnt ? plural(installedCnt, "statute") : plural(list.length, "linked statute");
+			subLabel = list.slice(0, 2).map((c) => c.code.split("§§")[0].trim()).join(" · ") || "Enabling acts";
+			statusHtml = installedCnt ? statPill("synced", "Installed", { bare: true }) : statPill("partial", "Authority map", { bare: true });
+			pct = installedCnt ? 100 : list.length ? 35 : 0;
+		} else if (tier === "federal-reg") {
+			countLabel = `${plural(titles.length, "title")}`;
+			subLabel = `${fmt(totalSections)} sections · ${fmt(totalRead)} read`;
+			statusHtml = busy ? statPill("busy", "Updating", { bare: true }) : cfrStaleCount > 0 ? statPill("stale", `${cfrStaleCount} ${cfrStaleCount === 1 ? "update" : "updates"}`, { bare: true }) : statPill("synced", "Current", { bare: true });
+			pct = totalSections ? Math.min(100, Math.round(totalRead / totalSections * 100)) : 0;
+		} else if (tier === "federal-register") {
+			const articles = Number(status?.articles || 0);
+			countLabel = articles ? `${fmt(articles)} filings` : "Live feed";
+			const lastOk = status?.sources?.federal_register?.last_ok_at;
+			subLabel = lastOk ? `Synced ${timeAgo(Date.parse(lastOk))}` : "Rules, notices & enforcement";
+			statusHtml = frNeedsSync ? statPill("stale", "Needs sync", { bare: true }) : articles > 0 ? statPill("synced", "Synced", { bare: true }) : statPill("partial", "Ready", { bare: true });
+			pct = articles > 0 ? 100 : 18;
+		} else {
+			const installedCnt = list.filter((c) => c.installed).length;
+			countLabel = installedCnt ? plural(installedCnt, "state code") : plural(list.length, "state overlay");
+			subLabel = list.slice(0, 2).map((c) => c.code).join(" · ") || "State plans & codes";
+			statusHtml = installedCnt ? statPill("synced", "Installed", { bare: true }) : statPill("partial", "Mapped", { bare: true });
+			pct = installedCnt ? 100 : list.length ? 30 : 0;
+		}
+		return `
+      <button type="button" class="hm-sys-card has-tier-bar${isSelected ? " is-selected" : ""}" data-ref-tier="${meta.refTier}" data-hm-tier="${escapeHtml(tier)}" aria-pressed="${isSelected}">
+        <div class="hm-sys-top">
+          <span class="hm-sys-kicker"><span class="tier-pip" aria-hidden="true"></span>${escapeHtml(meta.short)}</span>
+          ${statusHtml}
+        </div>
+        <div class="hm-sys-name">${escapeHtml(meta.label)}</div>
+        <div class="hm-sys-val">${escapeHtml(countLabel)}</div>
+        <div class="hm-sys-sub">${escapeHtml(subLabel)}</div>
+        <div class="hm-sys-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
+      </button>`;
+	}).join("");
+	return `
+    <section class="hm-systems" id="hm-systems" aria-label="Legal framework systems">
+      <div class="hm-sec-head">
+        <div class="hm-sec-head-left">
+          <h2 class="hm-sec-title">${icon("layers")} Legal Systems</h2>
+          <span class="hm-sec-meta">Click any authority tier to focus frameworks below</span>
+        </div>
+        ${activeTier !== "all" ? "<button type=\"button\" class=\"hm-inline-link\" data-hm-tier=\"all\">Show all systems</button>" : ""}
+      </div>
+      <div class="hm-sys-grid">${cards}</div>
+    </section>`;
+}
+function updatesBannerHtml(attention, titles) {
+	const cfrUpdates = attention.filter((a) => a.tier === "cfr");
+	const checkedAt = state.navLibData?.checked_at;
+	if (attention.length) return `
+      <section class="hm-updates is-attention" id="hm-updates" aria-label="Frameworks needing updates">
+        <div class="hm-upd-head">
+          <div class="hm-upd-title-wrap">
+            <span class="stat-dot is-stale" aria-hidden="true"></span>
+            <h2 class="hm-upd-title">${escapeHtml(plural(attention.length, "framework"))} need${attention.length === 1 ? "s" : ""} updating</h2>
+            <span class="hm-upd-sub">Keep offline editions and Federal Register filings current</span>
+          </div>
+          <div class="hm-upd-head-acts">
+            ${cfrUpdates.length > 1 ? `<button type="button" class="btn btn-sm btn-accent" data-hm-act="update-all">Update all CFR (${cfrUpdates.length})</button>` : ""}
+            <button type="button" class="btn btn-sm" data-hm-act="check-updates">${icon("refresh")} Recheck</button>
+          </div>
+        </div>
+        <div class="hm-upd-list">
+          ${attention.map((item) => `
+            <div class="hm-upd-row" data-ref-tier="${item.tier}">
+              <span class="tier-pip" aria-hidden="true"></span>
+              <span class="hm-upd-code">${escapeHtml(item.code)}</span>
+              <span class="hm-upd-name">${escapeHtml(item.name)}</span>
+              <span class="hm-upd-detail">${escapeHtml(item.detail)}</span>
+              <button type="button" class="btn btn-sm" data-hm-act="${item.act}"${item.titleNum ? ` data-title="${item.titleNum}"` : ""}>${escapeHtml(item.actionLabel)}</button>
+            </div>`).join("")}
+        </div>
+      </section>`;
+	return `
+    <section class="hm-updates is-synced" id="hm-updates" aria-label="Framework update status">
+      <div class="hm-upd-calm">
+        <div class="hm-upd-calm-left">
+          <span class="stat-dot is-synced" aria-hidden="true"></span>
+          <span class="hm-upd-calm-title">All frameworks up to date</span>
+          ${SEP}
+          <span class="hm-upd-calm-meta">${escapeHtml(checkedAt ? `Checked ${timeAgo(checkedAt * 1e3)}` : titles.length ? `${plural(titles.length, "CFR title")} ready offline` : "Ready")}</span>
+        </div>
+        <div class="hm-upd-calm-acts">
+          <button type="button" class="hm-inline-link" data-hm-act="check-updates">${icon("refresh")} Check for updates</button>
+          <a class="hm-inline-link" href="#/library">Library catalog ${icon("chevronRight")}</a>
+        </div>
+      </div>
+    </section>`;
+}
+function workFootprintHtml(titles, usage, projects, totalRead) {
+	const installedSet = new Set(titles.map((t) => t.title));
+	const visitsByTitle = /* @__PURE__ */ new Map();
+	let totalVisits = 0;
+	for (const [k, e] of Object.entries(usage.s)) {
+		const ti = parseInt(k.slice(0, k.indexOf("|")), 10);
+		if (!installedSet.has(ti)) continue;
+		const n = Number(e.n || 1);
+		visitsByTitle.set(ti, (visitsByTitle.get(ti) || 0) + n);
+		totalVisits += n;
+	}
+	const partsExplored = Object.keys(usage.p).filter((k) => installedSet.has(parseInt(k.slice(0, k.indexOf("|")), 10))).length;
+	const totalPinned = projects.reduce((sum, p) => sum + (p.sections?.length || 0) + (p.cases?.length || 0), 0);
+	const openTasks = projects.reduce((sum, p) => sum + (p.projects || []).filter((t) => t.status !== "done").length, 0);
+	const slices = [...visitsByTitle.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([ti, visits], idx) => ({
+		ti,
+		visits,
+		pct: totalVisits ? Math.max(4, Math.round(visits / totalVisits * 100)) : 0,
+		tone: idx === 0 ? "cfr" : idx === 1 ? "state" : idx === 2 ? "usc" : "fr"
+	}));
+	const distHtml = slices.length ? `
+    <div class="hm-fp-dist">
+      <div class="hm-fp-bar" role="img" aria-label="Reading activity distribution across frameworks">
+        ${slices.map((s) => `<span class="hm-fp-seg" data-ref-tier="${s.tone}" style="width:${s.pct}%" title="${s.ti} CFR: ${s.pct}% of study sessions"></span>`).join("")}
+      </div>
+      <div class="hm-fp-legend">
+        ${slices.map((s) => `<span class="hm-fp-leg-item" data-ref-tier="${s.tone}"><span class="tier-pip" aria-hidden="true"></span>${s.ti} CFR <strong>${s.pct}%</strong></span>`).join("")}
+      </div>
+    </div>` : "";
+	return `
+    <div class="hm-footprint" aria-label="Your work across frameworks">
+      <div class="hm-fp-metrics">
+        <div class="hm-fp-stat">
+          <span class="hm-fp-num">${fmt(totalRead)}</span>
+          <span class="hm-fp-lbl">Sections read</span>
+        </div>
+        <div class="hm-fp-stat">
+          <span class="hm-fp-num">${fmt(partsExplored)}</span>
+          <span class="hm-fp-lbl">Parts explored</span>
+        </div>
+        <div class="hm-fp-stat">
+          <span class="hm-fp-num">${fmt(totalPinned)}</span>
+          <span class="hm-fp-lbl">Pins &amp; clips</span>
+        </div>
+        <div class="hm-fp-stat">
+          <span class="hm-fp-num">${fmt(openTasks)}</span>
+          <span class="hm-fp-lbl">Open tasks</span>
+        </div>
+      </div>
+      ${distHtml}
+    </div>`;
+}
+function resumeCardHtml(recent, titles, usage, projects, totalRead) {
+	const footprint = workFootprintHtml(titles, usage, projects, totalRead);
 	if (recent.length) {
 		const last = recent[0];
 		const href = sectionLinkHref(last);
-		const trail = recent.slice(1, 3);
+		const expanded = Boolean(state.homeHistoryExpanded);
+		const trail = expanded ? recent.slice(1, 13) : recent.slice(1, 4);
+		const hasMore = recent.length > 4;
 		return `
       <section class="hm-card hm-resume" aria-label="Continue reading">
         <div class="hm-card-top">
@@ -11132,7 +11908,7 @@ function resumeCardHtml(recent, titles) {
           <span class="hm-time">${escapeHtml(timeAgo(last.t || 0))}</span>
         </div>
         <div class="hm-resume-loc">
-          <span>${last.ti} CFR</span>
+          <span class="hm-loc-tier" data-ref-tier="cfr"><span class="tier-pip" aria-hidden="true"></span>${last.ti} CFR</span>
           ${last.p ? `${SEP}<a href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
           ${last.ul ? `${SEP}<span class="hm-unit-badge">${escapeHtml(last.ul)}</span>` : ""}
         </div>
@@ -11141,16 +11917,17 @@ function resumeCardHtml(recent, titles) {
           <a class="btn btn-sm btn-accent" href="${href}">Resume reading ${icon("chevronRight")}</a>
           ${last.p ? `<a class="btn btn-sm" href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
         </div>
+        ${footprint}
         ${trail.length ? `
           <div class="hm-trail">
             <div class="hm-trail-head">
               <span class="hm-kicker">Recently opened</span>
-              <button type="button" class="hm-inline-link" data-hm-act="open-history">Full history</button>
+              ${hasMore ? `<button type="button" class="hm-inline-link" data-hm-act="toggle-history">${expanded ? "Show less" : `Show all (${recent.length - 1})`}</button>` : ""}
             </div>
             <div class="hm-trail-list">
               ${trail.map((e) => `
                 <a class="hm-trail-row" href="${sectionLinkHref(e)}">
-                  <span class="hm-tag">${e.ti} CFR</span>
+                  <span class="hm-tag" data-ref-tier="cfr"><span class="tier-pip" aria-hidden="true"></span>${e.ti} CFR</span>
                   <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
                   <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
                   <span class="hm-row-val">${escapeHtml(timeAgo(e.t || 0))}</span>
@@ -11190,7 +11967,7 @@ function resumeCardHtml(recent, titles) {
         <span class="hm-kicker">Start here</span>
       </div>
       <div class="hm-resume-title is-static">Open a regulation to begin</div>
-      <p class="hm-muted">Pick a key part below or search across your downloaded titles from the bar above.</p>
+      <p class="hm-muted">Pick a key part below or search across your frameworks from the bar above.</p>
       ${starters.length ? `
         <div class="hm-starter-grid">
           ${starters.map((s) => `
@@ -11199,6 +11976,7 @@ function resumeCardHtml(recent, titles) {
               <span class="hm-starter-name">${escapeHtml(s.title)}</span>
             </a>`).join("")}
         </div>` : ""}
+      ${footprint}
     </section>`;
 }
 function workspacesCardHtml(projects) {
@@ -11213,11 +11991,22 @@ function workspacesCardHtml(projects) {
 			return `<a class="citation-chip${ok ? "" : " is-dim"}" data-ref-tier="${ok ? "cfr" : "uninstalled"}" href="${href}"${tip}>${escapeHtml(s.label || "§ " + s.id)}</a>`;
 		}).join("");
 		const extra = (p.sections || []).length - 3;
+		const tasks = p.projects || [];
+		const openTasks = tasks.filter((x) => x.status !== "done").length;
+		const cases = (p.cases || []).length;
+		const tabGroups = (p.tab_groups || []).length;
+		const metaParts = [
+			plural(p.sections.length, "section"),
+			tasks.length ? `${openTasks}/${tasks.length} open tasks` : "",
+			cases ? plural(cases, "case") : "",
+			tabGroups ? plural(tabGroups, "tab group") : "",
+			escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))
+		];
 		return `
           <article class="hm-ws-item">
             <div class="hm-ws-top">
               <a class="hm-ws-name" href="#/projects/${encodeURIComponent(p.id)}">${projDot(p)}<span>${escapeHtml(p.name)}</span></a>
-              <span class="hm-ws-meta">${joinSep([plural(p.sections.length, "section"), escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))])}</span>
+              <span class="hm-ws-meta">${joinSep(metaParts)}</span>
             </div>
             ${p.description ? `<p class="hm-ws-desc">${escapeHtml(p.description)}</p>` : ""}
             ${chips ? `<div class="hm-ws-chips">${chips}${extra > 0 ? `<a class="hm-more-chip" href="#/projects/${encodeURIComponent(p.id)}">+${extra}</a>` : ""}</div>` : ""}
@@ -11226,7 +12015,7 @@ function workspacesCardHtml(projects) {
     </div>` : `
     <div class="hm-empty-block">
       <div class="hm-empty-title">Organize program compliance</div>
-      <p class="hm-muted">Group pinned sections and notes for a safety program, facility audit, or permit review.</p>
+      <p class="hm-muted">Group pinned sections, clipped DOL cases, action tasks, and saved dual-pane tab groups across CFR, FR, U.S.C., and State frameworks.</p>
       <div class="hm-empty-acts">
         <button type="button" class="btn btn-sm btn-accent" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
       </div>
@@ -11248,7 +12037,7 @@ function titleLivingSignalHtml(t, recent, projects) {
 	if (lastInTitle) return `<a class="hm-signal-link" href="${sectionLinkHref(lastInTitle)}">Last read ${escapeHtml(lastInTitle.l)}${SEP}${escapeHtml(timeAgo(lastInTitle.t || 0))}</a>`;
 	const ws = projects.find((p) => (p.sections || []).some((s) => s.title === t.title));
 	if (ws) return `<a class="hm-signal-link" href="#/projects/${encodeURIComponent(ws.id)}">${projDot(ws)}In ${escapeHtml(ws.name)}</a>`;
-	if (t.news && t.news.count > 0) return `<a class="hm-signal-link" href="#/news">${escapeHtml(plural(t.news.count, "recent OSHA update"))}</a>`;
+	if (t.news && t.news.count > 0) return `<a class="hm-signal-link" href="#/news">${escapeHtml(plural(t.news.count, "recent update"))}</a>`;
 	return `<span class="hm-signal-muted">${t.section_count ? `${fmt(t.section_count)} sections ready` : "Ready offline"}</span>`;
 }
 function titleStatusHtml(t, staleSet) {
@@ -11278,63 +12067,152 @@ function titlePartsHtml(t) {
       </div>`;
 	return `
     <div class="hm-title-parts">
-      <button type="button" class="hm-part-chip" data-hm-act="open-contents" data-title="${t.title}">Browse contents</button>
+      <a class="hm-part-chip" href="${titleHref(t.title)}">Browse contents</a>
     </div>`;
 }
-function titlesBandHtml(titles, recent, projects, totalSections, totalRead) {
+function cfrCardHtml(t, staleSet, recent, projects, usage) {
+	const read = readCountForTitle(t.title, usage);
+	const count = Number(t.section_count || 0);
+	const pct = count ? Math.min(100, read / count * 100) : 0;
+	const agencies = (t.agencies || []).slice(0, 2);
+	const pinnedInTitle = projects.reduce((sum, p) => sum + (p.sections || []).filter((s) => s.title === t.title).length, 0);
+	const isTitleStale = staleSet.has(t.title) || Boolean(t.unreadable);
+	const busy = Boolean(jobFor(t.title, "title"));
+	return `
+    <article class="hm-title-card has-tier-bar" data-ref-tier="cfr">
+      <div class="hm-title-top">
+        <span class="hm-title-kicker"><span class="tier-pip" aria-hidden="true"></span> FEDERAL REG · ${t.title} CFR${agencies.length ? `${SEP}<span class="hm-title-ag">${agencies.map(escapeHtml).join(" · ")}</span>` : ""}</span>
+        ${titleStatusHtml(t, staleSet)}
+      </div>
+      <h3 class="hm-title-name"><a href="${titleHref(t.title)}">${escapeHtml(t.name)}</a></h3>
+      ${t.summary ? `<p class="hm-title-desc">${escapeHtml(t.summary)}</p>` : !(state.homeSnapshot && Array.isArray(state.homeSnapshot.titles)) ? skeletonHtml("summary") : ""}
+      ${titlePartsHtml(t)}
+      <div class="hm-title-foot">
+        <div class="hm-title-signal-row">
+          ${titleLivingSignalHtml(t, recent, projects)}
+          ${isTitleStale && !busy ? `<button type="button" class="hm-inline-link is-warn" data-hm-act="update-title" data-title="${t.title}">${t.unreadable ? "Rebuild" : "Update"}</button>` : t.partial ? `<a class="hm-inline-link" href="#/library/${t.title}">Add parts</a>` : `<a class="hm-inline-link" href="${titleHref(t.title)}">Start page ${icon("chevronRight")}</a>`}
+        </div>
+        <div class="hm-prog-meta">
+          <span>${fmt(read)} of ${fmt(count)} read</span>
+          ${pinnedInTitle ? `<span>${plural(pinnedInTitle, "pin")}</span>` : ""}
+        </div>
+        <div class="hm-prog-track" title="${fmt(read)} of ${fmt(count)} sections read" aria-hidden="true"><span style="width:${read ? Math.max(3, Math.round(pct)) : 0}%"></span></div>
+      </div>
+    </article>`;
+}
+function extraFrameworkCardHtml(c, projects, status) {
+	const refTier = refTierForCorpus(c);
+	const meta = TIER_META[c.tier] || TIER_META.state;
+	const href = corpusHashFor(c);
+	const isInstalled = c.installed !== false;
+	const clippedCases = projects.reduce((sum, p) => sum + (p.cases || []).length, 0);
+	let statusPill = "";
+	let chipsHtml = "";
+	let footLeft = "";
+	let footRight = `<a class="hm-inline-link" href="${escapeHtml(href)}">Open framework ${icon("chevronRight")}</a>`;
+	if (c.tier === "federal-register") {
+		const frReason = frAttentionReason(status);
+		const articles = Number(status?.articles || c.section_count || 0);
+		statusPill = frReason ? statPill("stale", "Sync due", { bare: true }) : articles > 0 ? statPill("synced", "Synced", { bare: true }) : statPill("partial", "Ready", { bare: true });
+		chipsHtml = `
+      <div class="hm-title-parts">
+        <a class="hm-part-chip" href="#/news?cat=rules"><span class="hm-part-num">Final Rules</span></a>
+        <a class="hm-part-chip" href="#/news?cat=rulemaking"><span class="hm-part-num">Proposed</span></a>
+        <a class="hm-part-chip" href="#/news?cat=enforcement"><span class="hm-part-num">Enforcement</span></a>
+      </div>`;
+		footLeft = `<span class="hm-signal-muted">${joinSep([articles ? `${fmt(articles)} filings cached` : "Federal Register API v1", clippedCases ? plural(clippedCases, "clipped case") : ""])}</span>`;
+		footRight = frReason ? "<button type=\"button\" class=\"hm-inline-link is-warn\" data-hm-act=\"sync-fr\">Sync FR</button>" : `<a class="hm-inline-link" href="#/news">Newsroom ${icon("chevronRight")}</a>`;
+	} else if (c.tier === "federal-statute") {
+		statusPill = isInstalled ? statPill("synced", "Installed", { bare: true }) : statPill("partial", c.status_label || "Authority", { bare: true });
+		const ext = safeHttpUrl(c.external_url);
+		chipsHtml = `
+      <div class="hm-title-parts">
+        ${(c.linked_titles || []).filter((n) => titleInstalled(n)).slice(0, 2).map((n) => `<a class="hm-part-chip" href="#/title/${n}/"><span class="hm-part-num">${n} CFR</span><span>Implementing rules</span></a>`).join("")}
+        ${ext ? `<a class="hm-part-chip" href="${escapeHtml(ext)}" target="_blank" rel="noopener noreferrer">Official U.S.C. ${icon("external")}</a>` : ""}
+      </div>`;
+		footLeft = `<span class="hm-signal-muted">${escapeHtml(c.status_label || "Statutory authority layer")}</span>`;
+	} else {
+		statusPill = isInstalled ? statPill("synced", "Installed", { bare: true }) : statPill("partial", c.jurisdiction_label || "State overlay", { bare: true });
+		const linked = (c.linked_titles || []).filter((n) => titleInstalled(n)).slice(0, 2).map((n) => `<a class="hm-part-chip" href="#/title/${n}/"><span class="hm-part-num">${n} CFR</span><span>Federal baseline</span></a>`).join("");
+		chipsHtml = linked ? `<div class="hm-title-parts">${linked}</div>` : "";
+		footLeft = `<span class="hm-signal-muted">${escapeHtml(c.agencies.join(" · ") || "Delegated state program")}</span>`;
+	}
+	return `
+    <article class="hm-title-card has-tier-bar" data-ref-tier="${refTier}">
+      <div class="hm-title-top">
+        <span class="hm-title-kicker"><span class="tier-pip${isInstalled ? "" : " is-hollow"}" aria-hidden="true"></span> ${escapeHtml(meta.tag)} · ${escapeHtml(c.code)}${c.agencies.length ? `${SEP}<span class="hm-title-ag">${c.agencies.slice(0, 2).map(escapeHtml).join(" · ")}</span>` : ""}</span>
+        ${statusPill}
+      </div>
+      <h3 class="hm-title-name"><a href="${escapeHtml(href)}">${escapeHtml(c.name)}</a></h3>
+      ${c.summary ? `<p class="hm-title-desc">${escapeHtml(c.summary)}</p>` : ""}
+      ${chipsHtml}
+      <div class="hm-title-foot">
+        <div class="hm-title-signal-row">
+          ${footLeft}
+          ${footRight}
+        </div>
+        <div class="hm-prog-track is-tier" aria-hidden="true"><span style="width:${isInstalled ? 100 : 28}%"></span></div>
+      </div>
+    </article>`;
+}
+function titlesBandHtml(titles, allFrameworks, recent, projects, totalSections, totalRead, status, usage) {
 	const staleSet = new Set((state.navLibData && state.navLibData.titles || []).filter(isStale).map((t) => t.title));
-	const corpora = syncCorporaState();
+	syncCorporaState();
 	const deskId = state.activeDesk || "all";
-	const visibleTitles = deskId === "all" ? titles : titles.filter((t) => mapRawDeskToId(t.desk, t.title) === deskId);
-	const shown = visibleTitles.length ? visibleTitles : titles;
-	const ribbonHtml = deskFilterRibbonHtml(deskId, corpora);
-	const cards = shown.map((t) => {
-		const read = visitedCountFor(t.title);
-		const count = Number(t.section_count || 0);
-		const pct = count ? Math.min(100, read / count * 100) : 0;
-		const agencies = (t.agencies || []).slice(0, 2);
-		const corpus = corpora.find((c) => c.tier === "federal-reg" && c.title_num === t.title) || {
-			tier: "federal-reg",
-			desk: mapRawDeskToId(t.desk, t.title),
-			corpus_id: "",
-			jurisdiction: "US",
-			jurisdiction_label: "Federal",
-			code: String(t.title),
-			name: t.name,
-			agencies: []
-		};
-		return `
-      <article class="hm-title-card has-tier-bar" data-ref-tier="${refTierForCorpus(corpus)}">
-        <div class="hm-title-top">
-          <span class="hm-title-kicker"><span class="tier-pip" aria-hidden="true"></span> ${escapeHtml(TIER_META[corpus.tier]?.tag || "FEDERAL REG")} · ${t.title} CFR${agencies.length ? `${SEP}<span class="hm-title-ag">${agencies.map(escapeHtml).join(" · ")}</span>` : ""}</span>
-          ${titleStatusHtml(t, staleSet)}
-        </div>
-        <h3 class="hm-title-name"><a href="${titleHref(t.title)}">${escapeHtml(t.name)}</a></h3>
-        ${t.summary ? `<p class="hm-title-desc">${escapeHtml(t.summary)}</p>` : !(state.homeSnapshot && Array.isArray(state.homeSnapshot.titles)) ? skeletonHtml("summary") : ""}
-        ${titlePartsHtml(t)}
-        <div class="hm-title-foot">
-          <div class="hm-title-signal-row">
-            ${titleLivingSignalHtml(t, recent, projects)}
-            ${t.partial ? `<a class="hm-inline-link" href="#/library/${t.title}">Add parts</a>` : `<button type="button" class="hm-inline-link" data-hm-act="open-contents" data-title="${t.title}">Contents</button>`}
-          </div>
-          <div class="hm-prog-track" title="${fmt(read)} of ${fmt(count)} sections read" aria-hidden="true"><span style="width:${read ? Math.max(3, Math.round(pct)) : 0}%"></span></div>
-        </div>
-      </article>`;
+	const tierFilter = state.homeTierFilter || "all";
+	const snapByTitle = new Map(titles.map((t) => [t.title, t]));
+	const filteredByTier = tierFilter === "all" ? allFrameworks : allFrameworks.filter((c) => c.tier === tierFilter);
+	const filtered = deskId === "all" ? filteredByTier : filteredByTier.filter((c) => c.tier === "federal-register" || mapRawDeskToId(c.desk, c.title_num ?? null) === deskId);
+	const shown = filtered.length ? filtered : filteredByTier;
+	const tierCounts = /* @__PURE__ */ new Map([["all", allFrameworks.length]]);
+	for (const c of allFrameworks) tierCounts.set(c.tier, (tierCounts.get(c.tier) || 0) + 1);
+	const tierTabsHtml = `
+    <div class="hm-tier-tabs" role="group" aria-label="Filter by legal framework system">
+      <button type="button" class="hm-tier-tab${tierFilter === "all" ? " is-active" : ""}" data-hm-tier="all" aria-pressed="${tierFilter === "all"}">
+        <span>All Systems</span><span class="hm-tier-count">${tierCounts.get("all") || 0}</span>
+      </button>
+      ${SYSTEM_TIERS.map((t) => {
+		const m = TIER_META[t];
+		const cnt = tierCounts.get(t) || 0;
+		const on = tierFilter === t;
+		return `<button type="button" class="hm-tier-tab${on ? " is-active" : ""}" data-ref-tier="${m.refTier}" data-hm-tier="${escapeHtml(t)}" aria-pressed="${on}">
+          <span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(m.short)}</span><span class="hm-tier-count">${cnt}</span>
+        </button>`;
+	}).join("")}
+    </div>`;
+	const ribbonHtml = deskFilterRibbonHtml(deskId, filteredByTier);
+	const orderRank = {
+		"federal-reg": 0,
+		"federal-register": 1,
+		"federal-statute": 2,
+		"state": 3,
+		"county": 4,
+		"standard": 5
+	};
+	const cards = [...shown].sort((a, b) => (orderRank[a.tier] ?? 9) - (orderRank[b.tier] ?? 9)).map((c) => {
+		if (c.tier === "federal-reg" && c.title_num != null) {
+			const snap = snapByTitle.get(c.title_num);
+			if (snap) return cfrCardHtml(snap, staleSet, recent, projects, usage);
+		}
+		return extraFrameworkCardHtml(c, projects, status);
 	}).join("");
 	return `
-    <section class="hm-titles" id="hm-titles" aria-label="Downloaded titles">
+    <section class="hm-titles" id="hm-titles" aria-label="Legal frameworks">
       <div class="hm-sec-head">
         <div class="hm-sec-head-left">
-          <h2 class="hm-sec-title">Downloaded Frameworks</h2>
+          <h2 class="hm-sec-title">Legal Frameworks</h2>
           <span class="hm-sec-meta">${joinSep([
 		plural(shown.length, "framework"),
-		`${fmt(totalSections)} sections offline`,
+		`${fmt(totalSections)} CFR sections offline`,
 		totalRead ? `${fmt(totalRead)} read` : ""
 	])}</span>
         </div>
         <a class="hm-inline-link" href="#/library">Add or update frameworks ${icon("chevronRight")}</a>
       </div>
-      ${ribbonHtml}
+      <div class="hm-filters">
+        ${tierTabsHtml}
+        ${ribbonHtml}
+      </div>
       <div class="hm-title-grid">${cards}</div>
     </section>`;
 }
@@ -11358,7 +12236,7 @@ function newsSkeletonHtml() {
         <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
       </div>
     </div>
-    <div class="hm-news-skel" aria-busy="true" aria-label="Loading OSHA news…">
+    <div class="hm-news-skel" aria-busy="true" aria-label="Loading regulatory news…">
       ${[
 		1,
 		2,
@@ -11371,7 +12249,7 @@ function newsSectionHtml(data, status) {
 	const pill = newsStatusPillHtml(status);
 	if (!articles.length) return `
       <div class="hm-news-quiet">
-        <span class="hm-news-quiet-label">${icon("news")} No OSHA regulatory news cached yet</span>
+        <span class="hm-news-quiet-label">${icon("news")} No Federal Register or enforcement updates cached yet</span>
         <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
       </div>`;
 	const items = articles.slice(0, 3).map((a) => `
@@ -11396,29 +12274,32 @@ function newsSectionHtml(data, status) {
     </div>
     <div class="hm-news-grid">${items}</div>`;
 }
+function patchHomeDynamicBands(titles, status) {
+	const usage = loadUsage();
+	const recent = recentSectionsFor(usage, new Set(titles.map((t) => t.title)));
+	const projects = loadProjects();
+	const totalSections = titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
+	const totalRead = titles.reduce((a, t) => a + readCountForTitle(t.title, usage), 0);
+	const allFrameworks = allSystemFrameworks(titles, titles, status);
+	const attention = collectAttentionItems(titles, status);
+	const sysEl = document.getElementById("hm-systems");
+	if (sysEl) sysEl.outerHTML = systemsStripHtml(allFrameworks, titles, totalSections, totalRead, status, attention);
+	const updEl = document.getElementById("hm-updates");
+	if (updEl) updEl.outerHTML = updatesBannerHtml(attention, titles);
+	const box = document.getElementById("hm-titles");
+	if (box) {
+		const loaded = box.dataset.snapshotLoaded;
+		box.outerHTML = titlesBandHtml(titles, allFrameworks, recent, projects, totalSections, totalRead, status, usage);
+		const nextBox = document.getElementById("hm-titles");
+		if (nextBox && loaded) nextBox.dataset.snapshotLoaded = loaded;
+	}
+}
 async function hydrateHome(seq) {
 	const titlesPromise = getJSON("/api/titles/snapshot").then((snap) => {
 		if (seq !== state.routeSeq) return;
 		if (snap && Array.isArray(snap.titles)) {
 			state.homeSnapshot = snap;
-			const u = loadUsage();
-			const installed = new Set(snap.titles.map((t) => t.title));
-			const split = (key) => {
-				const i = key.indexOf("|");
-				return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
-			};
-			const recent = Object.entries(u.s).map(([k, e]) => {
-				const [ti, id] = split(k);
-				return {
-					...e,
-					ti,
-					id
-				};
-			}).filter((e) => installed.has(e.ti)).sort((a, b) => (b.t || 0) - (a.t || 0));
-			const totalSections = snap.titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
-			const totalRead = snap.titles.reduce((a, t) => a + visitedCountFor(t.title), 0);
-			const box = document.getElementById("hm-titles");
-			if (box) box.outerHTML = titlesBandHtml(snap.titles, recent, loadProjects(), totalSections, totalRead);
+			patchHomeDynamicBands(snap.titles, cachedNewsStatus());
 		}
 	}).catch(() => {}).finally(() => {
 		const el = document.getElementById("hm-titles");
@@ -11426,8 +12307,21 @@ async function hydrateHome(seq) {
 	});
 	const newsPromise = Promise.all([getJSON("/api/news?limit=3"), getJSON("/api/news/status")]).then(([data, status]) => {
 		if (seq !== state.routeSeq) return;
+		const totalArticles = Number(data?.total ?? data?.articles?.length ?? 0);
+		const enrichedStatus = status ? {
+			...status,
+			articles: status.articles || totalArticles
+		} : null;
+		if (enrichedStatus) {
+			state.navNewsStatus = enrichedStatus;
+			lsSetJSON(HOME_STATUS_CACHE, {
+				t: Date.now(),
+				data: enrichedStatus
+			});
+			updateRailBadge();
+		}
 		const box = document.getElementById("hm-news");
-		if (box) box.innerHTML = newsSectionHtml(data, status);
+		if (box) box.innerHTML = newsSectionHtml(data, enrichedStatus);
 		if (data && data.articles && data.articles.length) lsSetJSON(HOME_NEWS_CACHE, {
 			t: Date.now(),
 			data: {
@@ -11436,10 +12330,7 @@ async function hydrateHome(seq) {
 				offset: 0
 			}
 		});
-		if (status) lsSetJSON(HOME_STATUS_CACHE, {
-			t: Date.now(),
-			data: status
-		});
+		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), enrichedStatus);
 	}).catch(() => {
 		if (seq !== state.routeSeq) return;
 		const box = document.getElementById("hm-news");
@@ -11448,7 +12339,16 @@ async function hydrateHome(seq) {
 		const el = document.getElementById("hm-news");
 		if (el && seq === state.routeSeq) el.dataset.newsLoaded = "1";
 	});
-	await Promise.allSettled([titlesPromise, newsPromise]);
+	const libPromise = ensureNavLibrary().then(() => {
+		if (seq !== state.routeSeq) return;
+		updateRailBadge();
+		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), cachedNewsStatus());
+	}).catch(() => {});
+	await Promise.allSettled([
+		titlesPromise,
+		newsPromise,
+		libPromise
+	]);
 }
 function renderHomeScreen({ enter = true } = {}) {
 	state.currentSection = null;
@@ -11457,28 +12357,19 @@ function renderHomeScreen({ enter = true } = {}) {
 	updateChatContext();
 	document.title = "Home · FRAMEWORK";
 	setViewHead("");
-	const u = loadUsage();
+	const usage = loadUsage();
 	const titles = installedFallbackList();
-	const installed = new Set(titles.map((t) => t.title));
-	const split = (key) => {
-		const i = key.indexOf("|");
-		return [parseInt(key.slice(0, i), 10), key.slice(i + 1)];
-	};
-	const recent = Object.entries(u.s).map(([k, e]) => {
-		const [ti, id] = split(k);
-		return {
-			...e,
-			ti,
-			id
-		};
-	}).filter((e) => installed.has(e.ti)).sort((a, b) => (b.t || 0) - (a.t || 0));
+	const recent = recentSectionsFor(usage, new Set(titles.map((t) => t.title)));
 	const projects = loadProjects();
 	const totalSections = titles.reduce((a, t) => a + Number(t.section_count || 0), 0);
-	const totalRead = titles.reduce((a, t) => a + visitedCountFor(t.title), 0);
+	const totalRead = titles.reduce((a, t) => a + readCountForTitle(t.title, usage), 0);
 	const cachedNews = lsGetJSON(HOME_NEWS_CACHE);
-	const cachedStatus = lsGetJSON(HOME_STATUS_CACHE);
+	const status = cachedNewsStatus();
+	const allFrameworks = allSystemFrameworks(titles, titles, status);
+	const attention = collectAttentionItems(titles, status);
 	const sub = joinSep([
-		escapeHtml(`${plural(titles.length, "title")} ready offline`),
+		escapeHtml(`${plural(titles.length, "CFR title")} offline`),
+		"FR · U.S.C. · State mapped",
 		state.metaInfo.edition ? `Edition ${escapeHtml(shortDate(state.metaInfo.edition))}` : "",
 		projects.length ? escapeHtml(plural(projects.length, "workspace")) : ""
 	]);
@@ -11497,13 +12388,15 @@ function renderHomeScreen({ enter = true } = {}) {
         </div>
       </header>
       ${activeTransfersHtml()}
+      ${systemsStripHtml(allFrameworks, titles, totalSections, totalRead, status, attention)}
+      ${updatesBannerHtml(attention, titles)}
       <div class="hm-top">
-        ${resumeCardHtml(recent, titles)}
+        ${resumeCardHtml(recent, titles, usage, projects, totalRead)}
         ${workspacesCardHtml(projects)}
       </div>
-      ${titlesBandHtml(titles, recent, projects, totalSections, totalRead)}
+      ${titlesBandHtml(titles, allFrameworks, recent, projects, totalSections, totalRead, status, usage)}
       <section class="hm-card hm-news" id="hm-news" aria-label="Regulatory Pulse">
-        ${cachedNews && cachedNews.data ? newsSectionHtml(cachedNews.data, cachedStatus && cachedStatus.data) : newsSkeletonHtml()}
+        ${cachedNews && cachedNews.data ? newsSectionHtml(cachedNews.data, status) : newsSkeletonHtml()}
       </section>
     </div>`;
 	if (enter) enterView();
@@ -11516,29 +12409,94 @@ function refreshHomeIfActive() {
 onView("click", async (e) => {
 	if (!dom.view.querySelector(".hm")) return;
 	const t = e.target;
+	const tierBtn = t?.closest("[data-hm-tier]");
+	if (tierBtn) {
+		const nextTier = tierBtn.dataset.hmTier || "all";
+		state.homeTierFilter = state.homeTierFilter === nextTier && nextTier !== "all" ? "all" : nextTier;
+		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), cachedNewsStatus());
+		return;
+	}
 	const deskBtn = t?.closest("[data-desk]");
 	if (deskBtn) {
 		setActiveDesk(deskBtn.dataset.desk || "all");
-		renderHomeScreen({ enter: false });
+		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), cachedNewsStatus());
 		return;
 	}
 	const actEl = t?.closest("[data-hm-act]");
 	if (!actEl) return;
 	const act = actEl.dataset.hmAct;
 	if (act === "new-workspace") startNewWorkspace();
-	else if (act === "open-history") {
-		state.historyFor = "overview";
-		openPanel("history", { focus: e.detail === 0 });
+	else if (act === "toggle-history") {
+		state.homeHistoryExpanded = !state.homeHistoryExpanded;
+		renderHomeScreen({ enter: false });
 	} else if (act === "open-contents") {
 		const titleNum = Number(actEl.dataset.title);
 		if (titleNum && titleNum !== state.currentTitle) await switchTitle(titleNum);
-		openPanel("reader", { focus: true });
+		window.location.hash = `#/title/${titleNum || state.currentTitle}/`;
+	} else if (act === "update-title") {
+		const titleNum = Number(actEl.dataset.title);
+		if (!titleNum) return;
+		actEl.disabled = true;
+		try {
+			const job = await getJSON(`/api/library/${titleNum}/update`, { method: "POST" });
+			setJobs(await getJSON("/api/library/jobs"));
+			pollJobsIfActive();
+			showToast(job?.label ? `Queued update for ${job.label}` : `Queued update for Title ${titleNum}`);
+			refreshHomeIfActive();
+		} catch (err) {
+			showToast(err instanceof Error ? err.message : "Update failed", 5e3);
+			actEl.disabled = false;
+		}
+	} else if (act === "update-all") {
+		actEl.disabled = true;
+		try {
+			await queueBatch("/api/library/update-all", null, "Every installed title is already current");
+			refreshHomeIfActive();
+		} catch (err) {
+			showToast(err instanceof Error ? err.message : "Update failed", 5e3);
+			actEl.disabled = false;
+		}
+	} else if (act === "check-updates") {
+		actEl.disabled = true;
+		try {
+			await ensureNavLibrary(true);
+			updateRailBadge();
+			patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), cachedNewsStatus());
+			showToast("Checked eCFR for framework updates");
+		} catch {
+			showToast("Couldn’t reach eCFR right now", 4e3);
+		} finally {
+			actEl.disabled = false;
+		}
+	} else if (act === "sync-fr") {
+		actEl.disabled = true;
+		try {
+			await getJSON("/api/news/refresh", {
+				method: "POST",
+				body: JSON.stringify({ force: true })
+			});
+			showToast("Federal Register sync started");
+			hydrateHome(state.routeSeq);
+		} catch (err) {
+			showToast(err instanceof Error ? err.message : "Sync failed", 4e3);
+			actEl.disabled = false;
+		}
 	}
 });
 on("projects:changed", ({ quiet }) => {
 	if (!quiet) refreshHomeIfActive();
 });
 on("env:saved", () => refreshHomeIfActive());
+on("jobs:updated", () => {
+	if (routeTarget() === "overview" && dom.view.querySelector(".hm")) {
+		const existing = dom.view.querySelector(".hm-transfer");
+		const html = activeTransfersHtml();
+		if (Boolean(existing) !== Boolean(html)) refreshHomeIfActive();
+	}
+});
+on("jobs:finished", () => {
+	refreshHomeIfActive();
+});
 // src/views/help.ts
 var HELP_LOGOS = {
 	dol: `<svg class="help-logo-svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
@@ -15863,10 +16821,10 @@ async function handleRoute() {
 			corpusMatch.subPath
 		];
 		else {
-			const matchedCorpus = state.corpora.find((c) => c.tier === corpusMatch.tier && c.jurisdiction.toLowerCase() === corpusMatch.jurisdiction.toLowerCase() && String(c.code).toLowerCase() === String(corpusMatch.code).toLowerCase());
+			const matchedCorpus = findSystemFramework(corpusMatch.tier, corpusMatch.jurisdiction, corpusMatch.code) || state.corpora.find((c) => c.tier === corpusMatch.tier && c.jurisdiction.toLowerCase() === corpusMatch.jurisdiction.toLowerCase() && String(c.code).toLowerCase() === String(corpusMatch.code).toLowerCase());
 			clearTreeSelection();
 			setViewHead("");
-			renderCorpusStaging(matchedCorpus || {
+			const fallbackCorpus = matchedCorpus || {
 				corpus_id: `${corpusMatch.jurisdiction}:${corpusMatch.tier}:${corpusMatch.code}`,
 				tier: corpusMatch.tier,
 				jurisdiction: corpusMatch.jurisdiction,
@@ -15876,10 +16834,15 @@ async function handleRoute() {
 				desk: "ehs",
 				agencies: [],
 				installed: false
-			});
+			};
+			state.activeCorpus = fallbackCorpus;
+			renderCorpusDrawer(fallbackCorpus);
+			applyNav();
+			renderCorpusStaging(fallbackCorpus);
 			return;
 		}
 	}
+	state.activeCorpus = null;
 	if (titleMatch) {
 		const targetTitle = parseInt(titleMatch[1], 10);
 		const subPath = titleMatch[2] || "/";
@@ -15991,29 +16954,39 @@ function commandList() {
 			"G H"
 		],
 		[
+			"Go to Workspaces",
+			"#/projects",
+			"G P"
+		],
+		[
+			"Go to Newsroom",
+			"#/news",
+			"G N"
+		],
+		[
+			"Go to Library",
+			"#/library",
+			"G L"
+		],
+		[
+			"Go to Settings",
+			"#/settings",
+			"G S"
+		],
+		[
 			`Go to Title ${state.currentTitle} start`,
 			`#/title/${state.currentTitle}/`,
 			"G T"
 		],
 		[
-			"Open contents",
+			"Open framework contents",
 			"cmd:reader",
 			"G C"
 		],
 		[
-			"Open workspaces",
-			"cmd:projects",
-			"G P"
-		],
-		[
-			"All workspaces",
-			"#/projects",
+			"Federal Register framework",
+			"#/corpus/federal-register/US/FR/",
 			""
-		],
-		[
-			"Go to News",
-			"#/news",
-			"G N"
 		],
 		[
 			"Search DOL inspections (live archive)",
@@ -16031,26 +17004,6 @@ function commandList() {
 			""
 		],
 		[
-			"Open the library",
-			"#/library",
-			""
-		],
-		[
-			"Library drawer",
-			"cmd:library",
-			"G L"
-		],
-		[
-			"Settings",
-			"cmd:settings",
-			"G S"
-		],
-		[
-			"All settings",
-			"#/settings",
-			""
-		],
-		[
 			"Connections & API keys",
 			"#/help",
 			""
@@ -16061,7 +17014,7 @@ function commandList() {
 			""
 		],
 		[
-			"Show or hide the drawer",
+			"Toggle sidebar / framework drawer",
 			"cmd:drawer",
 			`${mod}B`
 		],
@@ -16258,10 +17211,8 @@ document.addEventListener("keydown", (e) => {
 // src/panels/projects_panel.ts
 state.newProjectOpen = false;
 function showNewProjectForm() {
-	state.newProjectOpen = true;
-	if (!drawerShown() || navState.panel !== "projects") openPanel("projects");
-	else renderProjectsPanel();
-	requestAnimationFrame(() => document.getElementById("dr-new-name")?.focus());
+	const p = createProject("New workspace");
+	window.location.hash = `#/projects/${encodeURIComponent(p.id)}`;
 }
 var projectRouteId = () => {
 	const m = /\/projects\/([^/?]+)/.exec(state.activeRoute || "");
@@ -16308,138 +17259,6 @@ dom.sidebar.addEventListener("click", (e) => {
 });
 registerDrawerPanel("projects", renderProjectsPanel);
 on("nav:new-project", () => showNewProjectForm());
-// src/panels/library_panel.ts
-var navLib = {
-	data: null,
-	at: 0,
-	loading: null
-};
-async function ensureNavLibrary(force = false) {
-	if (!force && navLib.data && Date.now() - navLib.at < 6e4) return navLib.data;
-	if (!navLib.loading) navLib.loading = getJSON("/api/library").then((d) => {
-		navLib.data = d;
-		navLib.at = Date.now();
-		state.navLibData = d;
-		return d;
-	}).finally(() => {
-		navLib.loading = null;
-	});
-	return navLib.loading;
-}
-function transferHtml() {
-	const j = state.jobs.current;
-	if (!j && !state.jobs.queued.length) return "<p class=\"dr-note\">Nothing downloading.</p>";
-	const m = dockModel(j);
-	return (!j ? "" : `<div class="dr-job">
-      <div class="dr-job-head"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-job-title">${escapeHtml(j.label)}</span><span class="dr-job-pct" data-f="pct">${m.pct == null ? "" : m.pct + "%"}</span></div>
-      <div class="dr-job-phase" data-f="phase">${escapeHtml(j.cancelling ? "Cancelling…" : m.label)}</div>
-      ${transferTrackHtml(m.pct, { bindFill: true })}
-      <div class="dock-tele"><span data-f="left">${escapeHtml(m.left)}</span><span data-f="right">${escapeHtml(m.right)}</span></div>
-      <div class="dr-job-acts"><button type="button" class="lib-act is-danger" data-dock="cancel" data-id="${j.id}"${j.cancelling || j.phase === "Installing" ? " disabled" : ""}>Cancel</button></div>
-    </div>`) + state.jobs.queued.map((q) => `<div class="dr-row is-static"><span class="stat-dot is-busy" aria-hidden="true"></span><span class="dr-name">${escapeHtml(q.label)}</span><span class="dr-time">Queued</span></div>`).join("") + (state.jobs.queued.length ? "<button type=\"button\" class=\"dr-link\" data-dock=\"clear\">Clear queue</button>" : "");
-}
-state.navTransferKey = "";
-function updateNavTransfers() {
-	updateRailBadge();
-	if (navState.panel !== "library" || !drawerShown()) return;
-	const box = document.getElementById("dr-transfers");
-	if (!box) return;
-	const j = state.jobs.current;
-	const m = dockModel(j);
-	const key = [
-		j && j.id,
-		j && j.cancelling,
-		j && j.phase === "Installing",
-		m.pct == null,
-		state.jobs.queued.map((q) => q.id).join(".")
-	].join("|");
-	if (key !== state.navTransferKey) {
-		state.navTransferKey = key;
-		box.innerHTML = transferHtml();
-		const count = document.getElementById("dr-transfers-count");
-		const n = (j ? 1 : 0) + state.jobs.queued.length;
-		if (count) count.textContent = n ? String(n) : "";
-		const sec = document.getElementById("dr-transfers-sec");
-		if (sec) sec.hidden = !n;
-		return;
-	}
-	const set = (f, v) => {
-		const n = box.querySelector(`[data-f="${f}"]`);
-		if (n && n.textContent !== v) n.textContent = v;
-	};
-	set("pct", m.pct == null ? "" : `${m.pct}%`);
-	set("phase", j && j.cancelling ? "Cancelling…" : m.label);
-	set("left", m.left);
-	set("right", m.right);
-	const fill = box.querySelector("[data-f=\"fill\"]");
-	if (fill && m.pct != null) fill.style.width = `${m.pct}%`;
-}
-function renderLibraryPanel() {
-	const d = navLib.data;
-	state.navTransferKey = "";
-	const active = (state.jobs.current ? 1 : 0) + state.jobs.queued.length;
-	const transfers = `<section class="dr-sec" id="dr-transfers-sec"${active ? "" : " hidden"}>${drLabel("Transfers", `<span class="dr-count" id="dr-transfers-count">${active || ""}</span>`)}<div id="dr-transfers">${transferHtml()}</div></section>`;
-	if (!d) {
-		setPanel("library", transfers + "<div class=\"loading\">Loading the library…</div>");
-		ensureNavLibrary().then(() => {
-			if (navState.panel === "library") renderLibraryPanel();
-			updateRailBadge();
-		}).catch(() => setPanel("library", transfers + drEmpty("Couldn’t reach eCFR", "The installed titles are still in the reader. Try the library again in a moment.")));
-		return;
-	}
-	const live = d.titles.filter((t) => !t.reserved);
-	const installed = live.filter((t) => t.installed);
-	const stale = installed.filter(isStale);
-	const rows = installed.map((t) => {
-		const st = titleStatus(t);
-		return `<a class="dr-row" href="#/title/${t.title}/">
-      <span class="dr-num">${t.title}</span><span class="dr-name">${escapeHtml(t.name)}</span>
-      <span class="stat-dot is-${st.state}" title="${escapeHtml(st.text)}" aria-hidden="true"></span><span class="sr-only">${escapeHtml(st.text)}</span></a>`;
-	}).join("");
-	const suites = Object.values(d.suites || {}).map((s) => {
-		const st = suiteState(s, d);
-		const have = st.ts.filter((t) => t.installed && t.installed.whole).length;
-		return `<div class="dr-suite">
-      <div class="dr-suite-text"><span class="dr-suite-name">${escapeHtml(s.name)}</span>
-        <span class="dr-suite-meta">${joinSep([`${have} of ${st.total} installed`, fmtMB(s.size_mb)])}</span></div>
-      ${st.label ? `<button type="button" class="icon-btn drawer-icon" data-act="download-suite" data-suite="${escapeHtml(s.id)}" title="${escapeHtml(st.label)}" aria-label="${escapeHtml(st.label)}: ${escapeHtml(s.name)}">${icon("download")}</button>` : st.busy.length ? "<span class=\"stat-dot is-busy\" title=\"In progress\" aria-hidden=\"true\"></span>" : st.ts.length ? "<span class=\"stat-dot is-synced\" title=\"Installed\" aria-hidden=\"true\"></span>" : "<span class=\"stat-dot is-uninstalled\" title=\"Not installed\" aria-hidden=\"true\"></span>"}
-    </div>`;
-	}).join("");
-	setPanel("library", `
-    <a class="dr-cta" href="#/library">
-      <span class="dr-cta-text"><span class="dr-cta-title">Browse the library</span><span class="dr-cta-meta">${live.length} titles · ${amendedWeek(d).recent} amended this week</span></span>${icon("chevronRight")}
-    </a>
-    ${transfers}
-    <section class="dr-sec">${drLabel("Installed", `<span class="dr-count">${installed.length}</span>${stale.length ? `<button type="button" class="dr-link" data-act="update-all">Update ${stale.length}</button>` : ""}`)}
-      ${rows || "<p class=\"dr-note\">No titles installed.</p>"}</section>
-    ${suites ? `<section class="dr-sec">${drLabel("Suites")}${suites}</section>` : ""}`);
-	updateRailBadge();
-}
-registerDrawerPanel("library", renderLibraryPanel);
-on("jobs:updated", () => updateNavTransfers());
-on("jobs:finished", () => {
-	navLib.at = 0;
-	if (drawerShown() && navState.panel === "library") ensureNavLibrary(true).then(renderLibraryPanel).catch(() => {});
-});
-dom.sidebar.addEventListener("click", async (e) => {
-	const t = e.target;
-	const dockBtn = t?.closest("[data-dock]");
-	if (dockBtn) {
-		onDockAction(dockBtn);
-		return;
-	}
-	const act = t?.closest("button[data-act]");
-	if (act && (act.dataset.act === "download-suite" || act.dataset.act === "update-all")) {
-		act.disabled = true;
-		try {
-			if (act.dataset.act === "download-suite") await queueBatch("/api/library/batch-download", { suite: act.dataset.suite }, "Every title in this suite is installed and current");
-			else await queueBatch("/api/library/update-all", null, "Every installed title is already current");
-		} catch (err) {
-			showToast(err instanceof Error ? err.message : "Download failed", 5e3);
-			act.disabled = false;
-		}
-	}
-});
 // src/panels/recent_panel.ts
 function renderHistoryPanel() {
 	const u = loadUsage();
@@ -18006,6 +18825,7 @@ async function init() {
 		if (state.installedTitles.length && !state.installedTitles.some((t) => t.title === state.currentTitle)) await switchTitle(state.installedTitles[0].title);
 		fillTitleSelect();
 		updateRailHome();
+		updateRailBadge();
 		if (state.noTitles) setReaderEnabled(false);
 		else {
 			const [meta] = await Promise.all([

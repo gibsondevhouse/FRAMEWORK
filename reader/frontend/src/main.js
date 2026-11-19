@@ -58,7 +58,7 @@ import { ensureTreeLoaded, switchTitle } from './components/sidebar';
 import { syncCorporaState } from './components/corpora';
 import { fillTitleSelect, setReaderEnabled } from './components/title_switcher';
 import { isMac } from './dom';
-import { updateRailHome } from './nav';
+import { updateRailBadge, updateRailHome } from './nav';
 import { restoreSessionTabsSnapshot } from './components/reader_tabs';
 import { restoreSplitTabs } from './components/split_pane';
 import { handleRoute } from './router';
@@ -82,6 +82,7 @@ export async function init() {
     }
     fillTitleSelect();
     updateRailHome();
+    updateRailBadge();
 
     if (state.noTitles) {
       // Fresh install: no contents, metadata or models to load. The router shows the
