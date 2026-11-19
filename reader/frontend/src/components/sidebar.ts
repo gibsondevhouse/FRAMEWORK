@@ -103,9 +103,8 @@ export async function switchTitle(newTitle: number): Promise<void> {
   const titleMeta = state.installedTitles.find(t => t.title === newTitle);
   if (titleMeta) {
     state.metaInfo = titleMeta;
-    dom.edition.textContent = `eCFR ${titleMeta.edition || ''}`;
   }
-  dom.chatText.placeholder = `Ask about this section, or anything in Title ${newTitle}…`;
+  dom.chatText.placeholder = `Ask about this provision or anything in ${newTitle} CFR…`;
   emit('title:switched', { title: newTitle });
   state.treePromise = null;
   state.treeData = null;

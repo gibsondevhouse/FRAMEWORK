@@ -77,9 +77,10 @@ export function saveNav(): void {
  * - Section Reader (`#/title/{n}/section/{id}`, `#/section/{id}`)
  */
 export function isFrameworkRoute(path = state.activeRoute): boolean {
-  if (state.noTitles) return false;
   const p = (path || '/').split('?')[0] || '/';
-  return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/|corpus\/)/.test(p);
+  if (/^\/corpus\/(?!state\/|county\/)/.test(p)) return true;
+  if (state.noTitles) return false;
+  return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/)/.test(p);
 }
 
 export const isFly = (): boolean =>
@@ -403,6 +404,30 @@ function updateSidebarFrameworkHighlight(): void {
   }
 }
 
+function shortFrameworkName(c: CorpusSummary): string {
+  if (c.tier === 'federal-reg') {
+    const map: Record<number, string> = {
+      21: 'Food & Drugs',
+      26: 'Internal Revenue',
+      29: 'Labor',
+      40: 'Environment',
+      48: 'Federal Acquisition',
+      49: 'Transportation',
+    };
+    if (c.title_num && map[c.title_num]) return map[c.title_num];
+  }
+  if (c.tier === 'federal-register') return 'Federal Register';
+  if (c.tier === 'federal-statute') {
+    if (c.code.startsWith('21')) return 'Food & Drug Act';
+    if (c.code.startsWith('26')) return 'Internal Revenue';
+    if (c.code.startsWith('29')) return 'Labor Statutes';
+    if (c.code.startsWith('41')) return 'Public Contracts';
+    if (c.code.startsWith('42')) return 'Public Health & Env';
+    if (c.code.startsWith('49')) return 'Transportation';
+  }
+  return c.name;
+}
+
 export function renderSidebarFrameworks(): void {
   if (!HAS_DOC) return;
   const box = document.getElementById('ar-frameworks');
@@ -410,10 +435,9 @@ export function renderSidebarFrameworks(): void {
   const all = allSystemFrameworks();
   const staleSet = new Set((state.navLibData?.titles || []).filter(isStale).map(t => t.title));
 
+  const usc = all.filter(c => c.tier === 'federal-statute');
   const cfr = all.filter(c => c.tier === 'federal-reg');
   const fr = all.filter(c => c.tier === 'federal-register');
-  const usc = all.filter(c => c.tier === 'federal-statute');
-  const states = all.filter(c => c.tier === 'state');
 
   const rowHtml = (c: CorpusSummary, opts: { stale?: boolean } = {}) => {
     const refTier = refTierForCorpus(c);
@@ -423,27 +447,25 @@ export function renderSidebarFrameworks(): void {
       : c.tier === 'federal-statute'
         ? c.code.split('§§')[0].trim()
         : c.code;
+    const displayName = shortFrameworkName(c);
     const isInstalled = c.installed !== false;
-    return `<a class="ar-fw-row" href="${escapeHtml(href)}" data-ref-tier="${refTier}" data-fw-id="${escapeHtml(c.corpus_id)}"${c.title_num ? ` data-fw-title="${c.title_num}"` : ''} title="${escapeHtml(c.code + ' · ' + c.name)}">
-      <span class="tier-pip${isInstalled ? '' : ' is-hollow'}" aria-hidden="true"></span>
+    return `<a class="ar-fw-row${isInstalled ? '' : ' is-ref'}" href="${escapeHtml(href)}" data-ref-tier="${refTier}" data-fw-id="${escapeHtml(c.corpus_id)}"${c.title_num ? ` data-fw-title="${c.title_num}"` : ''} title="${escapeHtml(c.code + ' — ' + c.name)}">
+      <span class="ar-fw-bar" aria-hidden="true"></span>
+      <span class="ar-fw-name">${escapeHtml(displayName)}</span>
       <span class="ar-fw-code">${escapeHtml(code)}</span>
-      <span class="ar-fw-name">${escapeHtml(c.name)}</span>
       ${opts.stale ? '<span class="stat-dot is-stale ar-fw-stale" title="Update available" aria-label="Update available"></span>' : ''}
     </a>`;
   };
 
   const parts: string[] = [];
+  if (usc.length) {
+    parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Statutes (U.S.C.)</div>${usc.slice(0, 3).map(c => rowHtml(c)).join('')}</div>`);
+  }
   if (cfr.length) {
-    parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">CFR · Federal Rules</div>${cfr.map(c => rowHtml(c, { stale: Boolean(c.title_num && staleSet.has(c.title_num)) })).join('')}</div>`);
+    parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Regulations (CFR)</div>${cfr.map(c => rowHtml(c, { stale: Boolean(c.title_num && staleSet.has(c.title_num)) })).join('')}</div>`);
   }
   if (fr.length) {
-    parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">FR · Rulemaking</div>${fr.map(c => rowHtml(c, { stale: Boolean(c.update_available) })).join('')}</div>`);
-  }
-  if (usc.length) {
-    parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">U.S.C. · Statutes</div>${usc.slice(0, 3).map(c => rowHtml(c)).join('')}</div>`);
-  }
-  if (states.length) {
-    parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">State · Plans &amp; Codes</div>${states.slice(0, 3).map(c => rowHtml(c)).join('')}</div>`);
+    parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Rulemaking (FR)</div>${fr.map(c => rowHtml(c, { stale: Boolean(c.update_available) })).join('')}</div>`);
   }
 
   box.innerHTML = parts.join('') || '<div class="ar-fw-empty">No frameworks installed</div>';
@@ -455,23 +477,25 @@ export function renderCorpusDrawer(corpus: CorpusSummary | null = state.activeCo
   const el = document.getElementById('panel-corpus');
   if (!el) return;
   if (!corpus) {
-    el.innerHTML = '<div class="dr-scroll"><p class="dr-note">Select a legal framework to view its outline.</p></div>';
+    el.innerHTML = '<div class="dr-scroll"><p class="dr-note">Select a federal framework to view its outline.</p></div>';
     return;
   }
-  const meta = TIER_META[corpus.tier] || TIER_META.state;
+  const meta = TIER_META[corpus.tier] || TIER_META['federal-statute'];
   const refTier = refTierForCorpus(corpus);
   const startHref = corpusHashFor(corpus);
   const linked = (corpus.linked_titles || [])
     .map(n => state.installedTitles.find(t => t.title === n))
     .filter((t): t is NonNullable<typeof t> => Boolean(t));
+  const dolOn = Boolean(state.navNewsStatus?.dol_configured);
 
   const frLinks = corpus.tier === 'federal-register' ? `
     <section class="dr-sec">
-      <h3 class="dr-label"><span>Rulemaking Feeds</span></h3>
+      <h3 class="dr-label"><span>Federal Register Feeds</span></h3>
       <a class="dr-row" href="#/news?cat=rules"><span class="dr-name">Final Rules</span>${icon('chevronRight')}</a>
       <a class="dr-row" href="#/news?cat=rulemaking"><span class="dr-name">Proposed Rules</span>${icon('chevronRight')}</a>
+      <a class="dr-row" href="#/news?cat=notices"><span class="dr-name">Notices</span>${icon('chevronRight')}</a>
       <a class="dr-row" href="#/news?cat=public_inspection"><span class="dr-name">Public Inspection</span>${icon('chevronRight')}</a>
-      <a class="dr-row" href="#/news?cat=enforcement"><span class="dr-name">Enforcement &amp; Citations</span>${icon('chevronRight')}</a>
+      ${dolOn ? `<a class="dr-row" href="#/news?cat=enforcement"><span class="dr-name">Enforcement</span>${icon('chevronRight')}</a>` : ''}
     </section>` : '';
 
   const linkedHtml = linked.length ? `

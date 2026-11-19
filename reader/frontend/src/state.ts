@@ -9,6 +9,10 @@ export type AuthorityTier =
   | 'county'
   | 'standard';
 
+export type HomeTab = 'overview' | 'usc' | 'cfr' | 'fr';
+
+export type HomeFrCat = 'all' | 'rules' | 'rulemaking' | 'notices' | 'public_inspection';
+
 export type RefTier =
   | 'local'
   | 'cfr'
@@ -423,6 +427,7 @@ export interface NewsSourceStatus {
 
 export interface NewsStatusSnapshot {
   sync_enabled: boolean;
+  syncing?: boolean;
   sources: Record<string, NewsSourceStatus>;
   dol_configured: boolean;
   articles?: number;
@@ -454,8 +459,11 @@ export interface AppState {
   activeCorpusId: string;
   activeCorpus: CorpusSummary | null;
   activeDesk: DeskId;
+  homeTab: HomeTab;
+  homeFrCat: HomeFrCat;
   homeTierFilter: 'all' | AuthorityTier;
   homeHistoryExpanded: boolean;
+  homeSyncToken: number;
   corpora: CorpusSummary[];
   extraCorpora: CorpusSummary[];
   installedTitles: InstalledTitleMeta[];
@@ -525,8 +533,11 @@ export const state: AppState = {
   activeCorpusId: 'us:cfr:29',
   activeCorpus: null,
   activeDesk: 'all',
+  homeTab: 'overview',
+  homeFrCat: 'all',
   homeTierFilter: 'all',
   homeHistoryExpanded: false,
+  homeSyncToken: 0,
   corpora: [],
   extraCorpora: [],
   installedTitles: [],

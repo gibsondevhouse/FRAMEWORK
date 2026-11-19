@@ -423,24 +423,22 @@ export function libTitleList(d: LibraryCatalogData, sort: LibSort): string {
 }
 
 const LIB_TIER_TABS = [
-  { id: 'all', label: 'All Authorities', refTier: 'cfr' },
-  { id: 'federal-statute', label: 'U.S. Code', refTier: 'usc' },
-  { id: 'federal-reg', label: 'Federal CFR', refTier: 'cfr' },
-  { id: 'state', label: 'States', refTier: 'state' },
-  { id: 'county', label: 'Counties', refTier: 'county' },
-  { id: 'standard', label: 'Standards', refTier: 'ibr' },
+  { id: 'all', label: 'All Federal Frameworks', refTier: 'cfr' },
+  { id: 'federal-statute', label: 'U.S. Code (U.S.C.)', refTier: 'usc' },
+  { id: 'federal-reg', label: 'Federal Regulations (CFR)', refTier: 'cfr' },
+  { id: 'federal-register', label: 'Federal Register (FR)', refTier: 'fr' },
+  { id: 'standard', label: 'Incorporated Standards', refTier: 'ibr' },
 ];
 
 const TIER_CONNECTOR_NOTES: Record<string, string> = {
-  'federal-statute': 'United States Code (U.S.C.) XML packs (OSH Act, RCRA, Clean Air Act) plug in alongside CFR cross-links.',
-  'state': 'State administrative codes and OSHA-approved State Plans (e.g. Cal/OSHA 8 CCR, WA WAC) attach via CorpusSummary.',
-  'county': 'County and municipal fire, air-quality, and health ordinances attach under State jurisdiction feeds.',
-  'standard': 'Consensus standards (ANSI, NFPA, ASTM, ASME) currently resolve via section peeks and each Title Start Almanac.',
+  'federal-statute': 'United States Code (U.S.C.) USLM XML ingestion connects federal enabling statutes directly alongside CFR and Federal Register links.',
+  'federal-register': 'Federal Register API v1 streams daily Final Rules, Proposed Rules, Notices, and Public Inspection filings in the Newsroom.',
+  'standard': 'Incorporated consensus standards (ANSI, NFPA, ASTM, ASME) resolve inside section peeks and each Title Start Almanac.',
 };
 
 export function libTierTabsHtml(d: LibraryCatalogData): string {
   const cfrCount = (d.titles || []).filter(t => !t.reserved).length;
-  const extras = state.extraCorpora || [];
+  const extras = (state.extraCorpora || []).filter(c => c.tier !== 'state' && c.tier !== 'county');
   const countFor = (id: string) => {
     if (id === 'all') return cfrCount + extras.length;
     if (id === 'federal-reg') return cfrCount + extras.filter(c => c.tier === 'federal-reg').length;
@@ -448,7 +446,7 @@ export function libTierTabsHtml(d: LibraryCatalogData): string {
   };
   const populated = LIB_TIER_TABS.filter(t => t.id === 'all' || countFor(t.id) > 0);
   if (populated.length <= 2) return '';
-  return `<div class="lib-tier-bar" role="tablist" aria-label="Filter catalog by authority tier">${populated.map(t => {
+  return `<div class="lib-tier-bar" role="tablist" aria-label="Filter catalog by federal framework">${populated.map(t => {
     const on = lib.tier === t.id;
     const count = countFor(t.id);
     return `<button type="button" role="tab" aria-selected="${on}" class="lib-tier-tab${on ? ' is-active' : ''}" data-ref-tier="${t.refTier}" data-lib-tier="${t.id}">
@@ -462,42 +460,41 @@ function libPlannedConnectorsHtml(): string {
   const planned = LIB_TIER_TABS.filter(t => t.id !== 'all' && t.id !== 'federal-reg' && !extras.some(c => c.tier === t.id));
   if (!planned.length) return '';
   return `<details class="lib-planned">
-    <summary><span>Planned jurisdiction connectors</span><span class="lib-planned-sub">${planned.length} pre-wired authority layers</span></summary>
+    <summary><span>Federal framework connectors</span><span class="lib-planned-sub">${planned.length} federal layers</span></summary>
     <div class="lib-planned-grid">${planned.map(t => `
       <div class="lib-planned-item" data-ref-tier="${t.refTier}">
         <div class="lib-planned-head"><span class="tier-pip is-hollow" aria-hidden="true"></span><span>${escapeHtml(t.label)}</span></div>
-        <p class="lib-planned-desc">${escapeHtml(TIER_CONNECTOR_NOTES[t.id] || 'Ingestion pack pending.')}</p>
+        <p class="lib-planned-desc">${escapeHtml(TIER_CONNECTOR_NOTES[t.id] || 'Federal ingestion adapter planned.')}</p>
       </div>`).join('')}</div>
   </details>`;
 }
 
 function libExtraTierBodyHtml(tierId: string): string {
-  const meta = TIER_META[tierId] || TIER_META['state'];
+  const meta = TIER_META[tierId] || TIER_META['federal-statute'];
   const matches = (state.extraCorpora || []).filter(c => c.tier === tierId);
   if (matches.length) {
     return `<section class="lib-desk" aria-label="${escapeHtml(meta.label)}">
       <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(meta.label)}</h3><span class="lib-desk-count">${plural(matches.length, 'corpus')}</span></header>
       <div class="lib-stories">${matches.map(c => `
         <article class="lib-story has-tier-bar" data-ref-tier="${refTierForCorpus(c)}">
-          <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}${escapeHtml(c.jurisdiction_label || c.jurisdiction)}</span>${statPill('synced', 'Ready')}</div>
+          <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}${escapeHtml(c.jurisdiction_label || 'Federal')}</span>${statPill('synced', 'Ready')}</div>
           <h3 class="story-name"><a href="${escapeHtml(corpusHashFor(c))}">${escapeHtml(c.code)} — ${escapeHtml(c.name)}</a></h3>
           ${c.summary ? `<p class="story-dek">${escapeHtml(c.summary)}</p>` : ''}
           <div class="story-foot"><span class="story-date">${escapeHtml((c.agencies || []).join(' · ') || meta.label)}</span><div class="story-actions"><a class="lib-act" href="${escapeHtml(corpusHashFor(c))}">Open</a></div></div>
         </article>`).join('')}</div></section>`;
   }
   const tierDescriptions: Record<string, string> = {
-    'federal-statute': 'United States Code (U.S.C.) XML statutory packs (Title 29 OSH Act/FLSA, Title 42 EPA statutes, Title 49 Transportation) plug directly into this catalog slot alongside CFR cross-links.',
-    'state': 'State administrative codes and OSHA-approved State Plans (e.g., California 8 CCR, Texas TAC, Washington WAC) share the same CorpusSummary contract and search facets.',
-    'county': 'County and municipal fire, air-quality, and environmental health ordinances attach under State feeds using jurisdiction codes like US-CA-LA.',
-    'standard': 'Incorporated consensus standards (ANSI, NFPA, ASTM, ASME) currently resolve inside section peeker popovers and each Title Start Almanac.',
+    'federal-statute': 'United States Code (U.S.C.) USLM XML statutory ingestion plugs directly into this catalog slot alongside CFR and Federal Register cross-links.',
+    'federal-register': 'Federal Register filings stream live through the Newsroom across agencies and installed CFR titles.',
+    'standard': 'Incorporated consensus standards (ANSI, NFPA, ASTM, ASME) resolve inside section peeks and each Title Start Almanac.',
   };
   return `<section class="resolver-card is-catalog-slot has-tier-bar" data-ref-tier="${meta.refTier}">
-    <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}Catalog Slot Pre-Wired</div>
+    <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}Federal Framework Slot</div>
     <h2 class="doc-title">${escapeHtml(meta.label)}</h2>
-    <p class="resolver-msg">${escapeHtml(tierDescriptions[tierId] || 'Backend ingestion pack pending.')}</p>
+    <p class="resolver-msg">${escapeHtml(tierDescriptions[tierId] || 'Federal ingestion adapter pending.')}</p>
     <div class="resolver-acts">
       <button type="button" class="btn btn-accent" data-lib-tier="federal-reg">View Federal CFR Catalog</button>
-      <a class="btn" href="#/title/${state.currentTitle}/">Open ${state.currentTitle} CFR Almanac</a>
+      <a class="btn" href="#/news">Open Federal Register</a>
     </div>
   </section>`;
 }
@@ -506,7 +503,7 @@ export function libFrontHtml(d: LibraryCatalogData): string {
   const live = d.titles.filter(t => !t.reserved);
   const { newest, recent } = amendedWeek(d);
   const sub = joinSep([
-    'Multi-Jurisdiction Regulatory Catalog',
+    'Federal Codes & Frameworks Catalog',
     newest ? `Edition ${escapeHtml(fmtDate(newest))}` : '',
     `${live.length} CFR titles`,
     recent ? `${recent} amended this week` : 'No amendments this week',
@@ -518,8 +515,8 @@ export function libFrontHtml(d: LibraryCatalogData): string {
   const extraTiers = TIER_ORDER.filter(t => t !== 'federal-reg' && Boolean(lib.extraCorporaCount || (state.extraCorpora || []).some(c => c.tier === t)));
   const cfrBody = `
     <div class="lib-broadsheet${lead ? '' : ' is-wire-only'}">${lead ? suiteHero(lead, d) : ''}${libWire(d)}</div>
-    ${others.length ? `<section class="lib-suites" aria-label="More compliance suites">
-      <header class="lib-desk-header"><h2 class="lib-desk-name">Jurisdiction Packs</h2><span class="lib-desk-count">${plural(others.length, 'pack')}</span></header>
+    ${others.length ? `<section class="lib-suites" aria-label="Federal title bundles">
+      <header class="lib-desk-header"><h2 class="lib-desk-name">Federal Topic Bundles</h2><span class="lib-desk-count">${plural(others.length, 'bundle')}</span></header>
       <div class="lib-suite-grid">${others.map(s => suiteCard(s, d)).join('')}</div></section>` : ''}
     <div class="lib-tools">
       <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter titles or agencies…" aria-label="Filter titles or agencies" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">

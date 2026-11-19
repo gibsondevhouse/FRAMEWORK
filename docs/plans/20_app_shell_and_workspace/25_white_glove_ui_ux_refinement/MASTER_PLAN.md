@@ -1,6 +1,7 @@
 # Master Plan 25: White-Glove UI/UX Refinement, Ergonomics & Deliverable Workflows
 
-> **Status:** In Progress (Phase 1 Completed; Phases 2–5 Remaining)  
+> **Status:** Paused — Phase 1 Completed; Phases 2–5 Deferred (2026-11-19)  
+> **Direction Note:** Per the 2026-11-19 federal-only pivot (Linear `FRAMEWORK`), **moving the UI away from its CFR-centric focus** across federal frameworks (CFR, Federal Register, U.S.C.) takes precedence over Plan 25's deliverable-workflow agenda (Phases 2–5). State coverage and HSE/DOL-specific workflows are out of scope going forward; reusable reader ergonomics from Phases 2–5 will be folded in after the federal UI refocus.  
 > **Series:** `20_app_shell_and_workspace` · Follows [`24_dark_newsroom_multi_jurisdiction_ui/`](../24_dark_newsroom_multi_jurisdiction_ui/MASTER_PLAN.md)  
 > **Created:** 2026-11-18  
 > **Context / Motivation:** Following the multi-jurisdiction dark newsroom refactor (Plan 24), a white-glove creative director & UI/UX audit against live macOS visual baselines (`reader/tests/baselines/darwin/`) uncovered CSS border-radius defects, a `0 of 0 installed` suite bug, mobile/split-pane reader navigation gaps, primary CTA inflation, and high-leverage opportunities to elevate FRAMEWORK's daily utility and marketability without breaking local-first or snapshot contracts.

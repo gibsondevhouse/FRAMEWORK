@@ -28,6 +28,7 @@
   /* Type */
   --sans: "Geist", "Inter Variable", -apple-system, BlinkMacSystemFont,
           "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: "Iowan Old Style", "New York", "Palatino Linotype", "Book Antiqua", Georgia, Cambria, "Times New Roman", serif;
   --mono: "Berkeley Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --w-regular: 400;
   --w-medium: 510;

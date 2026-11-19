@@ -1,5 +1,5 @@
 {
-  "sha256": "82d543eeb23800b90d380a6877fd0ea099bb38b9ec47ccbb66872aba540bc62e",
+  "sha256": "b35f9cc3001626c207c97325f29bd09a7e9040c28d257b80b0f3eaa612f39ff8",
   "files": [
     "index.html",
     "src/api/client.ts",

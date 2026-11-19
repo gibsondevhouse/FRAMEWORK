@@ -4,8 +4,11 @@ var state = {
 	activeCorpusId: "us:cfr:29",
 	activeCorpus: null,
 	activeDesk: "all",
+	homeTab: "overview",
+	homeFrCat: "all",
 	homeTierFilter: "all",
 	homeHistoryExpanded: false,
+	homeSyncToken: 0,
 	corpora: [],
 	extraCorpora: [],
 	installedTitles: [],
@@ -5794,30 +5797,27 @@ var TIER_ORDER = [
 	"federal-statute",
 	"federal-reg",
 	"federal-register",
-	"state",
-	"county",
 	"standard"
 ];
 var SYSTEM_TIERS = [
 	"federal-statute",
 	"federal-reg",
-	"federal-register",
-	"state"
+	"federal-register"
 ];
 var TIER_META = {
 	"federal-statute": {
 		label: "U.S. Code (U.S.C.)",
 		short: "U.S.C.",
 		refTier: "usc",
-		tag: "STATUTE",
-		subtitle: "Enabling federal statutes"
+		tag: "U.S.C.",
+		subtitle: "Federal statutory law"
 	},
 	"federal-reg": {
-		label: "Federal Regulations (CFR)",
+		label: "Code of Federal Regulations (CFR)",
 		short: "CFR",
 		refTier: "cfr",
 		tag: "FEDERAL REG",
-		subtitle: "Codified agency rules"
+		subtitle: "Codified federal rules"
 	},
 	"federal-register": {
 		label: "Federal Register (FR)",
@@ -5826,36 +5826,22 @@ var TIER_META = {
 		tag: "FED REGISTER",
 		subtitle: "Daily rulemaking & notices"
 	},
-	"state": {
-		label: "State Codes & Plans",
-		short: "State",
-		refTier: "state",
-		tag: "STATE",
-		subtitle: "State plans & delegated codes"
-	},
-	"county": {
-		label: "County & Municipal",
-		short: "County",
-		refTier: "county",
-		tag: "LOCAL CODE",
-		subtitle: "Local ordinances & overlays"
-	},
 	"standard": {
-		label: "Consensus Standards",
-		short: "Std",
+		label: "Incorporated Standards (IBR)",
+		short: "IBR",
 		refTier: "ibr",
 		tag: "STANDARD",
-		subtitle: "IBR technical standards"
+		subtitle: "Standards incorporated by reference"
 	}
 };
 var DESK_DEFS = [
 	{
 		id: "all",
-		label: "All Desks"
+		label: "All Topics"
 	},
 	{
 		id: "ehs",
-		label: "Safety & Labor"
+		label: "Labor & Workplace"
 	},
 	{
 		id: "env",
@@ -5863,15 +5849,15 @@ var DESK_DEFS = [
 	},
 	{
 		id: "transport",
-		label: "Transport & HazMat"
+		label: "Transportation"
 	},
 	{
 		id: "labor-employment",
-		label: "Wage & Benefits"
+		label: "Health & Benefits"
 	},
 	{
 		id: "fire-building",
-		label: "Fire & Building"
+		label: "Housing & Construction"
 	},
 	{
 		id: "commerce-govcon",
@@ -5896,29 +5882,280 @@ var DESK_BY_CFR_TITLE = {
 	48: "commerce-govcon",
 	49: "transport"
 };
+var FOUNDATIONAL_ADMIN_STATUTES = [
+	{
+		code: "5 U.S.C. §§ 551–559",
+		name: "Notice-and-Comment Rulemaking",
+		act: "Administrative Procedure Act (APA)",
+		summary: "Governs informal agency rulemaking (§ 553), public notice in the Federal Register, comment dockets, effective-date delays, and formal adjudications (§ 554).",
+		href: "https://uscode.house.gov/browse/prelim@title5/part1/chapter5/subchapter2&edition=prelim",
+		scope: "All CFR & FR Rules"
+	},
+	{
+		code: "5 U.S.C. §§ 701–706",
+		name: "Judicial Review of Agency Action",
+		act: "APA Chapter 7",
+		summary: "Establishes the right of review, final agency action standards, and scope of judicial review over statutory authority and arbitrary-or-capricious rulemaking.",
+		href: "https://uscode.house.gov/browse/prelim@title5/part1/chapter7&edition=prelim",
+		scope: "Statutory Interpretation"
+	},
+	{
+		code: "5 U.S.C. §§ 601–612",
+		name: "Small Entity Impact Analysis",
+		act: "Regulatory Flexibility Act (RFA)",
+		summary: "Requires agencies to publish initial and final regulatory flexibility analyses assessing compliance burdens on small businesses and organizations.",
+		href: "https://uscode.house.gov/browse/prelim@title5/part1/chapter6&edition=prelim",
+		scope: "Proposed & Final Rules"
+	},
+	{
+		code: "44 U.S.C. §§ 3501–3521",
+		name: "Information Collection & OMB Control",
+		act: "Paperwork Reduction Act (PRA)",
+		summary: "Mandates OIRA review and OMB control numbers for reporting, recordkeeping, and disclosure requirements codified across CFR parts.",
+		href: "https://uscode.house.gov/browse/prelim@title44/chapter35/subchapter1&edition=prelim",
+		scope: "Recordkeeping & Forms"
+	}
+];
 var KNOWN_TITLE_AUTHORITIES = {
+	21: {
+		statuteCode: "21 U.S.C. §§ 301–399i",
+		statuteLabel: "Federal Food, Drug, and Cosmetic Act",
+		statuteHref: "https://uscode.house.gov/browse/prelim@title21/chapter9&edition=prelim",
+		frNote: "FDA & DEA rulemaking and notices",
+		summary: "Statutory mandate governing food safety, pharmaceutical approval, medical devices, biologics, good manufacturing practices, and controlled substances.",
+		acts: [
+			"Federal Food, Drug, and Cosmetic Act (21 U.S.C. §§ 301–399i)",
+			"Public Health Service Act § 351 (42 U.S.C. § 262)",
+			"Controlled Substances Act (21 U.S.C. §§ 801–971)"
+		],
+		provisions: [
+			{
+				cite: "21 U.S.C. § 342",
+				title: "Adulterated food & current good manufacturing practice",
+				cfrTitle: 21,
+				cfrPart: "117"
+			},
+			{
+				cite: "21 U.S.C. § 355",
+				title: "New drug applications (NDA) & clinical investigations",
+				cfrTitle: 21,
+				cfrPart: "312"
+			},
+			{
+				cite: "21 U.S.C. § 360c",
+				title: "Classification & premarket oversight of medical devices",
+				cfrTitle: 21,
+				cfrPart: "820"
+			},
+			{
+				cite: "21 U.S.C. § 821",
+				title: "Registration & control of manufacture and distribution",
+				cfrTitle: 21,
+				cfrPart: "1301"
+			}
+		]
+	},
+	26: {
+		statuteCode: "26 U.S.C.",
+		statuteLabel: "Internal Revenue Code",
+		statuteHref: "https://uscode.house.gov/browse/prelim@title26&edition=prelim",
+		frNote: "Treasury & IRS regulations and notices",
+		summary: "Comprehensive statutory tax code enacted by Congress governing federal income, payroll, estate, gift, and excise taxation and Treasury enforcement procedure.",
+		acts: ["Internal Revenue Code of 1986 (26 U.S.C. §§ 1–9834)", "Employee Retirement Income Security Act Tax Provisions (26 U.S.C. §§ 401–436)"],
+		provisions: [
+			{
+				cite: "26 U.S.C. § 61",
+				title: "Gross income defined & general income tax computation",
+				cfrTitle: 26,
+				cfrPart: "1"
+			},
+			{
+				cite: "26 U.S.C. § 401",
+				title: "Qualified pension, profit-sharing, and stock bonus plans",
+				cfrTitle: 26,
+				cfrPart: "1"
+			},
+			{
+				cite: "26 U.S.C. § 3101",
+				title: "Federal Insurance Contributions Act (FICA) employment taxes",
+				cfrTitle: 26,
+				cfrPart: "31"
+			},
+			{
+				cite: "26 U.S.C. § 7805",
+				title: "Authorization for Treasury rules and regulations",
+				cfrTitle: 26,
+				cfrPart: "301"
+			}
+		]
+	},
 	29: {
-		statuteCode: "29 U.S.C. §§ 651–678",
-		statuteLabel: "OSH Act / FLSA Statutory Base",
-		statuteHref: "https://www.law.cornell.edu/uscode/text/29/651",
-		stateHint: "Approved State Plans (e.g. Cal/OSHA Title 8, DOSH, MIOSHA)",
-		countyHint: "Municipal fire / health enforcement overlays"
+		statuteCode: "29 U.S.C. §§ 201–678",
+		statuteLabel: "Fair Labor Standards, NLRA & OSH Acts",
+		statuteHref: "https://uscode.house.gov/browse/prelim@title29&edition=prelim",
+		frNote: "Department of Labor & NLRB rulemaking",
+		summary: "Federal statutory framework governing occupational safety and health standards, minimum wage and overtime exemptions, family leave, and employee benefit plans.",
+		acts: [
+			"Occupational Safety and Health Act (29 U.S.C. §§ 651–678)",
+			"Fair Labor Standards Act (29 U.S.C. §§ 201–219)",
+			"Employee Retirement Income Security Act (29 U.S.C. §§ 1001–1461)",
+			"Family and Medical Leave Act (29 U.S.C. §§ 2601–2654)"
+		],
+		provisions: [
+			{
+				cite: "29 U.S.C. § 654",
+				title: "General Duty Clause & employer workplace safety duties",
+				cfrTitle: 29,
+				cfrPart: "1910",
+				cfrSection: "1910.120"
+			},
+			{
+				cite: "29 U.S.C. § 655",
+				title: "Promulgation of occupational safety & hazard standards",
+				cfrTitle: 29,
+				cfrPart: "1910",
+				cfrSection: "1910.1200"
+			},
+			{
+				cite: "29 U.S.C. § 657",
+				title: "Inspections, investigations & injury recordkeeping",
+				cfrTitle: 29,
+				cfrPart: "1904"
+			},
+			{
+				cite: "29 U.S.C. § 213",
+				title: "FLSA executive, administrative & professional exemptions",
+				cfrTitle: 29,
+				cfrPart: "541"
+			}
+		]
 	},
 	40: {
 		statuteCode: "42 U.S.C. §§ 6901, 7401",
-		statuteLabel: "RCRA / Clean Air / Clean Water Acts",
-		statuteHref: "https://www.law.cornell.edu/uscode/text/42/6901",
-		stateHint: "Delegated state environmental agencies & SIPs",
-		countyHint: "Air quality management districts & POTW ordinances"
+		statuteLabel: "RCRA, Clean Air & Clean Water Acts",
+		statuteHref: "https://uscode.house.gov/browse/prelim@title42&edition=prelim",
+		frNote: "EPA final rules, proposals & notices",
+		summary: "Principal federal environmental statutes authorizing national ambient air standards, hazardous waste management, discharge permits, and emergency release reporting.",
+		acts: [
+			"Resource Conservation and Recovery Act (42 U.S.C. §§ 6901–6992k)",
+			"Clean Air Act (42 U.S.C. §§ 7401–7671q)",
+			"Clean Water Act (33 U.S.C. §§ 1251–1388)",
+			"CERCLA / Superfund (42 U.S.C. §§ 9601–9675)"
+		],
+		provisions: [
+			{
+				cite: "42 U.S.C. § 6921",
+				title: "Identification and listing of hazardous waste (RCRA Subtitle C)",
+				cfrTitle: 40,
+				cfrPart: "261",
+				cfrSection: "261.3"
+			},
+			{
+				cite: "42 U.S.C. § 7409",
+				title: "National primary & secondary ambient air quality standards",
+				cfrTitle: 40,
+				cfrPart: "50"
+			},
+			{
+				cite: "33 U.S.C. § 1342",
+				title: "National Pollutant Discharge Elimination System (NPDES)",
+				cfrTitle: 40,
+				cfrPart: "122"
+			},
+			{
+				cite: "42 U.S.C. § 9602",
+				title: "Hazardous substance designations & reportable quantities",
+				cfrTitle: 40,
+				cfrPart: "302"
+			}
+		]
+	},
+	48: {
+		statuteCode: "41 U.S.C. §§ 101–8707",
+		statuteLabel: "Public Contracts & Federal Procurement",
+		statuteHref: "https://uscode.house.gov/browse/prelim@title41&edition=prelim",
+		frNote: "FAR Council & agency acquisition rules",
+		summary: "Statutory procurement authority governing federal competition requirements, contract award and administration, socioeconomic clauses, and procurement integrity.",
+		acts: [
+			"Public Contracts Act / Title 41 Codification (41 U.S.C. §§ 101–8707)",
+			"Competition in Contracting Act (41 U.S.C. §§ 3301–3312)",
+			"Contract Disputes Act (41 U.S.C. §§ 7101–7109)"
+		],
+		provisions: [
+			{
+				cite: "41 U.S.C. § 1303",
+				title: "Federal Acquisition Regulatory Council & single government-wide regulation",
+				cfrTitle: 48,
+				cfrPart: "1"
+			},
+			{
+				cite: "41 U.S.C. § 3301",
+				title: "Full and open competition in federal solicitation and award",
+				cfrTitle: 48,
+				cfrPart: "6"
+			},
+			{
+				cite: "41 U.S.C. § 3502",
+				title: "Truthful cost or pricing data & audit disclosures",
+				cfrTitle: 48,
+				cfrPart: "15"
+			},
+			{
+				cite: "41 U.S.C. § 7103",
+				title: "Contracting officer decision & claims resolution procedure",
+				cfrTitle: 48,
+				cfrPart: "33"
+			}
+		]
 	},
 	49: {
 		statuteCode: "49 U.S.C. §§ 5101–5128",
-		statuteLabel: "Hazardous Materials Transportation Act",
-		statuteHref: "https://www.law.cornell.edu/uscode/text/49/5101",
-		stateHint: "State DOT commercial motor vehicle adoptions",
-		countyHint: "Local hazmat routing & tunnel restrictions"
+		statuteLabel: "Transportation & HazMat Statutes",
+		statuteHref: "https://uscode.house.gov/browse/prelim@title49&edition=prelim",
+		frNote: "DOT, FAA, FMCSA & PHMSA rulemaking",
+		summary: "Congressional mandates for hazardous materials transportation, commercial motor carrier safety, driver qualification and CDL standards, and motor vehicle safety.",
+		acts: [
+			"Federal Hazardous Materials Transportation Law (49 U.S.C. §§ 5101–5128)",
+			"Motor Carrier Safety Act (49 U.S.C. §§ 31131–31151)",
+			"Commercial Motor Vehicle Safety Act (49 U.S.C. §§ 31301–31317)",
+			"National Traffic and Motor Vehicle Safety Act (49 U.S.C. §§ 30101–30183)"
+		],
+		provisions: [
+			{
+				cite: "49 U.S.C. § 5103",
+				title: "Designation of hazardous materials & transport regulations",
+				cfrTitle: 49,
+				cfrPart: "172",
+				cfrSection: "172.101"
+			},
+			{
+				cite: "49 U.S.C. § 5104",
+				title: "Representation, marking, labeling & packaging of hazmat",
+				cfrTitle: 49,
+				cfrPart: "173"
+			},
+			{
+				cite: "49 U.S.C. § 31136",
+				title: "Minimum safety standards for commercial motor vehicles",
+				cfrTitle: 49,
+				cfrPart: "390"
+			},
+			{
+				cite: "49 U.S.C. § 31308",
+				title: "Commercial driver’s license (CDL) testing & standards",
+				cfrTitle: 49,
+				cfrPart: "383"
+			}
+		]
 	}
 };
+function authorityForCorpus(corpus) {
+	if (!corpus || corpus.tier !== "federal-statute") return null;
+	for (const tNum of corpus.linked_titles || []) if (KNOWN_TITLE_AUTHORITIES[tNum]) return KNOWN_TITLE_AUTHORITIES[tNum];
+	const code = String(corpus.code || "").toLowerCase();
+	for (const auth of Object.values(KNOWN_TITLE_AUTHORITIES)) if (auth.statuteCode.toLowerCase() === code || auth.statuteCode.toLowerCase().startsWith(code.split("§§")[0].trim())) return auth;
+	return null;
+}
 var VALID_DESKS = new Set(DESK_DEFS.map((d) => d.id));
 function loadActiveDesk() {
 	const saved = lsGet(ACTIVE_DESK_KEY);
@@ -6006,11 +6243,12 @@ function normalizeCorporaList(titles = state.installedTitles, snapshotRows = sta
 	const injected = Array.isArray(extras) && extras.length ? extras : mockWin;
 	for (const raw of injected) {
 		if (!raw || !raw.corpus_id) continue;
+		if (raw.tier === "state" || raw.tier === "county") continue;
 		byId.set(raw.corpus_id, {
 			...raw,
-			tier: raw.tier || "state",
+			tier: raw.tier || "federal-statute",
 			jurisdiction: raw.jurisdiction || "US",
-			jurisdiction_label: raw.jurisdiction_label || "Jurisdiction",
+			jurisdiction_label: raw.jurisdiction_label || "Federal",
 			code: raw.code || raw.corpus_id,
 			name: raw.name || raw.corpus_id,
 			desk: mapRawDeskToId(raw.desk),
@@ -6025,59 +6263,13 @@ function syncCorporaState() {
 	state.activeCorpusId = corpusIdForTitle(state.currentTitle);
 	return state.corpora;
 }
-var DEFAULT_STATE_OVERLAYS = [
-	{
-		title: 29,
-		corpus_id: "us-ca:state:8-CCR",
-		jurisdiction: "US-CA",
-		jurisdiction_label: "California",
-		code: "8 CCR",
-		name: "Cal/OSHA Workplace Safety & Health",
-		desk: "ehs",
-		agencies: ["Cal/OSHA", "DIR"],
-		summary: "California State Plan workplace safety standards (Title 8 CCR) paralleling and extending 29 CFR 1910 & 1926."
-	},
-	{
-		title: 29,
-		corpus_id: "us-wa:state:WAC-296",
-		jurisdiction: "US-WA",
-		jurisdiction_label: "Washington",
-		code: "WAC 296",
-		name: "WA DOSH Safety & Health Rules",
-		desk: "ehs",
-		agencies: ["L&I", "DOSH"],
-		summary: "Washington Division of Occupational Safety and Health core rules and state-plan compliance overlays."
-	},
-	{
-		title: 40,
-		corpus_id: "us-state:state:EPA-SIP",
-		jurisdiction: "US-STATE",
-		jurisdiction_label: "State Plans",
-		code: "State EPA",
-		name: "Delegated Environmental & SIP Programs",
-		desk: "env",
-		agencies: ["State DEQ", "Air Districts"],
-		summary: "State Implementation Plans, NPDES delegated permits, and RCRA authorized hazardous waste regulations."
-	},
-	{
-		title: 49,
-		corpus_id: "us-state:state:DOT-CMV",
-		jurisdiction: "US-STATE",
-		jurisdiction_label: "State Plans",
-		code: "State DOT",
-		name: "State Commercial Motor & HazMat Adoptions",
-		desk: "transport",
-		agencies: ["State DOT", "HP"],
-		summary: "State intrastate hazmat routing, commercial motor carrier adoptions, and permit overlays."
-	}
-];
 /**
-* Full multi-framework catalog spanning CFR, Federal Register (FR), U.S. Code (U.S.C.),
-* and State Codes/Plans. Combines installed CFR titles, live FR status, any injected/installed
-* extra corpora, and authority-linked U.S.C. & State frameworks for installed titles.
+* Full federal framework catalog spanning U.S. Code (U.S.C.), Code of Federal Regulations (CFR),
+* and Federal Register (FR). Combines installed CFR titles, live FR status, any injected
+* federal corpora, and statutory U.S.C. frameworks. State and local codes are out of scope.
 */
 function allSystemFrameworks(titles = state.installedTitles, snapshotRows = state.homeSnapshot?.titles, newsStatus = state.navNewsStatus, extras = state.extraCorpora) {
-	const base = normalizeCorporaList(titles, snapshotRows, extras);
+	const base = normalizeCorporaList(titles, snapshotRows, extras).filter((c) => c.tier !== "state" && c.tier !== "county");
 	const byId = new Map(base.map((c) => [c.corpus_id, c]));
 	const installedSet = new Set((titles || []).map((t) => t.title));
 	if (![...byId.values()].some((c) => c.tier === "federal-register")) {
@@ -6092,17 +6284,12 @@ function allSystemFrameworks(titles = state.installedTitles, snapshotRows = stat
 			jurisdiction: "US",
 			jurisdiction_label: "Federal",
 			code: "FR",
-			name: "Federal Register & Rulemaking",
-			desk: "ehs",
-			agencies: [
-				"OFR",
-				"OSHA",
-				"EPA",
-				"DOT"
-			].slice(0, 3),
+			name: "Federal Register",
+			desk: "all",
+			agencies: ["OFR", "Federal Agencies"],
 			edition: frSrc?.last_ok_at ? frSrc.last_ok_at.slice(0, 10) : null,
 			section_count: articles,
-			summary: "Published Final Rules, Proposed Rules, Public Inspection filings, and DOL enforcement linked to installed CFR titles.",
+			summary: "Daily Final Rules, Proposed Rules, Notices, and Public Inspection filings across federal agencies and CFR titles.",
 			installed: true,
 			linked_titles: frTitleNums,
 			status_label: hasErr ? "Sync issue" : articles > 0 ? `${articles} cached` : "Ready to sync",
@@ -6110,7 +6297,12 @@ function allSystemFrameworks(titles = state.installedTitles, snapshotRows = stat
 		});
 	}
 	if (![...byId.values()].some((c) => c.tier === "federal-statute")) {
-		const uscSourceTitles = installedSet.size ? [...installedSet].filter((n) => KNOWN_TITLE_AUTHORITIES[n]) : [29];
+		const matchedTitles = [...installedSet].filter((n) => KNOWN_TITLE_AUTHORITIES[n]);
+		const uscSourceTitles = matchedTitles.length ? matchedTitles : [
+			29,
+			40,
+			49
+		];
 		for (const tNum of uscSourceTitles) {
 			const auth = KNOWN_TITLE_AUTHORITIES[tNum];
 			if (!auth) continue;
@@ -6125,32 +6317,11 @@ function allSystemFrameworks(titles = state.installedTitles, snapshotRows = stat
 				name: auth.statuteLabel,
 				desk: mapRawDeskToId("", tNum),
 				agencies: ["U.S. Congress"],
-				summary: `Enabling statutory authority underlying ${tNum} CFR rules, preemption scope, and agency rulemaking power.`,
+				summary: auth.summary || `Federal statutory authority underlying ${tNum} CFR rulemaking and federal agency mandate.`,
 				installed: false,
-				linked_titles: [tNum],
+				linked_titles: installedSet.has(tNum) ? [tNum] : [],
 				external_url: auth.statuteHref,
-				status_label: `Linked · ${tNum} CFR`
-			});
-		}
-	}
-	if (![...byId.values()].some((c) => c.tier === "state")) {
-		const matching = DEFAULT_STATE_OVERLAYS.filter((s) => !installedSet.size || installedSet.has(s.title));
-		const list = matching.length ? matching : DEFAULT_STATE_OVERLAYS.slice(0, 2);
-		for (const s of list) {
-			if (byId.has(s.corpus_id)) continue;
-			byId.set(s.corpus_id, {
-				corpus_id: s.corpus_id,
-				tier: "state",
-				jurisdiction: s.jurisdiction,
-				jurisdiction_label: s.jurisdiction_label,
-				code: s.code,
-				name: s.name,
-				desk: s.desk,
-				agencies: s.agencies,
-				summary: s.summary,
-				installed: false,
-				linked_titles: [s.title],
-				status_label: `State overlay · ${s.title} CFR`
+				status_label: installedSet.has(tNum) ? `Linked · ${tNum} CFR` : "Statutory reference"
 			});
 		}
 	}
@@ -6166,16 +6337,18 @@ function findSystemFramework(tier, jurisdiction, code) {
 function jurisdictionStackForTitle(titleNum) {
 	const t = Number(titleNum) || state.currentTitle;
 	const known = KNOWN_TITLE_AUTHORITIES[t] || null;
-	const stateMirrors = state.corpora.filter((c) => c.tier === "state" && c.installed !== false);
-	const countyMirrors = state.corpora.filter((c) => c.tier === "county" && c.installed !== false);
 	const nodes = [];
 	if (known) nodes.push({
 		tier: "federal-statute",
 		ref_tier: "usc",
 		code: known.statuteCode,
 		label: known.statuteLabel,
-		href: known.statuteHref,
-		external: true,
+		href: corpusHashFor({
+			corpus_id: `us:usc:${known.statuteCode.split("§§")[0].trim().replace(/\s+/g, "-").toLowerCase()}`,
+			tier: "federal-statute",
+			jurisdiction: "US",
+			code: known.statuteCode
+		}),
 		meta: "Enabling statute"
 	});
 	const cur = state.corpora.find((c) => c.tier === "federal-reg" && c.title_num === t);
@@ -6185,23 +6358,15 @@ function jurisdictionStackForTitle(titleNum) {
 		code: `${t} CFR`,
 		label: cur?.name || `Title ${t}`,
 		current: true,
-		meta: "Active federal code"
+		meta: "Codified regulation"
 	});
 	nodes.push({
-		tier: "state",
-		ref_tier: "state",
-		code: stateMirrors.length ? `${stateMirrors.length} State` : "State Layer",
-		label: stateMirrors.length ? stateMirrors.map((c) => `${c.jurisdiction_label} ${c.code}`).join(" · ") : known?.stateHint || "State codes & delegated programs",
-		href: stateMirrors[0] ? corpusHashFor(stateMirrors[0]) : "#/library",
-		meta: stateMirrors.length ? "Installed" : "Ready for state feeds"
-	});
-	nodes.push({
-		tier: "county",
-		ref_tier: "county",
-		code: countyMirrors.length ? `${countyMirrors.length} County` : "Local Layer",
-		label: countyMirrors.length ? countyMirrors.map((c) => `${c.jurisdiction_label} ${c.code}`).join(" · ") : known?.countyHint || "County & municipal ordinances",
-		href: countyMirrors[0] ? corpusHashFor(countyMirrors[0]) : "#/library",
-		meta: countyMirrors.length ? "Installed" : "Pre-wired slot"
+		tier: "federal-register",
+		ref_tier: "fr",
+		code: "Federal Register",
+		label: known?.frNote || `Daily rulemaking & amendments for ${t} CFR`,
+		href: "#/news",
+		meta: "Daily rulemaking"
 	});
 	return {
 		corpus_id: corpusIdForTitle(t),
@@ -6212,11 +6377,11 @@ function deskFilterRibbonHtml(activeDesk = state.activeDesk, corpora = state.cor
 	const counts = /* @__PURE__ */ new Map([["all", corpora.length]]);
 	for (const c of corpora) {
 		const d = c.desk || "ehs";
-		counts.set(d, (counts.get(d) || 0) + 1);
+		if (d !== "all") counts.set(d, (counts.get(d) || 0) + 1);
 	}
 	const visibleDesks = DESK_DEFS.filter((d) => d.id === "all" || (counts.get(d.id) || 0) > 0);
 	if (visibleDesks.length <= 2 && corpora.length < 2) return "";
-	return `<div class="desk-ribbon" role="group" aria-label="Filter by regulatory desk">${visibleDesks.map((d) => {
+	return `<div class="desk-ribbon" role="group" aria-label="Filter by federal topic">${visibleDesks.map((d) => {
 		const on = activeDesk === d.id;
 		const count = counts.get(d.id) || 0;
 		return `<button type="button" class="desk-pill${on ? " is-active" : ""}" data-desk="${escapeHtml(d.id)}" aria-pressed="${on}">
@@ -6435,9 +6600,10 @@ function saveNav() {
 * - Section Reader (`#/title/{n}/section/{id}`, `#/section/{id}`)
 */
 function isFrameworkRoute(path = state.activeRoute) {
-	if (state.noTitles) return false;
 	const p = (path || "/").split("?")[0] || "/";
-	return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/|corpus\/)/.test(p);
+	if (/^\/corpus\/(?!state\/|county\/)/.test(p)) return true;
+	if (state.noTitles) return false;
+	return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/)/.test(p);
 }
 var isFly = () => navState.mode === "flyout" || mqMobile.matches || mqNarrow.matches && Boolean(dom.layout?.classList.contains("chat-open"));
 var flyOpen = () => HAS_DOC && document.body.classList.contains("nav-open");
@@ -6709,33 +6875,54 @@ function updateSidebarFrameworkHighlight() {
 		link.classList.toggle("is-current", isCurrent);
 	}
 }
+function shortFrameworkName(c) {
+	if (c.tier === "federal-reg") {
+		const map = {
+			21: "Food & Drugs",
+			26: "Internal Revenue",
+			29: "Labor",
+			40: "Environment",
+			48: "Federal Acquisition",
+			49: "Transportation"
+		};
+		if (c.title_num && map[c.title_num]) return map[c.title_num];
+	}
+	if (c.tier === "federal-register") return "Federal Register";
+	if (c.tier === "federal-statute") {
+		if (c.code.startsWith("21")) return "Food & Drug Act";
+		if (c.code.startsWith("26")) return "Internal Revenue";
+		if (c.code.startsWith("29")) return "Labor Statutes";
+		if (c.code.startsWith("41")) return "Public Contracts";
+		if (c.code.startsWith("42")) return "Public Health & Env";
+		if (c.code.startsWith("49")) return "Transportation";
+	}
+	return c.name;
+}
 function renderSidebarFrameworks() {
 	if (!HAS_DOC) return;
 	const box = document.getElementById("ar-frameworks");
 	if (!box) return;
 	const all = allSystemFrameworks();
 	const staleSet = new Set((state.navLibData?.titles || []).filter(isStale).map((t) => t.title));
+	const usc = all.filter((c) => c.tier === "federal-statute");
 	const cfr = all.filter((c) => c.tier === "federal-reg");
 	const fr = all.filter((c) => c.tier === "federal-register");
-	const usc = all.filter((c) => c.tier === "federal-statute");
-	const states = all.filter((c) => c.tier === "state");
 	const rowHtml = (c, opts = {}) => {
 		const refTier = refTierForCorpus(c);
 		const href = corpusHashFor(c);
 		const code = c.tier === "federal-reg" ? `${c.code} CFR` : c.tier === "federal-statute" ? c.code.split("§§")[0].trim() : c.code;
-		const isInstalled = c.installed !== false;
-		return `<a class="ar-fw-row" href="${escapeHtml(href)}" data-ref-tier="${refTier}" data-fw-id="${escapeHtml(c.corpus_id)}"${c.title_num ? ` data-fw-title="${c.title_num}"` : ""} title="${escapeHtml(c.code + " · " + c.name)}">
-      <span class="tier-pip${isInstalled ? "" : " is-hollow"}" aria-hidden="true"></span>
+		const displayName = shortFrameworkName(c);
+		return `<a class="ar-fw-row${c.installed !== false ? "" : " is-ref"}" href="${escapeHtml(href)}" data-ref-tier="${refTier}" data-fw-id="${escapeHtml(c.corpus_id)}"${c.title_num ? ` data-fw-title="${c.title_num}"` : ""} title="${escapeHtml(c.code + " — " + c.name)}">
+      <span class="ar-fw-bar" aria-hidden="true"></span>
+      <span class="ar-fw-name">${escapeHtml(displayName)}</span>
       <span class="ar-fw-code">${escapeHtml(code)}</span>
-      <span class="ar-fw-name">${escapeHtml(c.name)}</span>
       ${opts.stale ? "<span class=\"stat-dot is-stale ar-fw-stale\" title=\"Update available\" aria-label=\"Update available\"></span>" : ""}
     </a>`;
 	};
 	const parts = [];
-	if (cfr.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">CFR · Federal Rules</div>${cfr.map((c) => rowHtml(c, { stale: Boolean(c.title_num && staleSet.has(c.title_num)) })).join("")}</div>`);
-	if (fr.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">FR · Rulemaking</div>${fr.map((c) => rowHtml(c, { stale: Boolean(c.update_available) })).join("")}</div>`);
-	if (usc.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">U.S.C. · Statutes</div>${usc.slice(0, 3).map((c) => rowHtml(c)).join("")}</div>`);
-	if (states.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">State · Plans &amp; Codes</div>${states.slice(0, 3).map((c) => rowHtml(c)).join("")}</div>`);
+	if (usc.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Statutes (U.S.C.)</div>${usc.slice(0, 3).map((c) => rowHtml(c)).join("")}</div>`);
+	if (cfr.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Regulations (CFR)</div>${cfr.map((c) => rowHtml(c, { stale: Boolean(c.title_num && staleSet.has(c.title_num)) })).join("")}</div>`);
+	if (fr.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Rulemaking (FR)</div>${fr.map((c) => rowHtml(c, { stale: Boolean(c.update_available) })).join("")}</div>`);
 	box.innerHTML = parts.join("") || "<div class=\"ar-fw-empty\">No frameworks installed</div>";
 	updateSidebarFrameworkHighlight();
 }
@@ -6744,20 +6931,22 @@ function renderCorpusDrawer(corpus = state.activeCorpus) {
 	const el = document.getElementById("panel-corpus");
 	if (!el) return;
 	if (!corpus) {
-		el.innerHTML = "<div class=\"dr-scroll\"><p class=\"dr-note\">Select a legal framework to view its outline.</p></div>";
+		el.innerHTML = "<div class=\"dr-scroll\"><p class=\"dr-note\">Select a federal framework to view its outline.</p></div>";
 		return;
 	}
-	const meta = TIER_META[corpus.tier] || TIER_META.state;
+	const meta = TIER_META[corpus.tier] || TIER_META["federal-statute"];
 	const refTier = refTierForCorpus(corpus);
 	const startHref = corpusHashFor(corpus);
 	const linked = (corpus.linked_titles || []).map((n) => state.installedTitles.find((t) => t.title === n)).filter((t) => Boolean(t));
+	const dolOn = Boolean(state.navNewsStatus?.dol_configured);
 	const frLinks = corpus.tier === "federal-register" ? `
     <section class="dr-sec">
-      <h3 class="dr-label"><span>Rulemaking Feeds</span></h3>
+      <h3 class="dr-label"><span>Federal Register Feeds</span></h3>
       <a class="dr-row" href="#/news?cat=rules"><span class="dr-name">Final Rules</span>${icon("chevronRight")}</a>
       <a class="dr-row" href="#/news?cat=rulemaking"><span class="dr-name">Proposed Rules</span>${icon("chevronRight")}</a>
+      <a class="dr-row" href="#/news?cat=notices"><span class="dr-name">Notices</span>${icon("chevronRight")}</a>
       <a class="dr-row" href="#/news?cat=public_inspection"><span class="dr-name">Public Inspection</span>${icon("chevronRight")}</a>
-      <a class="dr-row" href="#/news?cat=enforcement"><span class="dr-name">Enforcement &amp; Citations</span>${icon("chevronRight")}</a>
+      ${dolOn ? `<a class="dr-row" href="#/news?cat=enforcement"><span class="dr-name">Enforcement</span>${icon("chevronRight")}</a>` : ""}
     </section>` : "";
 	const linkedHtml = linked.length ? `
     <section class="dr-sec">
@@ -7062,11 +7251,8 @@ async function switchTitle(newTitle) {
 	if (newTitle === state.currentTitle && state.treeData) return;
 	state.currentTitle = newTitle;
 	const titleMeta = state.installedTitles.find((t) => t.title === newTitle);
-	if (titleMeta) {
-		state.metaInfo = titleMeta;
-		dom.edition.textContent = `eCFR ${titleMeta.edition || ""}`;
-	}
-	dom.chatText.placeholder = `Ask about this section, or anything in Title ${newTitle}…`;
+	if (titleMeta) state.metaInfo = titleMeta;
+	dom.chatText.placeholder = `Ask about this provision or anything in ${newTitle} CFR…`;
 	emit("title:switched", { title: newTitle });
 	state.treePromise = null;
 	state.treeData = null;
@@ -8291,10 +8477,20 @@ function docStepHtml(partId, prevSection, nextSection) {
 }
 // src/components/title_switcher.ts
 var switcherDeskFilter = "all";
+function activeRouteKind() {
+	const p = (state.activeRoute || "/").split("?")[0] || "/";
+	if (p.startsWith("/news")) return "fr";
+	if (p.startsWith("/corpus/")) return state.activeCorpus?.tier === "federal-register" ? "fr" : "corpus";
+	if (/^\/(?:title\/\d+(?:\/|$)|part\/|section\/)/.test(p)) return "cfr";
+	return "platform";
+}
 function searchPlaceholderFor(on) {
-	if (!on) return "Download a title to search";
+	if (!on) return "Install a federal code or browse Federal Register…";
 	if (window.matchMedia("(max-width: 600px)").matches) return "Search…";
-	return `Search Title ${state.currentTitle} or jump to a section…`;
+	const kind = activeRouteKind();
+	if (kind === "cfr") return `Search ${state.currentTitle} CFR or jump to a section…`;
+	if (kind === "fr") return "Search federal codes, § sections, or > commands…";
+	return "Search federal codes, § sections, or > commands…";
 }
 function setReaderEnabled(on) {
 	dom.search.disabled = !on;
@@ -8302,7 +8498,7 @@ function setReaderEnabled(on) {
 	dom.chatToggle.disabled = !on;
 	if (!on) {
 		dom.edition.textContent = "";
-		dom.tree.innerHTML = "<div class=\"side-empty\">No titles installed yet. <a href=\"#/\">Pick a profile</a> or open the <a href=\"#/library\">library</a>.</div>";
+		dom.tree.innerHTML = "<div class=\"side-empty\">No federal codes installed yet. <a href=\"#/\">Pick a profile</a> or open the <a href=\"#/library\">library</a>.</div>";
 	}
 }
 window.matchMedia("(max-width: 600px)").addEventListener?.("change", () => {
@@ -8311,6 +8507,10 @@ window.matchMedia("(max-width: 600px)").addEventListener?.("change", () => {
 on("title:switched", () => {
 	fillTitleSelect();
 	if (dom.search) dom.search.placeholder = searchPlaceholderFor(true);
+});
+on("route:changed", () => {
+	fillTitleSelect();
+	if (dom.search) dom.search.placeholder = searchPlaceholderFor(!state.noTitles);
 });
 on("titles:refreshed", ({ hadNone, list }) => {
 	fillTitleSelect();
@@ -8321,22 +8521,24 @@ function switcherGroupsHtml(query = "", desk = switcherDeskFilter) {
 	const corpora = allSystemFrameworks();
 	const q = query.trim().toLowerCase();
 	const filtered = corpora.filter((c) => {
-		if (desk !== "all" && c.desk !== desk) return false;
+		if (desk !== "all" && c.desk !== desk && c.desk !== "all") return false;
 		if (!q) return true;
-		return `${c.code} ${c.name} ${c.jurisdiction_label || ""} ${(c.agencies || []).join(" ")} ${deskLabel(c.desk || "ehs")}`.toLowerCase().includes(q);
+		return `${c.code} ${c.name} ${(c.agencies || []).join(" ")} ${deskLabel(c.desk || "ehs")}`.toLowerCase().includes(q);
 	});
-	if (!filtered.length) return "<div class=\"tm-empty\">No matching frameworks found.</div>";
+	if (!filtered.length) return "<div class=\"tm-empty\">No matching federal frameworks found.</div>";
+	const kind = activeRouteKind();
 	return TIER_ORDER.map((tier) => {
 		const items = filtered.filter((c) => c.tier === tier);
 		if (!items.length) return "";
 		const meta = TIER_META[tier];
+		if (!meta) return "";
 		return `
       <div class="tm-group" data-ref-tier="${meta.refTier}">
         <div class="tm-group-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(meta.label)}</span><span class="tm-group-count">${items.length}</span></div>
         ${items.map((c) => {
-			const isCurrent = c.tier === "federal-reg" ? !state.activeCorpus && c.title_num === state.currentTitle : state.activeCorpus?.corpus_id === c.corpus_id || c.corpus_id === state.activeCorpusId;
+			const isCurrent = c.tier === "federal-reg" ? kind === "cfr" && c.title_num === state.currentTitle : c.tier === "federal-register" ? kind === "fr" : kind === "corpus" && state.activeCorpus?.corpus_id === c.corpus_id;
 			const numText = c.tier === "federal-reg" ? `${c.code} CFR` : c.code;
-			const tag = c.partial ? "Partial" : c.status_label || (c.jurisdiction !== "US" ? c.jurisdiction_label || c.jurisdiction : c.agencies?.[0] || "");
+			const tag = c.partial ? "Partial" : c.status_label || c.agencies?.[0] || "";
 			return `<button type="button" class="tm-item${isCurrent ? " is-current" : ""}" role="menuitemradio" aria-checked="${isCurrent}" data-ref-tier="${meta.refTier}" ${c.tier === "federal-reg" ? `data-title="${c.title_num}"` : `data-corpus-hash="${escapeHtml(corpusHashFor(c))}"`} tabindex="-1">
             <span class="tier-pip${c.installed === false ? " is-hollow" : ""}" aria-hidden="true"></span>
             <span class="tm-num">${escapeHtml(numText)}</span><span class="tm-name">${escapeHtml(c.name)}</span>
@@ -8351,30 +8553,67 @@ function switcherGroupsHtml(query = "", desk = switcherDeskFilter) {
 function fillTitleSelect() {
 	if (!dom.titleSelect) return;
 	const corpora = syncCorporaState();
-	const cur = state.installedTitles.find((t) => t.title === state.currentTitle);
-	const name = state.noTitles ? "" : cur ? cur.name : state.metaInfo.name || "";
+	const kind = activeRouteKind();
 	const numEl = document.getElementById("title-select-num");
-	if (numEl) numEl.textContent = state.noTitles ? "No titles" : `${state.currentTitle} CFR`;
 	const nameEl = document.getElementById("title-select-name");
-	if (nameEl) nameEl.textContent = name;
-	dom.titleSelect.dataset.refTier = state.noTitles ? "uninstalled" : "cfr";
-	dom.titleSelect.title = state.noTitles ? "Nothing installed yet. Download titles" : `Title ${state.currentTitle}${name ? ": " + name : ""}. Switch framework or jurisdiction`;
-	const desks = [...new Set(corpora.map((c) => c.desk).filter((d) => Boolean(d)))];
+	if (kind === "fr") {
+		if (numEl) numEl.textContent = "FR";
+		if (nameEl) nameEl.textContent = "Federal Register";
+		dom.titleSelect.dataset.refTier = "fr";
+		dom.titleSelect.title = "Federal Register · Switch federal framework";
+		if (dom.edition) {
+			const frDate = state.navNewsStatus?.sources?.federal_register?.last_ok_at?.slice(0, 10) || "";
+			dom.edition.textContent = frDate ? `FR ${frDate}` : "Federal Register";
+			dom.edition.title = "Federal Register feed";
+		}
+	} else if (kind === "corpus" && state.activeCorpus) {
+		const shortCode = state.activeCorpus.tier === "federal-statute" ? state.activeCorpus.code.split("§§")[0].trim() : state.activeCorpus.code;
+		if (numEl) numEl.textContent = shortCode;
+		if (nameEl) nameEl.textContent = state.activeCorpus.name;
+		dom.titleSelect.dataset.refTier = refTierForCorpus(state.activeCorpus);
+		dom.titleSelect.title = `${state.activeCorpus.code}: ${state.activeCorpus.name} · Switch federal framework`;
+		if (dom.edition) {
+			dom.edition.textContent = state.activeCorpus.edition || (state.activeCorpus.tier === "federal-statute" ? "U.S. Code" : "");
+			dom.edition.title = `${state.activeCorpus.code} edition`;
+		}
+	} else if (kind === "cfr" && !state.noTitles) {
+		const cur = state.installedTitles.find((t) => t.title === state.currentTitle);
+		const name = cur ? cur.name : state.metaInfo.name || "";
+		const ed = cur?.edition || state.metaInfo.edition || "";
+		if (numEl) numEl.textContent = `${state.currentTitle} CFR`;
+		if (nameEl) nameEl.textContent = name;
+		dom.titleSelect.dataset.refTier = "cfr";
+		dom.titleSelect.title = `${state.currentTitle} CFR${name ? ": " + name : ""} · Switch federal framework`;
+		if (dom.edition) {
+			dom.edition.textContent = ed ? `eCFR ${ed}` : "";
+			dom.edition.title = "eCFR edition loaded for this title";
+		}
+	} else {
+		if (numEl) numEl.textContent = "Federal";
+		if (nameEl) nameEl.textContent = state.noTitles ? "Frameworks" : "All Frameworks";
+		dom.titleSelect.dataset.refTier = "local";
+		dom.titleSelect.title = "Switch federal framework (U.S.C., CFR, Federal Register)";
+		if (dom.edition) {
+			dom.edition.textContent = "";
+			dom.edition.title = "";
+		}
+	}
+	const desks = [...new Set(corpora.map((c) => c.desk).filter((d) => Boolean(d) && d !== "all"))];
 	const showDesks = corpora.length > 6 || desks.length > 1;
 	const showSearch = corpora.length >= 3;
 	const deskPillsHtml = showDesks ? `
-    <div class="tm-desks" role="group" aria-label="Filter frameworks by desk">
+    <div class="tm-desks" role="group" aria-label="Filter frameworks by topic">
       <button type="button" class="tm-desk-pill${switcherDeskFilter === "all" ? " is-on" : ""}" data-tm-desk="all">All</button>
       ${desks.map((d) => `<button type="button" class="tm-desk-pill${switcherDeskFilter === d ? " is-on" : ""}" data-tm-desk="${escapeHtml(d)}">${escapeHtml(deskLabel(d).split(" ")[0])}</button>`).join("")}
     </div>` : "";
 	dom.titlePop.innerHTML = `
     <div class="tm-head">
-      ${showSearch ? "<input type=\"search\" class=\"tm-search\" id=\"title-pop-q\" placeholder=\"Filter frameworks, states, or U.S.C.…\" aria-label=\"Filter installed frameworks\" autocomplete=\"off\" spellcheck=\"false\">" : ""}
+      ${showSearch ? "<input type=\"search\" class=\"tm-search\" id=\"title-pop-q\" placeholder=\"Filter federal frameworks (CFR, FR, U.S.C.)…\" aria-label=\"Filter federal frameworks\" autocomplete=\"off\" spellcheck=\"false\">" : ""}
       ${deskPillsHtml}
     </div>
     <div id="tm-groups">${switcherGroupsHtml()}</div>
     <div class="tm-sep" role="separator"></div>
-    <a class="tm-item tm-download" role="menuitem" href="#/library" tabindex="-1">${icon("download")}<span class="tm-name">Browse Catalog &amp; Downloads…</span></a>`;
+    <a class="tm-item tm-download" role="menuitem" href="#/library" tabindex="-1">${icon("download")}<span class="tm-name">Browse Federal Library &amp; Downloads…</span></a>`;
 }
 var titleMenuItems = () => [...dom.titlePop.querySelectorAll(".tm-item")];
 function openTitleMenu(focusWhich = "current") {
@@ -8479,34 +8718,61 @@ dom.titlePop.addEventListener("click", async (e) => {
 	} else dom.titleSelect.focus();
 });
 function renderCorpusStaging(corpus) {
-	const meta = TIER_META[corpus.tier] || TIER_META["state"];
+	const meta = TIER_META[corpus.tier] || TIER_META["federal-statute"];
 	const refTier = refTierForCorpus(corpus);
 	const linked = (corpus.linked_titles || []).map((n) => state.installedTitles.find((t) => t.title === n)).filter((t) => Boolean(t));
 	const extUrl = safeHttpUrl(corpus.external_url);
+	const dolOn = Boolean(state.navNewsStatus?.dol_configured);
 	const frQuick = corpus.tier === "federal-register" ? `
     <div class="hm-title-parts" style="margin-top:16px">
       <a class="hm-part-chip" href="#/news?cat=rules"><span class="hm-part-num">Final Rules</span></a>
       <a class="hm-part-chip" href="#/news?cat=rulemaking"><span class="hm-part-num">Proposed Rules</span></a>
+      <a class="hm-part-chip" href="#/news?cat=notices"><span class="hm-part-num">Notices</span></a>
       <a class="hm-part-chip" href="#/news?cat=public_inspection"><span class="hm-part-num">Public Inspection</span></a>
-      <a class="hm-part-chip" href="#/news?cat=enforcement"><span class="hm-part-num">Enforcement</span></a>
+      ${dolOn ? "<a class=\"hm-part-chip\" href=\"#/news?cat=enforcement\"><span class=\"hm-part-num\">Enforcement</span></a>" : ""}
     </div>` : "";
 	const linkedChips = linked.length ? `
     <div class="hm-title-parts" style="margin-top:14px">
       ${linked.map((t) => `<a class="citation-chip" data-ref-tier="cfr" href="#/title/${t.title}/">${t.title} CFR · ${escapeHtml(t.name)}</a>`).join("")}
     </div>` : "";
-	const jurText = corpus.jurisdiction_label && corpus.jurisdiction && corpus.jurisdiction_label !== corpus.jurisdiction ? `${corpus.jurisdiction_label} (${corpus.jurisdiction})` : corpus.jurisdiction_label || corpus.jurisdiction;
-	document.title = `${corpus.code} · ${corpus.jurisdiction_label || corpus.jurisdiction} · FRAMEWORK`;
+	const auth = authorityForCorpus(corpus);
+	const authDetailHtml = auth ? `
+    <div class="hm-usc-dossier" style="margin-top:18px">
+      <div class="hm-usc-sec-lbl">Principal Enacted Acts</div>
+      <div class="hm-usc-acts">
+        ${auth.acts.map((a) => `<span class="hm-usc-act">${escapeHtml(a)}</span>`).join("")}
+      </div>
+      <div class="hm-usc-sec-lbl" style="margin-top:14px">Key Enabling Provisions &amp; Implementing CFR Rules</div>
+      <div class="hm-usc-provs">
+        ${auth.provisions.map((p) => {
+		const isInst = state.installedTitles.some((x) => x.title === p.cfrTitle);
+		const cfrHref = isInst ? p.cfrSection ? `#/title/${p.cfrTitle}/section/${encodeURIComponent(p.cfrSection)}` : `#/title/${p.cfrTitle}/part/${encodeURIComponent(p.cfrPart || "")}` : `#/library/${p.cfrTitle}`;
+		const cfrLabel = p.cfrSection ? `${p.cfrTitle} CFR § ${p.cfrSection}` : `${p.cfrTitle} CFR Part ${p.cfrPart}`;
+		return `
+            <div class="hm-usc-prov-row">
+              <div class="hm-usc-prov-main">
+                <span class="hm-usc-prov-cite">${escapeHtml(p.cite)}</span>
+                <span class="hm-usc-prov-title">${escapeHtml(p.title)}</span>
+              </div>
+              <a class="citation-chip${isInst ? "" : " is-dim"}" data-ref-tier="${isInst ? "cfr" : "uninstalled"}" href="${cfrHref}">${escapeHtml(cfrLabel)}</a>
+            </div>`;
+	}).join("")}
+      </div>
+    </div>` : "";
+	const jurText = corpus.jurisdiction_label || "Federal";
+	document.title = `${corpus.code} · ${corpus.name} · FRAMEWORK`;
 	dom.view.innerHTML = `
     <div class="resolver-card has-tier-bar" data-ref-tier="${refTier}">
       <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span> <span class="sep" aria-hidden="true">·</span> ${escapeHtml(jurText)}${corpus.status_label ? ` <span class="sep" aria-hidden="true">·</span> ${escapeHtml(corpus.status_label)}` : ""}</div>
       <h1 class="doc-title">${escapeHtml(corpus.code)} — ${escapeHtml(corpus.name)}</h1>
-      <p class="resolver-msg">${escapeHtml(corpus.summary || `This ${meta.label.toLowerCase()} framework is wired into FRAMEWORK’s multi-jurisdiction navigation and authority stack.`)}</p>
+      <p class="resolver-msg">${escapeHtml(corpus.summary || `This ${meta.label.toLowerCase()} framework is integrated into FRAMEWORK’s federal navigation and authority chain.`)}</p>
       ${frQuick}
       ${linkedChips}
+      ${authDetailHtml}
       <div class="resolver-acts">
         ${corpus.tier === "federal-register" ? `<a class="btn btn-accent" href="#/news">Open Newsroom ${icon("chevronRight")}</a>` : ""}
-        ${extUrl ? `<a class="btn btn-accent" href="${escapeHtml(extUrl)}" target="_blank" rel="noopener noreferrer">Open Official Statute ${icon("external")}</a>` : ""}
-        <a class="btn" href="#/library">Browse Catalog</a>
+        ${extUrl ? `<a class="btn btn-accent" href="${escapeHtml(extUrl)}" target="_blank" rel="noopener noreferrer">Open Official U.S.C. ${icon("external")}</a>` : ""}
+        <a class="btn" href="#/library">Browse Library</a>
         <a class="btn" href="#/">Back to Home</a>
       </div>
     </div>
@@ -8517,11 +8783,12 @@ function renderNotFound() {
 	clearTreeSelection();
 	document.title = "Not found · FRAMEWORK";
 	setViewHead("");
+	const onTitleRoute = /^\/title\/\d+/.test(state.activeRoute || "");
 	dom.view.innerHTML = `
     <div class="empty-state">
       <h2>Page not found</h2>
-      <p>That section or part isn’t in Title ${state.currentTitle}.</p>
-      <a href="#/title/${state.currentTitle}/" class="btn">Back to Title ${state.currentTitle}</a>
+      <p>${onTitleRoute ? `That section or part isn’t in ${state.currentTitle} CFR.` : "That federal framework or provision could not be found."}</p>
+      <a href="${onTitleRoute ? `#/title/${state.currentTitle}/` : "#/"}" class="btn">${onTitleRoute ? `Back to ${state.currentTitle} CFR` : "Back to Home"}</a>
     </div>
   `;
 	enterView();
@@ -10803,7 +11070,7 @@ function renderTitleWireHtml(articles) {
 	if (!articles || !articles.length) return "";
 	return `
     <div class="ts-rail-head">
-      <span class="hm-kicker">From the OSHA wire</span>
+      <span class="hm-kicker">Federal Register wire</span>
       <a class="hm-inline-link" href="#/news">Newsroom ${icon("chevronRight")}</a>
     </div>
     <ol class="wire-items ts-wire-items">
@@ -11598,6 +11865,71 @@ on("projects:changed", ({ quiet }) => {
 // src/views/home.ts
 var HOME_NEWS_CACHE = "newsCache:v1:all";
 var HOME_STATUS_CACHE = "newsCache:v1:status";
+var HOME_TAB_ORDER = [
+	"overview",
+	"usc",
+	"cfr",
+	"fr"
+];
+var FEATURED_CATALOG_FALLBACK = [
+	{
+		title: 21,
+		name: "Food and Drugs",
+		agencies: ["FDA", "DEA"],
+		sections: 8404,
+		size_mb: 21.2,
+		summary: "FDA rules for food, drugs, biologics, medical devices, cosmetics and tobacco, plus controlled substances."
+	},
+	{
+		title: 26,
+		name: "Internal Revenue",
+		agencies: ["IRS"],
+		sections: 6018,
+		size_mb: 83.8,
+		summary: "Federal tax regulations: income, estate, excise and employment taxes."
+	},
+	{
+		title: 48,
+		name: "Federal Acquisition Regulations System",
+		agencies: [
+			"GSA",
+			"DOD",
+			"NASA"
+		],
+		sections: 11185,
+		size_mb: 21.3,
+		summary: "How the government buys: the Federal Acquisition Regulation and agency supplements."
+	},
+	{
+		title: 10,
+		name: "Energy",
+		agencies: ["NRC", "DOE"],
+		sections: 5330,
+		size_mb: 20.1,
+		summary: "Nuclear licensing and safety (NRC), Department of Energy programs, efficiency standards and nuclear facility oversight."
+	},
+	{
+		title: 12,
+		name: "Banks and Banking",
+		agencies: [
+			"OCC",
+			"FRS",
+			"FDIC",
+			"CFPB"
+		],
+		sections: 7193,
+		size_mb: 38,
+		summary: "Rules for banks, credit unions and lenders: capital, consumer lending, deposit insurance and the Federal Reserve."
+	},
+	{
+		title: 14,
+		name: "Aeronautics and Space",
+		agencies: ["FAA", "NASA"],
+		sections: 6382,
+		size_mb: 16.2,
+		summary: "Aviation safety: aircraft certification, pilots, airports and air carriers, plus commercial space and NASA."
+	}
+];
 function installedFallbackList() {
 	const base = state.installedTitles.length ? state.installedTitles : state.metaInfo.edition ? [{
 		title: state.currentTitle,
@@ -11711,15 +12043,19 @@ function collectAttentionItems(titles, status) {
 		}
 	}
 	const frReason = frAttentionReason(status);
-	if (frReason) items.push({
-		id: "fr-sync",
-		tier: "fr",
-		code: "FR",
-		name: "Federal Register",
-		detail: frReason,
-		actionLabel: "Sync FR",
-		act: "sync-fr"
-	});
+	if (frReason) {
+		const isSyncing = Boolean(status?.syncing);
+		const isErr = Object.values(status?.sources || {}).some((s) => s && s.enabled && (s.retry_after || s.last_error));
+		items.push({
+			id: "fr-sync",
+			tier: "fr",
+			code: "FR",
+			name: "Federal Register",
+			detail: isSyncing ? "Syncing latest filings…" : frReason,
+			actionLabel: isSyncing ? "Syncing…" : isErr ? "Retry sync" : "Sync now",
+			act: "sync-fr"
+		});
+	}
 	return items;
 }
 function activeTransfersHtml() {
@@ -11736,71 +12072,138 @@ function activeTransfersHtml() {
       <span class="hm-transfer-cta">Watch in Library ${icon("chevronRight")}</span>
     </a>`;
 }
-function systemsStripHtml(allFrameworks, titles, totalSections, totalRead, status, attention) {
+function cachedNewsArticles() {
+	const cachedNews = lsGetJSON(HOME_NEWS_CACHE);
+	return Array.isArray(cachedNews?.data?.articles) ? cachedNews.data.articles : [];
+}
+function frCategoryLabel(cat) {
+	if (cat === "public_inspection") return "Public Inspection";
+	if (cat === "rules") return "Final Rule";
+	if (cat === "rulemaking") return "Proposed Rule";
+	if (cat === "notices") return "Notice";
+	return "Filing";
+}
+function articlePrimaryHref(a) {
+	const docNum = frDocumentNumber(a);
+	if (docNum) return `#/news/fr/${encodeURIComponent(docNum)}`;
+	const actNr = inspectionActivityNr(a);
+	if (actNr) return `#/news/inspection/${encodeURIComponent(actNr)}`;
+	return `#/news?cat=${encodeURIComponent(a.category || "all")}`;
+}
+function articleDateNoteHtml(a) {
+	if (a.comments_close_on) return `<span class="hm-fr-date-badge is-deadline">Comments close ${escapeHtml(shortDate(a.comments_close_on))}</span>`;
+	if (a.effective_on) return `<span class="hm-fr-date-badge is-effective">Effective ${escapeHtml(shortDate(a.effective_on))}</span>`;
+	if (a.scheduled_on) return `<span class="hm-fr-date-badge">Publishes ${escapeHtml(shortDate(a.scheduled_on))}</span>`;
+	return "";
+}
+function systemsStripHtml(allFrameworks, titles, status, attention, articles) {
 	const activeTier = state.homeTierFilter || "all";
-	const cfrStaleCount = attention.filter((a) => a.tier === "cfr").length;
+	const cfrAttention = attention.filter((a) => a.tier === "cfr");
+	const cfrStaleCount = cfrAttention.length;
 	const frNeedsSync = attention.some((a) => a.tier === "fr");
 	const busy = Boolean(state.jobs.current || state.jobs.queued.length);
-	const cards = SYSTEM_TIERS.map((tier) => {
+	const frArticles = (articles || []).filter((a) => a && a.category !== "enforcement").sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || "")));
+	const libTitles = state.navLibData?.titles || [];
+	const week = libTitles.length ? amendedWeek({ titles: libTitles }) : {
+		newest: "",
+		cut: "",
+		recent: 0
+	};
+	const amendedSorted = libTitles.filter((t) => !t.reserved && t.amended).sort((a, b) => String(b.amended || "").localeCompare(String(a.amended || "")));
+	const latestEdition = week.newest || titles.reduce((m, t) => t.edition && t.edition > m ? t.edition : m, "") || state.metaInfo.edition || "";
+	return `
+    <section class="hm-systems" id="hm-systems" aria-label="Recent changes across federal frameworks">
+      <div class="hm-sys-grid">${SYSTEM_TIERS.map((tier) => {
 		const meta = TIER_META[tier];
 		const list = allFrameworks.filter((c) => c.tier === tier);
 		const isSelected = activeTier === tier;
-		let countLabel = "";
-		let subLabel = "";
+		let headline = "";
+		let detail = "";
+		let footer = "";
 		let statusHtml = "";
-		let pct = 0;
 		if (tier === "federal-statute") {
-			const installedCnt = list.filter((c) => c.installed).length;
-			countLabel = installedCnt ? plural(installedCnt, "statute") : plural(list.length, "linked statute");
-			subLabel = list.slice(0, 2).map((c) => c.code.split("§§")[0].trim()).join(" · ") || "Enabling acts";
-			statusHtml = installedCnt ? statPill("synced", "Installed", { bare: true }) : statPill("partial", "Authority map", { bare: true });
-			pct = installedCnt ? 100 : list.length ? 35 : 0;
+			const latestUsc = list.filter((c) => c.installed && c.edition).sort((a, b) => String(b.edition || "").localeCompare(String(a.edition || "")))[0];
+			const linkedCfrSet = new Set(list.flatMap((c) => c.linked_titles || []));
+			const linkedRules = frArticles.filter((a) => (a.category === "rules" || a.category === "rulemaking") && (a.cfr_parts || []).some((p) => linkedCfrSet.has(p.title)));
+			const latestLinked = linkedRules[0];
+			const linkedUsc = latestLinked ? list.find((c) => (c.linked_titles || []).some((n) => (latestLinked.cfr_parts || []).some((p) => p.title === n))) : null;
+			if (latestUsc) {
+				statusHtml = statPill("synced", "Current", { bare: true });
+				headline = `Updated ${shortDate(latestUsc.edition)}`;
+				detail = `${latestUsc.code} · ${latestUsc.name}`;
+				footer = "Local U.S.C. edition verified";
+			} else if (latestLinked && linkedUsc) {
+				const shortUsc = linkedUsc.code.split("§§")[0].trim();
+				const touchedParts = [...new Set(linkedRules.flatMap((a) => (a.cfr_parts || []).map((p) => `${p.title} CFR Part ${p.part}`)))].slice(0, 2);
+				statusHtml = `<span class="hm-sys-note">${escapeHtml(shortDate(latestLinked.published_at))}</span>`;
+				headline = `${shortUsc} · ${plural(linkedRules.length, "related rule")}`;
+				detail = touchedParts.length ? `Implementing rulemaking active in ${touchedParts.join(" & ")}` : latestLinked.title;
+				footer = "USLM public-law diffing next";
+			} else {
+				const codes = list.slice(0, 3).map((c) => c.code.split("§§")[0].trim()).join(" · ");
+				statusHtml = "<span class=\"hm-sys-note\">Feed planned</span>";
+				headline = "No statutory changes";
+				detail = codes ? `Tracking statutory authority for ${codes}` : "Federal enabling statutes ready for public-law tracking";
+				footer = "USLM public-law sync planned";
+			}
 		} else if (tier === "federal-reg") {
-			countLabel = `${plural(titles.length, "title")}`;
-			subLabel = `${fmt(totalSections)} sections · ${fmt(totalRead)} read`;
-			statusHtml = busy ? statPill("busy", "Updating", { bare: true }) : cfrStaleCount > 0 ? statPill("stale", `${cfrStaleCount} ${cfrStaleCount === 1 ? "update" : "updates"}`, { bare: true }) : statPill("synced", "Current", { bare: true });
-			pct = totalSections ? Math.min(100, Math.round(totalRead / totalSections * 100)) : 0;
+			const cfrFrLead = frArticles.find((a) => (a.category === "rules" || a.category === "rulemaking") && a.cfr_parts && a.cfr_parts.length > 0) || frArticles.find((a) => a.cfr_parts && a.cfr_parts.length > 0);
+			statusHtml = busy ? statPill("busy", "Updating", { bare: true }) : cfrStaleCount > 0 ? statPill("stale", `${cfrStaleCount} ${cfrStaleCount === 1 ? "update" : "updates"}`, { bare: true }) : statPill("synced", "Up to date", { bare: true });
+			if (cfrStaleCount > 0) {
+				headline = `${plural(cfrStaleCount, "edition update")} available`;
+				detail = cfrAttention.slice(0, 2).map((a) => `${a.code} (${a.detail})`).join(" · ");
+				footer = "Newer eCFR edition ready to sync";
+			} else if (week.recent > 0) {
+				const recentTitles = amendedSorted.filter((t) => t.amended && t.amended >= week.cut);
+				headline = `${plural(week.recent, "title")} amended this week`;
+				detail = recentTitles.slice(0, 2).map((t) => `${t.title} CFR ${t.name || ""}`.trim()).join(" · ");
+				footer = recentTitles[0]?.amended ? `Latest amendment ${shortDate(recentTitles[0].amended)}` : `eCFR ${shortDate(latestEdition)}`;
+			} else if (amendedSorted.length > 0) {
+				const top = amendedSorted[0];
+				headline = `Amended ${shortDate(top.amended)}`;
+				detail = `${top.title} CFR · ${top.name || `Title ${top.title}`}`;
+				footer = latestEdition ? `eCFR edition ${shortDate(latestEdition)}` : "Checked against eCFR";
+			} else if (cfrFrLead) {
+				const ref = cfrFrLead.cfr_parts?.[0];
+				headline = ref ? `${ref.title} CFR Part ${ref.part} · ${frCategoryLabel(cfrFrLead.category)}` : `CFR rulemaking · ${shortDate(cfrFrLead.published_at)}`;
+				detail = cfrFrLead.title;
+				footer = latestEdition ? `eCFR ${shortDate(latestEdition)} · No pending updates` : "No pending eCFR updates";
+			} else {
+				headline = "No recent amendments";
+				detail = latestEdition ? `All tracked CFR editions match eCFR ${shortDate(latestEdition)}` : "Checked against latest eCFR edition";
+				footer = "No pending eCFR updates";
+			}
 		} else if (tier === "federal-register") {
-			const articles = Number(status?.articles || 0);
-			countLabel = articles ? `${fmt(articles)} filings` : "Live feed";
+			const lead = frArticles[0];
+			const second = frArticles[1];
 			const lastOk = status?.sources?.federal_register?.last_ok_at;
-			subLabel = lastOk ? `Synced ${timeAgo(Date.parse(lastOk))}` : "Rules, notices & enforcement";
-			statusHtml = frNeedsSync ? statPill("stale", "Needs sync", { bare: true }) : articles > 0 ? statPill("synced", "Synced", { bare: true }) : statPill("partial", "Ready", { bare: true });
-			pct = articles > 0 ? 100 : 18;
-		} else {
-			const installedCnt = list.filter((c) => c.installed).length;
-			countLabel = installedCnt ? plural(installedCnt, "state code") : plural(list.length, "state overlay");
-			subLabel = list.slice(0, 2).map((c) => c.code).join(" · ") || "State plans & codes";
-			statusHtml = installedCnt ? statPill("synced", "Installed", { bare: true }) : statPill("partial", "Mapped", { bare: true });
-			pct = installedCnt ? 100 : list.length ? 30 : 0;
+			statusHtml = Boolean(status?.syncing) ? statPill("busy", "Syncing…", { bare: true }) : frNeedsSync ? statPill("stale", "Update due", { bare: true }) : lead ? statPill("synced", lastOk ? timeAgo(Date.parse(lastOk)) : "Current", { bare: true }) : "<span class=\"hm-sys-note\">Ready</span>";
+			if (lead) {
+				headline = `${frCategoryLabel(lead.category)} · ${shortDate(lead.published_at)}`;
+				detail = lead.title;
+				footer = second ? `Also: ${frCategoryLabel(second.category)} · ${shortDate(second.published_at)}` : lastOk ? `Synced ${timeAgo(Date.parse(lastOk))}` : "Federal Register API v1";
+			} else {
+				headline = "No recent filings";
+				detail = "Final rules, proposed rules, notices, and public inspection filings appear here after sync";
+				footer = lastOk ? `Checked ${timeAgo(Date.parse(lastOk))}` : "Federal Register API v1";
+			}
 		}
 		return `
-      <button type="button" class="hm-sys-card has-tier-bar${isSelected ? " is-selected" : ""}" data-ref-tier="${meta.refTier}" data-hm-tier="${escapeHtml(tier)}" aria-pressed="${isSelected}">
+      <button type="button" class="hm-sys-card${isSelected ? " is-selected" : ""}" data-ref-tier="${meta.refTier}" data-hm-tier="${escapeHtml(tier)}" aria-pressed="${isSelected}">
         <div class="hm-sys-top">
-          <span class="hm-sys-kicker"><span class="tier-pip" aria-hidden="true"></span>${escapeHtml(meta.short)}</span>
+          <span class="hm-sys-kicker">${escapeHtml(meta.short)}</span>
           ${statusHtml}
         </div>
-        <div class="hm-sys-name">${escapeHtml(meta.label)}</div>
-        <div class="hm-sys-val">${escapeHtml(countLabel)}</div>
-        <div class="hm-sys-sub">${escapeHtml(subLabel)}</div>
-        <div class="hm-sys-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
+        <div class="hm-sys-val">${escapeHtml(headline)}</div>
+        <div class="hm-sys-sub">${escapeHtml(detail)}</div>
+        <div class="hm-sys-meta">${escapeHtml(footer)}</div>
       </button>`;
-	}).join("");
-	return `
-    <section class="hm-systems" id="hm-systems" aria-label="Legal framework systems">
-      <div class="hm-sec-head">
-        <div class="hm-sec-head-left">
-          <h2 class="hm-sec-title">${icon("layers")} Legal Systems</h2>
-          <span class="hm-sec-meta">Click any authority tier to focus frameworks below</span>
-        </div>
-        ${activeTier !== "all" ? "<button type=\"button\" class=\"hm-inline-link\" data-hm-tier=\"all\">Show all systems</button>" : ""}
-      </div>
-      <div class="hm-sys-grid">${cards}</div>
+	}).join("")}</div>
     </section>`;
 }
 function updatesBannerHtml(attention, titles) {
-	const cfrUpdates = attention.filter((a) => a.tier === "cfr");
 	const checkedAt = state.navLibData?.checked_at;
+	const frSyncing = Boolean(cachedNewsStatus()?.syncing);
 	if (attention.length) return `
       <section class="hm-updates is-attention" id="hm-updates" aria-label="Frameworks needing updates">
         <div class="hm-upd-head">
@@ -11810,7 +12213,7 @@ function updatesBannerHtml(attention, titles) {
             <span class="hm-upd-sub">Keep offline editions and Federal Register filings current</span>
           </div>
           <div class="hm-upd-head-acts">
-            ${cfrUpdates.length > 1 ? `<button type="button" class="btn btn-sm btn-accent" data-hm-act="update-all">Update all CFR (${cfrUpdates.length})</button>` : ""}
+            ${attention.length > 1 ? `<button type="button" class="btn btn-sm btn-accent" data-hm-act="update-all-attention">Update all (${attention.length})</button>` : ""}
             <button type="button" class="btn btn-sm" data-hm-act="check-updates">${icon("refresh")} Recheck</button>
           </div>
         </div>
@@ -11821,7 +12224,7 @@ function updatesBannerHtml(attention, titles) {
               <span class="hm-upd-code">${escapeHtml(item.code)}</span>
               <span class="hm-upd-name">${escapeHtml(item.name)}</span>
               <span class="hm-upd-detail">${escapeHtml(item.detail)}</span>
-              <button type="button" class="btn btn-sm" data-hm-act="${item.act}"${item.titleNum ? ` data-title="${item.titleNum}"` : ""}>${escapeHtml(item.actionLabel)}</button>
+              <button type="button" class="btn btn-sm" data-hm-act="${item.act}"${item.titleNum ? ` data-title="${item.titleNum}"` : ""}${item.act === "sync-fr" && frSyncing ? " disabled" : ""}>${escapeHtml(item.actionLabel)}</button>
             </div>`).join("")}
         </div>
       </section>`;
@@ -11830,13 +12233,13 @@ function updatesBannerHtml(attention, titles) {
       <div class="hm-upd-calm">
         <div class="hm-upd-calm-left">
           <span class="stat-dot is-synced" aria-hidden="true"></span>
-          <span class="hm-upd-calm-title">All frameworks up to date</span>
+          <span class="hm-upd-calm-title">All editions current</span>
           ${SEP}
-          <span class="hm-upd-calm-meta">${escapeHtml(checkedAt ? `Checked ${timeAgo(checkedAt * 1e3)}` : titles.length ? `${plural(titles.length, "CFR title")} ready offline` : "Ready")}</span>
+          <span class="hm-upd-calm-meta">${escapeHtml(checkedAt ? `Checked ${timeAgo(checkedAt * 1e3)}` : titles.length ? `${plural(titles.length, "CFR title")} & FR feed ready on this device` : "Federal Register feed ready")}</span>
         </div>
         <div class="hm-upd-calm-acts">
           <button type="button" class="hm-inline-link" data-hm-act="check-updates">${icon("refresh")} Check for updates</button>
-          <a class="hm-inline-link" href="#/library">Library catalog ${icon("chevronRight")}</a>
+          <a class="hm-inline-link" href="#/library">Browse library ${icon("chevronRight")}</a>
         </div>
       </div>
     </section>`;
@@ -11859,7 +12262,7 @@ function workFootprintHtml(titles, usage, projects, totalRead) {
 		ti,
 		visits,
 		pct: totalVisits ? Math.max(4, Math.round(visits / totalVisits * 100)) : 0,
-		tone: idx === 0 ? "cfr" : idx === 1 ? "state" : idx === 2 ? "usc" : "fr"
+		tone: idx === 0 ? "cfr" : idx === 1 ? "usc" : idx === 2 ? "fr" : "ibr"
 	}));
 	const distHtml = slices.length ? `
     <div class="hm-fp-dist">
@@ -11867,7 +12270,7 @@ function workFootprintHtml(titles, usage, projects, totalRead) {
         ${slices.map((s) => `<span class="hm-fp-seg" data-ref-tier="${s.tone}" style="width:${s.pct}%" title="${s.ti} CFR: ${s.pct}% of study sessions"></span>`).join("")}
       </div>
       <div class="hm-fp-legend">
-        ${slices.map((s) => `<span class="hm-fp-leg-item" data-ref-tier="${s.tone}"><span class="tier-pip" aria-hidden="true"></span>${s.ti} CFR <strong>${s.pct}%</strong></span>`).join("")}
+        ${slices.map((s) => `<span class="hm-fp-leg-item" data-ref-tier="${s.tone}"><span class="hm-fp-swatch" aria-hidden="true"></span>${s.ti} CFR <strong>${s.pct}%</strong></span>`).join("")}
       </div>
     </div>` : "";
 	return `
@@ -11883,7 +12286,7 @@ function workFootprintHtml(titles, usage, projects, totalRead) {
         </div>
         <div class="hm-fp-stat">
           <span class="hm-fp-num">${fmt(totalPinned)}</span>
-          <span class="hm-fp-lbl">Pins &amp; clips</span>
+          <span class="hm-fp-lbl">Saved &amp; clipped</span>
         </div>
         <div class="hm-fp-stat">
           <span class="hm-fp-num">${fmt(openTasks)}</span>
@@ -11902,20 +12305,21 @@ function resumeCardHtml(recent, titles, usage, projects, totalRead) {
 		const trail = expanded ? recent.slice(1, 13) : recent.slice(1, 4);
 		const hasMore = recent.length > 4;
 		return `
-      <section class="hm-card hm-resume" aria-label="Continue reading">
+      <section class="hm-resume" aria-label="Continue reading">
         <div class="hm-card-top">
           <span class="hm-kicker">Continue reading</span>
           <span class="hm-time">${escapeHtml(timeAgo(last.t || 0))}</span>
         </div>
         <div class="hm-resume-loc">
-          <span class="hm-loc-tier" data-ref-tier="cfr"><span class="tier-pip" aria-hidden="true"></span>${last.ti} CFR</span>
+          <span class="hm-loc-tier" data-ref-tier="cfr">${last.ti} CFR</span>
           ${last.p ? `${SEP}<a href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
           ${last.ul ? `${SEP}<span class="hm-unit-badge">${escapeHtml(last.ul)}</span>` : ""}
         </div>
         <a class="hm-resume-title" href="${href}">${escapeHtml(last.l)} ${escapeHtml(last.h || "")}</a>
         <div class="hm-resume-acts">
           <a class="btn btn-sm btn-accent" href="${href}">Resume reading ${icon("chevronRight")}</a>
-          ${last.p ? `<a class="btn btn-sm" href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
+          ${last.p ? `<a class="hm-inline-link hm-part-link" href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Open Part ${escapeHtml(last.p)} ${icon("chevronRight")}</a>` : ""}
+          <button type="button" class="hm-inline-link" data-hm-act="resume-split" data-title="${last.ti}" data-section="${escapeHtml(last.id)}"${last.u ? ` data-unit="${escapeHtml(last.u)}"` : ""}>${icon("stack")} Side-by-side</button>
         </div>
         ${footprint}
         ${trail.length ? `
@@ -11927,7 +12331,7 @@ function resumeCardHtml(recent, titles, usage, projects, totalRead) {
             <div class="hm-trail-list">
               ${trail.map((e) => `
                 <a class="hm-trail-row" href="${sectionLinkHref(e)}">
-                  <span class="hm-tag" data-ref-tier="cfr"><span class="tier-pip" aria-hidden="true"></span>${e.ti} CFR</span>
+                  <span class="hm-tag" data-ref-tier="cfr">${e.ti} CFR</span>
                   <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
                   <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
                   <span class="hm-row-val">${escapeHtml(timeAgo(e.t || 0))}</span>
@@ -11962,12 +12366,12 @@ function resumeCardHtml(recent, titles, usage, projects, totalRead) {
 		if (starters.length >= 4) break;
 	}
 	return `
-    <section class="hm-card hm-resume" aria-label="Start reading">
+    <section class="hm-resume" aria-label="Start reading">
       <div class="hm-card-top">
         <span class="hm-kicker">Start here</span>
       </div>
-      <div class="hm-resume-title is-static">Open a regulation to begin</div>
-      <p class="hm-muted">Pick a key part below or search across your frameworks from the bar above.</p>
+      <div class="hm-resume-title is-static">Open a federal code or rulemaking feed</div>
+      <p class="hm-muted">Pick a framework below, check Federal Register updates, or search across federal codes from the bar above.</p>
       ${starters.length ? `
         <div class="hm-starter-grid">
           ${starters.map((s) => `
@@ -11994,12 +12398,13 @@ function workspacesCardHtml(projects) {
 		const tasks = p.projects || [];
 		const openTasks = tasks.filter((x) => x.status !== "done").length;
 		const cases = (p.cases || []).length;
-		const tabGroups = (p.tab_groups || []).length;
+		const tabGroups = p.tab_groups || [];
+		const firstGroup = tabGroups[0];
 		const metaParts = [
 			plural(p.sections.length, "section"),
 			tasks.length ? `${openTasks}/${tasks.length} open tasks` : "",
 			cases ? plural(cases, "case") : "",
-			tabGroups ? plural(tabGroups, "tab group") : "",
+			tabGroups.length ? plural(tabGroups.length, "tab group") : "",
 			escapeHtml(timeAgo(Date.parse(p.updated_at) || Date.now()))
 		];
 		return `
@@ -12009,24 +12414,28 @@ function workspacesCardHtml(projects) {
               <span class="hm-ws-meta">${joinSep(metaParts)}</span>
             </div>
             ${p.description ? `<p class="hm-ws-desc">${escapeHtml(p.description)}</p>` : ""}
-            ${chips ? `<div class="hm-ws-chips">${chips}${extra > 0 ? `<a class="hm-more-chip" href="#/projects/${encodeURIComponent(p.id)}">+${extra}</a>` : ""}</div>` : ""}
+            ${chips || firstGroup ? `<div class="hm-ws-chips">
+              ${chips}
+              ${extra > 0 ? `<a class="hm-more-chip" href="#/projects/${encodeURIComponent(p.id)}">+${extra}</a>` : ""}
+              ${firstGroup ? `<button type="button" class="hm-more-chip is-action" data-hm-act="restore-tabgroup" data-proj-id="${escapeHtml(p.id)}" data-group-id="${escapeHtml(firstGroup.id)}" title="Restore saved reader tab group: ${escapeHtml(firstGroup.name)}">Restore tabs ${icon("chevronRight")}</button>` : ""}
+            </div>` : ""}
           </article>`;
 	}).join("")}
     </div>` : `
     <div class="hm-empty-block">
-      <div class="hm-empty-title">Organize program compliance</div>
-      <p class="hm-muted">Group pinned sections, clipped DOL cases, action tasks, and saved dual-pane tab groups across CFR, FR, U.S.C., and State frameworks.</p>
+      <div class="hm-empty-title">Organize your federal research</div>
+      <p class="hm-muted">Curate pinned provisions, Federal Register filings, notes, and side-by-side reading sets in one place.</p>
       <div class="hm-empty-acts">
-        <button type="button" class="btn btn-sm btn-accent" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
+        <button type="button" class="btn btn-sm" data-hm-act="new-workspace">${icon("plus")} Create workspace</button>
       </div>
     </div>`;
 	return `
-    <section class="hm-card hm-ws" aria-label="Workspaces">
+    <section class="hm-ws" aria-label="Workspaces">
       <div class="hm-panel-head">
-        <h2 class="hm-panel-title">${icon("folder")} Workspaces${projects.length ? ` <span class="hm-count">${projects.length}</span>` : ""}</h2>
+        <h2 class="hm-panel-title">Workspaces${projects.length ? ` <span class="hm-count">${projects.length}</span>` : ""}</h2>
         <div class="hm-panel-acts">
           <button type="button" class="hm-inline-link" data-hm-act="new-workspace">+ New</button>
-          <a class="hm-inline-link" href="#/projects">All workspaces</a>
+          <a class="hm-inline-link" href="#/projects">View all</a>
         </div>
       </div>
       ${body}
@@ -12081,7 +12490,7 @@ function cfrCardHtml(t, staleSet, recent, projects, usage) {
 	return `
     <article class="hm-title-card has-tier-bar" data-ref-tier="cfr">
       <div class="hm-title-top">
-        <span class="hm-title-kicker"><span class="tier-pip" aria-hidden="true"></span> FEDERAL REG · ${t.title} CFR${agencies.length ? `${SEP}<span class="hm-title-ag">${agencies.map(escapeHtml).join(" · ")}</span>` : ""}</span>
+        <span class="hm-title-kicker">${t.title} CFR${agencies.length ? `${SEP}<span class="hm-title-ag">${agencies.map(escapeHtml).join(" · ")}</span>` : ""}</span>
         ${titleStatusHtml(t, staleSet)}
       </div>
       <h3 class="hm-title-name"><a href="${titleHref(t.title)}">${escapeHtml(t.name)}</a></h3>
@@ -12090,11 +12499,11 @@ function cfrCardHtml(t, staleSet, recent, projects, usage) {
       <div class="hm-title-foot">
         <div class="hm-title-signal-row">
           ${titleLivingSignalHtml(t, recent, projects)}
-          ${isTitleStale && !busy ? `<button type="button" class="hm-inline-link is-warn" data-hm-act="update-title" data-title="${t.title}">${t.unreadable ? "Rebuild" : "Update"}</button>` : t.partial ? `<a class="hm-inline-link" href="#/library/${t.title}">Add parts</a>` : `<a class="hm-inline-link" href="${titleHref(t.title)}">Start page ${icon("chevronRight")}</a>`}
+          ${isTitleStale && !busy ? `<button type="button" class="hm-inline-link is-warn" data-hm-act="update-title" data-title="${t.title}">${t.unreadable ? "Rebuild" : "Update"}</button>` : t.partial ? `<a class="hm-inline-link" href="#/library/${t.title}">Add parts</a>` : `<a class="hm-inline-link" href="${titleHref(t.title)}">Open ${icon("chevronRight")}</a>`}
         </div>
         <div class="hm-prog-meta">
           <span>${fmt(read)} of ${fmt(count)} read</span>
-          ${pinnedInTitle ? `<span>${plural(pinnedInTitle, "pin")}</span>` : ""}
+          ${pinnedInTitle ? `<span>${plural(pinnedInTitle, "saved")}</span>` : ""}
         </div>
         <div class="hm-prog-track" title="${fmt(read)} of ${fmt(count)} sections read" aria-hidden="true"><span style="width:${read ? Math.max(3, Math.round(pct)) : 0}%"></span></div>
       </div>
@@ -12102,45 +12511,46 @@ function cfrCardHtml(t, staleSet, recent, projects, usage) {
 }
 function extraFrameworkCardHtml(c, projects, status) {
 	const refTier = refTierForCorpus(c);
-	const meta = TIER_META[c.tier] || TIER_META.state;
+	const meta = TIER_META[c.tier] || TIER_META["federal-statute"];
 	const href = corpusHashFor(c);
 	const isInstalled = c.installed !== false;
-	const clippedCases = projects.reduce((sum, p) => sum + (p.cases || []).length, 0);
 	let statusPill = "";
 	let chipsHtml = "";
 	let footLeft = "";
 	let footRight = `<a class="hm-inline-link" href="${escapeHtml(href)}">Open framework ${icon("chevronRight")}</a>`;
 	if (c.tier === "federal-register") {
 		const frReason = frAttentionReason(status);
+		const frSyncing = Boolean(status?.syncing);
 		const articles = Number(status?.articles || c.section_count || 0);
-		statusPill = frReason ? statPill("stale", "Sync due", { bare: true }) : articles > 0 ? statPill("synced", "Synced", { bare: true }) : statPill("partial", "Ready", { bare: true });
+		statusPill = frSyncing ? statPill("busy", "Syncing…", { bare: true }) : frReason ? statPill("stale", "Sync due", { bare: true }) : articles > 0 ? statPill("synced", "Synced", { bare: true }) : statPill("partial", "Ready", { bare: true });
 		chipsHtml = `
       <div class="hm-title-parts">
         <a class="hm-part-chip" href="#/news?cat=rules"><span class="hm-part-num">Final Rules</span></a>
         <a class="hm-part-chip" href="#/news?cat=rulemaking"><span class="hm-part-num">Proposed</span></a>
-        <a class="hm-part-chip" href="#/news?cat=enforcement"><span class="hm-part-num">Enforcement</span></a>
+        <a class="hm-part-chip" href="#/news?cat=notices"><span class="hm-part-num">Notices</span></a>
       </div>`;
-		footLeft = `<span class="hm-signal-muted">${joinSep([articles ? `${fmt(articles)} filings cached` : "Federal Register API v1", clippedCases ? plural(clippedCases, "clipped case") : ""])}</span>`;
-		footRight = frReason ? "<button type=\"button\" class=\"hm-inline-link is-warn\" data-hm-act=\"sync-fr\">Sync FR</button>" : `<a class="hm-inline-link" href="#/news">Newsroom ${icon("chevronRight")}</a>`;
-	} else if (c.tier === "federal-statute") {
-		statusPill = isInstalled ? statPill("synced", "Installed", { bare: true }) : statPill("partial", c.status_label || "Authority", { bare: true });
+		footLeft = `<span class="hm-signal-muted">${escapeHtml(articles ? `${fmt(articles)} filings cached` : "Federal Register API v1")}</span>`;
+		footRight = frSyncing ? "<span class=\"hm-signal-muted\">Syncing…</span>" : frReason ? "<button type=\"button\" class=\"hm-inline-link is-warn\" data-hm-act=\"sync-fr\">Sync now</button>" : `<a class="hm-inline-link" href="#/news">Newsroom ${icon("chevronRight")}</a>`;
+	} else {
+		statusPill = isInstalled ? statPill("synced", "Installed", { bare: true }) : statPill("partial", c.status_label || "Statutory", { bare: true });
 		const ext = safeHttpUrl(c.external_url);
+		const provChips = (authorityForCorpus(c)?.provisions || []).slice(0, 2).map((p) => {
+			const targetHref = titleInstalled(p.cfrTitle) ? p.cfrSection ? `#/title/${p.cfrTitle}/section/${encodeURIComponent(p.cfrSection)}` : `#/title/${p.cfrTitle}/part/${encodeURIComponent(p.cfrPart || "")}` : `#/library/${p.cfrTitle}`;
+			const label = p.cfrSection ? `${p.cfrTitle} CFR § ${p.cfrSection}` : `${p.cfrTitle} CFR Part ${p.cfrPart}`;
+			return `<a class="hm-part-chip" href="${targetHref}"><span class="hm-part-num">${escapeHtml(p.cite.replace(/^\d+\s+U\.S\.C\.\s*/, ""))}</span><span>→ ${escapeHtml(label)}</span></a>`;
+		}).join("");
+		const linked = !provChips ? (c.linked_titles || []).filter((n) => titleInstalled(n)).slice(0, 2).map((n) => `<a class="hm-part-chip" href="#/title/${n}/"><span class="hm-part-num">${n} CFR</span><span>Implementing rules</span></a>`).join("") : "";
 		chipsHtml = `
       <div class="hm-title-parts">
-        ${(c.linked_titles || []).filter((n) => titleInstalled(n)).slice(0, 2).map((n) => `<a class="hm-part-chip" href="#/title/${n}/"><span class="hm-part-num">${n} CFR</span><span>Implementing rules</span></a>`).join("")}
+        ${provChips || linked}
         ${ext ? `<a class="hm-part-chip" href="${escapeHtml(ext)}" target="_blank" rel="noopener noreferrer">Official U.S.C. ${icon("external")}</a>` : ""}
       </div>`;
-		footLeft = `<span class="hm-signal-muted">${escapeHtml(c.status_label || "Statutory authority layer")}</span>`;
-	} else {
-		statusPill = isInstalled ? statPill("synced", "Installed", { bare: true }) : statPill("partial", c.jurisdiction_label || "State overlay", { bare: true });
-		const linked = (c.linked_titles || []).filter((n) => titleInstalled(n)).slice(0, 2).map((n) => `<a class="hm-part-chip" href="#/title/${n}/"><span class="hm-part-num">${n} CFR</span><span>Federal baseline</span></a>`).join("");
-		chipsHtml = linked ? `<div class="hm-title-parts">${linked}</div>` : "";
-		footLeft = `<span class="hm-signal-muted">${escapeHtml(c.agencies.join(" · ") || "Delegated state program")}</span>`;
+		footLeft = `<span class="hm-signal-muted">${escapeHtml(c.status_label || "Federal statutory authority")}</span>`;
 	}
 	return `
     <article class="hm-title-card has-tier-bar" data-ref-tier="${refTier}">
       <div class="hm-title-top">
-        <span class="hm-title-kicker"><span class="tier-pip${isInstalled ? "" : " is-hollow"}" aria-hidden="true"></span> ${escapeHtml(meta.tag)} · ${escapeHtml(c.code)}${c.agencies.length ? `${SEP}<span class="hm-title-ag">${c.agencies.slice(0, 2).map(escapeHtml).join(" · ")}</span>` : ""}</span>
+        <span class="hm-title-kicker">${escapeHtml(c.tier === "federal-register" ? "Federal Register" : c.tier === "federal-statute" ? c.code : `${c.code} · ${meta.short}`)}${c.tier !== "federal-statute" && c.agencies.length ? `${SEP}<span class="hm-title-ag">${c.agencies.slice(0, 2).map(escapeHtml).join(" · ")}</span>` : ""}</span>
         ${statusPill}
       </div>
       <h3 class="hm-title-name"><a href="${escapeHtml(href)}">${escapeHtml(c.name)}</a></h3>
@@ -12169,25 +12579,23 @@ function titlesBandHtml(titles, allFrameworks, recent, projects, totalSections, 
 	const tierTabsHtml = `
     <div class="hm-tier-tabs" role="group" aria-label="Filter by legal framework system">
       <button type="button" class="hm-tier-tab${tierFilter === "all" ? " is-active" : ""}" data-hm-tier="all" aria-pressed="${tierFilter === "all"}">
-        <span>All Systems</span><span class="hm-tier-count">${tierCounts.get("all") || 0}</span>
+        <span>All</span><span class="hm-tier-count">${tierCounts.get("all") || 0}</span>
       </button>
       ${SYSTEM_TIERS.map((t) => {
 		const m = TIER_META[t];
 		const cnt = tierCounts.get(t) || 0;
 		const on = tierFilter === t;
 		return `<button type="button" class="hm-tier-tab${on ? " is-active" : ""}" data-ref-tier="${m.refTier}" data-hm-tier="${escapeHtml(t)}" aria-pressed="${on}">
-          <span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(m.short)}</span><span class="hm-tier-count">${cnt}</span>
+          <span>${escapeHtml(m.short)}</span><span class="hm-tier-count">${cnt}</span>
         </button>`;
 	}).join("")}
     </div>`;
 	const ribbonHtml = deskFilterRibbonHtml(deskId, filteredByTier);
 	const orderRank = {
-		"federal-reg": 0,
-		"federal-register": 1,
-		"federal-statute": 2,
-		"state": 3,
-		"county": 4,
-		"standard": 5
+		"federal-statute": 0,
+		"federal-reg": 1,
+		"federal-register": 2,
+		"standard": 3
 	};
 	const cards = [...shown].sort((a, b) => (orderRank[a.tier] ?? 9) - (orderRank[b.tier] ?? 9)).map((c) => {
 		if (c.tier === "federal-reg" && c.title_num != null) {
@@ -12197,13 +12605,13 @@ function titlesBandHtml(titles, allFrameworks, recent, projects, totalSections, 
 		return extraFrameworkCardHtml(c, projects, status);
 	}).join("");
 	return `
-    <section class="hm-titles" id="hm-titles" aria-label="Legal frameworks">
-      <div class="hm-sec-head">
+    <section class="hm-titles" id="hm-titles" aria-label="Federal frameworks">
+      <div class="hm-sec-flag">
         <div class="hm-sec-head-left">
-          <h2 class="hm-sec-title">Legal Frameworks</h2>
+          <h2 class="hm-flag-label">Federal Frameworks</h2>
           <span class="hm-sec-meta">${joinSep([
 		plural(shown.length, "framework"),
-		`${fmt(totalSections)} CFR sections offline`,
+		totalSections ? `${fmt(totalSections)} offline sections` : "",
 		totalRead ? `${fmt(totalRead)} read` : ""
 	])}</span>
         </div>
@@ -12228,15 +12636,15 @@ function pulseChipsHtml(a) {
 	}
 	return chips.length ? `<div class="hm-news-chips">${chips.join("")}</div>` : "";
 }
-function newsSkeletonHtml() {
+function newsSkeletonHtml(heading = "Federal Register Pulse") {
 	return `
     <div class="hm-panel-head">
-      <h2 class="hm-panel-title">${icon("news")} Regulatory Pulse</h2>
+      <h2 class="hm-panel-title">${icon("news")} ${escapeHtml(heading)}</h2>
       <div class="hm-panel-acts">
         <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
       </div>
     </div>
-    <div class="hm-news-skel" aria-busy="true" aria-label="Loading regulatory news…">
+    <div class="hm-news-skel" aria-busy="true" aria-label="Loading Federal Register updates…">
       ${[
 		1,
 		2,
@@ -12244,15 +12652,12 @@ function newsSkeletonHtml() {
 	].map(() => `<div class="hm-news-skel-item">${skeletonHtml("pulse")}</div>`).join("")}
     </div>`;
 }
-function newsSectionHtml(data, status) {
-	const articles = data && data.articles || [];
-	const pill = newsStatusPillHtml(status);
-	if (!articles.length) return `
-      <div class="hm-news-quiet">
-        <span class="hm-news-quiet-label">${icon("news")} No Federal Register or enforcement updates cached yet</span>
-        <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
-      </div>`;
-	const items = articles.slice(0, 3).map((a) => `
+function newsDispatchCardHtml(a) {
+	const href = articlePrimaryHref(a);
+	const docNum = frDocumentNumber(a);
+	const dateBadge = articleDateNoteHtml(a);
+	const takeaway = a.takeaways?.[0]?.text || a.action || "";
+	return `
     <article class="hm-news-item">
       <div class="hm-news-top">
         <span class="hm-news-kicker">${escapeHtml(newsKicker(a))}</span>
@@ -12261,12 +12666,38 @@ function newsSectionHtml(data, status) {
           <time class="hm-news-date">${escapeHtml(shortDate(a.published_at))}</time>
         </span>
       </div>
-      <a class="hm-news-title" href="#/news?cat=${encodeURIComponent(a.category)}">${escapeHtml(a.title)}</a>
-      ${pulseChipsHtml(a)}
-    </article>`).join("");
+      <a class="hm-news-title" href="${href}">${escapeHtml(a.title)}</a>
+      ${takeaway ? `<p class="hm-news-summary">${linkifyNewsText(takeaway)}</p>` : ""}
+      <div class="hm-news-foot">
+        ${pulseChipsHtml(a)}
+        <div class="hm-news-meta-row">
+          ${dateBadge}
+          <a class="hm-inline-link hm-news-open" href="${href}">${docNum ? "Read preamble" : "Open filing"} ${icon("chevronRight")}</a>
+        </div>
+      </div>
+    </article>`;
+}
+function newsSectionHtml(data, status, opts = {}) {
+	const articles = data && data.articles || [];
+	const pill = newsStatusPillHtml(status);
+	const limit = opts.limit || 3;
+	const heading = opts.heading || "Federal Register Pulse";
+	if (!articles.length) {
+		const canSync = status?.sync_enabled !== false;
+		const syncing = Boolean(status?.syncing);
+		return `
+      <div class="hm-news-quiet">
+        <span class="hm-news-quiet-label">${icon("news")} No Federal Register filings cached yet</span>
+        <div class="hm-panel-acts">
+          ${canSync ? `<button type="button" class="btn btn-sm" data-hm-act="sync-fr"${syncing ? " disabled" : ""}>${syncing ? "Syncing…" : "Sync now"}</button>` : ""}
+          <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
+        </div>
+      </div>`;
+	}
+	const items = articles.slice(0, limit).map(newsDispatchCardHtml).join("");
 	return `
     <div class="hm-panel-head">
-      <h2 class="hm-panel-title">${icon("news")} Regulatory Pulse</h2>
+      <h2 class="hm-panel-title">${escapeHtml(heading)}</h2>
       <div class="hm-panel-acts">
         <span id="hm-news-pill">${pill}</span>
         <a class="hm-inline-link" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
@@ -12274,7 +12705,618 @@ function newsSectionHtml(data, status) {
     </div>
     <div class="hm-news-grid">${items}</div>`;
 }
-function patchHomeDynamicBands(titles, status) {
+function homeTabsHtml(allFrameworks, titles, status, attention, totalSections, totalRead, projectsCount) {
+	const tab = state.homeTab || "overview";
+	const uscCount = allFrameworks.filter((c) => c.tier === "federal-statute").length;
+	const cfrCount = titles.length;
+	const frCount = Number(status?.articles || 0);
+	const cfrAlert = attention.some((a) => a.tier === "cfr");
+	const frAlert = attention.some((a) => a.tier === "fr");
+	return `
+    <nav class="hm-tabs" id="hm-tabs" role="tablist" aria-label="Home sections">
+      ${[
+		{
+			id: "overview",
+			label: "Overview",
+			abbr: "DESK",
+			countLabel: `${allFrameworks.length} frameworks`,
+			sub: totalRead ? `${fmt(totalRead)} sections studied · ${plural(projectsCount, "workspace")}` : "All systems, reading desk & workspaces",
+			alert: attention.length > 0
+		},
+		{
+			id: "usc",
+			label: "United States Code",
+			abbr: "U.S.C.",
+			refTier: "usc",
+			countLabel: plural(uscCount, "statute"),
+			sub: "Enabling acts & CFR delegation"
+		},
+		{
+			id: "cfr",
+			label: "Code of Federal Regulations",
+			abbr: "CFR",
+			refTier: "cfr",
+			countLabel: plural(cfrCount, "title"),
+			sub: totalSections ? `${fmt(totalSections)} offline sections & key parts` : "Codified rules & offline editions",
+			alert: cfrAlert
+		},
+		{
+			id: "fr",
+			label: "Federal Register",
+			abbr: "FR",
+			refTier: "fr",
+			countLabel: frCount ? `${fmt(frCount)} filings` : "Daily feed",
+			sub: "Daily rules, deadlines & dockets",
+			alert: frAlert
+		}
+	].map((t) => {
+		const active = tab === t.id;
+		return `<button type="button" class="hm-tab${active ? " is-active" : ""}" id="hm-tab-${t.id}" role="tab" aria-selected="${active}" aria-controls="hm-tab-body" tabindex="${active ? "0" : "-1"}" data-hm-tab="${t.id}"${t.refTier ? ` data-ref-tier="${t.refTier}"` : ""}>
+          <span class="hm-tab-top">
+            <span class="hm-tab-abbr">${t.refTier ? "<span class=\"tier-pip\" aria-hidden=\"true\"></span>" : ""}${escapeHtml(t.abbr)}</span>
+            <span class="hm-tab-right">
+              ${t.alert ? "<span class=\"stat-dot is-stale\" title=\"Update or sync due\" aria-hidden=\"true\"></span>" : ""}
+              ${t.countLabel ? `<span class="hm-tab-count">${escapeHtml(t.countLabel)}</span>` : ""}
+            </span>
+          </span>
+          <span class="hm-tab-label">${escapeHtml(t.label)}</span>
+          <span class="hm-tab-sub">${escapeHtml(t.sub)}</span>
+        </button>`;
+	}).join("")}
+    </nav>`;
+}
+function uscDossierCardHtml(c, titles, recent, projects, usage, articles) {
+	const auth = authorityForCorpus(c);
+	const href = corpusHashFor(c);
+	const ext = safeHttpUrl(c.external_url);
+	const linkedTitleNum = (c.linked_titles || [])[0];
+	const linkedTitle = linkedTitleNum ? titles.find((t) => t.title === linkedTitleNum) : null;
+	const linkedInstalled = Boolean(linkedTitle);
+	const relatedRules = linkedTitleNum ? articles.filter((a) => a && a.category !== "enforcement" && (a.cfr_parts || []).some((p) => p.title === linkedTitleNum)) : [];
+	const readInLinked = linkedTitleNum ? readCountForTitle(linkedTitleNum, usage) : 0;
+	const pinnedInLinked = linkedTitleNum ? projects.reduce((sum, p) => sum + (p.sections || []).filter((s) => s.title === linkedTitleNum).length, 0) : 0;
+	const lastInLinked = linkedTitleNum ? recent.find((e) => e.ti === linkedTitleNum) : null;
+	const statusPill = linkedInstalled ? statPill("synced", `Linked · ${linkedTitleNum} CFR`, { bare: true }) : statPill("partial", c.status_label || "Statutory", { bare: true });
+	const chainHtml = `
+    <div class="hm-chain-bar" aria-label="Federal authority delegation chain">
+      <span class="hm-chain-node is-usc" data-ref-tier="usc"><span class="tier-pip" aria-hidden="true"></span>${escapeHtml(c.code.split("§§")[0].trim())}</span>
+      <span class="hm-chain-arrow" aria-hidden="true">→</span>
+      ${linkedTitleNum ? `<a class="hm-chain-node is-cfr" data-ref-tier="cfr" href="${linkedInstalled ? titleHref(linkedTitleNum) : `#/library/${linkedTitleNum}`}"><span class="tier-pip" aria-hidden="true"></span>${linkedTitleNum} CFR ${escapeHtml(linkedTitle?.name || "")}</a>` : "<span class=\"hm-chain-node is-cfr\" data-ref-tier=\"cfr\">Implementing CFR</span>"}
+      <span class="hm-chain-arrow" aria-hidden="true">→</span>
+      <a class="hm-chain-node is-fr" data-ref-tier="fr" href="${linkedTitleNum ? `#/news?cfr_title=${linkedTitleNum}` : "#/news"}"><span class="tier-pip" aria-hidden="true"></span>${relatedRules.length ? plural(relatedRules.length, "FR filing") : "FR Rulemaking"}</a>
+    </div>`;
+	const actsHtml = auth && auth.acts.length ? `
+    <div class="hm-usc-block">
+      <div class="hm-usc-sec-lbl">Principal Enacted Acts</div>
+      <div class="hm-usc-acts">
+        ${auth.acts.map((act) => `<span class="hm-usc-act">${escapeHtml(act)}</span>`).join("")}
+      </div>
+    </div>` : "";
+	const provsHtml = auth && auth.provisions.length ? `
+    <div class="hm-usc-block">
+      <div class="hm-usc-sec-lbl">Enabling Provisions → Implementing CFR</div>
+      <div class="hm-usc-provs">
+        ${auth.provisions.map((p) => {
+		const ok = titleInstalled(p.cfrTitle);
+		const cfrHref = ok ? p.cfrSection ? `#/title/${p.cfrTitle}/section/${encodeURIComponent(p.cfrSection)}` : `#/title/${p.cfrTitle}/part/${encodeURIComponent(p.cfrPart || "")}` : `#/library/${p.cfrTitle}`;
+		const cfrLabel = p.cfrSection ? `${p.cfrTitle} CFR § ${p.cfrSection}` : `${p.cfrTitle} CFR Part ${p.cfrPart}`;
+		return `
+            <div class="hm-usc-prov-row">
+              <div class="hm-usc-prov-main">
+                <span class="hm-usc-prov-cite">${escapeHtml(p.cite)}</span>
+                <span class="hm-usc-prov-title">${escapeHtml(p.title)}</span>
+              </div>
+              <a class="citation-chip${ok ? "" : " is-dim"}" data-ref-tier="${ok ? "cfr" : "uninstalled"}" href="${cfrHref}">${escapeHtml(cfrLabel)}</a>
+            </div>`;
+	}).join("")}
+      </div>
+    </div>` : "";
+	const footprintSignal = lastInLinked ? `<a class="hm-signal-link" href="${sectionLinkHref(lastInLinked)}">Studied ${escapeHtml(lastInLinked.l)} under this mandate${SEP}${escapeHtml(timeAgo(lastInLinked.t || 0))}</a>` : readInLinked || pinnedInLinked ? `<span class="hm-signal-muted">${joinSep([readInLinked ? `${fmt(readInLinked)} implementing sections read` : "", pinnedInLinked ? `${plural(pinnedInLinked, "provision")} saved` : ""])}</span>` : `<span class="hm-signal-muted">${escapeHtml(auth?.frNote || "Federal statutory authority")}</span>`;
+	return `
+    <article class="hm-title-card hm-usc-card has-tier-bar" data-ref-tier="usc">
+      <div class="hm-title-top">
+        <span class="hm-title-kicker">${escapeHtml(c.code)}${SEP}<span class="hm-title-ag">U.S. Congress</span></span>
+        ${statusPill}
+      </div>
+      <h3 class="hm-title-name"><a href="${escapeHtml(href)}">${escapeHtml(c.name)}</a></h3>
+      ${c.summary ? `<p class="hm-title-desc">${escapeHtml(c.summary)}</p>` : ""}
+      ${chainHtml}
+      ${actsHtml}
+      ${provsHtml}
+      <div class="hm-title-foot">
+        <div class="hm-title-signal-row">
+          ${footprintSignal}
+          <div class="hm-usc-foot-acts">
+            ${ext ? `<a class="hm-inline-link" href="${escapeHtml(ext)}" target="_blank" rel="noopener noreferrer">Official U.S.C. ${icon("external")}</a>` : ""}
+            <a class="hm-inline-link" href="${escapeHtml(href)}">Authority overview ${icon("chevronRight")}</a>
+          </div>
+        </div>
+      </div>
+    </article>`;
+}
+function renderUscTabHtml(allFrameworks, titles, recent, projects, status, usage, articles) {
+	const uscList = allFrameworks.filter((c) => c.tier === "federal-statute");
+	const deskId = state.activeDesk || "all";
+	const filtered = deskId === "all" ? uscList : uscList.filter((c) => mapRawDeskToId(c.desk, (c.linked_titles || [])[0] ?? null) === deskId);
+	const shown = filtered.length ? filtered : uscList;
+	const ribbonHtml = deskFilterRibbonHtml(deskId, uscList);
+	const linkedCfrSet = new Set(uscList.flatMap((c) => c.linked_titles || []));
+	const relatedRules = (articles || []).filter((a) => a && a.category !== "enforcement" && (a.cfr_parts || []).some((p) => linkedCfrSet.has(p.title)));
+	let totalActs = 0;
+	let totalProvs = 0;
+	for (const c of uscList) {
+		const auth = authorityForCorpus(c);
+		totalActs += auth?.acts.length || 1;
+		totalProvs += auth?.provisions.length || 0;
+	}
+	const cards = shown.map((c) => uscDossierCardHtml(c, titles, recent, projects, usage, articles)).join("");
+	return `
+    <div class="hm-tab-lead" data-ref-tier="usc">
+      <div class="hm-tab-lead-copy">
+        <div class="hm-tab-lead-kicker"><span class="ref-badge" data-ref-tier="usc">U.S.C. · STATUTORY AUTHORITY</span><span>Acts of Congress &amp; Regulatory Delegation</span></div>
+        <h2 class="hm-tab-lead-title">United States Code</h2>
+        <p class="hm-tab-lead-sub">Enabling federal statutes enacted by Congress, their major statutory mandates, and direct delegation chains into your installed CFR titles and active Federal Register rulemaking.</p>
+      </div>
+      <div class="hm-tab-lead-acts">
+        <a class="btn btn-sm" href="https://uscode.house.gov/" target="_blank" rel="noopener noreferrer">Official U.S.C. Portal ${icon("external")}</a>
+        <button type="button" class="btn btn-sm btn-accent" data-hm-tab="cfr">Implementing CFR Desk ${icon("chevronRight")}</button>
+      </div>
+    </div>
+    <div class="hm-kpi-strip" data-ref-tier="usc" aria-label="United States Code telemetry">
+      <div class="hm-kpi-cell">
+        <span class="hm-kpi-lbl">Tracked Statutes</span>
+        <span class="hm-kpi-val">${fmt(uscList.length)} U.S.C. titles</span>
+        <span class="hm-kpi-sub">Linked to ${plural(linkedCfrSet.size || titles.length, "CFR title")}</span>
+      </div>
+      <div class="hm-kpi-cell">
+        <span class="hm-kpi-lbl">Principal Enacted Acts</span>
+        <span class="hm-kpi-val">${fmt(totalActs)} organic acts</span>
+        <span class="hm-kpi-sub">OSH Act, FLSA, RCRA, CAA, CWA, HMTA</span>
+      </div>
+      <div class="hm-kpi-cell">
+        <span class="hm-kpi-lbl">Enabling Mandates Mapped</span>
+        <span class="hm-kpi-val">${fmt(totalProvs)} provisions</span>
+        <span class="hm-kpi-sub">Deep-linked to implementing CFR parts</span>
+      </div>
+      <div class="hm-kpi-cell">
+        <span class="hm-kpi-lbl">Implementing Rulemaking</span>
+        <span class="hm-kpi-val">${fmt(relatedRules.length)} FR dockets</span>
+        <span class="hm-kpi-sub">${relatedRules[0] ? `Latest ${escapeHtml(shortDate(relatedRules[0].published_at))}` : "Synced via Federal Register API"}</span>
+      </div>
+    </div>
+    <section class="hm-titles" id="hm-titles" data-snapshot-loaded="1" aria-label="United States Code statutory dossiers">
+      <div class="hm-sec-flag">
+        <div class="hm-sec-head-left">
+          <h2 class="hm-flag-label">Statutory Delegation &amp; Implementing Regulations</h2>
+          <span class="hm-sec-meta">${joinSep([plural(shown.length, "statutory title"), `${fmt(totalProvs)} mapped provisions`])}</span>
+        </div>
+        <a class="hm-inline-link" href="#/library">Add CFR titles to expand statutory coverage ${icon("chevronRight")}</a>
+      </div>
+      ${ribbonHtml ? `<div class="hm-filters">${ribbonHtml}</div>` : ""}
+      <div class="hm-title-grid is-usc-grid">${cards || "<p class=\"hm-muted\">No U.S.C. titles configured.</p>"}</div>
+    </section>
+    <section class="hm-usc-foundations" aria-label="Foundational federal administrative statutes">
+      <div class="hm-sec-flag">
+        <div class="hm-sec-head-left">
+          <h2 class="hm-flag-label">Cross-Agency Rulemaking &amp; Administrative Law Bedrock</h2>
+          <span class="hm-sec-meta">Title 5 &amp; Title 44 U.S.C. · Governing all federal agency rulemaking and enforcement</span>
+        </div>
+      </div>
+      <div class="hm-found-grid">
+        ${FOUNDATIONAL_ADMIN_STATUTES.map((st) => {
+		const safeHref = safeHttpUrl(st.href);
+		return `
+            <article class="hm-found-card" data-ref-tier="usc">
+              <div class="hm-found-top">
+                <span class="hm-found-code">${escapeHtml(st.code)}</span>
+                <span class="hm-found-scope">${escapeHtml(st.scope)}</span>
+              </div>
+              <h3 class="hm-found-name">${escapeHtml(st.name)}</h3>
+              <div class="hm-found-act">${escapeHtml(st.act)}</div>
+              <p class="hm-found-desc">${escapeHtml(st.summary)}</p>
+              ${safeHref ? `<a class="hm-inline-link hm-found-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">Read on uscode.house.gov ${icon("external")}</a>` : ""}
+            </article>`;
+	}).join("")}
+      </div>
+    </section>
+    <section class="hm-news" id="hm-news" data-news-loaded="1" aria-label="Implementing Federal Register rulemaking">
+      ${newsSectionHtml({ articles: relatedRules }, status, {
+		limit: 3,
+		heading: "Implementing Federal Register Rulemaking"
+	})}
+    </section>`;
+}
+function cfrCatalogDiscoveryHtml(titles) {
+	const installedSet = new Set(titles.map((t) => t.title));
+	const libRows = (state.navLibData?.titles || []).filter((r) => !r.reserved && !installedSet.has(r.title));
+	const candidates = libRows.length ? libRows.slice(0, 6).map((r) => ({
+		title: r.title,
+		name: r.name || `Title ${r.title}`,
+		agencies: (r.agencies || []).slice(0, 3),
+		sections: Number(r.sections || 0),
+		size_mb: Number(r.size_mb || 0),
+		summary: r.summary || ""
+	})) : FEATURED_CATALOG_FALLBACK.filter((f) => !installedSet.has(f.title)).slice(0, 6);
+	if (!candidates.length) return "";
+	return `
+    <section class="hm-cfr-catalog" aria-label="Available in eCFR catalog">
+      <div class="hm-sec-flag">
+        <div class="hm-sec-head-left">
+          <h2 class="hm-flag-label">Available in eCFR Catalog</h2>
+          <span class="hm-sec-meta">Download full titles or individual parts for instant offline indexing</span>
+        </div>
+        <a class="hm-inline-link" href="#/library">Explore all 50 CFR titles ${icon("chevronRight")}</a>
+      </div>
+      <div class="hm-catalog-grid">
+        ${candidates.map((c) => {
+		const busy = Boolean(jobFor(c.title, "title"));
+		return `
+            <article class="hm-catalog-card" data-ref-tier="uninstalled">
+              <div class="hm-title-top">
+                <span class="hm-title-kicker">${c.title} CFR${c.agencies.length ? `${SEP}<span class="hm-title-ag">${c.agencies.map(escapeHtml).join(" · ")}</span>` : ""}</span>
+                ${busy ? statPill("busy", "Queued", { bare: true }) : statPill("uninstalled", "Available", { bare: true })}
+              </div>
+              <h3 class="hm-catalog-name"><a href="#/library/${c.title}">${escapeHtml(c.name)}</a></h3>
+              ${c.summary ? `<p class="hm-title-desc">${escapeHtml(c.summary)}</p>` : ""}
+              <div class="hm-catalog-foot">
+                <span class="hm-signal-muted">${joinSep([c.sections ? fmtSections(c.sections) : "", c.size_mb ? fmtMB(c.size_mb) : ""])}</span>
+                <div class="hm-catalog-acts">
+                  <a class="hm-inline-link" href="#/library/${c.title}">Parts</a>
+                  <button type="button" class="btn btn-sm" data-hm-act="download-title" data-title="${c.title}"${busy ? " disabled" : ""}>${icon("download")} ${busy ? "Queued" : "Install"}</button>
+                </div>
+              </div>
+            </article>`;
+	}).join("")}
+      </div>
+    </section>`;
+}
+function renderCfrTabHtml(titles, recent, projects, totalSections, totalRead, status, usage, attention) {
+	const cfrAttention = attention.filter((a) => a.tier === "cfr");
+	const staleSet = new Set((state.navLibData && state.navLibData.titles || []).filter(isStale).map((t) => t.title));
+	syncCorporaState();
+	const deskId = state.activeDesk || "all";
+	const cfrFrameworks = allSystemFrameworks(titles, titles, status).filter((c) => c.tier === "federal-reg");
+	const filtered = deskId === "all" ? titles : titles.filter((t) => {
+		return mapRawDeskToId(cfrFrameworks.find((c) => c.title_num === t.title)?.desk, t.title) === deskId;
+	});
+	const shown = filtered.length ? filtered : titles;
+	const ribbonHtml = deskFilterRibbonHtml(deskId, cfrFrameworks);
+	const installedSet = new Set(titles.map((t) => t.title));
+	const partsExplored = Object.keys(usage.p).filter((k) => installedSet.has(parseInt(k.slice(0, k.indexOf("|")), 10))).length;
+	const totalPinnedCfr = projects.reduce((sum, p) => sum + (p.sections || []).length, 0);
+	const cfrWorkspaces = projects.filter((p) => (p.sections || []).length > 0).length;
+	const libTitles = state.navLibData?.titles || [];
+	const week = libTitles.length ? amendedWeek({ titles: libTitles }) : {
+		newest: "",
+		cut: "",
+		recent: 0
+	};
+	const latestEdition = week.newest || titles.reduce((m, t) => t.edition && t.edition > m ? t.edition : m, "") || state.metaInfo.edition || "";
+	const keyParts = [];
+	for (const t of titles) {
+		const curated = HOME_CONTENT[t.title]?.cards || [];
+		for (const c of curated.slice(0, 2)) {
+			keyParts.push({
+				ti: t.title,
+				part: c.part,
+				kicker: `${t.title} CFR · ${c.kicker}`,
+				title: c.title,
+				desc: c.desc
+			});
+			if (keyParts.length >= 6) break;
+		}
+		if (keyParts.length >= 6) break;
+	}
+	const last = recent[0];
+	const activeStudyHtml = last ? `
+    <div class="hm-cfr-study">
+      <div class="hm-card-top">
+        <span class="hm-kicker">Active CFR Provision</span>
+        <span class="hm-time">${escapeHtml(timeAgo(last.t || 0))}</span>
+      </div>
+      <div class="hm-resume-loc">
+        <span class="hm-loc-tier" data-ref-tier="cfr">${last.ti} CFR</span>
+        ${last.p ? `${SEP}<a href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)}</a>` : ""}
+        ${last.ul ? `${SEP}<span class="hm-unit-badge">${escapeHtml(last.ul)}</span>` : ""}
+      </div>
+      <a class="hm-resume-title" href="${sectionLinkHref(last)}">${escapeHtml(last.l)} ${escapeHtml(last.h || "")}</a>
+      <div class="hm-resume-acts">
+        <a class="btn btn-sm btn-accent" href="${sectionLinkHref(last)}">Resume section ${icon("chevronRight")}</a>
+        ${last.p ? `<a class="btn btn-sm" href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p))}">Part ${escapeHtml(last.p)} Atlas</a>` : ""}
+        ${last.p ? `<a class="hm-inline-link" href="${titleHref(last.ti, "part/" + encodeURIComponent(last.p) + "/full")}">Full Part text ${icon("chevronRight")}</a>` : ""}
+        <button type="button" class="hm-inline-link" data-hm-act="resume-split" data-title="${last.ti}" data-section="${escapeHtml(last.id)}"${last.u ? ` data-unit="${escapeHtml(last.u)}"` : ""}>${icon("stack")} Side-by-side</button>
+      </div>
+      ${recent.length > 1 ? `
+        <div class="hm-trail">
+          <div class="hm-trail-head"><span class="hm-kicker">Recent CFR trail</span></div>
+          <div class="hm-trail-list">
+            ${recent.slice(1, 5).map((e) => `
+              <a class="hm-trail-row" href="${sectionLinkHref(e)}">
+                <span class="hm-tag" data-ref-tier="cfr">${e.ti} CFR</span>
+                <span class="hm-row-num">${escapeHtml(String(e.l || e.id).replace(/^§\s*/, ""))}</span>
+                <span class="hm-row-text">${escapeHtml(e.h || "")}</span>
+                <span class="hm-row-val">${escapeHtml(timeAgo(e.t || 0))}</span>
+              </a>`).join("")}
+          </div>
+        </div>` : ""}
+    </div>` : `
+    <div class="hm-cfr-study">
+      <div class="hm-card-top"><span class="hm-kicker">CFR Reading Modes</span></div>
+      <div class="hm-resume-title is-static">Clause-by-clause, full section, or full part</div>
+      <p class="hm-muted">Open any installed title or high-frequency part to read unitized clauses with inline citation peeks, IBR consensus standards, and side-by-side comparison tabs.</p>
+      ${titles[0] ? `<div class="hm-resume-acts"><a class="btn btn-sm btn-accent" href="${titleHref(titles[0].title)}">Open ${titles[0].title} CFR Start ${icon("chevronRight")}</a></div>` : ""}
+    </div>`;
+	const keyPartsBenchHtml = keyParts.length ? `
+    <div class="hm-cfr-parts-bench">
+      <div class="hm-panel-head">
+        <h3 class="hm-panel-title">High-Frequency Regulatory Parts</h3>
+        <span class="hm-count">${plural(keyParts.length, "core part")}</span>
+      </div>
+      <div class="hm-cfr-parts-list">
+        ${keyParts.map((kp) => `
+          <div class="hm-cfr-part-row">
+            <div class="hm-cfr-part-main">
+              <span class="hm-cfr-part-kicker" data-ref-tier="cfr">${escapeHtml(kp.kicker)}</span>
+              <a class="hm-cfr-part-name" href="${titleHref(kp.ti, "part/" + encodeURIComponent(kp.part))}">${escapeHtml(kp.title)}</a>
+              <span class="hm-cfr-part-desc">${escapeHtml(kp.desc)}</span>
+            </div>
+            <div class="hm-cfr-part-acts">
+              <a class="hm-part-chip" href="${titleHref(kp.ti, "part/" + encodeURIComponent(kp.part))}"><span class="hm-part-num">Atlas</span></a>
+              <a class="hm-part-chip" href="${titleHref(kp.ti, "part/" + encodeURIComponent(kp.part) + "/full")}"><span class="hm-part-num">Full</span></a>
+            </div>
+          </div>`).join("")}
+      </div>
+    </div>` : "";
+	const cards = shown.map((t) => cfrCardHtml(t, staleSet, recent, projects, usage)).join("");
+	return `
+    ${activeTransfersHtml()}
+    ${updatesBannerHtml(cfrAttention, titles)}
+    <div class="hm-tab-lead" data-ref-tier="cfr">
+      <div class="hm-tab-lead-copy">
+        <div class="hm-tab-lead-kicker"><span class="ref-badge" data-ref-tier="cfr">CFR · CODIFIED REGULATIONS</span><span>Local SQLite FTS5 &amp; Citation Graph</span></div>
+        <h2 class="hm-tab-lead-title">Code of Federal Regulations</h2>
+        <p class="hm-tab-lead-sub">Locally indexed eCFR editions with clause-by-clause unit reading, Part TOC Atlases, deterministic cross-reference graphs, and incorporation-by-reference (IBR) standards.</p>
+      </div>
+      <div class="hm-tab-lead-acts">
+        <button type="button" class="btn btn-sm" data-hm-act="check-updates">${icon("refresh")} Check eCFR</button>
+        <a class="btn btn-sm btn-accent" href="#/library">${icon("download")} Manage Library ${icon("chevronRight")}</a>
+      </div>
+    </div>
+    <div class="hm-kpi-strip" data-ref-tier="cfr" aria-label="CFR archive telemetry">
+      <div class="hm-kpi-cell">
+        <span class="hm-kpi-lbl">Installed Editions</span>
+        <span class="hm-kpi-val">${plural(titles.length, "CFR title")}</span>
+        <span class="hm-kpi-sub">${fmt(totalSections)} offline sections indexed</span>
+      </div>
+      <div class="hm-kpi-cell">
+        <span class="hm-kpi-lbl">eCFR Currency</span>
+        <span class="hm-kpi-val">${cfrAttention.length > 0 ? `${plural(cfrAttention.length, "update")} ready` : latestEdition ? `Edition ${escapeHtml(shortDate(latestEdition))}` : "Verified current"}</span>
+        <span class="hm-kpi-sub">${week.recent > 0 ? `${plural(week.recent, "title")} amended this week` : "Checked against eCFR Versioner"}</span>
+      </div>
+      <div class="hm-kpi-cell">
+        <span class="hm-kpi-lbl">Study Coverage</span>
+        <span class="hm-kpi-val">${fmt(totalRead)} sections</span>
+        <span class="hm-kpi-sub">${fmt(partsExplored)} regulatory parts explored</span>
+      </div>
+      <div class="hm-kpi-cell">
+        <span class="hm-kpi-lbl">Workspace Citations</span>
+        <span class="hm-kpi-val">${fmt(totalPinnedCfr)} pinned</span>
+        <span class="hm-kpi-sub">${cfrWorkspaces ? `Across ${plural(cfrWorkspaces, "active workspace")}` : "Pin any section with ⌘D"}</span>
+      </div>
+    </div>
+    <div class="hm-cfr-desk">
+      ${activeStudyHtml}
+      ${keyPartsBenchHtml}
+    </div>
+    <section class="hm-titles" id="hm-titles" data-snapshot-loaded="1" aria-label="Installed CFR titles">
+      <div class="hm-sec-flag">
+        <div class="hm-sec-head-left">
+          <h2 class="hm-flag-label">Installed CFR Titles</h2>
+          <span class="hm-sec-meta">${joinSep([
+		plural(shown.length, "title"),
+		totalSections ? `${fmt(totalSections)} offline sections` : "",
+		totalRead ? `${fmt(totalRead)} read` : ""
+	])}</span>
+        </div>
+        <a class="hm-inline-link" href="#/library">Add or update CFR titles ${icon("chevronRight")}</a>
+      </div>
+      ${ribbonHtml ? `<div class="hm-filters">${ribbonHtml}</div>` : ""}
+      ${cards ? `<div class="hm-title-grid">${cards}</div>` : "<p class=\"hm-muted\">No CFR titles installed yet. <a href=\"#/library\">Browse the Library</a> to download one.</p>"}
+    </section>
+    ${cfrCatalogDiscoveryHtml(titles)}`;
+}
+function frLeadSpotlightHtml(filteredArticles, allFrArticles) {
+	if (!allFrArticles.length) return "";
+	const lead = filteredArticles.find((a) => a.category === "rules") || filteredArticles[0] || allFrArticles[0];
+	if (!lead) return "";
+	const leadHref = articlePrimaryHref(lead);
+	const docNum = frDocumentNumber(lead);
+	const firstPart = lead.cfr_parts?.[0];
+	const dateBadge = articleDateNoteHtml(lead);
+	const docket = lead.docket_ids?.[0] || "";
+	const takeawaysHtml = lead.takeaways && lead.takeaways.length ? `
+    <dl class="hm-fr-takeaways">
+      ${lead.takeaways.slice(0, 3).map((t) => `
+        <div class="hm-fr-takeaway-row">
+          <dt>${escapeHtml(t.label)}</dt>
+          <dd>${linkifyNewsText(t.text)}</dd>
+        </div>`).join("")}
+    </dl>` : lead.action || lead.snippet ? `
+    <p class="hm-fr-lead-dek">${linkifyNewsText(lead.action || lead.snippet || "")}</p>` : "";
+	const datedFilings = allFrArticles.filter((a) => a.effective_on || a.comments_close_on || a.scheduled_on).slice(0, 4);
+	const partMap = /* @__PURE__ */ new Map();
+	for (const a of allFrArticles) for (const p of a.cfr_parts || []) {
+		const k = `${p.title}|${p.part}`;
+		const cur = partMap.get(k);
+		if (cur) cur.count += 1;
+		else partMap.set(k, {
+			title: p.title,
+			part: p.part,
+			count: 1
+		});
+	}
+	const sectionSet = [...new Set(allFrArticles.flatMap((a) => a.sections || []))].slice(0, 5);
+	const touchedParts = [...partMap.values()].sort((a, b) => b.count - a.count).slice(0, 6);
+	return `
+    <div class="hm-fr-desk" aria-label="Lead rulemaking dispatch and deadlines watchlist">
+      <article class="hm-fr-lead" data-ref-tier="fr">
+        <div class="hm-fr-lead-top">
+          <div class="hm-fr-lead-kicker-wrap">
+            <span class="ref-badge" data-ref-tier="fr">${escapeHtml(frCategoryLabel(lead.category).toUpperCase())}</span>
+            ${lead.citation ? `<span class="hm-fr-cite">${escapeHtml(lead.citation)}</span>` : ""}
+            ${docket ? `<span class="hm-fr-docket">${escapeHtml(docket)}</span>` : ""}
+          </div>
+          <time class="hm-news-date">${escapeHtml(shortDate(lead.published_at))}</time>
+        </div>
+        <h3 class="hm-fr-lead-title"><a href="${leadHref}">${escapeHtml(lead.title)}</a></h3>
+        ${dateBadge ? `<div class="hm-fr-lead-dates">${dateBadge}${lead.agency ? `<span class="hm-fr-agency">${escapeHtml(lead.agency)}</span>` : ""}</div>` : ""}
+        ${takeawaysHtml}
+        ${pulseChipsHtml(lead)}
+        <div class="hm-fr-lead-acts">
+          <a class="btn btn-sm btn-accent" href="${leadHref}">${docNum ? "Read in-app preamble" : "Open filing"} ${icon("chevronRight")}</a>
+          ${firstPart ? `<a class="btn btn-sm" href="${newsPartHref(firstPart.title, firstPart.part)}">Open ${firstPart.title} CFR Part ${escapeHtml(String(firstPart.part))}</a>` : ""}
+          <a class="hm-inline-link" href="#/news?cat=${encodeURIComponent(lead.category)}">All ${escapeHtml(frCategoryLabel(lead.category).toLowerCase())}s ${icon("chevronRight")}</a>
+        </div>
+      </article>
+      <aside class="hm-fr-rail" aria-label="Effective dates, comment deadlines, and affected CFR provisions">
+        <div class="hm-fr-rail-block">
+          <div class="hm-trail-head">
+            <span class="hm-kicker">Effective Dates &amp; Comment Deadlines</span>
+            <a class="hm-inline-link" href="#/news">Calendar ${icon("chevronRight")}</a>
+          </div>
+          ${datedFilings.length ? `
+            <div class="hm-fr-date-list">
+              ${datedFilings.map((a) => {
+		const isDeadline = Boolean(a.comments_close_on);
+		const dateVal = a.comments_close_on || a.effective_on || a.scheduled_on || a.published_at;
+		const kindLbl = a.comments_close_on ? "Comments close" : a.effective_on ? "Effective" : "Publishes";
+		return `
+                  <a class="hm-fr-date-row" href="${articlePrimaryHref(a)}">
+                    <span class="hm-fr-date-pill${isDeadline ? " is-deadline" : " is-effective"}">${escapeHtml(kindLbl)} ${escapeHtml(shortDate(dateVal))}</span>
+                    <span class="hm-fr-date-title">${escapeHtml(a.title)}</span>
+                  </a>`;
+	}).join("")}
+            </div>` : "<p class=\"hm-muted\">Effective dates and comment deadlines from synced rules appear here.</p>"}
+        </div>
+        <div class="hm-fr-rail-block">
+          <div class="hm-trail-head">
+            <span class="hm-kicker">Affected CFR Parts &amp; Sections</span>
+          </div>
+          ${touchedParts.length || sectionSet.length ? `
+            <div class="hm-news-chips">
+              ${touchedParts.map((p) => {
+		const ok = titleInstalled(p.title);
+		return `<a class="citation-chip${ok ? "" : " is-dim"}" data-ref-tier="${ok ? "cfr" : "uninstalled"}" href="${newsPartHref(p.title, p.part)}">${p.title} CFR Part ${escapeHtml(String(p.part))}${p.count > 1 ? ` · ${p.count}` : ""}</a>`;
+	}).join("")}
+              ${sectionSet.map((s) => {
+		const ok = titleInstalled(29);
+		return `<a class="citation-chip${ok ? "" : " is-dim"}" data-ref-tier="${ok ? "cfr" : "uninstalled"}" href="${newsSectionHref(29, s)}">§ ${escapeHtml(s)}</a>`;
+	}).join("")}
+            </div>` : "<p class=\"hm-muted\">CFR citations extracted from Federal Register dockets appear here.</p>"}
+        </div>
+      </aside>
+    </div>`;
+}
+function renderFrTabHtml(allFrameworks, projects, status, articles, attention, hasCachedNews) {
+	const frAttention = attention.filter((a) => a.tier === "fr");
+	const frArticles = (articles || []).filter((a) => a && a.category !== "enforcement");
+	const activeCat = state.homeFrCat || "all";
+	const filteredArticles = activeCat === "all" ? frArticles : frArticles.filter((a) => a.category === activeCat);
+	const shownArticles = filteredArticles.length ? filteredArticles : frArticles;
+	const frSyncing = Boolean(status?.syncing);
+	const lastOk = status?.sources?.federal_register?.last_ok_at;
+	const totalCached = Number(status?.articles || frArticles.length || 0);
+	const frReason = frAttentionReason(status);
+	const pill = frSyncing ? statPill("busy", "Syncing…") : frReason ? statPill("stale", "Sync due") : totalCached > 0 ? statPill("synced", lastOk ? `Synced ${timeAgo(Date.parse(lastOk))}` : "Synced") : statPill("partial", "Ready");
+	const cats = [
+		{
+			cat: "all",
+			label: "All Filings",
+			desc: "Complete daily Federal Register stream",
+			count: frArticles.length
+		},
+		{
+			cat: "rules",
+			label: "Final Rules",
+			desc: "Codified CFR amendments & effective dates",
+			count: frArticles.filter((a) => a.category === "rules").length
+		},
+		{
+			cat: "rulemaking",
+			label: "Proposed Rules",
+			desc: "Open dockets & comment deadlines",
+			count: frArticles.filter((a) => a.category === "rulemaking").length
+		},
+		{
+			cat: "notices",
+			label: "Notices",
+			desc: "Agency guidance, meetings & dockets",
+			count: frArticles.filter((a) => a.category === "notices").length
+		},
+		{
+			cat: "public_inspection",
+			label: "Public Inspection",
+			desc: "Pre-publication filings scheduled next",
+			count: frArticles.filter((a) => a.category === "public_inspection").length
+		}
+	];
+	const activeCatMeta = cats.find((c) => c.cat === activeCat) || cats[0];
+	const feedHeading = activeCat === "all" ? "Recent Federal Register Dispatches" : `${activeCatMeta.label} Dispatches`;
+	const feedHtml = hasCachedNews || frArticles.length ? newsSectionHtml({ articles: shownArticles }, status, {
+		limit: 6,
+		heading: feedHeading
+	}) : newsSkeletonHtml(feedHeading);
+	return `
+    ${frAttention.length ? updatesBannerHtml(frAttention, []) : ""}
+    <div class="hm-tab-lead" data-ref-tier="fr">
+      <div class="hm-tab-lead-copy">
+        <div class="hm-tab-lead-kicker"><span class="ref-badge" data-ref-tier="fr">FR · DAILY RULEMAKING</span><span>Federal Register API v1 &amp; In-App Preamble Reader</span></div>
+        <h2 class="hm-tab-lead-title">Federal Register</h2>
+        <p class="hm-tab-lead-sub">Daily Final Rules, Proposed Rules, Notices, and Public Inspection filings across configured federal agencies and installed CFR titles, with sanitized in-app preamble reading.</p>
+      </div>
+      <div class="hm-tab-lead-acts">
+        <span id="hm-news-pill">${pill}</span>
+        ${status?.sync_enabled !== false ? `<button type="button" class="btn btn-sm btn-accent" data-hm-act="sync-fr"${frSyncing ? " disabled" : ""}>${icon("refresh")} ${frSyncing ? "Syncing…" : "Sync now"}</button>` : ""}
+        <a class="btn btn-sm" href="#/news">Open Newsroom ${icon("chevronRight")}</a>
+      </div>
+    </div>
+    <div class="hm-fr-cats" role="group" aria-label="Filter Federal Register categories">
+      ${cats.map((c) => {
+		const isOn = activeCat === c.cat;
+		return `
+          <button type="button" class="hm-fr-cat${isOn ? " is-active" : ""}" data-hm-fr-cat="${c.cat}" aria-pressed="${isOn}">
+            <span class="hm-fr-cat-top">
+              <span class="hm-fr-cat-label">${escapeHtml(c.label)}</span>
+              <span class="hm-fr-cat-count">${fmt(c.count)}</span>
+            </span>
+            <span class="hm-fr-cat-meta">${escapeHtml(c.desc)}</span>
+          </button>`;
+	}).join("")}
+    </div>
+    ${frLeadSpotlightHtml(shownArticles, frArticles)}
+    <section class="hm-news" id="hm-news" data-news-loaded="1" aria-label="Federal Register filings">
+      ${feedHtml}
+    </section>`;
+}
+function renderHomeTabBody(titles, allFrameworks, recent, projects, totalSections, totalRead, status, usage, attention, articles, hasCachedNews) {
+	const tab = state.homeTab || "overview";
+	if (tab === "usc") return renderUscTabHtml(allFrameworks, titles, recent, projects, status, usage, articles);
+	if (tab === "cfr") return renderCfrTabHtml(titles, recent, projects, totalSections, totalRead, status, usage, attention);
+	if (tab === "fr") return renderFrTabHtml(allFrameworks, projects, status, articles, attention, hasCachedNews);
+	return `
+    ${activeTransfersHtml()}
+    ${updatesBannerHtml(attention, titles)}
+    ${systemsStripHtml(allFrameworks, titles, status, attention, articles)}
+    <div class="hm-top">
+      ${resumeCardHtml(recent, titles, usage, projects, totalRead)}
+      ${workspacesCardHtml(projects)}
+    </div>
+    ${titlesBandHtml(titles, allFrameworks, recent, projects, totalSections, totalRead, status, usage)}
+    <section class="hm-news" id="hm-news" aria-label="Federal Register Pulse">
+      ${hasCachedNews ? newsSectionHtml({ articles }, status) : newsSkeletonHtml()}
+    </section>`;
+}
+function patchHomeDynamicBands(titles, status, articles = cachedNewsArticles(), replaceBody = false) {
 	const usage = loadUsage();
 	const recent = recentSectionsFor(usage, new Set(titles.map((t) => t.title)));
 	const projects = loadProjects();
@@ -12282,8 +13324,25 @@ function patchHomeDynamicBands(titles, status) {
 	const totalRead = titles.reduce((a, t) => a + readCountForTitle(t.title, usage), 0);
 	const allFrameworks = allSystemFrameworks(titles, titles, status);
 	const attention = collectAttentionItems(titles, status);
+	const tabEl = document.getElementById("hm-tabs");
+	if (tabEl) tabEl.outerHTML = homeTabsHtml(allFrameworks, titles, status, attention, totalSections, totalRead, projects.length);
+	const activeTab = state.homeTab || "overview";
+	const tabBody = document.getElementById("hm-tab-body");
+	if (tabBody) tabBody.setAttribute("aria-labelledby", `hm-tab-${activeTab}`);
+	if (replaceBody || activeTab !== "overview" || !document.getElementById("hm-systems")) {
+		if (tabBody) {
+			const prevSnapLoaded = document.getElementById("hm-titles")?.dataset.snapshotLoaded;
+			const prevNewsLoaded = document.getElementById("hm-news")?.dataset.newsLoaded;
+			tabBody.innerHTML = renderHomeTabBody(titles, allFrameworks, recent, projects, totalSections, totalRead, status, usage, attention, articles, true);
+			const nextTitles = document.getElementById("hm-titles");
+			if (nextTitles && prevSnapLoaded) nextTitles.dataset.snapshotLoaded = prevSnapLoaded;
+			const nextNews = document.getElementById("hm-news");
+			if (nextNews && prevNewsLoaded) nextNews.dataset.newsLoaded = prevNewsLoaded;
+		}
+		return;
+	}
 	const sysEl = document.getElementById("hm-systems");
-	if (sysEl) sysEl.outerHTML = systemsStripHtml(allFrameworks, titles, totalSections, totalRead, status, attention);
+	if (sysEl) sysEl.outerHTML = systemsStripHtml(allFrameworks, titles, status, attention, articles);
 	const updEl = document.getElementById("hm-updates");
 	if (updEl) updEl.outerHTML = updatesBannerHtml(attention, titles);
 	const box = document.getElementById("hm-titles");
@@ -12305,7 +13364,7 @@ async function hydrateHome(seq) {
 		const el = document.getElementById("hm-titles");
 		if (el && seq === state.routeSeq) el.dataset.snapshotLoaded = "1";
 	});
-	const newsPromise = Promise.all([getJSON("/api/news?limit=3"), getJSON("/api/news/status")]).then(([data, status]) => {
+	const newsPromise = Promise.all([getJSON("/api/news?limit=12"), getJSON("/api/news/status")]).then(([data, status]) => {
 		if (seq !== state.routeSeq) return;
 		const totalArticles = Number(data?.total ?? data?.articles?.length ?? 0);
 		const enrichedStatus = status ? {
@@ -12320,17 +13379,19 @@ async function hydrateHome(seq) {
 			});
 			updateRailBadge();
 		}
-		const box = document.getElementById("hm-news");
-		if (box) box.innerHTML = newsSectionHtml(data, enrichedStatus);
-		if (data && data.articles && data.articles.length) lsSetJSON(HOME_NEWS_CACHE, {
+		const freshArticles = Array.isArray(data?.articles) ? data.articles : [];
+		if (freshArticles.length) lsSetJSON(HOME_NEWS_CACHE, {
 			t: Date.now(),
 			data: {
-				articles: data.articles.slice(0, 30),
+				articles: freshArticles.slice(0, 30),
 				total: data.total,
 				offset: 0
 			}
 		});
-		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), enrichedStatus);
+		const box = document.getElementById("hm-news");
+		if (box && (state.homeTab || "overview") === "overview") box.innerHTML = newsSectionHtml(data, enrichedStatus);
+		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), enrichedStatus, freshArticles);
+		if (enrichedStatus?.syncing) watchHomeNewsSync(seq);
 	}).catch(() => {
 		if (seq !== state.routeSeq) return;
 		const box = document.getElementById("hm-news");
@@ -12367,48 +13428,180 @@ function renderHomeScreen({ enter = true } = {}) {
 	const status = cachedNewsStatus();
 	const allFrameworks = allSystemFrameworks(titles, titles, status);
 	const attention = collectAttentionItems(titles, status);
+	const activeTab = state.homeTab || "overview";
 	const sub = joinSep([
-		escapeHtml(`${plural(titles.length, "CFR title")} offline`),
-		"FR · U.S.C. · State mapped",
-		state.metaInfo.edition ? `Edition ${escapeHtml(shortDate(state.metaInfo.edition))}` : "",
-		projects.length ? escapeHtml(plural(projects.length, "workspace")) : ""
+		"Federal codes, statutes & daily rulemaking",
+		totalRead ? `${fmt(totalRead)} ${totalRead === 1 ? "section" : "sections"} studied` : "",
+		projects.length ? escapeHtml(plural(projects.length, "active workspace")) : ""
 	]);
 	const scrollTop = dom.main.scrollTop;
+	const edText = state.metaInfo.edition ? `Edition ${escapeHtml(shortDate(state.metaInfo.edition))}` : "Local Archive";
 	dom.view.innerHTML = `
     <div class="hm">
-      <header class="hm-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK</div>
-          <h1 class="doc-title">Home</h1>
-          <p class="hm-sub">${sub}</p>
+      <header class="hm-masthead">
+        <div class="hm-folio">
+          <div class="hm-folio-left">
+            <span class="hm-folio-brand">FRAMEWORK</span>
+            ${SEP}
+            <span>${edText}</span>
+          </div>
+          <div class="hm-folio-right">
+            <span>${escapeHtml(plural(allFrameworks.length, "federal framework"))}</span>
+            ${SEP}
+            <span>U.S.C. · CFR · FR</span>
+          </div>
         </div>
-        <div class="hm-head-acts">
-          <button type="button" class="btn btn-sm" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
-          <a class="btn btn-sm" href="#/library">${icon("download")} Manage library</a>
+        <div class="hm-head">
+          <div class="hm-title-copy">
+            <h1 class="doc-title hm-display">Home</h1>
+            <p class="hm-sub">${sub}</p>
+          </div>
+          <div class="hm-head-acts">
+            <button type="button" class="btn btn-sm" data-hm-act="new-workspace">${icon("plus")} New workspace</button>
+            <a class="btn btn-sm" href="#/library">${icon("download")} Library</a>
+          </div>
         </div>
+        <div class="hm-double-rule" aria-hidden="true"></div>
+        ${homeTabsHtml(allFrameworks, titles, status, attention, totalSections, totalRead, projects.length)}
       </header>
-      ${activeTransfersHtml()}
-      ${systemsStripHtml(allFrameworks, titles, totalSections, totalRead, status, attention)}
-      ${updatesBannerHtml(attention, titles)}
-      <div class="hm-top">
-        ${resumeCardHtml(recent, titles, usage, projects, totalRead)}
-        ${workspacesCardHtml(projects)}
+      <div id="hm-tab-body" role="tabpanel" aria-labelledby="hm-tab-${activeTab}">
+        ${renderHomeTabBody(titles, allFrameworks, recent, projects, totalSections, totalRead, status, usage, attention, cachedNews?.data?.articles || [], Boolean(cachedNews && cachedNews.data))}
       </div>
-      ${titlesBandHtml(titles, allFrameworks, recent, projects, totalSections, totalRead, status, usage)}
-      <section class="hm-card hm-news" id="hm-news" aria-label="Regulatory Pulse">
-        ${cachedNews && cachedNews.data ? newsSectionHtml(cachedNews.data, status) : newsSkeletonHtml()}
-      </section>
     </div>`;
 	if (enter) enterView();
 	else dom.main.scrollTop = scrollTop;
 	hydrateHome(state.routeSeq);
 }
+function watchHomeNewsSync(seq) {
+	const token = ++state.homeSyncToken;
+	const started = Date.now();
+	const tick = async () => {
+		if (seq !== state.routeSeq || token !== state.homeSyncToken || Date.now() - started > 6e4) return;
+		let status;
+		try {
+			status = await getJSON("/api/news/status");
+		} catch {
+			return;
+		}
+		if (seq !== state.routeSeq || token !== state.homeSyncToken) return;
+		if (status.syncing) {
+			setTimeout(tick, 2e3);
+			return;
+		}
+		let data = { articles: [] };
+		try {
+			data = await getJSON("/api/news?limit=12");
+		} catch {}
+		if (seq !== state.routeSeq || token !== state.homeSyncToken) return;
+		const totalArticles = Number(data?.total ?? data?.articles?.length ?? 0);
+		const enrichedStatus = {
+			...status,
+			articles: status.articles || totalArticles
+		};
+		state.navNewsStatus = enrichedStatus;
+		lsSetJSON(HOME_STATUS_CACHE, {
+			t: Date.now(),
+			data: enrichedStatus
+		});
+		const freshArticles = Array.isArray(data?.articles) ? data.articles : [];
+		if (freshArticles.length) lsSetJSON(HOME_NEWS_CACHE, {
+			t: Date.now(),
+			data: {
+				articles: freshArticles.slice(0, 30),
+				total: data.total,
+				offset: 0
+			}
+		});
+		updateRailBadge();
+		const box = document.getElementById("hm-news");
+		if (box && (state.homeTab || "overview") === "overview") box.innerHTML = newsSectionHtml(data, enrichedStatus);
+		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), enrichedStatus, freshArticles);
+		const errReason = Object.values(enrichedStatus.sources || {}).find((s) => s && s.enabled && s.last_error)?.last_error;
+		if (errReason) showToast(errReason, 5e3);
+		else showToast("Federal Register updated");
+	};
+	setTimeout(tick, 2e3);
+}
+async function syncFrOnHome(force) {
+	const seq = state.routeSeq;
+	const prev = cachedNewsStatus();
+	const optimistic = {
+		sync_enabled: prev?.sync_enabled ?? true,
+		syncing: true,
+		dol_configured: prev?.dol_configured ?? false,
+		articles: prev?.articles,
+		sources: prev?.sources || {}
+	};
+	state.navNewsStatus = optimistic;
+	patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), optimistic);
+	const pillSlot = document.getElementById("hm-news-pill");
+	if (pillSlot) pillSlot.innerHTML = newsStatusPillHtml(optimistic);
+	try {
+		const res = await getJSON("/api/news/refresh", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ force })
+		});
+		if (res && Array.isArray(res.queued) && res.queued.length === 0) {
+			await hydrateHome(seq);
+			return false;
+		}
+		watchHomeNewsSync(seq);
+		return true;
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : "Sync failed";
+		if (/already running/i.test(msg)) {
+			watchHomeNewsSync(seq);
+			return true;
+		}
+		state.navNewsStatus = prev;
+		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), prev);
+		throw err;
+	}
+}
 function refreshHomeIfActive() {
 	if (routeTarget() === "overview" && dom.view.querySelector(".hm")) renderHomeScreen({ enter: false });
 }
+function activateHomeTab(nextTab, focusTab = false) {
+	if (!HOME_TAB_ORDER.includes(nextTab)) return;
+	if (nextTab !== state.homeTab) {
+		state.homeTab = nextTab;
+		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), cachedNewsStatus(), cachedNewsArticles(), true);
+	}
+	if (focusTab) document.getElementById(`hm-tab-${nextTab}`)?.focus();
+}
+onView("keydown", (ev) => {
+	const e = ev;
+	const tabBtn = e.target?.closest("#hm-tabs [data-hm-tab]");
+	if (!tabBtn) return;
+	const cur = tabBtn.dataset.hmTab || "overview";
+	const idx = HOME_TAB_ORDER.indexOf(cur);
+	if (idx < 0) return;
+	let nextIdx = -1;
+	if (e.key === "ArrowRight") nextIdx = (idx + 1) % HOME_TAB_ORDER.length;
+	else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + HOME_TAB_ORDER.length) % HOME_TAB_ORDER.length;
+	else if (e.key === "Home") nextIdx = 0;
+	else if (e.key === "End") nextIdx = HOME_TAB_ORDER.length - 1;
+	if (nextIdx >= 0) {
+		e.preventDefault();
+		activateHomeTab(HOME_TAB_ORDER[nextIdx], true);
+	}
+});
 onView("click", async (e) => {
 	if (!dom.view.querySelector(".hm")) return;
 	const t = e.target;
+	const tabBtn = t?.closest("[data-hm-tab]");
+	if (tabBtn) {
+		activateHomeTab(tabBtn.dataset.hmTab || "overview", false);
+		return;
+	}
+	const frCatBtn = t?.closest("[data-hm-fr-cat]");
+	if (frCatBtn) {
+		const nextCat = frCatBtn.dataset.hmFrCat || "all";
+		state.homeFrCat = state.homeFrCat === nextCat && nextCat !== "all" ? "all" : nextCat;
+		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), cachedNewsStatus(), cachedNewsArticles(), true);
+		return;
+	}
 	const tierBtn = t?.closest("[data-hm-tier]");
 	if (tierBtn) {
 		const nextTier = tierBtn.dataset.hmTier || "all";
@@ -12429,10 +13622,46 @@ onView("click", async (e) => {
 	else if (act === "toggle-history") {
 		state.homeHistoryExpanded = !state.homeHistoryExpanded;
 		renderHomeScreen({ enter: false });
+	} else if (act === "resume-split") {
+		const titleNum = Number(actEl.dataset.title) || state.currentTitle;
+		const secId = actEl.dataset.section || "";
+		const unit = actEl.dataset.unit || null;
+		if (secId) emit("split:open", {
+			title: titleNum,
+			sectionId: secId,
+			unit,
+			pushHistory: true
+		});
+	} else if (act === "restore-tabgroup") {
+		const projId = actEl.dataset.projId;
+		const groupId = actEl.dataset.groupId;
+		const grp = loadProjects().find((p) => p.id === projId)?.tab_groups?.find((g) => g.id === groupId);
+		if (grp) restoreTabGroup(grp);
 	} else if (act === "open-contents") {
 		const titleNum = Number(actEl.dataset.title);
 		if (titleNum && titleNum !== state.currentTitle) await switchTitle(titleNum);
 		window.location.hash = `#/title/${titleNum || state.currentTitle}/`;
+	} else if (act === "download-title") {
+		const titleNum = Number(actEl.dataset.title);
+		if (!titleNum) return;
+		actEl.disabled = true;
+		try {
+			const job = await getJSON("/api/library/download", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					title: titleNum,
+					kind: "section"
+				})
+			});
+			setJobs(await getJSON("/api/library/jobs"));
+			pollJobsIfActive();
+			showToast(job?.label ? `Queued download for ${job.label}` : `Queued download for Title ${titleNum}`);
+			refreshHomeIfActive();
+		} catch (err) {
+			showToast(err instanceof Error ? err.message : "Download failed", 5e3);
+			actEl.disabled = false;
+		}
 	} else if (act === "update-title") {
 		const titleNum = Number(actEl.dataset.title);
 		if (!titleNum) return;
@@ -12447,39 +13676,54 @@ onView("click", async (e) => {
 			showToast(err instanceof Error ? err.message : "Update failed", 5e3);
 			actEl.disabled = false;
 		}
-	} else if (act === "update-all") {
+	} else if (act === "update-all" || act === "update-all-attention") {
 		actEl.disabled = true;
 		try {
-			await queueBatch("/api/library/update-all", null, "Every installed title is already current");
+			const attention = collectAttentionItems(state.homeSnapshot?.titles || installedFallbackList(), cachedNewsStatus());
+			const hasCfr = attention.some((a) => a.tier === "cfr");
+			const hasFr = attention.some((a) => a.tier === "fr");
+			if (hasCfr || act === "update-all") await queueBatch("/api/library/update-all", null, "Every installed title is already current");
+			if (hasFr && act === "update-all-attention") await syncFrOnHome(true);
 			refreshHomeIfActive();
 		} catch (err) {
 			showToast(err instanceof Error ? err.message : "Update failed", 5e3);
 			actEl.disabled = false;
 		}
 	} else if (act === "check-updates") {
-		actEl.disabled = true;
+		const btn = actEl;
+		const prevHtml = btn.innerHTML;
+		btn.disabled = true;
+		btn.textContent = "Checking…";
 		try {
-			await ensureNavLibrary(true);
+			const [, newsStatus] = await Promise.all([ensureNavLibrary(true), getJSON("/api/news/status").catch(() => cachedNewsStatus())]);
+			if (newsStatus) {
+				state.navNewsStatus = newsStatus;
+				lsSetJSON(HOME_STATUS_CACHE, {
+					t: Date.now(),
+					data: newsStatus
+				});
+			}
 			updateRailBadge();
-			patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), cachedNewsStatus());
-			showToast("Checked eCFR for framework updates");
+			const titles = state.homeSnapshot?.titles || installedFallbackList();
+			patchHomeDynamicBands(titles, newsStatus || cachedNewsStatus());
+			const attention = collectAttentionItems(titles, newsStatus || cachedNewsStatus());
+			if (newsStatus?.sync_enabled && !newsStatus.syncing && frAttentionReason(newsStatus)) await syncFrOnHome(false).catch(() => false);
+			showToast(attention.length ? `${plural(attention.length, "update")} available` : "All frameworks are up to date");
 		} catch {
-			showToast("Couldn’t reach eCFR right now", 4e3);
+			showToast("Couldn’t reach update services right now", 4e3);
 		} finally {
-			actEl.disabled = false;
+			if (btn.isConnected) {
+				btn.disabled = false;
+				btn.innerHTML = prevHtml;
+			}
 		}
 	} else if (act === "sync-fr") {
 		actEl.disabled = true;
 		try {
-			await getJSON("/api/news/refresh", {
-				method: "POST",
-				body: JSON.stringify({ force: true })
-			});
-			showToast("Federal Register sync started");
-			hydrateHome(state.routeSeq);
+			showToast(await syncFrOnHome(true) ? "Syncing Federal Register…" : "Federal Register is already up to date");
 		} catch (err) {
 			showToast(err instanceof Error ? err.message : "Sync failed", 4e3);
-			actEl.disabled = false;
+			if (actEl.isConnected) actEl.disabled = false;
 		}
 	}
 });
@@ -12964,44 +14208,38 @@ function libTitleList(d, sort) {
 var LIB_TIER_TABS = [
 	{
 		id: "all",
-		label: "All Authorities",
+		label: "All Federal Frameworks",
 		refTier: "cfr"
 	},
 	{
 		id: "federal-statute",
-		label: "U.S. Code",
+		label: "U.S. Code (U.S.C.)",
 		refTier: "usc"
 	},
 	{
 		id: "federal-reg",
-		label: "Federal CFR",
+		label: "Federal Regulations (CFR)",
 		refTier: "cfr"
 	},
 	{
-		id: "state",
-		label: "States",
-		refTier: "state"
-	},
-	{
-		id: "county",
-		label: "Counties",
-		refTier: "county"
+		id: "federal-register",
+		label: "Federal Register (FR)",
+		refTier: "fr"
 	},
 	{
 		id: "standard",
-		label: "Standards",
+		label: "Incorporated Standards",
 		refTier: "ibr"
 	}
 ];
 var TIER_CONNECTOR_NOTES = {
-	"federal-statute": "United States Code (U.S.C.) XML packs (OSH Act, RCRA, Clean Air Act) plug in alongside CFR cross-links.",
-	"state": "State administrative codes and OSHA-approved State Plans (e.g. Cal/OSHA 8 CCR, WA WAC) attach via CorpusSummary.",
-	"county": "County and municipal fire, air-quality, and health ordinances attach under State jurisdiction feeds.",
-	"standard": "Consensus standards (ANSI, NFPA, ASTM, ASME) currently resolve via section peeks and each Title Start Almanac."
+	"federal-statute": "United States Code (U.S.C.) USLM XML ingestion connects federal enabling statutes directly alongside CFR and Federal Register links.",
+	"federal-register": "Federal Register API v1 streams daily Final Rules, Proposed Rules, Notices, and Public Inspection filings in the Newsroom.",
+	"standard": "Incorporated consensus standards (ANSI, NFPA, ASTM, ASME) resolve inside section peeks and each Title Start Almanac."
 };
 function libTierTabsHtml(d) {
 	const cfrCount = (d.titles || []).filter((t) => !t.reserved).length;
-	const extras = state.extraCorpora || [];
+	const extras = (state.extraCorpora || []).filter((c) => c.tier !== "state" && c.tier !== "county");
 	const countFor = (id) => {
 		if (id === "all") return cfrCount + extras.length;
 		if (id === "federal-reg") return cfrCount + extras.filter((c) => c.tier === "federal-reg").length;
@@ -13009,7 +14247,7 @@ function libTierTabsHtml(d) {
 	};
 	const populated = LIB_TIER_TABS.filter((t) => t.id === "all" || countFor(t.id) > 0);
 	if (populated.length <= 2) return "";
-	return `<div class="lib-tier-bar" role="tablist" aria-label="Filter catalog by authority tier">${populated.map((t) => {
+	return `<div class="lib-tier-bar" role="tablist" aria-label="Filter catalog by federal framework">${populated.map((t) => {
 		const on = lib.tier === t.id;
 		const count = countFor(t.id);
 		return `<button type="button" role="tab" aria-selected="${on}" class="lib-tier-tab${on ? " is-active" : ""}" data-ref-tier="${t.refTier}" data-lib-tier="${t.id}">
@@ -13022,38 +14260,37 @@ function libPlannedConnectorsHtml() {
 	const planned = LIB_TIER_TABS.filter((t) => t.id !== "all" && t.id !== "federal-reg" && !extras.some((c) => c.tier === t.id));
 	if (!planned.length) return "";
 	return `<details class="lib-planned">
-    <summary><span>Planned jurisdiction connectors</span><span class="lib-planned-sub">${planned.length} pre-wired authority layers</span></summary>
+    <summary><span>Federal framework connectors</span><span class="lib-planned-sub">${planned.length} federal layers</span></summary>
     <div class="lib-planned-grid">${planned.map((t) => `
       <div class="lib-planned-item" data-ref-tier="${t.refTier}">
         <div class="lib-planned-head"><span class="tier-pip is-hollow" aria-hidden="true"></span><span>${escapeHtml(t.label)}</span></div>
-        <p class="lib-planned-desc">${escapeHtml(TIER_CONNECTOR_NOTES[t.id] || "Ingestion pack pending.")}</p>
+        <p class="lib-planned-desc">${escapeHtml(TIER_CONNECTOR_NOTES[t.id] || "Federal ingestion adapter planned.")}</p>
       </div>`).join("")}</div>
   </details>`;
 }
 function libExtraTierBodyHtml(tierId) {
-	const meta = TIER_META[tierId] || TIER_META["state"];
+	const meta = TIER_META[tierId] || TIER_META["federal-statute"];
 	const matches = (state.extraCorpora || []).filter((c) => c.tier === tierId);
 	if (matches.length) return `<section class="lib-desk" aria-label="${escapeHtml(meta.label)}">
       <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(meta.label)}</h3><span class="lib-desk-count">${plural(matches.length, "corpus")}</span></header>
       <div class="lib-stories">${matches.map((c) => `
         <article class="lib-story has-tier-bar" data-ref-tier="${refTierForCorpus(c)}">
-          <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}${escapeHtml(c.jurisdiction_label || c.jurisdiction)}</span>${statPill("synced", "Ready")}</div>
+          <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}${escapeHtml(c.jurisdiction_label || "Federal")}</span>${statPill("synced", "Ready")}</div>
           <h3 class="story-name"><a href="${escapeHtml(corpusHashFor(c))}">${escapeHtml(c.code)} — ${escapeHtml(c.name)}</a></h3>
           ${c.summary ? `<p class="story-dek">${escapeHtml(c.summary)}</p>` : ""}
           <div class="story-foot"><span class="story-date">${escapeHtml((c.agencies || []).join(" · ") || meta.label)}</span><div class="story-actions"><a class="lib-act" href="${escapeHtml(corpusHashFor(c))}">Open</a></div></div>
         </article>`).join("")}</div></section>`;
 	return `<section class="resolver-card is-catalog-slot has-tier-bar" data-ref-tier="${meta.refTier}">
-    <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}Catalog Slot Pre-Wired</div>
+    <div class="doc-kicker"><span class="ref-badge">${escapeHtml(meta.tag)}</span>${SEP}Federal Framework Slot</div>
     <h2 class="doc-title">${escapeHtml(meta.label)}</h2>
     <p class="resolver-msg">${escapeHtml({
-		"federal-statute": "United States Code (U.S.C.) XML statutory packs (Title 29 OSH Act/FLSA, Title 42 EPA statutes, Title 49 Transportation) plug directly into this catalog slot alongside CFR cross-links.",
-		"state": "State administrative codes and OSHA-approved State Plans (e.g., California 8 CCR, Texas TAC, Washington WAC) share the same CorpusSummary contract and search facets.",
-		"county": "County and municipal fire, air-quality, and environmental health ordinances attach under State feeds using jurisdiction codes like US-CA-LA.",
-		"standard": "Incorporated consensus standards (ANSI, NFPA, ASTM, ASME) currently resolve inside section peeker popovers and each Title Start Almanac."
-	}[tierId] || "Backend ingestion pack pending.")}</p>
+		"federal-statute": "United States Code (U.S.C.) USLM XML statutory ingestion plugs directly into this catalog slot alongside CFR and Federal Register cross-links.",
+		"federal-register": "Federal Register filings stream live through the Newsroom across agencies and installed CFR titles.",
+		"standard": "Incorporated consensus standards (ANSI, NFPA, ASTM, ASME) resolve inside section peeks and each Title Start Almanac."
+	}[tierId] || "Federal ingestion adapter pending.")}</p>
     <div class="resolver-acts">
       <button type="button" class="btn btn-accent" data-lib-tier="federal-reg">View Federal CFR Catalog</button>
-      <a class="btn" href="#/title/${state.currentTitle}/">Open ${state.currentTitle} CFR Almanac</a>
+      <a class="btn" href="#/news">Open Federal Register</a>
     </div>
   </section>`;
 }
@@ -13061,7 +14298,7 @@ function libFrontHtml(d) {
 	const live = d.titles.filter((t) => !t.reserved);
 	const { newest, recent } = amendedWeek(d);
 	const sub = joinSep([
-		"Multi-Jurisdiction Regulatory Catalog",
+		"Federal Codes & Frameworks Catalog",
 		newest ? `Edition ${escapeHtml(fmtDate(newest))}` : "",
 		`${live.length} CFR titles`,
 		recent ? `${recent} amended this week` : "No amendments this week"
@@ -13073,8 +14310,8 @@ function libFrontHtml(d) {
 	const extraTiers = TIER_ORDER.filter((t) => t !== "federal-reg" && Boolean(lib.extraCorporaCount || (state.extraCorpora || []).some((c) => c.tier === t)));
 	const cfrBody = `
     <div class="lib-broadsheet${lead ? "" : " is-wire-only"}">${lead ? suiteHero(lead, d) : ""}${libWire(d)}</div>
-    ${others.length ? `<section class="lib-suites" aria-label="More compliance suites">
-      <header class="lib-desk-header"><h2 class="lib-desk-name">Jurisdiction Packs</h2><span class="lib-desk-count">${plural(others.length, "pack")}</span></header>
+    ${others.length ? `<section class="lib-suites" aria-label="Federal title bundles">
+      <header class="lib-desk-header"><h2 class="lib-desk-name">Federal Topic Bundles</h2><span class="lib-desk-count">${plural(others.length, "bundle")}</span></header>
       <div class="lib-suite-grid">${others.map((s) => suiteCard(s, d)).join("")}</div></section>` : ""}
     <div class="lib-tools">
       <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter titles or agencies…" aria-label="Filter titles or agencies" autocomplete="off" spellcheck="false" value="${escapeHtml(lib.filter)}">
@@ -16804,7 +18041,8 @@ async function handleRoute() {
 	} catch {}
 	state.routeAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
 	syncNavToRoute(path);
-	if (state.noTitles && !/^\/(library|news|projects|settings|help)(\/|$)/.test(path)) {
+	if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus)(\/|$)/.test(path)) {
+		emit("route:changed", { path });
 		await renderWelcome();
 		return;
 	}
@@ -16820,7 +18058,12 @@ async function handleRoute() {
 			String(cfrTitleNum),
 			corpusMatch.subPath
 		];
-		else {
+		else if (corpusMatch.tier === "state" || corpusMatch.tier === "county") {
+			state.activeCorpus = null;
+			emit("route:changed", { path });
+			renderNotFound();
+			return;
+		} else {
 			const matchedCorpus = findSystemFramework(corpusMatch.tier, corpusMatch.jurisdiction, corpusMatch.code) || state.corpora.find((c) => c.tier === corpusMatch.tier && c.jurisdiction.toLowerCase() === corpusMatch.jurisdiction.toLowerCase() && String(c.code).toLowerCase() === String(corpusMatch.code).toLowerCase());
 			clearTreeSelection();
 			setViewHead("");
@@ -16828,21 +18071,23 @@ async function handleRoute() {
 				corpus_id: `${corpusMatch.jurisdiction}:${corpusMatch.tier}:${corpusMatch.code}`,
 				tier: corpusMatch.tier,
 				jurisdiction: corpusMatch.jurisdiction,
-				jurisdiction_label: corpusMatch.jurisdiction,
+				jurisdiction_label: "Federal",
 				code: corpusMatch.code,
-				name: `${corpusMatch.jurisdiction} ${corpusMatch.code}`,
-				desk: "ehs",
+				name: corpusMatch.code,
+				desk: "all",
 				agencies: [],
 				installed: false
 			};
 			state.activeCorpus = fallbackCorpus;
 			renderCorpusDrawer(fallbackCorpus);
 			applyNav();
+			emit("route:changed", { path });
 			renderCorpusStaging(fallbackCorpus);
 			return;
 		}
 	}
 	state.activeCorpus = null;
+	emit("route:changed", { path });
 	if (titleMatch) {
 		const targetTitle = parseInt(titleMatch[1], 10);
 		const subPath = titleMatch[2] || "/";
@@ -16947,6 +18192,16 @@ on("route:refresh", () => {
 // src/components/palette.ts
 function commandList() {
 	const mod = isMac ? "⌘" : "Ctrl ";
+	const uscCommands = allSystemFrameworks().filter((c) => c.tier === "federal-statute").slice(0, 4).map((c) => [
+		`Open ${c.code} · ${c.name}`,
+		corpusHashFor(c),
+		""
+	]);
+	const cfrCommands = state.installedTitles.map((t) => [
+		`Open ${t.title} CFR · ${t.name}`,
+		`#/title/${t.title}/`,
+		""
+	]);
 	return [
 		[
 			"Go to Home",
@@ -16959,7 +18214,7 @@ function commandList() {
 			"G P"
 		],
 		[
-			"Go to Newsroom",
+			"Go to Newsroom (Federal Register)",
 			"#/news",
 			"G N"
 		],
@@ -16973,11 +18228,11 @@ function commandList() {
 			"#/settings",
 			"G S"
 		],
-		[
-			`Go to Title ${state.currentTitle} start`,
+		...!state.noTitles ? [[
+			`Open ${state.currentTitle} CFR start`,
 			`#/title/${state.currentTitle}/`,
 			"G T"
-		],
+		]] : [],
 		[
 			"Open framework contents",
 			"cmd:reader",
@@ -16988,13 +18243,9 @@ function commandList() {
 			"#/corpus/federal-register/US/FR/",
 			""
 		],
+		...uscCommands,
 		[
-			"Search DOL inspections (live archive)",
-			"#/news?cat=enforcement",
-			""
-		],
-		[
-			"Refresh news",
+			"Refresh Federal Register feed",
 			"cmd:news-refresh",
 			""
 		],
@@ -17004,7 +18255,7 @@ function commandList() {
 			""
 		],
 		[
-			"Connections & API keys",
+			"Data sources & API keys",
 			"#/help",
 			""
 		],
@@ -17028,11 +18279,7 @@ function commandList() {
 			`#/projects/${encodeURIComponent(p.id)}`,
 			""
 		]),
-		...state.installedTitles.filter((t) => t.title !== state.currentTitle).map((t) => [
-			`Switch to Title ${t.title} ${t.name}`,
-			`#/title/${t.title}/`,
-			""
-		])
+		...cfrCommands
 	];
 }
 function commandItemsHtml(q) {

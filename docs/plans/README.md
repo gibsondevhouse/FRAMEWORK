@@ -1,9 +1,13 @@
-# FRAMEWORK Planning Registry (10-Series by Subject)
+# FRAMEWORK Planning Archive (Historical 10-Series)
 
-Plans under `docs/plans/` are organized in a **10-series** by technical subject (`10_`–`50_`), with individual plans numbered within each subject decade (`11_`, `21_`, `31_`, `41_`, `42_`, `51_`) so related initiatives stay grouped and room remains for future plans.
+> [!IMPORTANT]
+> **Linear is the Source of Truth for Plans (as of 2026-11-19):**
+> All active, upcoming, and future planning for **FRAMEWORK** lives in **Linear (`FRAMEWORK` / `P-DEV-2`)** — do not author new plans in `docs/plans/`.
+>
+> **Product Direction:** FRAMEWORK is a **federal-only platform** for staying up to date on codes and laws across federal frameworks (**CFR, Federal Register, U.S.C.**). **State-law coverage and HSE-specific functions are out of scope.**
+> **Immediate Priority:** Move the UI beyond its CFR-centric focus so CFR, Federal Register, and U.S.C. operate as peer federal frameworks.
 
-> [!NOTE]
-> For a unified portfolio overview, dependency map, and stage-by-stage breakdown, see [`MAPPED_PLAN_OVERVIEW.md`](MAPPED_PLAN_OVERVIEW.md) and [`MAPPED_PLAN_OVERVIEW.docx`](MAPPED_PLAN_OVERVIEW.docx). Lightweight cleanup logs and follow-ups live in [`docs/notes/`](../notes/). Active implementation code lives in [`reader/`](../../reader/).
+This directory is retained as a **historical archive** of earlier 10-series design plans (`10_`–`50_`). Active implementation code lives in [`reader/`](../../reader/).
 
 ---
 
@@ -19,17 +23,15 @@ Plans under `docs/plans/` are organized in a **10-series** by technical subject 
 | **20 — App Shell, Home & Library** | [`22_editorial_download_refactor/`](20_app_shell_and_workspace/22_editorial_download_refactor/MASTER_PLAN.md) | Completed | Broadsheet `#/library` front page, Compliance Suites batch queue, persistent Transfer Dock. |
 | **20 — App Shell, Home & Library** | [`23_home_screen_refactor/`](20_app_shell_and_workspace/23_home_screen_refactor/MASTER_PLAN.md) | Completed | End-user `#/` Home screen bands, `/api/titles/snapshot`, SQLite read-only/concurrency hardening. |
 | **20 — App Shell, Home & Library** | [`24_dark_newsroom_multi_jurisdiction_ui/`](20_app_shell_and_workspace/24_dark_newsroom_multi_jurisdiction_ui/MASTER_PLAN.md) | Completed (macOS baselines) | Dark-mode-only obsidian palette, 9-tier semantic link colors & Reference Ledger, `#/corpus/` routing & Tiered Corpus Switcher, Desk ribbon, Authority Stack, Subject Workspaces housing nested Action Projects. |
-| **20 — App Shell, Home & Library** | [`25_white_glove_ui_ux_refinement/`](20_app_shell_and_workspace/25_white_glove_ui_ux_refinement/MASTER_PLAN.md) | **In Progress** | White-glove UI/UX polish, straight tier bars, geometric mark, `0 of 0` & wire fixes (Phase 1 shipped), single-row `.doc-actions`, mobile unit jumper, Audit Brief export, and offline Obligation Lens. |
+| **20 — App Shell, Home & Library** | [`25_white_glove_ui_ux_refinement/`](20_app_shell_and_workspace/25_white_glove_ui_ux_refinement/MASTER_PLAN.md) | **Paused** *(Phase 1 Completed)* | Phase 1 visual craft & live bug fixes shipped; Phases 2–5 deferred behind the immediate federal multi-framework UI refocus (moving beyond CFR-centric UI). |
 | **30 — CFR Reader & Citations** | [`31_reader_development/`](30_cfr_reader_and_citations/31_reader_development/MASTER_PLAN.md) | Completed (macOS baselines) | Unified citation parser, inline peeks, split reading, micro-downloads, broadsheet Title Start & References Hub, IBR graph & type safety (`win32` CI baseline refresh noted). |
-| **40 — Regulatory Intelligence & DOL** | [`41_osha_news_interface/`](40_regulatory_intelligence_and_dol/41_osha_news_interface/MASTER_PLAN.md) | Completed | `#/news` hub, FR API v1 + DOL v4 pipeline, bidirectional reader links, schedule-gated sync, and Inspection Case File (`#/news/inspection/{activity_nr}`). |
-| **40 — Regulatory Intelligence & DOL** | [`42_dol_api_expansion/`](40_regulatory_intelligence_and_dol/42_dol_api_expansion/MASTER_PLAN.md) | **Completed** (`2026-11-18`) | Shared quota pacer & `case_mod_date` delta guard, bidirectional related inspections, contested/FTA/abatement & raw-count paragraph hotspots, GDC + accident FTS5 & core NAICS/`state_flag` facets, rate-safe live DOL lookup (`⌘K` / `#/news`) + Workspace clipping + local Claude `search_enforcement`, and CLI-first `/v4/datasets` catalog & schema probe. |
+| **40 — Regulatory Intelligence & DOL** | [`41_osha_news_interface/`](40_regulatory_intelligence_and_dol/41_osha_news_interface/MASTER_PLAN.md) | Completed *(Existing Foundation)* | `#/news` hub, FR API v1 + DOL v4 pipeline, bidirectional reader links, schedule-gated sync, and Inspection Case File (`#/news/inspection/{activity_nr}`). |
+| **40 — Regulatory Intelligence & DOL** | [`42_dol_api_expansion/`](40_regulatory_intelligence_and_dol/42_dol_api_expansion/MASTER_PLAN.md) | Completed *(Existing Foundation)* | Shared quota pacer & `case_mod_date` delta guard, bidirectional related inspections, contested/FTA/abatement & raw-count paragraph hotspots, GDC + accident FTS5 & NAICS/`state_flag` facets, rate-safe live DOL lookup, and CLI `/v4/datasets` catalog probe. *(DOL/HSE workflows do not define future scope.)* |
 | **40 — Regulatory Intelligence & DOL** | [`43_federal_register_and_ecfr_hardening/`](40_regulatory_intelligence_and_dol/43_federal_register_and_ecfr_hardening/MASTER_PLAN.md) | **Completed** (`2026-11-18`) | eCFR HTTP `429`/edition-pinning/completeness hardening + disk hygiene, multi-agency & multi-title Federal Register sync (`29`/`40`/`49`/…), cross-title `#btn-news-activity`, and on-demand `body_html_url` FR preamble reader (`#/news/fr/{document_number}`). |
-| **50 — Long-Term Strategy** | [`51_hse_platform_roadmap/`](50_long_term_strategy/51_hse_platform_roadmap/HSE_PLATFORM_ROADMAP.md) | Strategic Blueprint | Multi-horizon platform vision: MCP server, policy linter, hybrid RAG, regulatory change radar, enterprise bots. |
+| **50 — Long-Term Strategy** | [`51_hse_platform_roadmap/`](50_long_term_strategy/51_hse_platform_roadmap/HSE_PLATFORM_ROADMAP.md) | **Archived / Superseded** | Historical strategy doc. HSE-specific suites and state-law coverage are **out of scope**; only federal-only platform capabilities (U.S.C. ingestion, MCP server, Hybrid RAG, Federal Change Radar, cross-citation graph) carry forward in Linear. |
 
 ---
 
 ## Adding New Plans
 
-1. Pick the matching subject series (`10_` Platform, `20_` Shell/Library, `30_` Reader/Citations, `40_` Regulatory Intelligence/DOL, `50_` Strategy — or `60_+` for a new subject domain).
-2. Allocate the next two-digit plan code inside that subject (e.g., `32_...`, `43_...`).
-3. Include a `MASTER_PLAN.md` with clear status (`Planned`, `In Progress`, `Completed`, `Historical`), grounded codebase touchpoints, and stage/exit-gate specs, then register the plan in this index.
+Do **not** add new plan files here. Create and track all new initiatives, milestones, and technical specs directly in **Linear (`FRAMEWORK` / `P-DEV-2`)**.

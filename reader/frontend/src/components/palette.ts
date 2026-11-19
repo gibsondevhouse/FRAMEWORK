@@ -1,6 +1,7 @@
 import { state } from '../state';
 import { toggleChat } from '../components/chat';
 import { openEnvModal } from '../components/env_modal';
+import { allSystemFrameworks, corpusHashFor } from '../components/corpora';
 import { emit } from '../core/events';
 import { loadProjects } from '../core/projects_store';
 import { escapeHtml, isMac } from '../dom';
@@ -9,24 +10,29 @@ import { NavPanelKey, openPanel, toggleDrawer } from '../nav';
 // --- Commands in the search box: type ">" ---
 export function commandList(): Array<[string, string, string]> {
   const mod = isMac ? '⌘' : 'Ctrl ';
+  const uscCommands = allSystemFrameworks()
+    .filter(c => c.tier === 'federal-statute')
+    .slice(0, 4)
+    .map((c): [string, string, string] => [`Open ${c.code} · ${c.name}`, corpusHashFor(c), '']);
+  const cfrCommands = state.installedTitles.map((t): [string, string, string] => [`Open ${t.title} CFR · ${t.name}`, `#/title/${t.title}/`, '']);
   return [
     ['Go to Home', '#/', 'G H'],
     ['Go to Workspaces', '#/projects', 'G P'],
-    ['Go to Newsroom', '#/news', 'G N'],
+    ['Go to Newsroom (Federal Register)', '#/news', 'G N'],
     ['Go to Library', '#/library', 'G L'],
     ['Go to Settings', '#/settings', 'G S'],
-    [`Go to Title ${state.currentTitle} start`, `#/title/${state.currentTitle}/`, 'G T'],
+    ...(!state.noTitles ? [[`Open ${state.currentTitle} CFR start`, `#/title/${state.currentTitle}/`, 'G T'] as [string, string, string]] : []),
     ['Open framework contents', 'cmd:reader', 'G C'],
     ['Federal Register framework', '#/corpus/federal-register/US/FR/', ''],
-    ['Search DOL inspections (live archive)', '#/news?cat=enforcement', ''],
-    ['Refresh news', 'cmd:news-refresh', ''],
+    ...uscCommands,
+    ['Refresh Federal Register feed', 'cmd:news-refresh', ''],
     ['New workspace', 'cmd:new-project', ''],
-    ['Connections & API keys', '#/help', ''],
+    ['Data sources & API keys', '#/help', ''],
     ['Edit API keys', 'cmd:env-modal', ''],
     ['Toggle sidebar / framework drawer', 'cmd:drawer', `${mod}B`],
     ['Ask Claude', 'cmd:chat', `${mod}J`],
     ...loadProjects().map((p): [string, string, string] => [`Workspace: ${p.name}`, `#/projects/${encodeURIComponent(p.id)}`, '']),
-    ...state.installedTitles.filter(t => t.title !== state.currentTitle).map((t): [string, string, string] => [`Switch to Title ${t.title} ${t.name}`, `#/title/${t.title}/`, '']),
+    ...cfrCommands,
   ];
 }
 

@@ -231,27 +231,57 @@ class BehaviorTests(BrowserCase):
         page.wait_for_selector(".hm-news[data-news-loaded='1']", timeout=15000)
         self.assertIn("FRAMEWORK", page.title())
         self.assertIn("Home", page.inner_text("#view h1"))
-        # Legal Systems strip covers all 4 authority systems: U.S.C., CFR, FR, State
+        # Federal update cards cover the 3 peer federal frameworks (U.S.C., CFR, FR) with recent changes (not download counts)
         systems_text = page.inner_text(".hm-systems")
-        for sys_lbl in ("U.S.C.", "CFR", "FR", "State"):
+        for sys_lbl in ("U.S.C.", "CFR", "FR"):
             self.assertIn(sys_lbl, systems_text)
+        for inv_count in ("3 statutes", "3 titles", "6 notices"):
+            self.assertNotIn(inv_count, systems_text)
+        self.assertEqual(page.locator(".hm-sys-card[data-hm-tier='state']").count(), 0)
+        # Topbar framework switcher stays federal-neutral on Home (not locked to 29 CFR)
+        self.assertEqual(page.inner_text("#title-select-num").strip(), "Federal")
         # Update status radar & work footprint are surfaced directly on Home
         self.assertGreaterEqual(page.locator("#hm-updates").count(), 1)
         self.assertGreaterEqual(page.locator(".hm-footprint").count(), 1)
         self.assertIn("Continue reading", page.text_content(".hm-resume"))
-        self.assertIn("Workspaces", page.inner_text(".hm-ws"))
-        self.assertIn("Regulatory Pulse", page.inner_text(".hm-news"))
+        self.assertIn("workspaces", page.inner_text(".hm-ws").lower())
+        self.assertIn("federal register pulse", page.inner_text(".hm-news").lower())
         titles_text = page.inner_text(".hm-titles")
-        self.assertIn("Legal Frameworks", titles_text)
+        self.assertIn("federal frameworks", titles_text.lower())
         self.assertIn("OSHA", titles_text)
-        # Filtering by system tier (FR, U.S.C., State) works directly from Home
+        # Filtering by federal framework (U.S.C., CFR, FR) works directly from Home
         page.click(".hm-sys-card[data-hm-tier='federal-statute']")
         self.assertGreaterEqual(page.locator(".hm-title-card[data-ref-tier='usc']").count(), 1)
-        page.click(".hm-sys-card[data-hm-tier='state']")
-        self.assertGreaterEqual(page.locator(".hm-title-card[data-ref-tier='state']").count(), 1)
+        page.click(".hm-sys-card[data-hm-tier='federal-reg']")
+        self.assertGreaterEqual(page.locator(".hm-title-card[data-ref-tier='cfr']").count(), 1)
         page.click(".hm-sys-card[data-hm-tier='federal-register']")
         self.assertGreaterEqual(page.locator(".hm-title-card[data-ref-tier='fr']").count(), 1)
         page.click("[data-hm-tier='all']")
+        # Primary Home tabs: Overview, USC, CFR, Federal Register
+        self.assertEqual(page.locator("#hm-tabs [data-hm-tab]").count(), 4)
+        page.click("#hm-tabs [data-hm-tab='usc']")
+        usc_text = page.inner_text("#hm-tab-body")
+        self.assertIn("United States Code", usc_text)
+        self.assertIn("29 U.S.C. § 655", usc_text)
+        self.assertIn("Administrative Procedure Act", usc_text)
+        self.assertGreaterEqual(page.locator(".hm-usc-card .hm-chain-bar").count(), 1)
+        page.click("#hm-tabs [data-hm-tab='cfr']")
+        cfr_text = page.inner_text("#hm-tab-body")
+        self.assertIn("Code of Federal Regulations", cfr_text)
+        self.assertIn("High-Frequency Regulatory Parts", cfr_text)
+        self.assertIn("Available in eCFR Catalog", cfr_text)
+        page.click("#hm-tabs [data-hm-tab='fr']")
+        fr_text = page.inner_text("#hm-tab-body")
+        self.assertIn("Federal Register", fr_text)
+        self.assertIn("Effective Dates & Comment Deadlines", fr_text)
+        self.assertEqual(page.locator(".hm-fr-cats [data-hm-fr-cat]").count(), 5)
+        page.click(".hm-fr-cats [data-hm-fr-cat='rulemaking']")
+        self.assertIn("Proposed Rules Dispatches", page.inner_text("#hm-tab-body"))
+        page.click(".hm-fr-cats [data-hm-fr-cat='all']")
+        # Keyboard WAI-ARIA tab navigation on #hm-tabs
+        page.locator("#hm-tabs [data-hm-tab='fr']").focus()
+        page.keyboard.press("ArrowRight")
+        self.assertGreaterEqual(page.locator("#hm-systems").count(), 1)
         # Secondary framework drawer is strictly closed on Home (main page)
         self.assertTrue(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"))
         self.assertFalse(page.evaluate("document.documentElement.classList.contains('in-framework')"))
@@ -259,17 +289,18 @@ class BehaviorTests(BrowserCase):
         view_text = page.inner_text("#view").lower()
         for clutter in ("import json", "commands", "connections", "dol inspection sync"):
             self.assertNotIn(clutter, view_text)
-        # Entering a section reader opens the secondary framework drawer and compacts the primary rail
+        # Entering a section reader opens the secondary framework drawer, compacts the rail, and scopes topbar to 29 CFR
         page.goto(f"{ENV.base_url}/#/section/1910.135")
         page.wait_for_selector("text=protective helmet", timeout=15000)
         self.assertTrue(page.evaluate("document.documentElement.classList.contains('in-framework')"))
         self.assertFalse(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"))
+        self.assertEqual(page.inner_text("#title-select-num").strip(), "29 CFR")
         self.assert_no_external_requests()
 
     def test_home_quick_jump_and_chords(self):
         page = self.open_page("/", ".hm-titles[data-snapshot-loaded='1']")
         page.wait_for_selector(".hm-news[data-news-loaded='1']", timeout=15000)
-        page.locator(".hm-titles a.hm-part-chip").first.click()
+        page.locator(".hm-title-card[data-ref-tier='cfr'] a.hm-part-chip").first.click()
         page.wait_for_function(
             "() => /^#\\/title\\/\\d+\\/part\\//.test(location.hash)",
             timeout=15000,
@@ -366,8 +397,8 @@ class BehaviorTests(BrowserCase):
             page.goto(f"{ENV.base_url}/{route_hash}")
             page.wait_for_selector(ready, timeout=15000)
             self.assertTrue(page.evaluate("document.documentElement.classList.contains('drawer-retracted')"), f"drawer should be closed on {route_hash}")
-        # Legal framework views (Start page, Part TOC, Section Reader, and non-CFR Corpus) open the secondary drawer
-        for route_hash, ready in [("#/title/29/", ".ts-front"), ("#/title/29/part/1910", ".toc-atlas"), ("#/title/29/section/1910.135", ".reg-body"), ("#/corpus/state/US-CA/8%20CCR/", ".resolver-card")]:
+        # Federal framework views (Start page, Part TOC, Section Reader, and FR/U.S.C. Corpus) open the secondary drawer
+        for route_hash, ready in [("#/title/29/", ".ts-front"), ("#/title/29/part/1910", ".toc-atlas"), ("#/title/29/section/1910.135", ".reg-body"), ("#/corpus/federal-register/US/FR/", ".resolver-card")]:
             page.goto(f"{ENV.base_url}/{route_hash}")
             page.wait_for_selector(ready, timeout=15000)
             self.assertTrue(page.evaluate("document.documentElement.classList.contains('in-framework')"), f"in-framework missing on {route_hash}")
@@ -476,7 +507,7 @@ class BehaviorTests(BrowserCase):
         page.goto(f"{ENV.base_url}/#/")
         page.wait_for_selector(".welcome-card[data-profile='safety']", timeout=15000)
         self.assertIn("What do you work in?", page.inner_text("#view"))
-        self.assertEqual(page.inner_text("#title-select-num"), "No titles")
+        self.assertEqual(page.inner_text("#title-select-num"), "Federal")
         self.assertTrue(page.locator("#search").is_disabled())
         self.assertTrue(page.locator("#chat-toggle").is_disabled())
         # Cross-title verticals like News remain reachable before any title is installed.
@@ -549,13 +580,17 @@ class BehaviorTests(BrowserCase):
         # 2. Desk ribbon filters home frameworks and tier bar appears.
         self.assertGreaterEqual(page.locator(".hm-title-card.has-tier-bar[data-ref-tier='cfr']").count(), 1)
 
-        # 3. Searchable Multi-Jurisdiction Corpus Switcher + #/corpus/ routing.
+        # 3. Searchable Federal Framework Switcher + #/corpus/ routing (CFR, FR, U.S.C. — no State).
         page.locator("#title-select").click()
         page.wait_for_selector("#title-pop:not([hidden])", timeout=5000)
         self.assertGreaterEqual(page.locator(".tm-group[data-ref-tier='cfr']").count(), 1)
-        page.goto(f"{ENV.base_url}/#/corpus/state/US-CA/8%20CCR/")
-        page.wait_for_selector(".resolver-card[data-ref-tier='state']", timeout=5000)
-        self.assertIn("US-CA", page.inner_text(".resolver-card"))
+        self.assertGreaterEqual(page.locator(".tm-group[data-ref-tier='fr']").count(), 1)
+        self.assertGreaterEqual(page.locator(".tm-group[data-ref-tier='usc']").count(), 1)
+        self.assertEqual(page.locator(".tm-group[data-ref-tier='state']").count(), 0)
+        page.goto(f"{ENV.base_url}/#/corpus/federal-register/US/FR/")
+        page.wait_for_selector(".resolver-card[data-ref-tier='fr']", timeout=5000)
+        self.assertIn("Federal Register", page.inner_text(".resolver-card"))
+        self.assertEqual(page.inner_text("#title-select-num").strip(), "FR")
 
         # 4. Reference Ledger popover (#btn-refs-ledger) and 9-tier colors on a section with xrefs.
         page.goto(f"{ENV.base_url}/#/title/29/section/1910.120")

@@ -1,10 +1,12 @@
-# FRAMEWORK — A Regulatory Workstation
+# FRAMEWORK — Federal Codes & Laws Platform
 
-Welcome to **FRAMEWORK**, a calm, local-first workstation for anyone who spends time reading, researching, or organizing the **Code of Federal Regulations** (any of the 50 titles).
+Welcome to **FRAMEWORK**, a calm, local-first, **federal-only** platform for reading, tracking, and staying up to date on codes and laws across federal frameworks — including the **Code of Federal Regulations (CFR)**, the **Federal Register**, and the **United States Code (U.S.C.)**.
 
-Working with federal regulations shouldn't feel like wrestling with clunky government websites or waiting on slow page loads. FRAMEWORK puts the regulations right on your own machine in fast, offline SQLite databases—so searching across thousands of pages takes milliseconds, citations link straight to where they belong, and your notes and project dossiers stay with you.
+Working with federal law shouldn't feel like wrestling with clunky government websites or waiting on slow page loads. FRAMEWORK puts federal texts right on your own machine in fast, offline SQLite databases—so searching across thousands of pages takes milliseconds, citations link straight to where they belong, and your notes and workspaces stay with you.
 
-The only times FRAMEWORK reaches out to the internet are when you choose to download or update a title from eCFR, or if you optionally hook up an Anthropic API key to chat with Claude about the text you have open. Everything else—reading, searching, organizing projects—works completely offline.
+The only times FRAMEWORK reaches out to the internet are when you choose to download or update titles from eCFR, sync filings from the Federal Register API (or optional DOL API), or optionally hook up an Anthropic API key to chat with Claude about the text you have open. Everything else—reading, searching, organizing workspaces—works completely offline.
+
+*(Scope note: FRAMEWORK focuses exclusively on federal codes and laws. State-law coverage and HSE-specific suites are out of scope.)*
 
 ---
 
@@ -14,9 +16,9 @@ The only times FRAMEWORK reaches out to the internet are when you choose to down
 - **Follow citations without losing your place.** Hover a citation, footnote, table or figure reference to peek at it; Alt/⌥-click a section to open it side-by-side; and when a citation points to a title you haven't installed, click it to download just that section or part without leaving the page. Every section shows who cites it, consensus standards (ANSI, NFPA, ASTM, …) resolve to the title's incorporation-by-reference catalog, and each title's start page carries a References & Authorities directory of the standards bodies, portals and agencies it relies on. Hover any clause to copy a formal citation or clip it into a workspace.
 - **Search everything in an instant.** Full-text search (powered by SQLite FTS5) runs locally across one title or every title you have installed. Type a section number like `1910.1200` to jump straight there.
 - **Organize your work into Workspaces.** Pin sections you're actively working on into named workspaces, clip individual clauses with their citation, jot down notes, add tags, and export or import your workspaces as JSON whenever you need to share or back them up. Everything stays in your browser's local storage.
-- **Keep your library tidy with the Newsroom & Transfer Dock.** Browse all 50 CFR titles grouped by topic desk, install whole titles, individual parts, or single sections, or grab a curated **Compliance Suite** (like *Environment, Health & Safety*, *Trade & Commerce*, or *Government Contracting*) in one batch. A quiet **Regulatory Wire** shows which titles were amended most recently, and a floating transfer dock keeps track of downloads in the corner while you keep reading.
-- **Follow OSHA news without leaving the workstation.** The **News** page gathers OSHA final rules, proposed rules, notices, and pre-publication filings from the official Federal Register API (no key needed), and—with a free DOL API key—recent inspections, citations, and penalties. Every card states the facts in three fixed bullets built from the records themselves, with CFR chips that jump straight into the reader; every installed title's section and part pages show the related rulemaking and enforcement in return. News follows the agencies you configure plus every title you have installed, and any Federal Register item opens in an in-app reader with its full preamble and links into your installed CFR text. Enforcement items open an in-app inspection case file (each cited standard decoded to the exact paragraph, the citation history, General Duty narratives and accident abstracts) instead of sending you to osha.gov.
-- **Navigate without losing your place.** A slim activity rail along the edge lets you flip between Home, Title start, Contents, Workspaces, News, Library, and Settings—either pinned beside your reading or sliding out as an overlay when you want more room.
+- **Keep your library tidy with the Newsroom & Transfer Dock.** Browse all 50 CFR titles grouped by topic desk, install whole titles, individual parts, or single sections, or grab a curated title bundle in one batch. A quiet **Regulatory Wire** shows which titles were amended most recently, and a floating transfer dock keeps track of downloads in the corner while you keep reading.
+- **Follow Federal Register rulemaking without leaving the app.** The **News** page gathers Federal Register final rules, proposed rules, notices, and pre-publication filings from the official Federal Register API (no key needed) across your configured agencies and every installed CFR title. Every card states the facts in three fixed bullets built from the records themselves, with citation chips that jump straight into the reader; every installed title's section and part pages show related rulemaking in return, and published Federal Register documents open in an in-app preamble reader. *(An optional free DOL API key also unlocks historical OSHA enforcement records and case files.)*
+- **Navigate across federal frameworks cleanly.** A two-layer sidebar separates app-level navigation (Home, Workspaces, Newsroom, Library, Settings, API & Sources) from the contextual framework drawer that opens while you are inside a legal framework.
 - **Ask Claude when you want a second pair of eyes (optional).** Highlight any passage to ask about it, or open the assistant drawer. Claude reads directly from your local regulatory databases so its answers stay grounded in the actual text.
 
 ---
@@ -70,14 +72,9 @@ The **News** page works out of the box for Federal Register rulemaking. To also 
 - **`reader/`** — The workstation itself: a FastAPI + SQLite FTS5 backend and a vanilla-JS/TypeScript frontend (sources in `reader/frontend/`, built by Vite into the committed `reader/static/dist/`). See [`reader/README.md`](reader/README.md) for the full user guide and [`reader/API.md`](reader/API.md) if you want to use the HTTP API directly.
 
   Contributing to the frontend (only then do you need Node 20+): `cd reader/frontend && npm install && npm run watch` beside the uvicorn dev server, then commit the rebuilt `reader/static/dist/` (`.nvmrc` pins the Node version; `tests/test_build_stamp.py` fails if sources and the committed build drift apart).
-- **`docs/plans/`** — Design notes and roadmaps (organized in a **10-series** by subject; see [`docs/plans/README.md`](docs/plans/README.md)):
-  - `10_platform_and_architecture/` — Multi-title foundation (`11_multi_title_foundation/`) and repo stabilization (`12_repo_structure_stabilization/`).
-  - `20_app_shell_and_workspace/` — Sliding rail sidebar (`21_sliding_rail_sidebar/`), newsroom library & Transfer Dock (`22_editorial_download_refactor/`), and Home screen refactor (`23_home_screen_refactor/`).
-  - `30_cfr_reader_and_citations/` — CFR Reader evolution & citation graph (`31_reader_development/`).
-  - `40_regulatory_intelligence_and_dol/` — Implemented OSHA newsroom & case file (`41_osha_news_interface/`) and the DOL API v4 expansion (`42_dol_api_expansion/`) and Federal Register & eCFR hardening (`43_federal_register_and_ecfr_hardening/`).
-  - `50_long_term_strategy/` — Multi-horizon HSE strategic blueprint (`51_hse_platform_roadmap/HSE_PLATFORM_ROADMAP.md`; not yet built).
+- **`docs/plans/`** — Historical archive of earlier 10-series design plans (`11`–`51`). **Active planning and roadmap tracking live in Linear (`FRAMEWORK`)**.
 - **`docs/notes/`** — Lightweight dev notes for ongoing cleanup and follow-ups.
-- **`docs/bugs,quirks/`** — Register of eCFR ingest quirks (duplicate appendix identifiers in Titles 14 and 47, the reserved Title 35, loose subpart nesting) and notes toward other regulatory corpora.
+- **`docs/bugs,quirks/`** — Register of federal ingest quirks (duplicate appendix identifiers in Titles 14 and 47, reserved Title 35, loose subpart nesting, and U.S.C. notes).
 - **`CLAUDE.md`** — Detailed technical notes for anyone working on the code; **`AGENTS.md`** is the short entry point for coding agents and points back to it.
 
 *(Generated GovInfo/eCFR URL inventories like `docs/dev/`, `docs/title-29/`, and `docs/title-29-api/` are gitignored and not part of the repository; FRAMEWORK doesn't use them at runtime.)*

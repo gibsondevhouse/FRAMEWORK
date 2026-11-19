@@ -2,6 +2,7 @@
 
 export interface AppEvents {
   'route:refresh': undefined;
+  'route:changed': { path: string };
   'title:switched': { title: number };
   'titles:refreshed': { hadNone: boolean; changed: number[]; list: Array<{ title: number }> };
   'jobs:updated': { current: unknown; queued: unknown[]; recent: unknown[] };

@@ -25,7 +25,10 @@ import {
 import { dockModel, fmtEta } from '../src/components/transfer_dock';
 import { normalizeCfrTarget, targetHashFor } from '../src/components/cfr_resolver';
 import { buildReaderHref, formatTabLabel, tabIdentityMatch } from '../src/components/reader_tabs';
-import { allSystemFrameworks, corpusHashFor, parseCorpusPath, refTierForCorpus } from '../src/components/corpora';
+import {
+  allSystemFrameworks, authorityForCorpus, corpusHashFor,
+  FOUNDATIONAL_ADMIN_STATUTES, parseCorpusPath, refTierForCorpus,
+} from '../src/components/corpora';
 import { isFrameworkRoute } from '../src/nav';
 import { formatCfrCitation, parseCfrHref } from '../src/views/doc_utils';
 import {
@@ -167,14 +170,14 @@ test('transfer_dock dockModel and fmtEta compute progress phases and ETAs', () =
   assert.match(dm.left, /of/);
 });
 
-test('corpora helpers map paths, hashes, and authority tiers (CFR, FR, U.S.C., State)', () => {
+test('corpora helpers map paths, hashes, and federal-only frameworks (U.S.C., CFR, FR)', () => {
   assert.equal(corpusHashFor({ corpus_id: 'us:cfr:29', tier: 'federal-reg', title_num: 29, jurisdiction: 'US', code: '29' }), '#/title/29/');
-  assert.equal(corpusHashFor({ corpus_id: 'us-ca:state:8 CCR', tier: 'state', jurisdiction: 'US-CA', code: '8 CCR' }), '#/corpus/state/US-CA/8%20CCR/');
-  assert.deepEqual(parseCorpusPath('/corpus/state/US-CA/8%20CCR/section/3203'), {
-    tier: 'state',
-    jurisdiction: 'US-CA',
-    code: '8 CCR',
-    subPath: '/section/3203',
+  assert.equal(corpusHashFor({ corpus_id: 'us:fr:daily', tier: 'federal-register', jurisdiction: 'US', code: 'FR' }), '#/corpus/federal-register/US/FR/');
+  assert.deepEqual(parseCorpusPath('/corpus/federal-statute/US/29%20U.S.C./section/651'), {
+    tier: 'federal-statute',
+    jurisdiction: 'US',
+    code: '29 U.S.C.',
+    subPath: '/section/651',
   });
   assert.equal(refTierForCorpus('federal-statute'), 'usc');
   assert.equal(refTierForCorpus('federal-register'), 'fr');
@@ -183,15 +186,25 @@ test('corpora helpers map paths, hashes, and authority tiers (CFR, FR, U.S.C., S
   assert.ok(tiers.has('federal-reg'));
   assert.ok(tiers.has('federal-register'));
   assert.ok(tiers.has('federal-statute'));
-  assert.ok(tiers.has('state'));
+  assert.equal(tiers.has('state'), false);
+  assert.equal(tiers.has('county'), false);
+
+  const usc29 = systems.find(s => s.tier === 'federal-statute' && s.code.startsWith('29'));
+  assert.ok(usc29);
+  const auth29 = authorityForCorpus(usc29);
+  assert.ok(auth29);
+  assert.ok(auth29.acts.some(a => a.includes('Occupational Safety and Health Act')));
+  assert.ok(auth29.provisions.some(p => p.cite === '29 U.S.C. § 655' && p.cfrPart === '1910'));
+  assert.equal(FOUNDATIONAL_ADMIN_STATUTES.length, 4);
+  assert.ok(FOUNDATIONAL_ADMIN_STATUTES.some(f => f.code.includes('5 U.S.C.')));
 });
 
-test('isFrameworkRoute opens the secondary drawer only on start, TOC, reader, and corpus pages', () => {
+test('isFrameworkRoute opens the secondary drawer only on start, TOC, reader, and federal corpus pages', () => {
   state.noTitles = false;
-  for (const p of ['/title/29/', '/title/29', '/title/29/part/1910', '/title/29/part/1910/full', '/title/29/section/1910.1200/b', '/part/1910', '/section/1910.135', '/corpus/state/US-CA/8%20CCR/']) {
+  for (const p of ['/title/29/', '/title/29', '/title/29/part/1910', '/title/29/part/1910/full', '/title/29/section/1910.1200/b', '/part/1910', '/section/1910.135', '/corpus/federal-register/US/FR/', '/corpus/federal-statute/US/29%20U.S.C./']) {
     assert.equal(isFrameworkRoute(p), true, `expected framework route: ${p}`);
   }
-  for (const p of ['/', '/projects', '/projects/abc', '/news', '/news/inspection/123', '/news/fr/2026-1', '/library', '/library/29', '/settings', '/help', '/search']) {
+  for (const p of ['/', '/projects', '/projects/abc', '/news', '/news/inspection/123', '/news/fr/2026-1', '/library', '/library/29', '/settings', '/help', '/search', '/corpus/state/US-CA/8%20CCR/']) {
     assert.equal(isFrameworkRoute(p), false, `expected main page route: ${p}`);
   }
 });

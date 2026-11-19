@@ -1,8 +1,8 @@
-# FRAMEWORK — A Regulatory Workstation
+# FRAMEWORK — Federal Codes & Laws Platform
 
-**FRAMEWORK** is a calm, local-first workstation for reading, searching, and organizing the **Code of Federal Regulations**. Whether you're checking a single OSHA standard, cross-referencing environmental rules across Title 40 and Title 49, or putting together a compliance dossier for an audit, everything runs right on your own computer—fast, private, and free of clutter.
+**FRAMEWORK** is a calm, local-first, **federal-only** platform for reading, searching, and staying up to date on federal codes and laws across federal frameworks — including the **Code of Federal Regulations (CFR)**, the **Federal Register**, and the **United States Code (U.S.C.)**. Everything runs locally on your computer—fast, private, and free of clutter. *(State-law coverage and HSE-specific suites are out of scope.)*
 
-Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a lightweight vanilla JavaScript interface. Official eCFR XML is parsed into clean, readable legal typography with zero external frameworks getting in the way.
+Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a strict TypeScript frontend bundled via Vite. Official federal XML and JSON feeds render into clean, readable legal typography with zero heavy runtime frameworks getting in the way.
 
 ---
 
@@ -12,7 +12,7 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a lightw
 - **Three ways to view a regulation.** Long sections open **clause by clause** (one lettered paragraph or appendix chapter at a time, with a quiet navigation rail in the margin so you don't lose your place). Need the whole picture? Switch to **See full section** or **See full part** to view everything on one page. Short sections open as a single page automatically.
 - **True-to-life legal structure.** Paragraph levels `(a)` → `(1)` → `(i)` → `(A)` are properly nested and indented. Tables, footnotes, figures, and embedded appendices render right where they belong.
 - **Automatic citation links.** References like `§ 541.100`, `§§ 1910.120 through 1910.126`, `541.100(a)(1)`, and cross-title citations like `40 CFR 261.3` turn into clickable links—jumping straight to the section if you have that title installed, or opening eCFR if you don't.
-- **Themes & comfort.** Dark mode is the default for long reading sessions, with a light mode toggle and adjustable text size whenever you want it. Figures open in a lightbox with an invert-contrast toggle for white Federal Register drawings in dark mode.
+- **Obsidian dark typography & comfort.** Locked to a high-contrast obsidian dark editorial palette with adjustable text size and No/Less/Full motion preferences (while `@media print` renders clean black-on-white paper output). Figures open in a lightbox with an invert-contrast toggle for white Federal Register drawings in dark mode.
 
 ### Citations that do the legwork
 - **Peek before you jump.** Hover a cross-reference, footnote number, table or figure mention and the cited text appears in a small preview card. Nothing navigates until you ask it to.
@@ -27,11 +27,11 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a lightw
 - **Direct section jump.** Type a section number like `1910.134` into the search bar to hop straight to it.
 - **Command mode.** Type `>` in the search box to quickly jump between views, open panels, switch themes, or open a workspace.
 
-### Sliding rail & workspace
-- **Dual-track navigation.** A slim 48px activity rail along the edge gives you one-click access to **Home**, **Title start**, **Contents**, **Workspaces**, **News**, **Library**, and **Settings**.
-- **Pinned or flyout drawer.** Keep the secondary drawer pinned beside your reading, or switch it to flyout mode so it slides over the page only when you need it.
+### Two-layer sidebar & navigation
+- **Primary app sidebar + contextual framework drawer.** On main pages (**Home**, **Workspaces**, **Newsroom**, **Library**, **Settings**, **API & Sources**), the primary sidebar gives direct labeled navigation and quick jumps to frameworks. Inside any legal framework, it compacts into an icon rail and opens the contextual secondary framework drawer beside your reading.
+- **Pinned or flyout drawer.** Keep the secondary framework drawer pinned beside your reading, or switch it to flyout mode so it slides over the page only when you need it.
 - **Drill-down Table of Contents.** Browse by agency → part → section (with foldable subparts) or switch to a flat list of every part, with an instant filter box at the top.
-- **Home & Recent history.** Home picks up where you left off (down to the clause), lists your workspaces, shows a living snapshot of every downloaded title and a quiet regulatory pulse; click Home again for a timeline of what you've read recently. Usage stats stay strictly in your browser.
+- **Home & Updates Radar.** Home shows your federal framework overview, edition staleness and Federal Register sync radar, continue reading with recent history, and active workspaces. Usage stats stay strictly in your browser.
 
 ### Workspaces
 - **Collect what matters.** Pin any section to a **Workspace** using the **Pin** button or `Ctrl/Cmd+D`, or clip a single clause from its hover pill or from selected text.
@@ -45,8 +45,8 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a lightw
 - **Floating Transfer Dock.** Downloads run in a background queue with a compact floating progress card in the corner—showing pipeline stages, download speed, and time remaining—so you can keep reading while titles install.
 - **Storage cleanup.** Check how much disk space each title uses and clear out leftover temporary files right from **Settings**.
 
-### OSHA News (sanctioned APIs only)
-- **A newsroom for your regulations.** The **News** rail item (`#/news`, `G N`) shows OSHA **Final Rules**, **Proposed Rules**, **Notices**, and **Public Inspection** filings from the official **Federal Register API** — no credentials needed — plus **Enforcement & Penalties** from the **DOL Open Data API** when you add a free `DOL_API_KEY`.
+### Federal Register Newsroom (sanctioned APIs only)
+- **A newsroom for federal rulemaking.** The **News** view (`#/news`, `G N`) tracks Federal Register **Final Rules**, **Proposed Rules**, **Notices**, and **Public Inspection** filings from the official **Federal Register API** — no credentials needed — plus optional OSHA **Enforcement & Penalties** from the **DOL Open Data API** when a free `DOL_API_KEY` is configured.
 - **Facts, not summaries.** Every card carries three fixed bullets (*Action*, *CFR*, *Dates* — or *Incident*, *Standards*, *Penalty* for enforcement) built directly from the record's own fields. No language model writes or summarises anything.
 - **Linked into the reader.** CFR citations on cards are chips straight into your installed titles, and section and part pages of every installed title grow an activity button ("3 rules & citations") with a timeline of related rulemaking and enforcement.
 - **Every title you install, every agency you follow.** The Federal Register sync covers each agency in `NEWS_AGENCIES` (OSHA by default) plus the CFR titles you have installed, so installing Title 40 or 49 brings in the rules and notices that amend them.

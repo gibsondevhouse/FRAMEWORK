@@ -1,6 +1,6 @@
 # FRAMEWORK — API Reference
 
-Welcome to the HTTP and streaming API behind **FRAMEWORK**, a local-first Regulatory Workstation. The backend is a **FastAPI** service that powers the browser interface and exposes a clean JSON / SSE API over whatever CFR titles you have installed locally.
+Welcome to the HTTP and streaming API behind **FRAMEWORK**, a local-first, federal-only platform for federal codes and laws. The backend is a **FastAPI** service that powers the browser interface and exposes a clean JSON / SSE API over your installed CFR titles and synced Federal Register data (plus optional DOL enforcement data).
 
 - **Base URL:** `http://127.0.0.1:8000`
 - **Interactive Docs:** [Swagger UI](http://127.0.0.1:8000/docs) · [ReDoc](http://127.0.0.1:8000/redoc) · [OpenAPI JSON](http://127.0.0.1:8000/openapi.json)

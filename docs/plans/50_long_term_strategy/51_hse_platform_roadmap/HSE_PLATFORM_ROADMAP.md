@@ -1,5 +1,12 @@
 # Universal CFR Regulatory Intelligence Platform & HSE Master Blueprint
 
+> [!WARNING]
+> **Archived / Superseded (2026-11-19 · Synced with Linear `FRAMEWORK`):**
+> FRAMEWORK is now a **federal-only platform for staying up to date on codes and laws across federal frameworks** (CFR, Federal Register, U.S.C.), moving beyond a CFR-centric reader.
+> - **Out of Scope / Removed:** State-law coverage and all HSE-specific functions & Leadership Suite features (Section 5, Written Safety Program / Policy Linter, OSHA Part 1904 Recordability Engine, Chemical Threshold / NAICS / Penalty Exposure Crosswalk, and Field Operations Toolkit).
+> - **Carried Forward (Federal-Only Backlog in Linear):** U.S.C. & federal framework ingestion adapters, Model Context Protocol (MCP) server, local Hybrid RAG, Federal Change Radar / eCFR diffs, cross-framework citation knowledge graph, and team chat integrations.
+> - This file is retained as historical context only; do not execute HSE-specific items from it.
+
 > **A comprehensive technical and strategic specification** uniting local federal regulatory retrieval, multi-title CFR expansion, AI agent integrations, and domain-tailored tooling for HSE (Health, Safety & Environmental) leadership and operations.
 
 ---

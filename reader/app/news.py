@@ -215,7 +215,7 @@ def fetch_federal_register_documents(c: httpx.Client, agency: str, since: str) -
 
 def fetch_federal_register_by_cfr_title(c: httpx.Client, title_num: int, since: str) -> list[dict]:
     """Every document published on or after `since` (ISO date) referencing CFR `title_num`."""
-    params = [("conditions[cfr][title][]", str(int(title_num))), ("conditions[publication_date][gte]", since),
+    params = [("conditions[cfr][title]", str(int(title_num))), ("conditions[publication_date][gte]", since),
               ("order", "newest"), ("per_page", str(FR_PER_PAGE))]
     results = _fr_paginated(c, params)
     return [fr_document_item(d, None) for d in results if d.get("document_number")]

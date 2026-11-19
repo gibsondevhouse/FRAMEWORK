@@ -423,7 +423,7 @@ function renderTitleWireHtml(articles: WireArticle[]): string {
   if (!articles || !articles.length) return '';
   return `
     <div class="ts-rail-head">
-      <span class="hm-kicker">From the OSHA wire</span>
+      <span class="hm-kicker">Federal Register wire</span>
       <a class="hm-inline-link" href="#/news">Newsroom ${icon('chevronRight')}</a>
     </div>
     <ol class="wire-items ts-wire-items">

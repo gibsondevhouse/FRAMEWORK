@@ -48,19 +48,19 @@
     <a class="brand" href="#/" aria-label="FRAMEWORK home" title="Home"><svg class="brand-mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="3" stroke="currentColor" stroke-opacity=".28" stroke-width="1.1" fill="none"/><path class="brand-mark-bar" d="M4.75 5h6.5" stroke-width="1.6" stroke-linecap="round"/><path d="M5.25 5v6.25M5.25 8.25h4.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="brand-text" aria-hidden="true">FRAMEWORK</span></a>
     <span class="topbar-sep" aria-hidden="true">/</span>
     <div class="title-menu" id="title-menu">
-      <button type="button" id="title-select" class="title-select" aria-haspopup="menu" aria-expanded="false" aria-controls="title-pop" title="Switch CFR title">
+      <button type="button" id="title-select" class="title-select" aria-haspopup="menu" aria-expanded="false" aria-controls="title-pop" title="Switch federal framework">
         <span class="title-select-num" id="title-select-num"></span><span class="title-select-name" id="title-select-name"></span>
         <svg class="icon title-select-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg>
       </button>
-      <div class="title-pop" id="title-pop" role="menu" aria-label="Titles" hidden></div>
+      <div class="title-pop" id="title-pop" role="menu" aria-label="Federal frameworks" hidden></div>
     </div>
     <div class="search-wrap">
       <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3"/></svg>
-      <input id="search" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-dropdown" placeholder="Search regulations or jump to a section…" aria-label="Search regulations" autocomplete="off" spellcheck="false">
+      <input id="search" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-dropdown" placeholder="Search federal codes, § sections, or > commands…" aria-label="Search federal frameworks" autocomplete="off" spellcheck="false">
       <kbd class="search-kbd" aria-hidden="true">⌘K</kbd>
       <div id="search-dropdown" class="search-dropdown" role="listbox" hidden></div>
     </div>
-    <span class="edition" id="edition" title="eCFR edition loaded in this app"></span>
+    <span class="edition" id="edition" title="Active federal edition"></span>
     <button type="button" class="btn" id="chat-toggle" title="Ask Claude" aria-controls="chat" aria-expanded="false">
       <svg class="icon icon-accent" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.25 9.35 6.65 13.75 8 9.35 9.35 8 13.75 6.65 9.35 2.25 8 6.65 6.65Z"/></svg>
       <span class="btn-label">Ask Claude</span>
@@ -76,7 +76,7 @@
     <nav class="activity-rail" id="activity-rail" aria-label="Main navigation">
       <div class="ar-scroll">
         <div class="ar-sec" role="group" aria-label="Main pages">
-          <div class="ar-sec-label">Workspace</div>
+          <div class="ar-sec-label">Navigate</div>
           <div class="ar-group">
             <a class="ar-btn" data-target="overview" href="#/" aria-label="Home" data-tip="Home" data-keys="G H">
               <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 7 8 2.75 13.5 7v5.25a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1Z"/><path d="M6.5 13.25V9.5h3v3.75"/></svg>
@@ -105,7 +105,7 @@
 
         <!-- Contextual framework shortcuts (visible in compact rail / framework mode) -->
         <div class="ar-group ar-fw-rail-group" id="ar-fw-rail-group">
-          <a class="ar-btn" data-target="home" href="#/title/29/" id="ar-home" aria-label="Framework start" data-tip="Title start" data-keys="G T">
+          <a class="ar-btn" data-target="home" href="#/title/29/" id="ar-home" aria-label="Framework start" data-tip="Framework start" data-keys="G T">
             <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.25"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.25"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.25"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.25"/></svg>
             <span class="ar-label">Framework start</span>
           </a>
@@ -115,11 +115,11 @@
           </button>
         </div>
 
-        <!-- Quick-jump framework tree (visible when primary sidebar is expanded on main pages) -->
-        <div class="ar-sec ar-frameworks-sec" id="ar-frameworks-sec" role="group" aria-label="Legal frameworks">
+        <!-- Quick-jump federal framework tree (visible when primary sidebar is expanded on main pages) -->
+        <div class="ar-sec ar-frameworks-sec" id="ar-frameworks-sec" role="group" aria-label="Federal frameworks">
           <div class="ar-sec-head">
             <span class="ar-sec-label">Frameworks</span>
-            <a class="ar-sec-link" href="#/library" title="Manage legal frameworks">Manage</a>
+            <a class="ar-sec-link" href="#/library" title="Browse all federal frameworks">All</a>
           </div>
           <div class="ar-frameworks" id="ar-frameworks"></div>
         </div>
@@ -131,9 +131,9 @@
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke-width="2.25"/><path stroke-width="2.25" d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span class="ar-label">Settings</span>
         </a>
-        <a class="ar-btn ar-desktop-only" data-target="help" href="#/help" aria-label="Connections and API keys" data-tip="API & Sources" data-keys="">
+        <a class="ar-btn ar-desktop-only" data-target="help" href="#/help" aria-label="Data sources and keys" data-tip="Data Sources" data-keys="">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="5.5" cy="8" r="2.75"/><path d="M8.25 8H14M11.75 8v2.25M13.5 8v1.5"/></svg>
-          <span class="ar-label">API &amp; Sources</span>
+          <span class="ar-label">Data Sources</span>
         </a>
       </div>
     </nav>
@@ -195,7 +195,7 @@
         <label><input type="checkbox" id="context-toggle" checked> Include <span id="context-label"></span></label>
       </div>
       <form class="chat-input" id="chat-form">
-        <textarea id="chat-text" rows="1" placeholder="Ask about this section, or anything in Title 29…" aria-label="Message Claude"></textarea>
+        <textarea id="chat-text" rows="1" placeholder="Ask about this provision or any installed federal code…" aria-label="Message Claude"></textarea>
         <button class="send-btn" id="chat-send" type="submit" title="Send (Enter)" aria-label="Send message">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3.5M4 7l4-4 4 4"/></svg>
         </button>
@@ -214,7 +214,7 @@
   <div id="transfer-dock-live" class="sr-only" role="status" aria-live="polite"></div>
   <div id="nav-live" class="sr-only" role="status" aria-live="polite"></div>
   <div id="pin-pop" class="pin-pop" role="dialog" aria-label="Pin to a workspace" hidden></div>
-  <div id="news-pop" class="news-pop" role="dialog" aria-label="Federal Register and OSHA activity" hidden></div>
+  <div id="news-pop" class="news-pop" role="dialog" aria-label="Federal Register activity" hidden></div>
   <div id="cite-pop" class="cite-pop" role="dialog" aria-label="Citation preview" hidden></div>
   <div id="env-modal" class="modal-backdrop" hidden>
     <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="env-modal-title"></div>

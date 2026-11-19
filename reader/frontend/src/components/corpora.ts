@@ -10,8 +10,6 @@ export const TIER_ORDER = [
   'federal-statute',
   'federal-reg',
   'federal-register',
-  'state',
-  'county',
   'standard',
 ] as const;
 
@@ -19,7 +17,6 @@ export const SYSTEM_TIERS: AuthorityTier[] = [
   'federal-statute',
   'federal-reg',
   'federal-register',
-  'state',
 ];
 
 export interface TierMeta {
@@ -35,15 +32,15 @@ export const TIER_META: Record<string, TierMeta> = {
     label: 'U.S. Code (U.S.C.)',
     short: 'U.S.C.',
     refTier: 'usc',
-    tag: 'STATUTE',
-    subtitle: 'Enabling federal statutes',
+    tag: 'U.S.C.',
+    subtitle: 'Federal statutory law',
   },
   'federal-reg': {
-    label: 'Federal Regulations (CFR)',
+    label: 'Code of Federal Regulations (CFR)',
     short: 'CFR',
     refTier: 'cfr',
     tag: 'FEDERAL REG',
-    subtitle: 'Codified agency rules',
+    subtitle: 'Codified federal rules',
   },
   'federal-register': {
     label: 'Federal Register (FR)',
@@ -52,36 +49,22 @@ export const TIER_META: Record<string, TierMeta> = {
     tag: 'FED REGISTER',
     subtitle: 'Daily rulemaking & notices',
   },
-  'state': {
-    label: 'State Codes & Plans',
-    short: 'State',
-    refTier: 'state',
-    tag: 'STATE',
-    subtitle: 'State plans & delegated codes',
-  },
-  'county': {
-    label: 'County & Municipal',
-    short: 'County',
-    refTier: 'county',
-    tag: 'LOCAL CODE',
-    subtitle: 'Local ordinances & overlays',
-  },
   'standard': {
-    label: 'Consensus Standards',
-    short: 'Std',
+    label: 'Incorporated Standards (IBR)',
+    short: 'IBR',
     refTier: 'ibr',
     tag: 'STANDARD',
-    subtitle: 'IBR technical standards',
+    subtitle: 'Standards incorporated by reference',
   },
 };
 
 export const DESK_DEFS: Array<{ id: DeskId; label: string }> = [
-  { id: 'all', label: 'All Desks' },
-  { id: 'ehs', label: 'Safety & Labor' },
+  { id: 'all', label: 'All Topics' },
+  { id: 'ehs', label: 'Labor & Workplace' },
   { id: 'env', label: 'Environmental' },
-  { id: 'transport', label: 'Transport & HazMat' },
-  { id: 'labor-employment', label: 'Wage & Benefits' },
-  { id: 'fire-building', label: 'Fire & Building' },
+  { id: 'transport', label: 'Transportation' },
+  { id: 'labor-employment', label: 'Health & Benefits' },
+  { id: 'fire-building', label: 'Housing & Construction' },
   { id: 'commerce-govcon', label: 'Commerce & GovCon' },
 ];
 
@@ -104,37 +87,194 @@ const DESK_BY_CFR_TITLE: Record<number, DeskId> = {
   49: 'transport',
 };
 
-interface KnownTitleAuthority {
+export interface StatutoryProvision {
+  cite: string;
+  title: string;
+  cfrTitle: number;
+  cfrPart?: string;
+  cfrSection?: string;
+}
+
+export interface KnownTitleAuthority {
   statuteCode: string;
   statuteLabel: string;
   statuteHref: string;
-  stateHint: string;
-  countyHint: string;
+  frNote: string;
+  summary: string;
+  acts: string[];
+  provisions: StatutoryProvision[];
 }
 
-const KNOWN_TITLE_AUTHORITIES: Record<number, KnownTitleAuthority> = {
+export interface FoundationalStatute {
+  code: string;
+  name: string;
+  act: string;
+  summary: string;
+  href: string;
+  scope: string;
+}
+
+export const FOUNDATIONAL_ADMIN_STATUTES: FoundationalStatute[] = [
+  {
+    code: '5 U.S.C. §§ 551–559',
+    name: 'Notice-and-Comment Rulemaking',
+    act: 'Administrative Procedure Act (APA)',
+    summary: 'Governs informal agency rulemaking (§ 553), public notice in the Federal Register, comment dockets, effective-date delays, and formal adjudications (§ 554).',
+    href: 'https://uscode.house.gov/browse/prelim@title5/part1/chapter5/subchapter2&edition=prelim',
+    scope: 'All CFR & FR Rules',
+  },
+  {
+    code: '5 U.S.C. §§ 701–706',
+    name: 'Judicial Review of Agency Action',
+    act: 'APA Chapter 7',
+    summary: 'Establishes the right of review, final agency action standards, and scope of judicial review over statutory authority and arbitrary-or-capricious rulemaking.',
+    href: 'https://uscode.house.gov/browse/prelim@title5/part1/chapter7&edition=prelim',
+    scope: 'Statutory Interpretation',
+  },
+  {
+    code: '5 U.S.C. §§ 601–612',
+    name: 'Small Entity Impact Analysis',
+    act: 'Regulatory Flexibility Act (RFA)',
+    summary: 'Requires agencies to publish initial and final regulatory flexibility analyses assessing compliance burdens on small businesses and organizations.',
+    href: 'https://uscode.house.gov/browse/prelim@title5/part1/chapter6&edition=prelim',
+    scope: 'Proposed & Final Rules',
+  },
+  {
+    code: '44 U.S.C. §§ 3501–3521',
+    name: 'Information Collection & OMB Control',
+    act: 'Paperwork Reduction Act (PRA)',
+    summary: 'Mandates OIRA review and OMB control numbers for reporting, recordkeeping, and disclosure requirements codified across CFR parts.',
+    href: 'https://uscode.house.gov/browse/prelim@title44/chapter35/subchapter1&edition=prelim',
+    scope: 'Recordkeeping & Forms',
+  },
+];
+
+export const KNOWN_TITLE_AUTHORITIES: Record<number, KnownTitleAuthority> = {
+  21: {
+    statuteCode: '21 U.S.C. §§ 301–399i',
+    statuteLabel: 'Federal Food, Drug, and Cosmetic Act',
+    statuteHref: 'https://uscode.house.gov/browse/prelim@title21/chapter9&edition=prelim',
+    frNote: 'FDA & DEA rulemaking and notices',
+    summary: 'Statutory mandate governing food safety, pharmaceutical approval, medical devices, biologics, good manufacturing practices, and controlled substances.',
+    acts: [
+      'Federal Food, Drug, and Cosmetic Act (21 U.S.C. §§ 301–399i)',
+      'Public Health Service Act § 351 (42 U.S.C. § 262)',
+      'Controlled Substances Act (21 U.S.C. §§ 801–971)',
+    ],
+    provisions: [
+      { cite: '21 U.S.C. § 342', title: 'Adulterated food & current good manufacturing practice', cfrTitle: 21, cfrPart: '117' },
+      { cite: '21 U.S.C. § 355', title: 'New drug applications (NDA) & clinical investigations', cfrTitle: 21, cfrPart: '312' },
+      { cite: '21 U.S.C. § 360c', title: 'Classification & premarket oversight of medical devices', cfrTitle: 21, cfrPart: '820' },
+      { cite: '21 U.S.C. § 821', title: 'Registration & control of manufacture and distribution', cfrTitle: 21, cfrPart: '1301' },
+    ],
+  },
+  26: {
+    statuteCode: '26 U.S.C.',
+    statuteLabel: 'Internal Revenue Code',
+    statuteHref: 'https://uscode.house.gov/browse/prelim@title26&edition=prelim',
+    frNote: 'Treasury & IRS regulations and notices',
+    summary: 'Comprehensive statutory tax code enacted by Congress governing federal income, payroll, estate, gift, and excise taxation and Treasury enforcement procedure.',
+    acts: [
+      'Internal Revenue Code of 1986 (26 U.S.C. §§ 1–9834)',
+      'Employee Retirement Income Security Act Tax Provisions (26 U.S.C. §§ 401–436)',
+    ],
+    provisions: [
+      { cite: '26 U.S.C. § 61', title: 'Gross income defined & general income tax computation', cfrTitle: 26, cfrPart: '1' },
+      { cite: '26 U.S.C. § 401', title: 'Qualified pension, profit-sharing, and stock bonus plans', cfrTitle: 26, cfrPart: '1' },
+      { cite: '26 U.S.C. § 3101', title: 'Federal Insurance Contributions Act (FICA) employment taxes', cfrTitle: 26, cfrPart: '31' },
+      { cite: '26 U.S.C. § 7805', title: 'Authorization for Treasury rules and regulations', cfrTitle: 26, cfrPart: '301' },
+    ],
+  },
   29: {
-    statuteCode: '29 U.S.C. §§ 651–678',
-    statuteLabel: 'OSH Act / FLSA Statutory Base',
-    statuteHref: 'https://www.law.cornell.edu/uscode/text/29/651',
-    stateHint: 'Approved State Plans (e.g. Cal/OSHA Title 8, DOSH, MIOSHA)',
-    countyHint: 'Municipal fire / health enforcement overlays',
+    statuteCode: '29 U.S.C. §§ 201–678',
+    statuteLabel: 'Fair Labor Standards, NLRA & OSH Acts',
+    statuteHref: 'https://uscode.house.gov/browse/prelim@title29&edition=prelim',
+    frNote: 'Department of Labor & NLRB rulemaking',
+    summary: 'Federal statutory framework governing occupational safety and health standards, minimum wage and overtime exemptions, family leave, and employee benefit plans.',
+    acts: [
+      'Occupational Safety and Health Act (29 U.S.C. §§ 651–678)',
+      'Fair Labor Standards Act (29 U.S.C. §§ 201–219)',
+      'Employee Retirement Income Security Act (29 U.S.C. §§ 1001–1461)',
+      'Family and Medical Leave Act (29 U.S.C. §§ 2601–2654)',
+    ],
+    provisions: [
+      { cite: '29 U.S.C. § 654', title: 'General Duty Clause & employer workplace safety duties', cfrTitle: 29, cfrPart: '1910', cfrSection: '1910.120' },
+      { cite: '29 U.S.C. § 655', title: 'Promulgation of occupational safety & hazard standards', cfrTitle: 29, cfrPart: '1910', cfrSection: '1910.1200' },
+      { cite: '29 U.S.C. § 657', title: 'Inspections, investigations & injury recordkeeping', cfrTitle: 29, cfrPart: '1904' },
+      { cite: '29 U.S.C. § 213', title: 'FLSA executive, administrative & professional exemptions', cfrTitle: 29, cfrPart: '541' },
+    ],
   },
   40: {
     statuteCode: '42 U.S.C. §§ 6901, 7401',
-    statuteLabel: 'RCRA / Clean Air / Clean Water Acts',
-    statuteHref: 'https://www.law.cornell.edu/uscode/text/42/6901',
-    stateHint: 'Delegated state environmental agencies & SIPs',
-    countyHint: 'Air quality management districts & POTW ordinances',
+    statuteLabel: 'RCRA, Clean Air & Clean Water Acts',
+    statuteHref: 'https://uscode.house.gov/browse/prelim@title42&edition=prelim',
+    frNote: 'EPA final rules, proposals & notices',
+    summary: 'Principal federal environmental statutes authorizing national ambient air standards, hazardous waste management, discharge permits, and emergency release reporting.',
+    acts: [
+      'Resource Conservation and Recovery Act (42 U.S.C. §§ 6901–6992k)',
+      'Clean Air Act (42 U.S.C. §§ 7401–7671q)',
+      'Clean Water Act (33 U.S.C. §§ 1251–1388)',
+      'CERCLA / Superfund (42 U.S.C. §§ 9601–9675)',
+    ],
+    provisions: [
+      { cite: '42 U.S.C. § 6921', title: 'Identification and listing of hazardous waste (RCRA Subtitle C)', cfrTitle: 40, cfrPart: '261', cfrSection: '261.3' },
+      { cite: '42 U.S.C. § 7409', title: 'National primary & secondary ambient air quality standards', cfrTitle: 40, cfrPart: '50' },
+      { cite: '33 U.S.C. § 1342', title: 'National Pollutant Discharge Elimination System (NPDES)', cfrTitle: 40, cfrPart: '122' },
+      { cite: '42 U.S.C. § 9602', title: 'Hazardous substance designations & reportable quantities', cfrTitle: 40, cfrPart: '302' },
+    ],
+  },
+  48: {
+    statuteCode: '41 U.S.C. §§ 101–8707',
+    statuteLabel: 'Public Contracts & Federal Procurement',
+    statuteHref: 'https://uscode.house.gov/browse/prelim@title41&edition=prelim',
+    frNote: 'FAR Council & agency acquisition rules',
+    summary: 'Statutory procurement authority governing federal competition requirements, contract award and administration, socioeconomic clauses, and procurement integrity.',
+    acts: [
+      'Public Contracts Act / Title 41 Codification (41 U.S.C. §§ 101–8707)',
+      'Competition in Contracting Act (41 U.S.C. §§ 3301–3312)',
+      'Contract Disputes Act (41 U.S.C. §§ 7101–7109)',
+    ],
+    provisions: [
+      { cite: '41 U.S.C. § 1303', title: 'Federal Acquisition Regulatory Council & single government-wide regulation', cfrTitle: 48, cfrPart: '1' },
+      { cite: '41 U.S.C. § 3301', title: 'Full and open competition in federal solicitation and award', cfrTitle: 48, cfrPart: '6' },
+      { cite: '41 U.S.C. § 3502', title: 'Truthful cost or pricing data & audit disclosures', cfrTitle: 48, cfrPart: '15' },
+      { cite: '41 U.S.C. § 7103', title: 'Contracting officer decision & claims resolution procedure', cfrTitle: 48, cfrPart: '33' },
+    ],
   },
   49: {
     statuteCode: '49 U.S.C. §§ 5101–5128',
-    statuteLabel: 'Hazardous Materials Transportation Act',
-    statuteHref: 'https://www.law.cornell.edu/uscode/text/49/5101',
-    stateHint: 'State DOT commercial motor vehicle adoptions',
-    countyHint: 'Local hazmat routing & tunnel restrictions',
+    statuteLabel: 'Transportation & HazMat Statutes',
+    statuteHref: 'https://uscode.house.gov/browse/prelim@title49&edition=prelim',
+    frNote: 'DOT, FAA, FMCSA & PHMSA rulemaking',
+    summary: 'Congressional mandates for hazardous materials transportation, commercial motor carrier safety, driver qualification and CDL standards, and motor vehicle safety.',
+    acts: [
+      'Federal Hazardous Materials Transportation Law (49 U.S.C. §§ 5101–5128)',
+      'Motor Carrier Safety Act (49 U.S.C. §§ 31131–31151)',
+      'Commercial Motor Vehicle Safety Act (49 U.S.C. §§ 31301–31317)',
+      'National Traffic and Motor Vehicle Safety Act (49 U.S.C. §§ 30101–30183)',
+    ],
+    provisions: [
+      { cite: '49 U.S.C. § 5103', title: 'Designation of hazardous materials & transport regulations', cfrTitle: 49, cfrPart: '172', cfrSection: '172.101' },
+      { cite: '49 U.S.C. § 5104', title: 'Representation, marking, labeling & packaging of hazmat', cfrTitle: 49, cfrPart: '173' },
+      { cite: '49 U.S.C. § 31136', title: 'Minimum safety standards for commercial motor vehicles', cfrTitle: 49, cfrPart: '390' },
+      { cite: '49 U.S.C. § 31308', title: 'Commercial driver’s license (CDL) testing & standards', cfrTitle: 49, cfrPart: '383' },
+    ],
   },
 };
+
+export function authorityForCorpus(corpus: CorpusSummary | null | undefined): KnownTitleAuthority | null {
+  if (!corpus || corpus.tier !== 'federal-statute') return null;
+  for (const tNum of corpus.linked_titles || []) {
+    if (KNOWN_TITLE_AUTHORITIES[tNum]) return KNOWN_TITLE_AUTHORITIES[tNum];
+  }
+  const code = String(corpus.code || '').toLowerCase();
+  for (const auth of Object.values(KNOWN_TITLE_AUTHORITIES)) {
+    if (auth.statuteCode.toLowerCase() === code || auth.statuteCode.toLowerCase().startsWith(code.split('§§')[0].trim())) {
+      return auth;
+    }
+  }
+  return null;
+}
 
 const VALID_DESKS = new Set<string>(DESK_DEFS.map(d => d.id));
 
@@ -240,11 +380,12 @@ export function normalizeCorporaList(
   const injected = Array.isArray(extras) && extras.length ? extras : mockWin;
   for (const raw of injected) {
     if (!raw || !raw.corpus_id) continue;
+    if (raw.tier === 'state' || raw.tier === 'county') continue;
     byId.set(raw.corpus_id, {
       ...raw,
-      tier: raw.tier || 'state',
+      tier: raw.tier || 'federal-statute',
       jurisdiction: raw.jurisdiction || 'US',
-      jurisdiction_label: raw.jurisdiction_label || 'Jurisdiction',
+      jurisdiction_label: raw.jurisdiction_label || 'Federal',
       code: raw.code || raw.corpus_id,
       name: raw.name || raw.corpus_id,
       desk: mapRawDeskToId(raw.desk),
@@ -261,67 +402,10 @@ export function syncCorporaState(): CorpusSummary[] {
   return state.corpora;
 }
 
-const DEFAULT_STATE_OVERLAYS: Array<{
-  title: number;
-  corpus_id: string;
-  jurisdiction: string;
-  jurisdiction_label: string;
-  code: string;
-  name: string;
-  desk: DeskId;
-  agencies: string[];
-  summary: string;
-}> = [
-  {
-    title: 29,
-    corpus_id: 'us-ca:state:8-CCR',
-    jurisdiction: 'US-CA',
-    jurisdiction_label: 'California',
-    code: '8 CCR',
-    name: 'Cal/OSHA Workplace Safety & Health',
-    desk: 'ehs',
-    agencies: ['Cal/OSHA', 'DIR'],
-    summary: 'California State Plan workplace safety standards (Title 8 CCR) paralleling and extending 29 CFR 1910 & 1926.',
-  },
-  {
-    title: 29,
-    corpus_id: 'us-wa:state:WAC-296',
-    jurisdiction: 'US-WA',
-    jurisdiction_label: 'Washington',
-    code: 'WAC 296',
-    name: 'WA DOSH Safety & Health Rules',
-    desk: 'ehs',
-    agencies: ['L&I', 'DOSH'],
-    summary: 'Washington Division of Occupational Safety and Health core rules and state-plan compliance overlays.',
-  },
-  {
-    title: 40,
-    corpus_id: 'us-state:state:EPA-SIP',
-    jurisdiction: 'US-STATE',
-    jurisdiction_label: 'State Plans',
-    code: 'State EPA',
-    name: 'Delegated Environmental & SIP Programs',
-    desk: 'env',
-    agencies: ['State DEQ', 'Air Districts'],
-    summary: 'State Implementation Plans, NPDES delegated permits, and RCRA authorized hazardous waste regulations.',
-  },
-  {
-    title: 49,
-    corpus_id: 'us-state:state:DOT-CMV',
-    jurisdiction: 'US-STATE',
-    jurisdiction_label: 'State Plans',
-    code: 'State DOT',
-    name: 'State Commercial Motor & HazMat Adoptions',
-    desk: 'transport',
-    agencies: ['State DOT', 'HP'],
-    summary: 'State intrastate hazmat routing, commercial motor carrier adoptions, and permit overlays.',
-  },
-];
-
 /**
- * Full multi-framework catalog spanning CFR, Federal Register (FR), U.S. Code (U.S.C.),
- * and State Codes/Plans. Combines installed CFR titles, live FR status, any injected/installed
- * extra corpora, and authority-linked U.S.C. & State frameworks for installed titles.
+ * Full federal framework catalog spanning U.S. Code (U.S.C.), Code of Federal Regulations (CFR),
+ * and Federal Register (FR). Combines installed CFR titles, live FR status, any injected
+ * federal corpora, and statutory U.S.C. frameworks. State and local codes are out of scope.
  */
 export function allSystemFrameworks(
   titles: InstalledTitleMeta[] = state.installedTitles,
@@ -329,11 +413,12 @@ export function allSystemFrameworks(
   newsStatus: NewsStatusSnapshot | null | undefined = state.navNewsStatus,
   extras: CorpusSummary[] = state.extraCorpora,
 ): CorpusSummary[] {
-  const base = normalizeCorporaList(titles, snapshotRows, extras);
+  const base = normalizeCorporaList(titles, snapshotRows, extras)
+    .filter(c => c.tier !== 'state' && c.tier !== 'county');
   const byId = new Map<string, CorpusSummary>(base.map(c => [c.corpus_id, c]));
   const installedSet = new Set((titles || []).map(t => t.title));
 
-  // 1. Federal Register (FR) — live rulemaking & daily filings framework
+  // 1. Federal Register (FR) — daily federal rulemaking, proposals & notices
   if (![...byId.values()].some(c => c.tier === 'federal-register')) {
     const frSrc = newsStatus?.sources?.federal_register;
     const piSrc = newsStatus?.sources?.federal_register_pi;
@@ -346,12 +431,12 @@ export function allSystemFrameworks(
       jurisdiction: 'US',
       jurisdiction_label: 'Federal',
       code: 'FR',
-      name: 'Federal Register & Rulemaking',
-      desk: 'ehs',
-      agencies: ['OFR', 'OSHA', 'EPA', 'DOT'].slice(0, 3),
+      name: 'Federal Register',
+      desk: 'all',
+      agencies: ['OFR', 'Federal Agencies'],
       edition: frSrc?.last_ok_at ? frSrc.last_ok_at.slice(0, 10) : null,
       section_count: articles,
-      summary: 'Published Final Rules, Proposed Rules, Public Inspection filings, and DOL enforcement linked to installed CFR titles.',
+      summary: 'Daily Final Rules, Proposed Rules, Notices, and Public Inspection filings across federal agencies and CFR titles.',
       installed: true,
       linked_titles: frTitleNums,
       status_label: hasErr ? 'Sync issue' : articles > 0 ? `${articles} cached` : 'Ready to sync',
@@ -359,10 +444,11 @@ export function allSystemFrameworks(
     });
   }
 
-  // 2. U.S. Code (U.S.C.) — enabling federal statutes for installed CFR titles
+  // 2. U.S. Code (U.S.C.) — federal statutory framework linked to installed CFR titles (or core defaults)
   const hasCustomUsc = [...byId.values()].some(c => c.tier === 'federal-statute');
   if (!hasCustomUsc) {
-    const uscSourceTitles = installedSet.size ? [...installedSet].filter(n => KNOWN_TITLE_AUTHORITIES[n]) : [29];
+    const matchedTitles = [...installedSet].filter(n => KNOWN_TITLE_AUTHORITIES[n]);
+    const uscSourceTitles = matchedTitles.length ? matchedTitles : [29, 40, 49];
     for (const tNum of uscSourceTitles) {
       const auth = KNOWN_TITLE_AUTHORITIES[tNum];
       if (!auth) continue;
@@ -378,35 +464,11 @@ export function allSystemFrameworks(
         name: auth.statuteLabel,
         desk: mapRawDeskToId('', tNum),
         agencies: ['U.S. Congress'],
-        summary: `Enabling statutory authority underlying ${tNum} CFR rules, preemption scope, and agency rulemaking power.`,
+        summary: auth.summary || `Federal statutory authority underlying ${tNum} CFR rulemaking and federal agency mandate.`,
         installed: false,
-        linked_titles: [tNum],
+        linked_titles: installedSet.has(tNum) ? [tNum] : [],
         external_url: auth.statuteHref,
-        status_label: `Linked · ${tNum} CFR`,
-      });
-    }
-  }
-
-  // 3. State Codes & Plans — delegated state frameworks mapped to installed titles
-  const hasCustomState = [...byId.values()].some(c => c.tier === 'state');
-  if (!hasCustomState) {
-    const matching = DEFAULT_STATE_OVERLAYS.filter(s => !installedSet.size || installedSet.has(s.title));
-    const list = matching.length ? matching : DEFAULT_STATE_OVERLAYS.slice(0, 2);
-    for (const s of list) {
-      if (byId.has(s.corpus_id)) continue;
-      byId.set(s.corpus_id, {
-        corpus_id: s.corpus_id,
-        tier: 'state',
-        jurisdiction: s.jurisdiction,
-        jurisdiction_label: s.jurisdiction_label,
-        code: s.code,
-        name: s.name,
-        desk: s.desk,
-        agencies: s.agencies,
-        summary: s.summary,
-        installed: false,
-        linked_titles: [s.title],
-        status_label: `State overlay · ${s.title} CFR`,
+        status_label: installedSet.has(tNum) ? `Linked · ${tNum} CFR` : 'Statutory reference',
       });
     }
   }
@@ -440,8 +502,6 @@ export interface JurisdictionStackNode {
 export function jurisdictionStackForTitle(titleNum?: number): { corpus_id: string; nodes: JurisdictionStackNode[] } {
   const t = Number(titleNum) || state.currentTitle;
   const known = KNOWN_TITLE_AUTHORITIES[t] || null;
-  const stateMirrors = state.corpora.filter(c => c.tier === 'state' && c.installed !== false);
-  const countyMirrors = state.corpora.filter(c => c.tier === 'county' && c.installed !== false);
   const nodes: JurisdictionStackNode[] = [];
   if (known) {
     nodes.push({
@@ -449,8 +509,12 @@ export function jurisdictionStackForTitle(titleNum?: number): { corpus_id: strin
       ref_tier: 'usc',
       code: known.statuteCode,
       label: known.statuteLabel,
-      href: known.statuteHref,
-      external: true,
+      href: corpusHashFor({
+        corpus_id: `us:usc:${known.statuteCode.split('§§')[0].trim().replace(/\s+/g, '-').toLowerCase()}`,
+        tier: 'federal-statute',
+        jurisdiction: 'US',
+        code: known.statuteCode,
+      }),
       meta: 'Enabling statute',
     });
   }
@@ -461,27 +525,15 @@ export function jurisdictionStackForTitle(titleNum?: number): { corpus_id: strin
     code: `${t} CFR`,
     label: cur?.name || `Title ${t}`,
     current: true,
-    meta: 'Active federal code',
+    meta: 'Codified regulation',
   });
   nodes.push({
-    tier: 'state',
-    ref_tier: 'state',
-    code: stateMirrors.length ? `${stateMirrors.length} State` : 'State Layer',
-    label: stateMirrors.length
-      ? stateMirrors.map(c => `${c.jurisdiction_label} ${c.code}`).join(' · ')
-      : (known?.stateHint || 'State codes & delegated programs'),
-    href: stateMirrors[0] ? corpusHashFor(stateMirrors[0]) : '#/library',
-    meta: stateMirrors.length ? 'Installed' : 'Ready for state feeds',
-  });
-  nodes.push({
-    tier: 'county',
-    ref_tier: 'county',
-    code: countyMirrors.length ? `${countyMirrors.length} County` : 'Local Layer',
-    label: countyMirrors.length
-      ? countyMirrors.map(c => `${c.jurisdiction_label} ${c.code}`).join(' · ')
-      : (known?.countyHint || 'County & municipal ordinances'),
-    href: countyMirrors[0] ? corpusHashFor(countyMirrors[0]) : '#/library',
-    meta: countyMirrors.length ? 'Installed' : 'Pre-wired slot',
+    tier: 'federal-register',
+    ref_tier: 'fr',
+    code: 'Federal Register',
+    label: known?.frNote || `Daily rulemaking & amendments for ${t} CFR`,
+    href: '#/news',
+    meta: 'Daily rulemaking',
   });
   return { corpus_id: corpusIdForTitle(t), nodes };
 }
@@ -490,11 +542,11 @@ export function deskFilterRibbonHtml(activeDesk = state.activeDesk, corpora = st
   const counts = new Map<string, number>([['all', corpora.length]]);
   for (const c of corpora) {
     const d = c.desk || 'ehs';
-    counts.set(d, (counts.get(d) || 0) + 1);
+    if (d !== 'all') counts.set(d, (counts.get(d) || 0) + 1);
   }
   const visibleDesks = DESK_DEFS.filter(d => d.id === 'all' || (counts.get(d.id) || 0) > 0);
   if (visibleDesks.length <= 2 && corpora.length < 2) return '';
-  return `<div class="desk-ribbon" role="group" aria-label="Filter by regulatory desk">${visibleDesks.map(d => {
+  return `<div class="desk-ribbon" role="group" aria-label="Filter by federal topic">${visibleDesks.map(d => {
     const on = activeDesk === d.id;
     const count = counts.get(d.id) || 0;
     return `<button type="button" class="desk-pill${on ? ' is-active' : ''}" data-desk="${escapeHtml(d.id)}" aria-pressed="${on}">

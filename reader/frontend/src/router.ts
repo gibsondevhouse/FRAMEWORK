@@ -1,5 +1,5 @@
 import { CorpusSummary, state } from './state';
-import { on } from './core/events';
+import { emit, on } from './core/events';
 import { renderResolverPage } from './components/cfr_resolver';
 import { findSystemFramework, parseCorpusPath, syncCorporaState } from './components/corpora';
 import { clearTreeSelection, switchTitle } from './components/sidebar';
@@ -38,7 +38,8 @@ export async function handleRoute(): Promise<void> {
 
   syncNavToRoute(path);
 
-  if (state.noTitles && !/^\/(library|news|projects|settings|help)(\/|$)/.test(path)) {
+  if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus)(\/|$)/.test(path)) {
+    emit('route:changed', { path });
     await renderWelcome();
     return;
   }
@@ -52,6 +53,11 @@ export async function handleRoute(): Promise<void> {
     const cfrTitleNum = isCfr ? parseInt(corpusMatch.code, 10) : NaN;
     if (isCfr && Number.isFinite(cfrTitleNum)) {
       titleMatch = [path, String(cfrTitleNum), corpusMatch.subPath];
+    } else if (corpusMatch.tier === 'state' || corpusMatch.tier === 'county') {
+      state.activeCorpus = null;
+      emit('route:changed', { path });
+      renderNotFound();
+      return;
     } else {
       const matchedCorpus = findSystemFramework(corpusMatch.tier, corpusMatch.jurisdiction, corpusMatch.code)
         || state.corpora.find(c =>
@@ -65,21 +71,23 @@ export async function handleRoute(): Promise<void> {
         corpus_id: `${corpusMatch.jurisdiction}:${corpusMatch.tier}:${corpusMatch.code}`,
         tier: corpusMatch.tier as CorpusSummary['tier'],
         jurisdiction: corpusMatch.jurisdiction,
-        jurisdiction_label: corpusMatch.jurisdiction,
+        jurisdiction_label: 'Federal',
         code: corpusMatch.code,
-        name: `${corpusMatch.jurisdiction} ${corpusMatch.code}`,
-        desk: 'ehs',
+        name: corpusMatch.code,
+        desk: 'all',
         agencies: [],
         installed: false,
       };
       state.activeCorpus = fallbackCorpus;
       renderCorpusDrawer(fallbackCorpus);
       applyNav();
+      emit('route:changed', { path });
       renderCorpusStaging(fallbackCorpus);
       return;
     }
   }
   state.activeCorpus = null;
+  emit('route:changed', { path });
   if (titleMatch) {
     const targetTitle = parseInt(titleMatch[1], 10);
     const subPath = titleMatch[2] || '/';

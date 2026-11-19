@@ -1,9 +1,15 @@
-# FRAMEWORK — Mapped Plan Portfolio Overview (10-Series)
+# FRAMEWORK — Historical Plan Archive Overview (10-Series)
 
-**Document Set:** `MAPPED_PLAN_OVERVIEW.md` + `MAPPED_PLAN_OVERVIEW.docx`  
-**Recorded:** 2026-11-17 · **Codebase:** `reader/` (FastAPI + SQLite FTS5 + Vite ES/TS) · **Plan Series:** `docs/plans/` (`10_`–`50_`)
+> [!IMPORTANT]
+> **Archived Snapshot — Linear Is the Source of Truth (2026-11-19):** All active, upcoming, and future plans are managed in **Linear (`FRAMEWORK` / `P-DEV-2`)**. This file is a historical record of the earlier 10-series plans in `docs/plans/` and is no longer maintained for new work.
 
-> **Executive Snapshot:** Across **5 subject series** (`10_`–`50_`), FRAMEWORK currently holds **14 numbered plans** plus **1 cleanup dev log** (`docs/notes/2026-11-16_pre-feature-orders.md`): **1** historical foundation record (`11`), **11** completed implementation plans (`12`, `13`, `14`, `21`, `22`, `23`, `24`, `31`, `41`, `42`, `43`), **1** in-progress plan (**`25_white_glove_ui_ux_refinement`**), and **1** long-horizon strategic blueprint (`51`).
+**Updated:** 2026-11-19 · **Codebase:** `reader/` (FastAPI + SQLite FTS5 + Vite strict TS) · **Source of Truth:** Linear (`FRAMEWORK` / `P-DEV-2`)
+
+> **Product Direction & Immediate Priority (2026-11-19):** FRAMEWORK is a **federal-only platform** for staying up to date on codes and laws across federal frameworks (**CFR, Federal Register, and U.S.C.**) — not an HSE workstation or a CFR-focused reader. **State-law coverage and HSE-specific functions are out of scope.**
+>
+> **Immediate Priority:** Move the UI away from its CFR-centric focus so readers work across federal frameworks without treating CFR as the default or primary framework. This takes precedence over Plan `25` Phases 2–5 and supersedes the HSE-oriented roadmap in Plan `51`.
+
+> **Executive Snapshot:** Across **5 subject series** (`10_`–`50_`), FRAMEWORK holds **14 numbered plans** plus **1 cleanup dev log** (`docs/notes/2026-11-16_pre-feature-orders.md`): **1** historical foundation record (`11`), **11** completed implementation plans (`12`, `13`, `14`, `21`, `22`, `23`, `24`, `31`, `41`, `42`, `43`) plus the Two-Layer Sidebar & Multi-Framework Home redesign (`05e0a70`), **1** paused plan (**`25_white_glove_ui_ux_refinement`** — Phase 1 shipped, Phases 2–5 deferred behind the federal UI refocus), and **1** archived/superseded HSE strategy document (`51`).
 
 ---
 
@@ -12,9 +18,9 @@
 | Count | Bucket | Plans Included | Current State |
 | :--- | :--- | :--- | :--- |
 | **1** | Historical Foundation | `11_multi_title_foundation` | Superseded/archived record of expanding Title 29 to 50 CFR titles |
-| **11** | Shipped in `reader/` | `12`, `13`, `14`, `21`, `22`, `23`, `24`, `31`, `41`, `42`, `43` | Running in codebase (`42` and `43` completed 2026-11-18); Plans `14`/`24`/`31`/`43` note `win32` CI baseline refresh if merging on Windows |
-| **1** | **In Progress** | **`25_white_glove_ui_ux_refinement`** | Phase 1 shipped (visual craft & live bug fixes); Phases 2–5 remaining (`.doc-actions` + mobile unit jumper, Audit Brief export, Obligation Lens, discovery polish) |
-| **1** | Strategic Horizon | `51_hse_platform_roadmap` | Future multi-phase blueprint (MCP server, Policy Linter, Hybrid RAG, Bots) |
+| **11** | Shipped in `reader/` | `12`, `13`, `14`, `21`, `22`, `23`, `24`, `31`, `41`, `42`, `43` (+ `05e0a70`) | Running in codebase; existing DOL/OSHA enforcement code (`41`/`42`) remains supported foundation but does not define future scope; `win32` CI baseline refresh pending |
+| **1** | **Paused / Deferred** | **`25_white_glove_ui_ux_refinement`** | Phase 1 shipped; Phases 2–5 deferred while **Federal Multi-Framework UI Refocus** (moving beyond CFR-centric UI) runs first |
+| **1** | **Archived / Superseded** | `51_hse_platform_roadmap` | HSE suites and state-law coverage **removed from scope**; federal-only platform items (U.S.C. ingestion, MCP server, Hybrid RAG, Federal Change Radar, cross-framework citation graph) tracked in Linear |
 
 ---
 
@@ -30,12 +36,12 @@
 | **20** | App Shell, Home & Library | `22` | [Editorial Download Refactor](20_app_shell_and_workspace/22_editorial_download_refactor/MASTER_PLAN.md) | Completed | `#/library`, `app/library/suites.py`, `#transfer-dock` |
 | **20** | App Shell, Home & Library | `23` | [Home Screen Refactor](20_app_shell_and_workspace/23_home_screen_refactor/MASTER_PLAN.md) | Completed | `#/`, `GET /api/titles/snapshot`, SQLite read-only `mode=ro` & lock hardening |
 | **20** | App Shell, Home & Library | `24` | [Dark Newsroom & Multi-Jurisdiction UI](20_app_shell_and_workspace/24_dark_newsroom_multi_jurisdiction_ui/MASTER_PLAN.md) | Completed *(macOS)* | Obsidian `:root`, 9-tier semantic links, `#/corpus/`, Desk ribbon, Subject Workspaces |
-| **20** | App Shell, Home & Library | **`25`** | [**White-Glove UI/UX Refinement**](20_app_shell_and_workspace/25_white_glove_ui_ux_refinement/MASTER_PLAN.md) | **In Progress** *(Phase 1 completed; Phases 2–5 remaining)* | Tier bar polish, geometric mark, `0 of 0` fix, `.doc-actions` + mobile jumper, Audit Brief export, Obligation Lens |
+| **20** | App Shell, Home & Library | **`25`** | [**White-Glove UI/UX Refinement**](20_app_shell_and_workspace/25_white_glove_ui_ux_refinement/MASTER_PLAN.md) | **Paused** *(Phase 1 completed; Phases 2–5 deferred)* | Tier bar polish, geometric mark, `0 of 0` fix (shipped); Phases 2–5 deferred behind federal multi-framework UI refocus |
 | **30** | CFR Reader & Citations | `31` | [CFR Reader Development](30_cfr_reader_and_citations/31_reader_development/MASTER_PLAN.md) | Completed *(macOS)* | `app/citations/`, peeks, `Alt+Click` split view, click-to-download, broadsheet Title Start & References Hub |
-| **40** | Regulatory Intel & DOL | `41` | [OSHA News Interface](40_regulatory_intelligence_and_dol/41_osha_news_interface/MASTER_PLAN.md) | Completed | `#/news`, `#/news/inspection/{activity_nr}`, `news.py`, `news_store.py`, `news_worker.py` |
-| **40** | Regulatory Intel & DOL | **`42`** | [**DOL API v4 Expansion**](40_regulatory_intelligence_and_dol/42_dol_api_expansion/MASTER_PLAN.md) | **Completed** | `OSHA/related_activity`, reduction/FTA/abatement & para hotspots, GDC+accident FTS5, `dol:` lookup + Claude `search_enforcement`, CLI `dol_catalog.py` |
-| **40** | Regulatory Intel & DOL | **`43`** | [**FR Expansion & eCFR Hardening**](40_regulatory_intelligence_and_dol/43_federal_register_and_ecfr_hardening/MASTER_PLAN.md) | **Completed** *(macOS)* | eCFR `429`/edition-pinning/completeness + `/api/library/reload`, multi-agency & installed-title FR sync, cross-title `#btn-news-activity`, `#/news/fr/{document_number}` preamble reader |
-| **50** | Long-Term Strategy | `51` | [HSE Platform Roadmap](50_long_term_strategy/51_hse_platform_roadmap/HSE_PLATFORM_ROADMAP.md) | Strategic Blueprint | MCP server, automated Policy Linter, Hybrid RAG, Horizon Radar, Slack/Teams bots |
+| **40** | Regulatory Intel & DOL | `41` | [OSHA News Interface](40_regulatory_intelligence_and_dol/41_osha_news_interface/MASTER_PLAN.md) | Completed *(Existing Foundation)* | `#/news`, `#/news/inspection/{activity_nr}`, `news.py`, `news_store.py`, `news_worker.py` |
+| **40** | Regulatory Intel & DOL | `42` | [DOL API v4 Expansion](40_regulatory_intelligence_and_dol/42_dol_api_expansion/MASTER_PLAN.md) | Completed *(Existing Foundation)* | `OSHA/related_activity`, reduction/FTA/abatement & para hotspots, GDC+accident FTS5, `dol:` lookup + Claude `search_enforcement`, CLI `dol_catalog.py` |
+| **40** | Regulatory Intel & DOL | `43` | [FR Expansion & eCFR Hardening](40_regulatory_intelligence_and_dol/43_federal_register_and_ecfr_hardening/MASTER_PLAN.md) | Completed *(macOS)* | eCFR `429`/edition-pinning/completeness + `/api/library/reload`, multi-agency & installed-title FR sync, cross-title `#btn-news-activity`, `#/news/fr/{document_number}` preamble reader |
+| **50** | Long-Term Strategy | `51` | [HSE Platform Roadmap](50_long_term_strategy/51_hse_platform_roadmap/HSE_PLATFORM_ROADMAP.md) | **Archived / Superseded** | HSE suites & state codes out of scope; federal-only platform capabilities tracked in Linear |
 
 ---
 
@@ -51,16 +57,17 @@
   21 Rail + Drawer + Workspaces                 31 Reader Development (Milestones 1-3):
   22 Newsroom #/library + Transfer Dock  <--->    Unified citations, peeks, split pane,
   23 End-User #/ Home + SQLite Hardening          Title Start broadsheet & IBR graph
-  24 Dark Newsroom + Multi-Jurisdiction UI
-  25 White-Glove UI/UX Refinement (In Progress: Phase 1 shipped)
+  24 Dark Newsroom + Multi-Jurisdiction UI (+ 05e0a70 Two-Layer Sidebar)
+  25 White-Glove UI/UX Refinement (Paused: Phase 1 shipped; Phases 2-5 deferred)
+  [IMMEDIATE PRIORITY] Federal Multi-Framework UI Refocus (Beyond CFR-Centric UI)
          |                                                ^
          +------------------------+-----------------------+
                                   v
-[40 SERIES: Regulatory Intelligence & DOL]
+[40 SERIES: Regulatory Intelligence & DOL (Existing Foundation)]
   41 OSHA News Interface (Completed): FR API v1 + DOL v4 + In-App Inspection Case File
          |
          v
-  42 DOL API v4 Expansion (Completed):
+  42 DOL API v4 Expansion (Completed; does not define future scope):
      Stage 1: Quota Pacer & Bidirectional Related/FTA -> Stage 2: Contested/Abatement & Paragraph Hotspots
      Stage 3: GDC + Accident FTS5, NAICS, Emphasis/State-Flag & Priority Backfill
      Stage 4: Live Search (Cmd-K & #/news), Workspaces & Local Claude + Stage 5: /v4/datasets Catalog & Schema Probe
@@ -70,16 +77,17 @@
      eCFR 429/edition-pinning/completeness -> Multi-agency & installed-title FR sync -> #/news/fr/{document_number} reader
                                   |
                                   v
-[50 SERIES: Long-Term Strategy]
-  51 HSE Platform Roadmap: MCP Server · Policy Linter · Hybrid RAG · Change Radar · Bots
+[50 SERIES: Federal Platform Expansion (HSE Suites & State Codes Removed)]
+  Next: U.S.C. Ingestion Adapters · MCP Server · Hybrid RAG · Federal Change Radar
+  Horizon: Cross-Framework Citation Graph · Team Chat Integrations
 ```
 
 ### Key Cross-Plan Touchpoints
 
-- **Series 10 -> All Later Series:** `12_repo_structure_stabilization` introduced `tests/test_build_stamp.py` (`npx tsc --noEmit && npm run build`), `tests/test_api_snapshots.py` (`route_inventory.json`), and `REQUIRE_BROWSER=1` Playwright CI gates that every plan (`23`, `31`, `41`, `42`, `43`) must keep green.
+- **Series 10 -> All Later Series:** `12_repo_structure_stabilization` introduced `tests/test_build_stamp.py` (`npx tsc --noEmit && npm run build`), `tests/test_api_snapshots.py` (`route_inventory.json`), and `REQUIRE_BROWSER=1` Playwright CI gates that every change must keep green.
 - **Series 20 <-> Series 30:** Plan `22` (`TransferDock` + `app/library/jobs.py`) powers Plan `31` Phase 4's seamless in-reader click-to-download of uninstalled cross-title CFR references.
-- **Series 30 <-> Series 40:** Plan `31`'s citation parser patterns and Title Start layout wire directly into Plan `41`'s `#/news` CFR linking and Title 29 regulatory wire; Plan `42` Stages 2–3 surface enforcement/FTA/NAICS metrics right inside Title 29 section/part views.
-- **Series 40 -> Series 50:** Plan `41` + `42` lay the structured enforcement and agency-catalog datasets that Plan `51`'s Executive Liability Scoring, Multi-Facility NAICS Crosswalk, and Regulatory Horizon Radar depend on.
+- **Series 30 <-> Series 40:** Plan `31`'s citation parser patterns and Title Start layout wire directly into Plan `41` & `43`'s `#/news` Federal Register linking and in-reader activity timelines across all installed titles.
+- **Series 40 -> Series 50:** Plan `43`'s eCFR edition pinning and multi-title Federal Register preamble reader provide the foundation for Federal Change Radar and cross-framework (U.S.C. ↔ CFR ↔ FR) tracking.
 
 ---
 
@@ -101,7 +109,7 @@
 - **`22_editorial_download_refactor/` (Completed, Stages 1–4):** Redesigned `#/library` as an editorial front page (metrics tiles, featured Compliance Suite hero, 7-day Regulatory Wire, topic desks), backed by `COMPLIANCE_SUITES`, batch queue endpoints, and the persistent floating `#transfer-dock`.
 - **`23_home_screen_refactor/` (Completed, Stages 1–3):** Replaced developer clutter on `#/` with an end-user 3-band layout (**Band 1** Continue Reading + Workspaces, **Band 2** Downloaded Titles snapshot via `/api/titles/snapshot`, **Band 3** quiet Regulatory Pulse) while hardening `store.py` (`known_ids` uncached error guard, `PRAGMA query_only`), `library/jobs.py` lock transitions, and read-only `news_store.connect(readonly=True)`.
 - **`24_dark_newsroom_multi_jurisdiction_ui/` (Completed, Phases 1–5; macOS baselines current):** Locked the UI to an obsidian dark-mode-only "Yakuza Editorial" palette (`--bg: #070708`), implemented the 9-tier semantic reference chromatics across links/chips/peeks and `#btn-refs-ledger`, pre-wired multi-jurisdiction `AuthorityTier`/`DeskId`/`CorpusSummary` contracts with `#/corpus/...` routing and searchable Corpus Switcher, elevated Home/Title Start/Library/Search/News across regulatory desks, and added Authority grouping + nested Action Projects inside Subject Workspaces.
-- **`25_white_glove_ui_ux_refinement/` (In Progress — Phase 1 completed; Phases 2–5 remaining):** Fixes curved `border-left` tier-bar hooks, vestigial `"E"` mobile mark/favicon, `0 of 0 installed` suite counts, empty Wire/tier catalog clutter, CTA inflation, and multi-row `.doc-actions` wrapping; adds interactive mobile `.unit-context` jumping, `#view-head` scrolled position context, structured Workspace clips + **Audit Brief** (`.md`/print PDF) exports, offline **Obligation & Deadline Lens**, and `> Commands` / first-run discovery polish.
+- **`25_white_glove_ui_ux_refinement/` (Paused — Phase 1 completed; Phases 2–5 deferred behind federal multi-framework UI refocus):** Phase 1 fixed curved `border-left` tier-bar hooks, the vestigial `"E"` mobile mark/favicon, `0 of 0 installed` suite counts, empty Wire/tier catalog clutter, and truncated blurbs. Phases 2–5 (single-row `.doc-actions`, interactive mobile `.unit-context` jumper, structured Workspace clips + Audit Brief exports, offline Obligation Lens, discovery polish) are deferred while the UI shifts beyond its CFR-centric focus.
 
 ### 30 Series — CFR Reader & Citations (`30_cfr_reader_and_citations/`)
 
@@ -136,19 +144,20 @@ Hardens eCFR ingestion and widens Federal Register coverage beyond Title 29 / OS
 
 ### 50 Series — Long-Term Strategy (`50_long_term_strategy/`)
 
-- **`51_hse_platform_roadmap/` (`HSE_PLATFORM_ROADMAP.md` — Strategic Blueprint):** Multi-year product vision atop the core FastAPI + SQLite platform covering IDE **MCP Server**, **Policy Linter**, **Hybrid RAG** (`sqlite-vec` + BM25 RRF), **Regulatory Horizon Radar** (eCFR diffs + LLM impact synthesis), **Cross-Citation Dependency Graph**, **Enterprise Chat Bots** (Slack/Teams/Discord), and dedicated toolsets for HSE Directors, Managers, and Field Coordinators.
+- **`51_hse_platform_roadmap/` (`HSE_PLATFORM_ROADMAP.md` — Archived / Superseded 2026-11-19):** Historical strategy blueprint. Per the federal-only pivot in Linear (`FRAMEWORK`), **state-law coverage** and **HSE-specific tools** (Written Safety Program & Policy Linter, OSHA Part 1904 Recordability Engine, Multi-Agency Chemical/NAICS/Penalty Crosswalk, Field Operations Toolkit) are **out of scope**. General federal-platform capabilities carry forward in Linear as future candidates: U.S.C. & federal framework ingestion adapters, IDE **MCP Server**, local **Hybrid RAG** (`sqlite-vec` + BM25 RRF), **Federal Change Radar** (eCFR diffs + FR impact briefs), **Cross-Framework Citation Knowledge Graph**, and team chat integrations.
 
 ---
 
 ## 5. Pending Housekeeping & Follow-Ups (`docs/notes/`)
 
 [`docs/notes/2026-11-16_pre-feature-orders.md`](../notes/2026-11-16_pre-feature-orders.md) records Orders 1–3, all completed. Order 3's frontend items (shared `src/api/` client and zero import cycles, typed `AppState` with every module in `.ts` under `"checkJs": true`, `npx tsc --noEmit` + `npm test` in `.github/workflows/ci.yml`, Playwright checks in place of JS source-slicing assertions, `mask.get_flattened_data()`) shipped through Plan `13`. What is still open:
-1. Refresh Windows visual baselines (`tests/baselines/win32/`) through the CI workflow's `record_baselines` dispatch input, since the Milestone 1–3 UI changes postdate them; `darwin` is current.
+1. Refresh Windows visual baselines (`tests/baselines/win32/`) through the CI workflow's `record_baselines` dispatch input (best run after the immediate Federal Multi-Framework UI Refocus lands).
 
 ---
 
-## 6. Recommended Execution Queue
+## 6. Recommended Execution Queue (Synced with Linear `FRAMEWORK`)
 
-1. **Plan `25` — Phases 2–5:** Single-row `.doc-actions` and the mobile unit jumper, structured Workspace clips + Audit Brief export, the offline Obligation & Deadline Lens, and discovery polish, closing with the Playwright assertions and `darwin` baseline refresh the plan specifies.
-2. **Housekeeping:** Refresh the `win32` visual baselines via the CI `record_baselines` dispatch (the only remaining Order 3-era item).
-3. **Series `50`:** Start `51_hse_platform_roadmap` capabilities (MCP server, Policy Linter, Hybrid RAG) once the above is clear; it is a strategy document, so each capability needs its own numbered plan first.
+1. **Immediate Priority — Federal Multi-Framework UI Refocus (Linear `Now`):** Move the UI beyond its CFR-centric focus so **CFR, Federal Register, and U.S.C.** operate as peer federal frameworks across Home, primary sidebar, topbar switcher, onboarding (`welcome.ts`), Library, Search, and Reader entry points; remove out-of-scope State/County tiers and HSE framing from the interface.
+2. **Housekeeping:** Refresh `win32` visual baselines via the CI `record_baselines` dispatch once the UI refocus settles.
+3. **Next — Federal Code Ingestion & Platform Intelligence:** Author dedicated plans and build U.S.C. / federal framework ingestion adapters (`IRegulatoryIngest` + URRI scheme), IDE MCP Server, local Hybrid RAG, Federal Change Radar & eCFR diffs, and selectively fold in reusable Plan `25` reader ergonomics.
+4. **Horizon:** Cross-framework citation knowledge graph & blast radius and federal team chat integrations.

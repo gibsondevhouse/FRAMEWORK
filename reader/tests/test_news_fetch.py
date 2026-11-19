@@ -309,7 +309,7 @@ class WorkerSyncTests(FetchTestCase):
         fr_reqs = fake.requests_for(FR_PATH)
         # 2 agency queries (OSHA + EPA) + 1 CFR title query (40; 29 skipped since OSHA is covered)
         self.assertEqual(len(fr_reqs), 3)
-        self.assertEqual(fr_reqs[2].url.params.get("conditions[cfr][title][]"), "40")
+        self.assertEqual(fr_reqs[2].url.params.get("conditions[cfr][title]"), "40")
 
     def test_fetch_fr_body_guards_invalid_doc_and_host(self):
         import httpx
