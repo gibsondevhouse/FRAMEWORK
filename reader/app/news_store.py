@@ -21,7 +21,7 @@ from typing import Iterator
 from . import config, store
 from .citations.parser import FR_RE as _FR_CITATION, SEC_NUM
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SOURCES = ("federal_register", "federal_register_pi", "dol_osha")
 CATEGORIES = ("rules", "rulemaking", "notices", "public_inspection", "enforcement")
@@ -117,6 +117,20 @@ CREATE TABLE IF NOT EXISTS dol_datasets (
     raw_json TEXT NOT NULL DEFAULT '{}',
     discovered_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS fr_bodies (
+    document_number TEXT PRIMARY KEY,
+    body_html TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
+"""
+
+_FR_BODIES_DDL = """
+CREATE TABLE IF NOT EXISTS fr_bodies (
+    document_number TEXT PRIMARY KEY,
+    body_html TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
 """
 
 _DOL_DATASETS_DDL = """
@@ -132,6 +146,14 @@ CREATE TABLE IF NOT EXISTS dol_datasets (
     cfr_parts_json TEXT NOT NULL DEFAULT '[]',
     raw_json TEXT NOT NULL DEFAULT '{}',
     discovered_at TEXT NOT NULL
+);
+"""
+
+_FR_BODIES_DDL = """
+CREATE TABLE IF NOT EXISTS fr_bodies (
+    document_number TEXT PRIMARY KEY,
+    body_html TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
 );
 """
 
@@ -170,6 +192,20 @@ CREATE TABLE IF NOT EXISTS dol_datasets (
     cfr_parts_json TEXT NOT NULL DEFAULT '[]',
     raw_json TEXT NOT NULL DEFAULT '{}',
     discovered_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS fr_bodies (
+    document_number TEXT PRIMARY KEY,
+    body_html TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
+"""
+
+_FR_BODIES_DDL = """
+CREATE TABLE IF NOT EXISTS fr_bodies (
+    document_number TEXT PRIMARY KEY,
+    body_html TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
 );
 """
 
@@ -218,7 +254,7 @@ def connect(readonly: bool = False) -> sqlite3.Connection | None:
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA busy_timeout=5000")
     version = con.execute("PRAGMA user_version").fetchone()[0]
-    if version in (1, 2):
+    if version in (1, 2, 3):
         if version == 1:
             con.executescript(_ENFORCEMENT_CASE_DDL)
             con.executescript(
@@ -243,13 +279,15 @@ def connect(readonly: bool = False) -> sqlite3.Connection | None:
             ")"
         )
         con.execute(_DOL_DATASETS_DDL)
+        con.execute(_FR_BODIES_DDL)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         con.commit()
     elif version != SCHEMA_VERSION:
         if version:
             # The store is a cache of public data: on a schema mismatch, drop and let the
             # next sync refill it.
-            con.executescript("DROP TABLE IF EXISTS dol_datasets;"
+            con.executescript("DROP TABLE IF EXISTS fr_bodies;"
+                              "DROP TABLE IF EXISTS dol_datasets;"
                               "DROP TABLE IF EXISTS enforcement_narratives_fts;"
                               "DROP TABLE IF EXISTS enforcement_cases;"
                               "DROP TABLE IF EXISTS article_citations;"
@@ -310,11 +348,25 @@ def upsert_article(con: sqlite3.Connection, item: dict, now: datetime | None = N
         "INSERT OR IGNORE INTO article_citations VALUES (?, ?, ?, '')",
         [(guid, int(r["title"]), str(r["part"])) for r in item.get("cfr_parts") or []],
     )
-    # Section-level citations are Title 29 by construction while OSHA is the only agency.
-    con.executemany(
-        "INSERT OR IGNORE INTO article_citations VALUES (?, 29, ?, ?)",
-        [(guid, s.split(".", 1)[0], s) for s in item.get("sections") or []],
-    )
+    title_sections = item.get("_title_sections")
+    if title_sections is not None:
+        con.executemany(
+            "INSERT OR IGNORE INTO article_citations VALUES (?, ?, ?, ?)",
+            [(guid, int(ts["title"]), str(ts["id"]).split(".", 1)[0], str(ts["id"])) for ts in title_sections],
+        )
+        # Keep any Title 29 DOL/manual sections that didn't originate from multi-title prose extraction.
+        known_secs = {str(ts["id"]) for ts in title_sections}
+        extra_29 = [s for s in (item.get("sections") or []) if s not in known_secs]
+        if extra_29:
+            con.executemany(
+                "INSERT OR IGNORE INTO article_citations VALUES (?, 29, ?, ?)",
+                [(guid, s.split(".", 1)[0], s) for s in extra_29],
+            )
+    else:
+        con.executemany(
+            "INSERT OR IGNORE INTO article_citations VALUES (?, 29, ?, ?)",
+            [(guid, s.split(".", 1)[0], s) for s in item.get("sections") or []],
+        )
     rid = con.execute("SELECT rowid FROM articles WHERE guid = ?", (guid,)).fetchone()[0]
     con.execute("DELETE FROM articles_fts WHERE rowid = ?", (rid,))
     con.execute(
@@ -479,15 +531,23 @@ def sync_rows() -> dict[str, dict]:
 def summary_for_title(title: int = 29) -> dict:
     """Lightweight read-only news summary for the Home snapshot (no DB creation or writes)."""
     empty = {"count": 0, "latest_title": None, "latest_date": None}
-    if title != 29:
-        return empty
     with read_con() as con:
         if con is None:
             return empty
         try:
-            count = int(con.execute("SELECT count(*) FROM articles").fetchone()[0])
+            if title == 29:
+                where = (
+                    "WHERE source = 'dol_osha' OR agency = 'occupational-safety-and-health-administration' "
+                    "OR EXISTS (SELECT 1 FROM article_citations c WHERE c.article_guid = articles.guid AND c.title_num = 29)"
+                )
+                params: tuple = ()
+            else:
+                where = "WHERE EXISTS (SELECT 1 FROM article_citations c WHERE c.article_guid = articles.guid AND c.title_num = ?)"
+                params = (int(title),)
+            count = int(con.execute(f"SELECT count(*) FROM articles {where}", params).fetchone()[0])
             row = con.execute(
-                "SELECT title, published_at FROM articles ORDER BY published_at DESC, guid LIMIT 1"
+                f"SELECT title, published_at FROM articles {where} ORDER BY published_at DESC, guid LIMIT 1",
+                params,
             ).fetchone()
             return {
                 "count": count,
@@ -496,6 +556,28 @@ def summary_for_title(title: int = 29) -> dict:
             }
         except sqlite3.Error:
             return empty
+
+
+def save_fr_body(con: sqlite3.Connection, document_number: str, body_html: str, now: datetime | None = None) -> None:
+    iso = (now or datetime.now(timezone.utc)).isoformat()
+    con.execute(
+        """INSERT INTO fr_bodies (document_number, body_html, fetched_at) VALUES (?, ?, ?)
+           ON CONFLICT(document_number) DO UPDATE SET body_html = excluded.body_html, fetched_at = excluded.fetched_at""",
+        (document_number, body_html, iso),
+    )
+
+
+def get_fr_body(con: sqlite3.Connection, document_number: str) -> dict | None:
+    row = con.execute(
+        "SELECT document_number, body_html, fetched_at FROM fr_bodies WHERE document_number = ?",
+        (document_number,),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def get_article_by_doc_num(con: sqlite3.Connection, document_number: str) -> dict | None:
+    row = con.execute("SELECT * FROM articles WHERE guid = ?", (f"fr:{document_number}",)).fetchone()
+    return _article(row) if row is not None else None
 
 
 def prune(con: sqlite3.Connection, today: date | None = None) -> None:
@@ -516,6 +598,7 @@ def prune(con: sqlite3.Connection, today: date | None = None) -> None:
     con.execute("DELETE FROM articles_fts WHERE rowid NOT IN (SELECT rowid FROM articles)")
     con.execute("DELETE FROM enforcement_cases WHERE 'dol-insp:' || activity_nr NOT IN (SELECT guid FROM articles)")
     con.execute("DELETE FROM enforcement_narratives_fts WHERE activity_nr NOT IN (SELECT activity_nr FROM enforcement_cases)")
+    con.execute("DELETE FROM fr_bodies WHERE 'fr:' || document_number NOT IN (SELECT guid FROM articles)")
 
 
 # ---------------------------------------------------------------------------
@@ -549,6 +632,7 @@ def _citation_filter(section: str | None, part: str | None, title: int) -> tuple
 
 def query_articles(con: sqlite3.Connection, *, category: str = "all", q: str | None = None,
                    section: str | None = None, part: str | None = None, title: int = 29,
+                   cfr_title: int | None = None,
                    state: str | None = None, min_penalty: float | None = None,
                    gravity: str | None = None, naics: str | None = None,
                    gdc: bool = False, fatality: bool = False,
@@ -598,10 +682,14 @@ def query_articles(con: sqlite3.Connection, *, category: str = "all", q: str | N
         params.append(emphasis.strip().upper())
     if state or min_penalty is not None or gravity or naics or gdc or fatality or jurisdiction in ("federal", "state_plan") or emphasis:
         filters.append("a.category = 'enforcement'")
+    effective_title = cfr_title if cfr_title is not None else title
     if section or part:
-        sql, p = _citation_filter(section, part, title)
+        sql, p = _citation_filter(section, part, effective_title)
         filters.append(sql)
         params += p
+    elif cfr_title is not None:
+        filters.append("EXISTS (SELECT 1 FROM article_citations c WHERE c.article_guid = a.guid AND c.title_num = ?)")
+        params.append(int(cfr_title))
 
     fts = None
     if q and q.strip():
@@ -611,7 +699,7 @@ def query_articles(con: sqlite3.Connection, *, category: str = "all", q: str | N
         sec_id = store.normalize_id(raw)
         fr_m = _FR_CITATION.fullmatch(raw)
         if _SECTION_ID.fullmatch(sec_id):
-            sql, p = _citation_filter(sec_id, None, title)
+            sql, p = _citation_filter(sec_id, None, effective_title)
             filters.append(sql)
             params += p
         elif fr_m:

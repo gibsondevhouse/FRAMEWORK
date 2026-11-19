@@ -37,8 +37,9 @@ _forced_lock = threading.Lock()
 
 
 def enabled_sources() -> list[str]:
-    fr = ["federal_register", "federal_register_pi"] if config.news_agencies() else []
-    return fr + (["dol_osha"] if config.dol_api_key() else [])
+    fr_doc = ["federal_register"] if (config.news_agencies() or config.installed_titles()) else []
+    fr_pi = ["federal_register_pi"] if config.news_agencies() else []
+    return fr_doc + fr_pi + (["dol_osha"] if config.dol_api_key() else [])
 
 
 def start() -> None:
@@ -119,21 +120,42 @@ def sync_sources(sources: list[str], now: datetime | None = None) -> dict[str, i
     rows = news_store.sync_rows()
     results: dict[str, int | str] = {}
     agencies = config.news_agencies()
-    agency = agencies[0] if agencies else None  # OSHA only (decision 1)
+    installed = config.installed_titles()
     with news.client() as c:
         for s in sources:
             last_ok = rows.get(s, {}).get("last_ok_at")
             if s == "federal_register":
-                if not agency:
+                if not agencies and not installed:
                     results[s] = "No news agencies configured"
                     continue
                 since = sched.fr_since(last_ok, now, news_store.retention_days())
-                fetch = lambda a=agency, sc=since: news.fetch_federal_register_documents(c, a, sc)
+
+                def _fetch_fr(ags=agencies, titles=installed, sc=since):
+                    by_guid: dict[str, dict] = {}
+                    for ag in ags:
+                        for it in news.fetch_federal_register_documents(c, ag, sc):
+                            by_guid.setdefault(it["guid"], it)
+                    for t_num in titles:
+                        if t_num == 29 and "occupational-safety-and-health-administration" in ags:
+                            continue
+                        for it in news.fetch_federal_register_by_cfr_title(c, t_num, sc):
+                            by_guid.setdefault(it["guid"], it)
+                    return list(by_guid.values())
+
+                fetch = _fetch_fr
             elif s == "federal_register_pi":
-                if not agency:
+                if not agencies:
                     results[s] = "No news agencies configured"
                     continue
-                fetch = lambda a=agency: news.fetch_public_inspection(c, a)
+
+                def _fetch_pi(ags=agencies):
+                    by_guid: dict[str, dict] = {}
+                    for ag in ags:
+                        for it in news.fetch_public_inspection(c, ag):
+                            by_guid.setdefault(it["guid"], it)
+                    return list(by_guid.values())
+
+                fetch = _fetch_pi
             else:
                 key = config.dol_api_key()
                 if not key:

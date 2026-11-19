@@ -52,9 +52,9 @@ def ecfr_title(title: int) -> dict:
     return info
 
 
-def structure(title: int) -> dict:
-    """The latest edition's contents tree for a title, trimmed and nested like tree.json."""
-    edition = lib.ecfr_title(title)["up_to_date_as_of"]
+def structure(title: int, edition: str | None = None) -> dict:
+    """The edition's contents tree for a title, trimmed and nested like tree.json."""
+    edition = edition or lib.ecfr_title(title)["up_to_date_as_of"]
     key = (title, edition)
     with _cache_lock:
         if key in _structures:

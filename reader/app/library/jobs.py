@@ -141,6 +141,8 @@ class Queue:
 
 def _friendly(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
+        if exc.response.status_code == 429:
+            return "eCFR rate limit reached. Try again in a moment."
         return f"eCFR answered {exc.response.status_code} for that request."
     if isinstance(exc, httpx.HTTPError):
         return "Couldn't reach eCFR. Check the connection and try again."
@@ -200,6 +202,8 @@ def requested_scope(kind: str, target: dict | None) -> dict | None:
 def run_job(job: dict, report) -> None:
     title = job["title"]
     inst = lib.installed(title)
+    info = lib.ecfr_title(title)
+    edition = info.get("up_to_date_as_of")
     if job["kind"] == "update":
         if inst is None:
             raise ValueError(f"Title {title} isn't installed")
@@ -207,17 +211,18 @@ def run_job(job: dict, report) -> None:
     else:
         add = requested_scope(job["kind"], job["target"])
         if inst is not None and add is not None:
-            pruned_add = build.prune_tree(lib.structure(title), add)
+            pruned_add = build.prune_tree(lib.structure(title, edition=edition), add)
             if not build.count_leaves(pruned_add):
                 raise ValueError("None of the selected parts or sections exist in the current edition")
         scope = add if inst is None else build.merge_scope(inst["scope"], add)
-        if inst is not None and scope == inst["scope"] and inst["edition"] == lib.ecfr_title(title)["up_to_date_as_of"]:
+        if inst is not None and scope == inst["scope"] and inst["edition"] == edition:
             report("Already installed", 1, 1)
             return
     try:
         build.build(
             title=title, force=True, scope=scope, progress=report,
             before_install=lambda: store.begin_swap(title),
+            edition=edition,
         )
     finally:
         store.end_swap(title)

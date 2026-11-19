@@ -57,7 +57,13 @@ export function inspectionActivityNr(a: { category?: string; guid?: string } | n
   return m ? m[1] : null;
 }
 
-export function newsKicker(a: { category?: string; state?: string; doc_type?: string; citation?: string }): string {
+export function frDocumentNumber(a: { category?: string; guid?: string } | null | undefined): string | null {
+  if (!a || a.category === 'enforcement' || a.category === 'public_inspection' || !a.guid) return null;
+  const m = /^fr:([A-Za-z0-9._-]+)$/.exec(String(a.guid));
+  return m ? m[1] : null;
+}
+
+export function newsKicker(a: { category?: string; state?: string | null; doc_type?: string | null; citation?: string | null }): string {
   if (a.category === 'enforcement') return ['ENFORCEMENT', a.state].filter(Boolean).join(' · ');
   if (a.category === 'public_inspection') {
     return ['PUBLIC INSPECTION', (a.doc_type || '').toUpperCase()].filter(Boolean).join(' · ');

@@ -88,6 +88,29 @@ class InitTests(StoreTestCase):
             self.assertEqual(case["related"], [])
             self.assertEqual(case["enrich_ver"], 0)
 
+    def test_v3_migrates_fr_bodies_and_supports_non_29_summary(self):
+        news_store.init_db()
+        with closing(news_store.connect()) as con:
+            con.executescript("DROP TABLE IF EXISTS fr_bodies; PRAGMA user_version = 3;")
+            con.commit()
+        with closing(news_store.connect()) as con:
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], news_store.SCHEMA_VERSION)
+            epa = news.enrich_item({
+                **news.empty_item(),
+                "guid": "fr:2026-30001", "source": "federal_register",
+                "agency": "environmental-protection-agency", "category": "rules",
+                "doc_type": "Rule", "title": "Hazardous Waste Update under 40 CFR 261.3",
+                "link": "https://www.federalregister.gov/documents/2026-30001",
+                "published_at": "2026-11-12",
+                "cfr_parts": [{"title": 40, "part": "261"}],
+            })
+            news_store.upsert_article(con, epa)
+            news_store.save_fr_body(con, "2026-30001", "<p>Body text</p>")
+            con.commit()
+            self.assertEqual(news_store.get_fr_body(con, "2026-30001")["body_html"], "<p>Body text</p>")
+        self.assertEqual(news_store.summary_for_title(40)["count"], 1)
+        self.assertEqual(news_store.summary_for_title(29)["count"], 0)
+
 
 class UpsertTests(StoreTestCase):
     def test_upsert_is_idempotent(self):

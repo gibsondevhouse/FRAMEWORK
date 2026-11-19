@@ -1,5 +1,5 @@
 {
-  "sha256": "3a455241009867d5ae8877ca179e3fc9fc55ebd7994b3a8bb34eb0ea0bfa6062",
+  "sha256": "3befc0ee7dda7808f770e1fc621f92675f38ea2290509b51cbcd04ea2577c105",
   "files": [
     "index.html",
     "src/api/client.ts",
@@ -65,6 +65,7 @@
     "src/views/library.ts",
     "src/views/news.ts",
     "src/views/news_case.ts",
+    "src/views/news_fr.ts",
     "src/views/projects.ts",
     "src/views/reader.ts",
     "src/views/reader_part.ts",

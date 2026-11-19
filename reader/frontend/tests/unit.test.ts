@@ -14,6 +14,7 @@ import { amendedWeek, isStale, suiteState, titleStatus } from '../src/core/libra
 import {
   extLink,
   fmtMoney,
+  frDocumentNumber,
   inspectionActivityNr,
   linkifyNewsText,
   newsKicker,
@@ -183,6 +184,7 @@ test('news helpers parse queries, build URLs/hashes, detect changes, and format 
   assert.deepEqual(view, {
     cat: 'enforcement',
     q: 'silica',
+    cfr_title: '',
     section: '',
     part: '',
     state: 'CA',
@@ -208,6 +210,9 @@ test('news helpers parse queries, build URLs/hashes, detect changes, and format 
   assert.equal(stateName('tx'), 'Texas');
   assert.equal(fmtMoney(125000), '$125,000');
   assert.equal(inspectionActivityNr({ category: 'enforcement', guid: 'dol-insp:307000001' }), '307000001');
+  assert.equal(frDocumentNumber({ category: 'rules', guid: 'fr:2026-17726' }), '2026-17726');
+  assert.equal(frDocumentNumber({ category: 'public_inspection', guid: 'fr:2026-22222' }), null);
+  assert.equal(newsViewFromParams(new URLSearchParams('cfr_title=40')).cfr_title, '40');
   assert.equal(newsKicker({ category: 'rules', citation: '91 FR 1234' }), 'FINAL RULE · 91 FR 1234');
   assert.equal(newsSectionHref(29, '1910.1200'), '#/title/29/section/1910.1200');
   assert.equal(newsPartHref(40, '261'), '#/library/40');

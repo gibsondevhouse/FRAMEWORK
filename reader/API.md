@@ -355,6 +355,9 @@ Queue whole-title downloads for a suite or a list of titles: `{"suite": "ehs"}` 
 ### `POST /api/library/update-all`
 Queue an update for every installed title (whole or partial, keeping its scope) whose edition is older than eCFR's latest. Returns `{"queued": [jobs], "count"}`; `count` is 0 when everything is current.
 
+### `POST /api/library/reload`
+Release cached SQLite handles and render/structure caches so externally built or updated titles (`python -m app.build`) become visible without restarting the server. Returns `{"reloaded": [titles]}`.
+
 ### `POST /api/library/{title}/update`
 Re-download an installed title at the latest eCFR edition.
 
@@ -398,8 +401,9 @@ The feed, search and filters in one endpoint.
 |:---|:---|:---|
 | `category` | string | `all` (default) · `rules` · `rulemaking` · `enforcement` · `public_inspection` · `notices`. |
 | `q` | string | Full-text query over title, description and company. A section number (`§ 1910.1030`) or FR citation (`91 FR 55744`) matches by id instead of FTS. Results carry `snippet` with `\x02`/`\x03` highlights. |
-| `section` | string | Articles citing that Title 29 section, plus part-level references to its part. |
-| `part` | string | Articles with any citation inside that Title 29 part. |
+| `section` | string | Articles citing that section, plus part-level references to its part (scoped by `cfr_title`, default `29`). |
+| `part` | string | Articles with any citation inside that part (scoped by `cfr_title`, default `29`). |
+| `cfr_title` | int | Filter to articles citing CFR title `1..50` (and scope `section`/`part`/`q` section lookups). |
 | `state` | string | Two-letter site state (enforcement only). |
 | `min_penalty` | number | Enforcement rows with `penalty_usd >=` this. |
 | `gravity` | string | `W`, `R`, `S`, `O`, or `U` — enforcement rows whose `violation_types` contains it. |
@@ -433,11 +437,18 @@ ignoring staleness and backoff. Returns at once — `202 {"queued": [...]}` or
 already running, `503` when `NEWS_SYNC` is off.
 
 ### `GET /api/news/section/{section_id}` · `GET /api/news/part/{part}`
-The reader's activity button. Both take `?title=29` (default; other titles return empty
-while OSHA is the only agency) and return `{"section_id"|"part", "count", "articles", "stats"}`
+The reader's activity button. Both take `?title=29` (default; works for any CFR title `1..50`) and return `{"section_id"|"part", "count", "articles", "stats"}`
 with at most 15 articles, newest first, plus aggregated Federal Title 29 enforcement telemetry
-(`case_count`, `citation_count`, `avg_penalty`, `fta_count`, and `top_paragraphs`). A section
+(`case_count`, `citation_count`, `avg_penalty`, `fta_count`, and `top_paragraphs` — empty for non-29 titles). A section
 matches exact citations plus part-level references to its part; a part matches everything inside it.
+
+### `GET /api/news/fr/{document_number}`
+On-demand full-text Federal Register document reader (`#/news/fr/{document_number}`). Fetches
+`body_html_url` from `federalregister.gov` on cache miss, allowlist-sanitizes and CFR-linkifies
+the HTML, caches it in `fr_bodies`, and returns `{"document_number", "article", "body_html", "fetched_at", "cached"}`.
+`body_html` is `null` when the Federal Register offers no inline HTML for a document we already hold; `404` when it
+offers none and we hold nothing locally. `422` for a malformed document number, `503` when the Federal Register
+cannot be reached or does not recognise the number.
 
 ### `GET /api/news/enforcement/summary`
 Local enforcement analytics aggregated over cached DOL OSHA inspections (`total_cases`,

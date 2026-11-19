@@ -16,6 +16,9 @@ import re
 import threading
 import time
 from datetime import date, datetime, timedelta
+from html import escape
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -189,28 +192,51 @@ def empty_item() -> dict:
 # Federal Register: published documents and Public Inspection filings
 # ---------------------------------------------------------------------------
 
-def fetch_federal_register_documents(c: httpx.Client, agency: str, since: str) -> list[dict]:
-    """Every document published on or after `since` (ISO date), following next_page_url."""
-    params = [("conditions[agencies][]", agency), ("conditions[publication_date][gte]", since),
-              ("order", "newest"), ("per_page", str(FR_PER_PAGE))]
-    params += [("fields[]", f) for f in FR_FIELDS]
-    url, results = f"{FR_BASE}/documents.json", []
+def _fr_paginated(c: httpx.Client, base_params: list[tuple[str, str]]) -> list[dict]:
+    params: list[tuple[str, str]] | None = list(base_params) + [("fields[]", f) for f in FR_FIELDS]
+    url: str | None = f"{FR_BASE}/documents.json"
+    results: list[dict] = []
     for _ in range(FR_MAX_PAGES):
         page = _get_json(c, url, params)
         results += page.get("results", [])
         url, params = page.get("next_page_url"), None  # next_page_url carries the query
         if not url:
             break
+    return results
+
+
+def fetch_federal_register_documents(c: httpx.Client, agency: str, since: str) -> list[dict]:
+    """Every document published on or after `since` (ISO date) for `agency`, following next_page_url."""
+    params = [("conditions[agencies][]", agency), ("conditions[publication_date][gte]", since),
+              ("order", "newest"), ("per_page", str(FR_PER_PAGE))]
+    results = _fr_paginated(c, params)
     return [fr_document_item(d, agency) for d in results if d.get("document_number")]
 
 
-def fr_document_item(doc: dict, agency: str) -> dict:
+def fetch_federal_register_by_cfr_title(c: httpx.Client, title_num: int, since: str) -> list[dict]:
+    """Every document published on or after `since` (ISO date) referencing CFR `title_num`."""
+    params = [("conditions[cfr][title][]", str(int(title_num))), ("conditions[publication_date][gte]", since),
+              ("order", "newest"), ("per_page", str(FR_PER_PAGE))]
+    results = _fr_paginated(c, params)
+    return [fr_document_item(d, None) for d in results if d.get("document_number")]
+
+
+def _fr_agency_slug(doc: dict, fallback: str | None = None) -> str:
+    if fallback:
+        return fallback
+    for ag in doc.get("agencies") or []:
+        if isinstance(ag, dict) and ag.get("slug"):
+            return str(ag["slug"]).strip()
+    return "federal-register"
+
+
+def fr_document_item(doc: dict, agency: str | None = None) -> dict:
     doc_type = doc.get("type") or "Notice"
     return {
         **empty_item(),
         "guid": f"fr:{doc['document_number']}",
         "source": "federal_register",
-        "agency": agency,
+        "agency": _fr_agency_slug(doc, agency),
         "category": FR_TYPE_TO_CATEGORY.get(doc_type, "notices"),
         "doc_type": doc_type,
         "title": (doc.get("title") or "").strip(),
@@ -226,6 +252,117 @@ def fr_document_item(doc: dict, agency: str) -> dict:
         "cfr_parts": [{"title": int(r["title"]), "part": str(r["part"])}
                       for r in (doc.get("cfr_references") or []) if r.get("title") and r.get("part")],
     }
+
+
+_FR_DOC_NUM_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_FR_ALLOWED_TAGS = frozenset({
+    "div", "section", "article", "header", "footer", "p", "h1", "h2", "h3", "h4", "h5", "h6",
+    "span", "a", "em", "strong", "b", "i", "u", "sup", "sub", "small", "ul", "ol", "li",
+    "dl", "dt", "dd", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption",
+    "colgroup", "col", "blockquote", "pre", "code", "hr", "br",
+})
+_FR_DROP_CONTENT_TAGS = frozenset({"script", "style", "iframe", "object", "embed", "svg", "math", "noscript"})
+_FR_VOID_TAGS = frozenset({"br", "hr", "col"})
+_FR_SAFE_ATTRS = frozenset({"class", "id", "colspan", "rowspan", "scope", "headers"})
+
+
+class _FrSanitizer(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.out: list[str] = []
+        self._drop_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        t = tag.lower()
+        if t in _FR_DROP_CONTENT_TAGS:
+            self._drop_depth += 1
+            return
+        if self._drop_depth or t not in _FR_ALLOWED_TAGS:
+            return
+        kept: list[str] = []
+        is_ext_link = False
+        for k, v in attrs:
+            ak = (k or "").lower()
+            if v is None:
+                continue
+            if ak == "href" and t == "a":
+                val = v.strip()
+                if val.startswith("/"):
+                    val = "https://www.federalregister.gov" + val
+                parsed = urlparse(val)
+                if parsed.scheme in ("http", "https"):
+                    kept.append(f'href="{escape(val, quote=True)}"')
+                    is_ext_link = True
+                elif val.startswith("#") and len(val) > 1:
+                    kept.append(f'href="{escape(val, quote=True)}"')
+            elif ak in _FR_SAFE_ATTRS:
+                kept.append(f'{ak}="{escape(v, quote=True)}"')
+        if is_ext_link:
+            kept.append('target="_blank" rel="noopener noreferrer"')
+        attr_str = (" " + " ".join(kept)) if kept else ""
+        self.out.append(f"<{t}{attr_str}>")
+
+    def handle_endtag(self, tag: str) -> None:
+        t = tag.lower()
+        if t in _FR_DROP_CONTENT_TAGS:
+            if self._drop_depth:
+                self._drop_depth -= 1
+            return
+        if self._drop_depth or t not in _FR_ALLOWED_TAGS or t in _FR_VOID_TAGS:
+            return
+        self.out.append(f"</{t}>")
+
+    def handle_data(self, data: str) -> None:
+        if not self._drop_depth:
+            self.out.append(escape(data, quote=False))
+
+    def handle_entityref(self, name: str) -> None:
+        if not self._drop_depth:
+            self.out.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        if not self._drop_depth:
+            self.out.append(f"&#{name};")
+
+
+def sanitize_fr_html(raw_html: str) -> str:
+    """Allowlist-sanitize Federal Register body HTML so scripts, forms, and inline handlers are removed."""
+    parser = _FrSanitizer()
+    parser.feed(raw_html or "")
+    parser.close()
+    return "".join(parser.out).strip()
+
+
+def _is_fr_host(url: str) -> bool:
+    p = urlparse(url or "")
+    return p.scheme == "https" and (p.hostname or "").lower() in ("www.federalregister.gov", "federalregister.gov")
+
+
+def fetch_fr_body(c: httpx.Client, document_number: str, body_html_url: str | None = None) -> dict | None:
+    """Fetch FR document metadata + sanitized body HTML on demand for `document_number`."""
+    doc_num = (document_number or "").strip()
+    if not doc_num or not _FR_DOC_NUM_RE.fullmatch(doc_num):
+        raise ValueError("Invalid Federal Register document number")
+    meta: dict | None = None
+    url = (body_html_url or "").strip() or None
+    if not url:
+        meta = _get_json(
+            c,
+            f"{FR_BASE}/documents/{doc_num}.json",
+            [("fields[]", f) for f in FR_FIELDS],
+        )
+        url = (meta.get("body_html_url") or "").strip() or None
+    if not url or not _is_fr_host(url):
+        return None
+    try:
+        r = c.get(url)
+        r.raise_for_status()
+        body_html = sanitize_fr_html(r.text)
+    except httpx.HTTPStatusError as e:
+        raise SourceUnavailable(f"{url.split('?')[0]}: HTTP {e.response.status_code}") from None
+    except httpx.HTTPError as e:
+        raise SourceUnavailable(f"{url.split('?')[0]}: {type(e).__name__}") from None
+    return {"doc": meta, "body_html": body_html}
 
 
 def fetch_public_inspection(c: httpx.Client, agency: str) -> list[dict]:
@@ -1073,6 +1210,60 @@ def extract_citations(text: str) -> tuple[list[str], list[dict]]:
                               for p in sorted(parts, key=lambda p: (len(p), p))]
 
 
+def extract_all_citations(text: str) -> tuple[list[dict], list[dict]]:
+    """Return ([{"title": t, "id": sec}], [{"title": t, "part": p}]) across all CFR titles 1-50."""
+    t = text or ""
+    secs: set[tuple[int, str]] = set()
+    parts: set[tuple[int, str]] = set()
+    masked = list(t)
+
+    def _mask(start: int, end: int) -> None:
+        for idx in range(start, end):
+            masked[idx] = " "
+
+    for m in CROSS_TITLE_PARTS_RE.finditer(t):
+        _mask(m.start(), m.end())
+        t_num = int(m.group(1))
+        if 1 <= t_num <= 50:
+            for pm in re.finditer(PART_NUM, m.group(3)):
+                tok = pm.group(0)
+                if tok.isdigit():
+                    parts.add((t_num, tok))
+
+    for m in CROSS_TITLE_EXT_RE.finditer(t):
+        _mask(m.start(), m.end())
+        t_num = int(m.group(1))
+        if 1 <= t_num <= 50:
+            src = m.group(3) or m.group(4) or ""
+            for im in SECTION_ITEM_RE.finditer(src):
+                secs.add((t_num, im.group(1)))
+
+    for m in CROSS_TITLE_RE.finditer(t):
+        _mask(m.start(), m.end())
+        t_num = int(m.group(1))
+        if 1 <= t_num <= 50:
+            if m.group(2):
+                p_tok = re.sub(r"\D", "", m.group(2))
+                if p_tok:
+                    parts.add((t_num, p_tok))
+            for src in (m.group(4), m.group(5)):
+                if src:
+                    for im in SECTION_ITEM_RE.finditer(src):
+                        secs.add((t_num, im.group(1)))
+
+    unclaimed = "".join(masked)
+    for m in XREF_RE.finditer(unclaimed):  # bare § citations: OSHA's 1900-1999 range only
+        for im in SECTION_ITEM_RE.finditer(m.group(2)):
+            part = im.group(1).split(".", 1)[0]
+            if part.isdigit() and 1900 <= int(part) <= 1999:
+                secs.add((29, im.group(1)))
+
+    return (
+        [{"title": tn, "id": sid} for tn, sid in sorted(secs)],
+        [{"title": tn, "part": p} for tn, p in sorted(parts, key=lambda x: (x[0], len(x[1]), x[1]))],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Takeaways: three fixed bullets per item, built from the record's own fields
 # ---------------------------------------------------------------------------
@@ -1204,11 +1395,12 @@ def enrich_item(item: dict) -> dict:
     """Add prose citations (merged with the structured cfr_references) and the takeaways.
     The worker calls this on every fetched item before upserting."""
     prose = " ".join(x for x in (item.get("title"), item.get("description")) if x)
-    secs, part_refs = extract_citations(prose)
+    title_sections, part_refs = extract_all_citations(prose)
     merged = {(int(r["title"]), str(r["part"])) for r in item.get("cfr_parts") or []}
-    merged.update((r["title"], r["part"]) for r in part_refs)
+    merged.update((int(r["title"]), str(r["part"])) for r in part_refs)
     item["cfr_parts"] = [{"title": t, "part": p}
                          for t, p in sorted(merged, key=lambda x: (x[0], len(x[1]), x[1]))]
-    item["sections"] = sorted(set(item.get("sections") or []) | set(secs))
+    item["_title_sections"] = title_sections
+    item["sections"] = sorted(set(item.get("sections") or []) | {ts["id"] for ts in title_sections})
     item["takeaways"] = takeaways(item)
     return item

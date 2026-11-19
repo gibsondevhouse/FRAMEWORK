@@ -1,6 +1,6 @@
 import { NewsActivityCtx, NewsArticle, state } from '../state';
 import { getJSON } from '../api/client';
-import { extLink, fmtMoney, inspectionActivityNr } from '../core/news_format';
+import { extLink, fmtMoney, frDocumentNumber, inspectionActivityNr } from '../core/news_format';
 import { onView } from '../core/view_dispatch';
 import { createPopover } from './popover';
 import { fmtDate } from './ui';
@@ -18,14 +18,14 @@ export function newsActivityButtonHtml(): string {
 }
 
 export async function fetchNewsActivity(titleNum: number, kind: 'section' | 'part', id: string): Promise<NewsActivityCtx['data'] | null> {
-  if (titleNum !== 29) return null;
-  const key = `29|${kind === 'part' ? 'part:' : ''}${id}`;
+  if (!titleNum || titleNum < 1 || titleNum > 50) return null;
+  const key = `${titleNum}|${kind === 'part' ? 'part:' : ''}${id}`;
   let data = newsActivityCache.get(key);
   if (!data) {
     try {
       data = await getJSON<NewsActivityCtx['data']>(kind === 'part'
-        ? `/api/news/part/${encodeURIComponent(id)}?title=29`
-        : `/api/news/section/${encodeURIComponent(id)}?title=29`);
+        ? `/api/news/part/${encodeURIComponent(id)}?title=${titleNum}`
+        : `/api/news/section/${encodeURIComponent(id)}?title=${titleNum}`);
     } catch { return null; }
     newsActivityCache.set(key, data);
   }
@@ -34,12 +34,13 @@ export async function fetchNewsActivity(titleNum: number, kind: 'section' | 'par
 
 export async function fillNewsActivity(kind: 'section' | 'part', id: string, seq: number): Promise<void> {
   state.newsActivityCtx = null;
-  if (state.currentTitle !== 29) return;
-  const data = await fetchNewsActivity(29, kind, id);
+  const titleNum = state.currentTitle;
+  if (!titleNum) return;
+  const data = await fetchNewsActivity(titleNum, kind, id);
   if (!data || seq !== state.routeSeq) return;
   const btn = document.getElementById('btn-news-activity');
   if (!btn || !data.count) return;
-  state.newsActivityCtx = { kind, id, data };
+  state.newsActivityCtx = { title: titleNum, kind, id, data };
   const label = btn.querySelector('span');
   if (label) {
     label.textContent = data.count === 1 ? '1 rule or citation' : `${data.count} rules & citations`;
@@ -48,6 +49,7 @@ export async function fillNewsActivity(kind: 'section' | 'part', id: string, seq
 }
 
 export function newsTimelineHtml(ctx: NewsActivityCtx): string {
+  const titleNum = ctx.title || state.currentTitle || 29;
   const label = ctx.kind === 'part' ? `Part ${ctx.id}` : `§ ${ctx.id}`;
   const articles = (ctx.data.articles || []) as NewsArticle[];
   const nodes = articles.map(a => {
@@ -68,17 +70,22 @@ export function newsTimelineHtml(ctx: NewsActivityCtx): string {
     const title = a.category === 'enforcement' && second ? second : (a.title || '');
     const hay = `${meta} ${title} ${a.citation || ''}`.toLowerCase();
     const actNr = inspectionActivityNr(a);
+    const frDoc = !actNr ? frDocumentNumber(a) : null;
     const titleHtml = actNr
       ? `<a href="#/news/inspection/${actNr}" data-pop-nav><span class="tl-title">${escapeHtml(title)}</span></a>`
-      : extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`);
+      : frDoc
+        ? `<a href="#/news/fr/${encodeURIComponent(frDoc)}" data-pop-nav><span class="tl-title">${escapeHtml(title)}</span></a>`
+        : extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`);
     return `<li class="tl-node" data-kind="${escapeHtml(a.category)}" data-hay="${escapeHtml(hay)}">
       <span class="tl-dot" aria-hidden="true"></span>
       <div class="tl-meta">${escapeHtml(meta)}</div>
       ${titleHtml}
     </li>`;
   }).join('');
+  const titleQuery = titleNum !== 29 ? `&cfr_title=${titleNum}` : '';
   const allHref = ctx.kind === 'part'
-    ? `#/news?part=${encodeURIComponent(ctx.id)}` : `#/news?section=${encodeURIComponent(ctx.id)}`;
+    ? `#/news?part=${encodeURIComponent(ctx.id)}${titleQuery}`
+    : `#/news?section=${encodeURIComponent(ctx.id)}${titleQuery}`;
   const filterHtml = articles.length >= 6
     ? `<input type="search" class="pop-filter" id="news-pop-filter" placeholder="Filter ${articles.length} events…" aria-label="Filter activity events" autocomplete="off">`
     : '';
@@ -96,7 +103,7 @@ export function newsTimelineHtml(ctx: NewsActivityCtx): string {
           const cnt = p.share_pct != null ? `${p.share_pct}%` : `${p.count}`;
           const text = `${p.para} (${cnt})`;
           if (ctx.kind === 'section') {
-            const href = titleHref(29, 'section/' + encodeURIComponent(ctx.id) + '?p=' + encodeURIComponent(p.para));
+            const href = titleHref(titleNum, 'section/' + encodeURIComponent(ctx.id) + '?p=' + encodeURIComponent(p.para));
             return `<a class="citation-chip" href="${href}" data-pop-nav>${escapeHtml(text)}</a>`;
           }
           return `<span class="citation-chip">${escapeHtml(text)}</span>`;
@@ -104,8 +111,9 @@ export function newsTimelineHtml(ctx: NewsActivityCtx): string {
       : '';
     statsHtml = `<div class="news-pop-stats"><div class="news-pop-stats-line">${escapeHtml(bits.join(' · '))}</div>${paraHtml}</div>`;
   }
+  const headText = titleNum === 29 ? `Federal Register & OSHA activity · ${label}` : `Federal Register activity · ${titleNum} CFR ${label}`;
   return `<div class="news-pop-head-row">
-      <div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
+      <div class="news-pop-head">${escapeHtml(headText)}</div>
       <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close activity">${icon('close')}</button>
     </div>
     ${statsHtml}

@@ -14,6 +14,7 @@ import { renderHomeScreen } from './views/home';
 import { loadHelp } from './views/help';
 import { loadLibrary } from './views/library';
 import { loadInspection, loadNews } from './views/news';
+import { loadFrDocument } from './views/news_fr';
 import { renderProjects } from './views/projects';
 import { loadSection } from './views/reader';
 import { loadPart, loadPartFull } from './views/reader_part';
@@ -140,6 +141,10 @@ export async function handleRoute(): Promise<void> {
     hideMainTabs();
     const actNr = parseInt(checkPath.split('/')[3], 10);
     await loadInspection(actNr);
+  } else if (!titleMatch && /^\/news\/fr\/([A-Za-z0-9._-]+)\/?$/.test(checkPath)) {
+    hideMainTabs();
+    const docNum = checkPath.replace(/^\/news\/fr\//, '').replace(/\/$/, '');
+    await loadFrDocument(docNum);
   } else if (!titleMatch && (checkPath === '/help' || checkPath === '/help/')) {
     hideMainTabs();
     await loadHelp();

@@ -399,6 +399,48 @@ class InspectionCaseTests(ApiTestCase):
         self.assertIn("Christmas Tree Shops", out)
         self.assertIn("cases", summary)
 
+    def test_multi_title_news_and_fr_body_endpoint(self):
+        epa = news.enrich_item({
+            **news.empty_item(),
+            "guid": "fr:2026-30001", "source": "federal_register",
+            "agency": "environmental-protection-agency", "category": "rules",
+            "doc_type": "Rule", "title": "Hazardous Waste Update under 40 CFR 261.3",
+            "link": "https://www.federalregister.gov/documents/2026-30001",
+            "published_at": "2026-11-12",
+            "cfr_parts": [{"title": 40, "part": "261"}],
+        })
+        with closing(news_store.connect()) as con:
+            news_store.upsert_article(con, epa)
+            con.commit()
+
+        sec40 = self.client.get("/api/news/section/261.3?title=40").json()
+        self.assertEqual(sec40["count"], 1)
+        self.assertEqual(sec40["articles"][0]["guid"], "fr:2026-30001")
+        feed40 = self.client.get("/api/news?cfr_title=40").json()
+        self.assertEqual([a["guid"] for a in feed40["articles"]], ["fr:2026-30001"])
+
+        import httpx
+        fake = FakeAPI(extra_routes={
+            "/api/v1/documents/2026-17726.json": FR_DOC_RULE,
+            "/documents/full_text/html/2026/08/31/2026-17726.html": lambda req: httpx.Response(
+                200,
+                text='<div class="preamble"><script>bad()</script><p>Amends 29 CFR 1910.120.</p></div>',
+                request=req,
+            ),
+        })
+        with fake.patch_client():
+            r1 = self.client.get("/api/news/fr/2026-17726")
+            self.assertEqual(r1.status_code, 200)
+            d1 = r1.json()
+            self.assertFalse(d1["cached"])
+            self.assertNotIn("<script", d1["body_html"])
+            self.assertIn("29 CFR 1910.120", d1["body_html"])
+            before = len(fake.requests)
+            r2 = self.client.get("/api/news/fr/2026-17726")
+            self.assertEqual(r2.status_code, 200)
+            self.assertTrue(r2.json()["cached"])
+            self.assertEqual(len(fake.requests), before)
+
 
 if __name__ == "__main__":
     unittest.main()

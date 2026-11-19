@@ -39,6 +39,14 @@ export function renderMarkdown(md: string): string {
   return escapeHtml(md);
 }
 
+export function sanitizeHtml(rawHtml: string): string {
+  if (typeof DOMPurify !== 'undefined') {
+    ensurePurifyHook();
+    return DOMPurify.sanitize(rawHtml || '', { FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form'] });
+  }
+  return escapeHtml(rawHtml || '');
+}
+
 export const HTML_ESCAPES: Record<string, string> = {
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 };

@@ -15,7 +15,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, news_store, news_worker, store
+from . import config, library, news_store, news_worker, store
 from .routers import chat as chat_routes
 from .routers import library as library_routes
 from .routers import news as news_routes
@@ -31,6 +31,10 @@ async def lifespan(_: FastAPI):
     # `/api/titles` is empty, and downloads queue through `/api/library/download`.
     # (`python -m app.build` still builds a title from the CLI.)
     store.reset_connections()
+    try:
+        library.prune_temp()
+    except RuntimeError:
+        pass
     # The news worker only runs in a real server (tests never run lifespan).
     if config.news_sync_enabled():
         news_store.init_db()

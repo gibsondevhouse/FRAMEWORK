@@ -16,7 +16,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
-from .. import config, news, news_schedule as sched, news_store, news_worker
+from .. import config, news, news_schedule as sched, news_store, news_worker, render
 from .. import store as reg_store
 
 
@@ -47,6 +47,7 @@ def get_news(
     fatality: bool = Query(False),
     jurisdiction: str | None = Query(None, pattern="^(all|federal|state_plan)$"),
     emphasis: str | None = Query(None, max_length=24),
+    cfr_title: int | None = Query(None, ge=1, le=50),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict:
@@ -58,8 +59,8 @@ def get_news(
             return {"articles": [], "total": 0, "offset": offset}
         try:
             return news_store.query_articles(
-                con, category=category, q=q, section=section, part=part, state=state,
-                min_penalty=min_penalty, gravity=gravity, naics=naics, gdc=gdc,
+                con, category=category, q=q, section=section, part=part, cfr_title=cfr_title,
+                state=state, min_penalty=min_penalty, gravity=gravity, naics=naics, gdc=gdc,
                 fatality=fatality, jurisdiction=jurisdiction, emphasis=emphasis,
                 limit=limit, offset=offset)
         except sqlite3.Error:
@@ -181,19 +182,19 @@ def news_refresh(req: RefreshRequest, response: Response) -> dict:
 
 def _related(section: str | None, part: str | None, title: int) -> dict:
     empty_stats = {"case_count": 0, "citation_count": 0, "avg_penalty": 0.0, "fta_count": 0, "top_paragraphs": []}
-    if title != 29:
-        # No other title has news while OSHA is the only agency.
-        return {"count": 0, "articles": [], "stats": empty_stats}
     with news_store.read_con() as con:
         if con is None:
             return {"count": 0, "articles": [], "stats": empty_stats}
         try:
             res = news_store.query_articles(con, section=section, part=part, title=title, limit=15)
-            stats = (
-                news_store.section_enforcement_stats(con, section)
-                if section
-                else news_store.part_enforcement_stats(con, str(part))
-            )
+            if title == 29:
+                stats = (
+                    news_store.section_enforcement_stats(con, section)
+                    if section
+                    else news_store.part_enforcement_stats(con, str(part))
+                )
+            else:
+                stats = empty_stats
         except sqlite3.Error:
             return {"count": 0, "articles": [], "stats": empty_stats}
     return {"count": res["total"], "articles": res["articles"], "stats": stats}
@@ -366,3 +367,79 @@ def dol_live_search(
         if "HTTP 429" in msg:
             raise HTTPException(429, "DOL API rate limit reached. Try again in a moment.") from None
         raise HTTPException(503, f"DOL search unavailable ({msg}).") from None
+
+
+def _fr_linkifier():
+    installed = set(config.installed_titles())
+
+    def _known_by_title(t: int, sec: str) -> bool:
+        if t not in installed:
+            return False
+        try:
+            return sec in reg_store.known_ids(t)
+        except Exception:
+            return False
+
+    return render.make_linkifier(
+        known=lambda _s: False,
+        title=0,
+        known_by_title=_known_by_title,
+        installed_titles=config.installed_titles,
+    )
+
+
+@news_router.get("/fr/{document_number}")
+def get_fr_document(document_number: str) -> dict:
+    """Return Federal Register article metadata and sanitized, CFR-linkified body HTML (cached on demand)."""
+    doc_num = (document_number or "").strip()
+    if not doc_num or not news._FR_DOC_NUM_RE.fullmatch(doc_num):
+        raise HTTPException(422, "Invalid Federal Register document number.")
+    article = None
+    cached_body = None
+    with news_store.read_con() as con:
+        if con is not None:
+            try:
+                article = news_store.get_article_by_doc_num(con, doc_num)
+                cached_body = news_store.get_fr_body(con, doc_num)
+            except sqlite3.Error:
+                pass
+    if cached_body is not None:
+        linkify = _fr_linkifier()
+        return {
+            "document_number": doc_num,
+            "article": article,
+            "body_html": linkify.without_self(cached_body["body_html"]),
+            "fetched_at": cached_body["fetched_at"],
+            "cached": True,
+        }
+    try:
+        with news.client() as c:
+            fetched = news.fetch_fr_body(c, doc_num)
+    except news.SourceUnavailable as e:
+        raise HTTPException(503, f"Federal Register unavailable ({e}).") from None
+    if fetched is None:
+        if article is None:
+            raise HTTPException(404, f"Federal Register document {doc_num} was not found.")
+        return {
+            "document_number": doc_num,
+            "article": article,
+            "body_html": None,
+            "fetched_at": None,
+            "cached": False,
+        }
+    now = datetime.now(timezone.utc)
+    with closing(news_store.connect()) as con:
+        if article is None and fetched.get("doc"):
+            item = news.enrich_item(news.fr_document_item(fetched["doc"], None))
+            news_store.upsert_article(con, item, now)
+            article = news_store.get_article_by_doc_num(con, doc_num)
+        news_store.save_fr_body(con, doc_num, fetched["body_html"], now)
+        con.commit()
+    linkify = _fr_linkifier()
+    return {
+        "document_number": doc_num,
+        "article": article,
+        "body_html": linkify.without_self(fetched["body_html"]),
+        "fetched_at": now.isoformat(),
+        "cached": False,
+    }

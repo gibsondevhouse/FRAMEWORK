@@ -4742,6 +4742,20 @@ function renderMarkdown(md) {
 	}
 	return escapeHtml(md);
 }
+function sanitizeHtml(rawHtml) {
+	if (typeof purify_default !== "undefined") {
+		ensurePurifyHook();
+		return purify_default.sanitize(rawHtml || "", { FORBID_TAGS: [
+			"script",
+			"style",
+			"iframe",
+			"object",
+			"embed",
+			"form"
+		] });
+	}
+	return escapeHtml(rawHtml || "");
+}
 var HTML_ESCAPES = {
 	"&": "&amp;",
 	"<": "&lt;",
@@ -5672,6 +5686,11 @@ function newsPartHref(t, part) {
 function inspectionActivityNr(a) {
 	if (!a || a.category !== "enforcement" || !a.guid) return null;
 	const m = /^dol-insp:(\d+)$/.exec(String(a.guid));
+	return m ? m[1] : null;
+}
+function frDocumentNumber(a) {
+	if (!a || a.category === "enforcement" || a.category === "public_inspection" || !a.guid) return null;
+	const m = /^fr:([A-Za-z0-9._-]+)$/.exec(String(a.guid));
 	return m ? m[1] : null;
 }
 function newsKicker(a) {
@@ -12828,9 +12847,12 @@ function newsViewFromParams(params) {
 	const cat = NEWS_CATEGORIES.some((c) => c.key === get("cat")) ? get("cat") : "all";
 	const jur = get("jurisdiction");
 	const dm = get("dol_mode");
+	const ctRaw = get("cfr_title");
+	const ctNum = /^\d{1,2}$/.test(ctRaw) ? parseInt(ctRaw, 10) : 0;
 	return {
 		cat,
 		q: get("q"),
+		cfr_title: ctNum >= 1 && ctNum <= 50 ? String(ctNum) : "",
 		section: get("section"),
 		part: get("part"),
 		state: /^[A-Za-z]{2}$/.test(get("state")) ? get("state").toUpperCase() : "",
@@ -12851,10 +12873,11 @@ function newsViewFromParams(params) {
 	};
 }
 function isDefaultNewsView(view) {
-	return !view.q && !view.section && !view.part && !view.state && !view.min_penalty && !view.gravity && !view.naics && !view.gdc && !view.fatality && !view.jurisdiction && !view.emphasis && !view.dol_q;
+	return !view.q && !view.cfr_title && !view.section && !view.part && !view.state && !view.min_penalty && !view.gravity && !view.naics && !view.gdc && !view.fatality && !view.jurisdiction && !view.emphasis && !view.dol_q;
 }
 var NEWS_QUERY_KEYS = [
 	"q",
+	"cfr_title",
 	"section",
 	"part",
 	"state",
@@ -13146,7 +13169,9 @@ function newsActionsHtml(a) {
 	const defaultTitle = articleNewsTitle(a);
 	const scope = newsScope(defaultTitle);
 	const actNr = inspectionActivityNr(a);
+	const frDoc = !actNr ? frDocumentNumber(a) : null;
 	if (actNr) out.push(`<a class="btn btn-sm btn-accent" href="#/news/inspection/${actNr}">${icon("file")} Case file</a>`);
+	else if (frDoc) out.push(`<a class="btn btn-sm btn-accent" href="#/news/fr/${encodeURIComponent(frDoc)}">${icon("file")} Full text</a>`);
 	const srcLabel = a.source === "dol_osha" ? scope.agencySourceLabel : "Federal Register";
 	const link = safeHttpUrl(a.link);
 	if (link) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(link)}">${icon("external")} ${escapeHtml(srcLabel)}</a>`);
@@ -13154,7 +13179,7 @@ function newsActionsHtml(a) {
 	if (pdf) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(pdf)}">${icon("external")} PDF</a>`);
 	const sec = (a.sections || [])[0];
 	const partRef = (a.cfr_parts || [])[0];
-	const secCls = actNr ? "btn btn-sm" : "btn btn-sm btn-accent";
+	const secCls = actNr || frDoc ? "btn btn-sm" : "btn btn-sm btn-accent";
 	if (sec) out.push(`<a class="${secCls}" href="${newsSectionHref(defaultTitle, sec)}">${icon("book")} Open § ${escapeHtml(sec)}</a>`);
 	else if (partRef) out.push(`<a class="${secCls}" href="${newsPartHref(partRef.title, partRef.part)}">${icon("book")} Open Part ${escapeHtml(String(partRef.part))}</a>`);
 	return out.join("");
@@ -13167,7 +13192,8 @@ function newsCardHtml(a, { hero = false } = {}) {
 		return `<dt>${escapeHtml(t.label)}</dt><dd>${text}</dd>`;
 	}).join("");
 	const actNr = inspectionActivityNr(a);
-	const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}">${escapeHtml(a.title)}</a>` : extLink(a.link, escapeHtml(a.title));
+	const frDoc = !actNr ? frDocumentNumber(a) : null;
+	const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}">${escapeHtml(a.title)}</a>` : frDoc ? `<a href="#/news/fr/${encodeURIComponent(frDoc)}">${escapeHtml(a.title)}</a>` : extLink(a.link, escapeHtml(a.title));
 	return `
     <${tag} class="news-card${hero ? " news-hero" : ""}" data-guid="${escapeHtml(a.guid || "")}" data-cat="${escapeHtml(a.category)}">
       <div class="news-card-top"><span class="news-kicker">${escapeHtml(newsKicker(a))}</span>${figure}</div>
@@ -13189,6 +13215,7 @@ function newsTabsHtml(view, status) {
 function newsFilterChipsHtml(view) {
 	const chips = [];
 	const chip = (key, label) => chips.push(`<button type="button" class="news-filter-chip" data-news-act="clear-filter" data-filter-key="${key}" aria-label="Remove filter: ${escapeHtml(label)}">${escapeHtml(label)}${icon("close")}</button>`);
+	if (view.cfr_title) chip("cfr_title", `${view.cfr_title} CFR`);
 	if (view.section) chip("section", `Citing § ${view.section}`);
 	if (view.part) chip("part", `Citing Part ${view.part}`);
 	if (view.state) chip("state", stateName(view.state));
@@ -13695,6 +13722,85 @@ on("news:refresh", () => refreshNewsCommand());
 on("env:saved", () => {
 	if (routeTarget() === "news") emit("route:refresh");
 });
+// src/views/news_fr.ts
+function articleTitleNum(a) {
+	if (!a) return 29;
+	if (typeof a.title_num === "number" && a.title_num > 0) return a.title_num;
+	const firstPart = a.cfr_parts?.[0]?.title;
+	return typeof firstPart === "number" && firstPart > 0 ? firstPart : 29;
+}
+function frDocChipsHtml(a) {
+	if (!a) return "";
+	const chips = [];
+	const defaultTitle = articleTitleNum(a);
+	for (const r of a.cfr_parts || []) {
+		const dim = !titleInstalled(r.title);
+		chips.push(`<a class="citation-chip${dim ? " is-dim" : ""}" data-ref-tier="${dim ? "uninstalled" : "cfr"}" href="${newsPartHref(r.title, r.part)}">${r.title} CFR Part ${escapeHtml(String(r.part))}</a>`);
+	}
+	for (const s of a.sections || []) {
+		const dim = !titleInstalled(defaultTitle);
+		chips.push(`<a class="citation-chip${dim ? " is-dim" : ""}" data-ref-tier="${dim ? "uninstalled" : "cfr"}" href="${newsSectionHref(defaultTitle, s)}">§ ${escapeHtml(s)}</a>`);
+	}
+	return chips.length ? `<div class="news-chips fr-doc-chips">${chips.join("")}</div>` : "";
+}
+function renderFrDocument(data) {
+	const art = data.article;
+	const docNum = data.document_number;
+	const title = art?.title || `Federal Register Document ${docNum}`;
+	document.title = `${title} · Federal Register · FRAMEWORK`;
+	const kicker = art ? newsKicker(art) : `FEDERAL REGISTER · ${docNum}`;
+	const link = safeHttpUrl(art?.link);
+	const pdf = safeHttpUrl(art?.pdf_url || "");
+	const metaBits = [];
+	if (art?.published_at) metaBits.push(`Published ${fmtDate(art.published_at)}`);
+	if (art?.effective_on) metaBits.push(`Effective ${fmtDate(art.effective_on)}`);
+	if (art?.comments_close_on) metaBits.push(`Comments close ${fmtDate(art.comments_close_on)}`);
+	if (art?.docket_ids?.length) metaBits.push(`Docket ${art.docket_ids[0]}`);
+	if (art?.agency) metaBits.push(art.agency.replace(/-/g, " "));
+	const actionsHtml = [
+		`<a class="btn btn-sm" href="#/news">${icon("chevronLeft")} All news</a>`,
+		link ? `<a class="btn btn-sm" target="_blank" rel="noopener noreferrer" href="${escapeHtml(link)}">${icon("external")} Federal Register</a>` : "",
+		pdf ? `<a class="btn btn-sm" target="_blank" rel="noopener noreferrer" href="${escapeHtml(pdf)}">${icon("external")} PDF</a>` : ""
+	].filter(Boolean).join("");
+	const bodySection = data.body_html ? `<div class="fr-doc-body reg-prose">${sanitizeHtml(data.body_html)}</div>` : `<div class="empty-state"><h2>Full preamble unavailable</h2><p>The Federal Register did not provide inline HTML for document <code>${escapeHtml(docNum)}</code>.${link ? ` <a target="_blank" rel="noopener noreferrer" href="${escapeHtml(link)}">Read on FederalRegister.gov</a>.` : ""}</p></div>`;
+	dom.view.innerHTML = `<div class="fr-doc-page">
+    <header class="fr-doc-head">
+      <div class="news-kicker">${escapeHtml(kicker)}</div>
+      <h1 class="fr-doc-title">${escapeHtml(title)}</h1>
+      ${art ? newsBylineHtml(art) : ""}
+      ${metaBits.length ? `<div class="fr-doc-meta">${joinSep(metaBits.map((b) => escapeHtml(b)))}</div>` : ""}
+      ${art?.action ? `<p class="fr-doc-action">${escapeHtml(art.action)}</p>` : ""}
+      ${frDocChipsHtml(art)}
+      <div class="fr-doc-actions">${actionsHtml}</div>
+    </header>
+    ${bodySection}
+  </div>`;
+	enterView();
+}
+async function loadFrDocument(documentNumber) {
+	const seq = state.routeSeq;
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = `Federal Register ${documentNumber} · FRAMEWORK`;
+	dom.view.innerHTML = skeletonHtml("doc", `Loading ${documentNumber}…`);
+	dom.main.scrollTop = 0;
+	try {
+		const data = await getJSON(`/api/news/fr/${encodeURIComponent(documentNumber)}`, { signal: state.routeAbort?.signal });
+		if (seq !== state.routeSeq) return;
+		renderFrDocument(data);
+	} catch (err) {
+		if (err?.name === "AbortError" || seq !== state.routeSeq) return;
+		const msg = err instanceof Error ? err.message : "Could not load Federal Register document.";
+		dom.view.innerHTML = emptyStateHtml({
+			title: "Document unavailable",
+			body: msg,
+			actionsHtml: "<a class=\"btn btn-sm\" href=\"#/news\">Back to News</a>"
+		});
+	}
+}
 // src/components/news_activity.ts
 var newsPop = document.getElementById("news-pop");
 var newsActivityCache = /* @__PURE__ */ new Map();
@@ -13703,12 +13809,12 @@ function newsActivityButtonHtml() {
 	return `<button type="button" class="btn" id="btn-news-activity" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("news")} <span>Activity</span></button>`;
 }
 async function fetchNewsActivity(titleNum, kind, id) {
-	if (titleNum !== 29) return null;
-	const key = `29|${kind === "part" ? "part:" : ""}${id}`;
+	if (!titleNum || titleNum < 1 || titleNum > 50) return null;
+	const key = `${titleNum}|${kind === "part" ? "part:" : ""}${id}`;
 	let data = newsActivityCache.get(key);
 	if (!data) {
 		try {
-			data = await getJSON(kind === "part" ? `/api/news/part/${encodeURIComponent(id)}?title=29` : `/api/news/section/${encodeURIComponent(id)}?title=29`);
+			data = await getJSON(kind === "part" ? `/api/news/part/${encodeURIComponent(id)}?title=${titleNum}` : `/api/news/section/${encodeURIComponent(id)}?title=${titleNum}`);
 		} catch {
 			return null;
 		}
@@ -13718,12 +13824,14 @@ async function fetchNewsActivity(titleNum, kind, id) {
 }
 async function fillNewsActivity(kind, id, seq) {
 	state.newsActivityCtx = null;
-	if (state.currentTitle !== 29) return;
-	const data = await fetchNewsActivity(29, kind, id);
+	const titleNum = state.currentTitle;
+	if (!titleNum) return;
+	const data = await fetchNewsActivity(titleNum, kind, id);
 	if (!data || seq !== state.routeSeq) return;
 	const btn = document.getElementById("btn-news-activity");
 	if (!btn || !data.count) return;
 	state.newsActivityCtx = {
+		title: titleNum,
 		kind,
 		id,
 		data
@@ -13733,6 +13841,7 @@ async function fillNewsActivity(kind, id, seq) {
 	btn.hidden = false;
 }
 function newsTimelineHtml(ctx) {
+	const titleNum = ctx.title || state.currentTitle || 29;
 	const label = ctx.kind === "part" ? `Part ${ctx.id}` : `§ ${ctx.id}`;
 	const articles = ctx.data.articles || [];
 	const nodes = articles.map((a) => {
@@ -13748,14 +13857,16 @@ function newsTimelineHtml(ctx) {
 		const title = a.category === "enforcement" && second ? second : a.title || "";
 		const hay = `${meta} ${title} ${a.citation || ""}`.toLowerCase();
 		const actNr = inspectionActivityNr(a);
-		const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}" data-pop-nav><span class="tl-title">${escapeHtml(title)}</span></a>` : extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`);
+		const frDoc = !actNr ? frDocumentNumber(a) : null;
+		const titleHtml = actNr ? `<a href="#/news/inspection/${actNr}" data-pop-nav><span class="tl-title">${escapeHtml(title)}</span></a>` : frDoc ? `<a href="#/news/fr/${encodeURIComponent(frDoc)}" data-pop-nav><span class="tl-title">${escapeHtml(title)}</span></a>` : extLink(a.link, `<span class="tl-title">${escapeHtml(title)}</span>`);
 		return `<li class="tl-node" data-kind="${escapeHtml(a.category)}" data-hay="${escapeHtml(hay)}">
       <span class="tl-dot" aria-hidden="true"></span>
       <div class="tl-meta">${escapeHtml(meta)}</div>
       ${titleHtml}
     </li>`;
 	}).join("");
-	const allHref = ctx.kind === "part" ? `#/news?part=${encodeURIComponent(ctx.id)}` : `#/news?section=${encodeURIComponent(ctx.id)}`;
+	const titleQuery = titleNum !== 29 ? `&cfr_title=${titleNum}` : "";
+	const allHref = ctx.kind === "part" ? `#/news?part=${encodeURIComponent(ctx.id)}${titleQuery}` : `#/news?section=${encodeURIComponent(ctx.id)}${titleQuery}`;
 	const filterHtml = articles.length >= 6 ? `<input type="search" class="pop-filter" id="news-pop-filter" placeholder="Filter ${articles.length} events…" aria-label="Filter activity events" autocomplete="off">` : "";
 	const stats = ctx.data.stats;
 	let statsHtml = "";
@@ -13769,13 +13880,13 @@ function newsTimelineHtml(ctx) {
 		const paraHtml = paras.length ? `<div class="news-pop-paras">Top cited: ${paras.map((p) => {
 			const cnt = p.share_pct != null ? `${p.share_pct}%` : `${p.count}`;
 			const text = `${p.para} (${cnt})`;
-			if (ctx.kind === "section") return `<a class="citation-chip" href="${titleHref(29, "section/" + encodeURIComponent(ctx.id) + "?p=" + encodeURIComponent(p.para))}" data-pop-nav>${escapeHtml(text)}</a>`;
+			if (ctx.kind === "section") return `<a class="citation-chip" href="${titleHref(titleNum, "section/" + encodeURIComponent(ctx.id) + "?p=" + encodeURIComponent(p.para))}" data-pop-nav>${escapeHtml(text)}</a>`;
 			return `<span class="citation-chip">${escapeHtml(text)}</span>`;
 		}).join("")}</div>` : "";
 		statsHtml = `<div class="news-pop-stats"><div class="news-pop-stats-line">${escapeHtml(bits.join(" · "))}</div>${paraHtml}</div>`;
 	}
 	return `<div class="news-pop-head-row">
-      <div class="news-pop-head">Federal Register &amp; OSHA activity · ${escapeHtml(label)}</div>
+      <div class="news-pop-head">${escapeHtml(titleNum === 29 ? `Federal Register & OSHA activity · ${label}` : `Federal Register activity · ${titleNum} CFR ${label}`)}</div>
       <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close activity">${icon("close")}</button>
     </div>
     ${statsHtml}
@@ -15845,6 +15956,9 @@ async function handleRoute() {
 	} else if (!titleMatch && /^\/news\/inspection\/\d+\/?$/.test(checkPath)) {
 		hideMainTabs();
 		await loadInspection(parseInt(checkPath.split("/")[3], 10));
+	} else if (!titleMatch && /^\/news\/fr\/([A-Za-z0-9._-]+)\/?$/.test(checkPath)) {
+		hideMainTabs();
+		await loadFrDocument(checkPath.replace(/^\/news\/fr\//, "").replace(/\/$/, ""));
 	} else if (!titleMatch && (checkPath === "/help" || checkPath === "/help/")) {
 		hideMainTabs();
 		await loadHelp();
@@ -17823,7 +17937,7 @@ async function handleCfrLinkClick(e, root) {
 		openCfrDownloadCard(link, target, { openInSplit: e.altKey || isSplitChild });
 		return;
 	}
-	if ((root === dom.view || root === dom.splitPane) && !link.classList.contains("xref-local") && link.matches(".reg-body a.xref[href^=\"#\"], .full-section a.xref[href^=\"#\"], .front-matter a.xref[href^=\"#\"]") && !e.altKey) {
+	if ((root === dom.view || root === dom.splitPane) && !link.classList.contains("xref-local") && link.matches(".reg-body a.xref[href^=\"#\"], .full-section a.xref[href^=\"#\"], .front-matter a.xref[href^=\"#\"], .fr-doc-body a.xref[href^=\"#\"]") && !e.altKey) {
 		const parsed = parseCfrHref(link.getAttribute("href"), rootTitle);
 		if (parsed && parsed.kind === "section") {
 			e.preventDefault();

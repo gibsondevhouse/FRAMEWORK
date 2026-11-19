@@ -268,12 +268,36 @@ class EnrichTests(HermeticTestCase):
         self.assertEqual(item["sections"], ["1910.1200"])
         self.assertEqual(len(item["takeaways"]), 3)
 
-    def test_other_title_citations_ignored(self):
+    def test_other_title_citations_extracted_for_multi_title(self):
         item = {**news.empty_item(), "category": "notices",
                 "title": "Waste under 40 CFR 261.3", "published_at": "2026-01-01"}
         news.enrich_item(item)
-        self.assertEqual(item["sections"], [])
+        self.assertEqual(item["sections"], ["261.3"])
+        self.assertEqual(item["_title_sections"], [{"title": 40, "id": "261.3"}])
         self.assertEqual(item["cfr_parts"], [])
+
+    def test_extract_all_citations_multi_title(self):
+        secs, parts = news.extract_all_citations(
+            "Updates 40 CFR 261.3, 49 CFR parts 171 and 172, and 29 CFR 1910.120(a)(1)."
+        )
+        self.assertEqual(secs, [{"title": 29, "id": "1910.120"}, {"title": 40, "id": "261.3"}])
+        self.assertEqual(parts, [{"title": 49, "part": "171"}, {"title": 49, "part": "172"}])
+
+    def test_sanitize_fr_html_strips_xss_and_rewrites_links(self):
+        dirty = (
+            '<div class="preamble" onclick="evil()"><script>alert(1)</script>'
+            '<p>See <a href="/documents/x" onmouseover="x()">rule</a> and '
+            '<a href="javascript:alert(2)">bad</a>.</p>'
+            '<iframe src="https://evil.example"></iframe><table><tr><th>Col</th><td>Val</td></tr></table></div>'
+        )
+        clean = news.sanitize_fr_html(dirty)
+        self.assertNotIn("<script", clean)
+        self.assertNotIn("<iframe", clean)
+        self.assertNotIn("onclick", clean)
+        self.assertNotIn("onmouseover", clean)
+        self.assertNotIn("javascript:", clean)
+        self.assertIn('href="https://www.federalregister.gov/documents/x"', clean)
+        self.assertIn("<table><tr><th>Col</th><td>Val</td></tr></table>", clean)
 
 
 if __name__ == "__main__":

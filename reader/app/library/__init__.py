@@ -19,7 +19,7 @@ from .client import (CATALOG_TTL, _cache_lock, _client, _structures,  # noqa: F4
 from .suites import (COMPLIANCE_SUITES, DESKS, OTHER_DESK, _BLURBS,  # noqa: F401
                      _load_blurbs, suites)
 from .disk import (_db_bytes, _install_summary, _remove_partial_files,  # noqa: F401
-                   installed, prune_temp, remove, storage)
+                   installed, prune_temp, reload_installed, remove, storage)
 from .views import (_changes, _find_part, _leaves, changes, part_view,  # noqa: F401
                     title_view, wire)
 from .jobs import (JobCancelled, Queue, _friendly, outdated, queue,  # noqa: F401

@@ -215,11 +215,15 @@ export interface NewsArticle {
   link: string;
   published_at: string;
   source?: string;
-  pdf_url?: string;
-  doc_type?: string;
-  citation?: string;
-  comments_close_on?: string;
-  scheduled_on?: string;
+  agency?: string;
+  pdf_url?: string | null;
+  doc_type?: string | null;
+  citation?: string | null;
+  action?: string | null;
+  effective_on?: string | null;
+  comments_close_on?: string | null;
+  scheduled_on?: string | null;
+  docket_ids?: string[];
   penalty_usd?: number;
   company?: string;
   city?: string;
@@ -229,6 +233,14 @@ export interface NewsArticle {
   cfr_parts?: Array<{ title: number; part: string | number }>;
   sections?: string[];
   title_num?: number;
+}
+
+export interface FrBodyResponse {
+  document_number: string;
+  article: NewsArticle | null;
+  body_html: string | null;
+  fetched_at: string | null;
+  cached: boolean;
 }
 
 export interface EnforcementParaHotspot {
@@ -246,6 +258,7 @@ export interface EnforcementStats {
 }
 
 export interface NewsActivityCtx {
+  title?: number;
   kind: 'section' | 'part';
   id: string;
   data: { count: number; articles: NewsArticle[]; stats?: EnforcementStats };

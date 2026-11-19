@@ -14,6 +14,7 @@ import logging
 import re
 import sqlite3
 import sys
+import threading
 import time
 import tracemalloc
 from contextlib import closing
@@ -66,17 +67,50 @@ def log(msg: str) -> None:
         logger.info("[build] %s", msg)
 
 
+ECFR_MIN_INTERVAL_SEC = 0.15
+_ecfr_pace_lock = threading.Lock()
+_ecfr_last_call = 0.0
+
+
+def _pace_ecfr() -> None:
+    """Gentle inter-request pacer for real eCFR calls (keeps burst scope downloads polite)."""
+    global _ecfr_last_call
+    with _ecfr_pace_lock:
+        now = time.monotonic()
+        wait = ECFR_MIN_INTERVAL_SEC - (now - _ecfr_last_call)
+        if wait > 0:
+            time.sleep(wait)
+        _ecfr_last_call = time.monotonic()
+
+
+def _retry_delay(exc: Exception, attempt: int) -> float | None:
+    """Return backoff seconds for transient errors, or None for non-retryable 4xx."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code == 429:
+            ra = (exc.response.headers.get("retry-after") or "").strip()
+            try:
+                return max(1.0, min(60.0, float(ra)))
+            except ValueError:
+                return min(60.0, 5.0 * (attempt + 1))
+        if 400 <= code < 500 and code != 408:
+            return None
+    return 2.0 * (attempt + 1)
+
+
 def fetch_json(client: httpx.Client, url: str) -> dict:
     for attempt in range(4):
         try:
+            _pace_ecfr()
             r = client.get(url)
             r.raise_for_status()
             return r.json()
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
-            if attempt == 3:
+            delay = None if attempt == 3 else _retry_delay(exc, attempt)
+            if delay is None:
                 raise
             log(f"retrying JSON after error ({attempt + 1}/3): {exc}")
-            time.sleep(2 * (attempt + 1))
+            time.sleep(delay)
     raise RuntimeError("unreachable")
 
 
@@ -89,6 +123,7 @@ def download_stream(client: httpx.Client, url: str, dest_path: Path, on_bytes=No
     tmp_path = dest_path.with_suffix(dest_path.suffix + ".download")
     for attempt in range(4):
         try:
+            _pace_ecfr()
             with client.stream("GET", url) as response:
                 response.raise_for_status()
                 length = response.headers.get("content-length")
@@ -104,10 +139,11 @@ def download_stream(client: httpx.Client, url: str, dest_path: Path, on_bytes=No
             return
         except (httpx.HTTPError, OSError) as exc:
             tmp_path.unlink(missing_ok=True)
-            if attempt == 3:
+            delay = None if attempt == 3 else _retry_delay(exc, attempt)
+            if delay is None:
                 raise
             log(f"download retry ({attempt + 1}/3) after error: {exc}")
-            time.sleep(2 * (attempt + 1))
+            time.sleep(delay)
     raise RuntimeError("unreachable")
 
 
@@ -140,6 +176,7 @@ def build(
     progress=None,
     before_install=None,
     measure_memory: bool = False,
+    edition: str | None = None,
 ) -> dict:
     """Build a local SQLite database and tree for any CFR title.
 
@@ -179,7 +216,7 @@ def build(
         if info.get("reserved"):
             raise ValueError(f"Title {title} is reserved and has no text")
 
-        edition = info["up_to_date_as_of"]
+        edition = edition or info["up_to_date_as_of"]
         title_name = info.get("name", f"Title {title}")
         log(f"latest Title {title} ({title_name}) edition: {edition}")
 
@@ -258,90 +295,107 @@ def build(
     log(f"parsing XML for Title {title} using iterparse (flat memory)...")
     tmp_db = target_db.with_suffix(".tmp")
     tmp_db.unlink(missing_ok=True)
-    with closing(sqlite3.connect(tmp_db)) as con:
-        con.executescript(SCHEMA)
+    try:
+        with closing(sqlite3.connect(tmp_db)) as con:
+            con.executescript(SCHEMA)
 
-        parsed = 0
+            parsed = 0
 
-        def on_leaf() -> None:
-            nonlocal parsed
-            parsed += 1
-            if parsed % 200 == 0:
-                report("Reading text", min(parsed, leaf_total), leaf_total)
+            def on_leaf() -> None:
+                nonlocal parsed
+                parsed += 1
+                if parsed % 200 == 0:
+                    report("Reading text", min(parsed, leaf_total), leaf_total)
 
-        front: dict[str, str] = {}
-        for path, p_hint in zip(xml_paths, piece_parts):
-            front.update(stream_parse_xml(path, con, on_leaf=on_leaf, default_part=p_hint))
+            front: dict[str, str] = {}
+            for path, p_hint in zip(xml_paths, piece_parts):
+                front.update(stream_parse_xml(path, con, on_leaf=on_leaf, default_part=p_hint))
 
-        report("Indexing", 0, leaf_total)
-        log("walking structure and ordering sections...")
-        missing: list[str] = []
-        rows: list[tuple] = []
-        total_sections = 0
+            report("Indexing", 0, leaf_total)
+            log("walking structure and ordering sections...")
+            missing: list[str] = []
+            reserved_skipped = 0
+            rows: list[tuple] = []
+            total_sections = 0
 
-        def flush() -> None:
-            nonlocal total_sections
-            con.executemany("INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
-            con.executemany(
-                "INSERT INTO sections_fts (id, label, title, text) VALUES (?,?,?,?)",
-                [(x[0], x[4], x[5], x[10]) for x in rows],
-            )
-            total_sections += len(rows)
-            rows.clear()
-            report("Indexing", total_sections, leaf_total)
+            def flush() -> None:
+                nonlocal total_sections
+                con.executemany("INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+                con.executemany(
+                    "INSERT INTO sections_fts (id, label, title, text) VALUES (?,?,?,?)",
+                    [(x[0], x[4], x[5], x[10]) for x in rows],
+                )
+                total_sections += len(rows)
+                rows.clear()
+                report("Indexing", total_sections, leaf_total)
 
-        def walk(node: dict, ancestors: list[dict]) -> None:
-            if node["t"] in LEAF_TYPES:
-                part = next((a["id"] for a in reversed(ancestors) if a["t"] == "part"), None)
-                raw_id = raw_leaf_id(str(node["id"]), part)
-                r = con.execute(
-                    "SELECT ecfr_path, xml, text FROM staging_leaves WHERE kind = ? AND part = ? AND id = ?",
-                    (node["t"], part or "", raw_id),
-                ).fetchone()
-                if r is None and part:
+            def walk(node: dict, ancestors: list[dict]) -> None:
+                nonlocal reserved_skipped
+                if node["t"] in LEAF_TYPES:
+                    part = next((a["id"] for a in reversed(ancestors) if a["t"] == "part"), None)
+                    raw_id = raw_leaf_id(str(node["id"]), part)
                     r = con.execute(
-                        "SELECT ecfr_path, xml, text FROM staging_leaves WHERE kind = ? AND part = '' AND id = ?",
-                        (node["t"], raw_id),
+                        "SELECT ecfr_path, xml, text FROM staging_leaves WHERE kind = ? AND part = ? AND id = ?",
+                        (node["t"], part or "", raw_id),
                     ).fetchone()
-                if r is None:
-                    missing.append(node["id"])
+                    if r is None and part:
+                        r = con.execute(
+                            "SELECT ecfr_path, xml, text FROM staging_leaves WHERE kind = ? AND part = '' AND id = ?",
+                            (node["t"], raw_id),
+                        ).fetchone()
+                    if r is None:
+                        if node.get("r"):
+                            reserved_skipped += 1
+                        else:
+                            missing.append(str(node["id"]))
+                        return
+                    ecfr_p, xml_s, text_s = r
+                    ord_num = total_sections + len(rows)
+                    rows.append((
+                        node["id"], node["t"], ord_num, part, node["l"], node["d"],
+                        1 if node.get("r") else 0, json.dumps(ancestors), ecfr_p,
+                        xml_s, text_s,
+                    ))
+                    if len(rows) >= 500:
+                        flush()
                     return
-                ecfr_p, xml_s, text_s = r
-                ord_num = total_sections + len(rows)
-                rows.append((
-                    node["id"], node["t"], ord_num, part, node["l"], node["d"],
-                    1 if node.get("r") else 0, json.dumps(ancestors), ecfr_p,
-                    xml_s, text_s,
-                ))
-                if len(rows) >= 500:
-                    flush()
-                return
-            next_ancestors = ancestors + [_crumb(node)] if node["t"] != "title" else ancestors
-            for child in node.get("c", []):
-                walk(child, next_ancestors)
+                next_ancestors = ancestors + [_crumb(node)] if node["t"] != "title" else ancestors
+                for child in node.get("c", []):
+                    walk(child, next_ancestors)
 
-        walk(tree, [])
-        if rows:
-            flush()
+            walk(tree, [])
+            if rows:
+                flush()
 
-        if missing:
-            log(f"warning: {len(missing)} structure nodes had no XML text, e.g. {missing[:5]}")
+            if missing:
+                log(f"warning: {len(missing)} non-reserved structure nodes had no XML text, e.g. {missing[:5]}")
+            if total_sections == 0:
+                raise ValueError(f"No XML content matched Title {title} structure")
 
-        con.execute("DROP TABLE staging_leaves")
-        con.executemany("INSERT INTO front_matter VALUES (?,?)", front.items())
-        meta_rows = [
-            ("edition", edition),
-            ("built_at", time.strftime("%Y-%m-%dT%H:%M:%S")),
-            ("section_count", str(total_sections)),
-            ("title", str(title)),
-            ("title_name", title_name),
-        ]
-        if scope is not None:
-            meta_rows.append(("scope", json.dumps(scope)))
-        con.executemany("INSERT INTO meta VALUES (?,?)", meta_rows)
-        from .citations import graph
-        graph.persist_title_index(con, title)
-        con.commit()
+            con.execute("DROP TABLE staging_leaves")
+            con.executemany("INSERT INTO front_matter VALUES (?,?)", front.items())
+            meta_rows = [
+                ("edition", edition),
+                ("built_at", time.strftime("%Y-%m-%dT%H:%M:%S")),
+                ("section_count", str(total_sections)),
+                ("title", str(title)),
+                ("title_name", title_name),
+                ("missing_leaves", str(len(missing))),
+            ]
+            if missing:
+                meta_rows.append(("missing_sample", json.dumps(missing[:10])))
+            if scope is not None:
+                meta_rows.append(("scope", json.dumps(scope)))
+            con.executemany("INSERT INTO meta VALUES (?,?)", meta_rows)
+            from .citations import graph
+            graph.persist_title_index(con, title)
+            con.commit()
+    except Exception:
+        tmp_db.unlink(missing_ok=True)
+        if not keep_xml:
+            for path in xml_paths:
+                path.unlink(missing_ok=True)
+        raise
 
     report("Installing")
     tmp_tree = target_tree.with_suffix(".json.tmp")

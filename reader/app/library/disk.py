@@ -69,7 +69,7 @@ def _remove_partial_files(title: int) -> None:
 
 def _is_temp(name: str) -> bool:
     # Builds write `title-N.tmp`, `title-N(.pieceI).xml.tmp(.download)` and `tree-N.json.tmp`.
-    return ".tmp" in name
+    return ".tmp" in name or name.endswith(".download")
 
 
 def storage() -> dict:
@@ -140,3 +140,16 @@ def remove(title: int) -> None:
                     time.sleep(0.25)
     finally:
         store.end_swap(title)
+
+
+def reload_installed() -> list[int]:
+    """Release cached SQLite handles, tree/render caches, and library structure caches so
+    CLI-rebuilt titles on disk are visible without restarting the server."""
+    with lib.queue.operation_lock():
+        titles = config.installed_titles()
+        for n in titles:
+            store.release_title(n)
+        store.clear_caches()
+        with lib._cache_lock:
+            lib._structures.clear()
+        return titles

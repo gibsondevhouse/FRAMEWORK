@@ -5,7 +5,7 @@ import { getJSON } from '../api/client';
 import { emit, on } from '../core/events';
 import { onView } from '../core/view_dispatch';
 import {
-  extLink, fmtMoney, inspectionActivityNr, linkifyNewsText, moneyFmt, NEWS_SOURCE_LABELS,
+  extLink, fmtMoney, frDocumentNumber, inspectionActivityNr, linkifyNewsText, moneyFmt, NEWS_SOURCE_LABELS,
   newsBylineHtml, newsKicker, newsPartHref, newsSectionHref, newsStatusPillHtml,
   NewsStatusPayload, stateName, titleInstalled, US_STATE_NAMES,
 } from '../core/news_format';
@@ -79,6 +79,7 @@ export function newsSnippetHtml(snippet?: string | null): string {
 export interface NewsViewQuery {
   cat: string;
   q: string;
+  cfr_title: string;
   section: string;
   part: string;
   state: string;
@@ -183,9 +184,12 @@ export function newsViewFromParams(params?: URLSearchParams | null): NewsViewQue
   const cat = NEWS_CATEGORIES.some(c => c.key === get('cat')) ? get('cat') : 'all';
   const jur = get('jurisdiction');
   const dm = get('dol_mode');
+  const ctRaw = get('cfr_title');
+  const ctNum = /^\d{1,2}$/.test(ctRaw) ? parseInt(ctRaw, 10) : 0;
   return {
     cat,
     q: get('q'),
+    cfr_title: ctNum >= 1 && ctNum <= 50 ? String(ctNum) : '',
     section: get('section'),
     part: get('part'),
     state: /^[A-Za-z]{2}$/.test(get('state')) ? get('state').toUpperCase() : '',
@@ -202,13 +206,13 @@ export function newsViewFromParams(params?: URLSearchParams | null): NewsViewQue
 }
 
 export function isDefaultNewsView(view: NewsViewQuery): boolean {
-  return !view.q && !view.section && !view.part && !view.state && !view.min_penalty
+  return !view.q && !view.cfr_title && !view.section && !view.part && !view.state && !view.min_penalty
     && !view.gravity && !view.naics && !view.gdc && !view.fatality && !view.jurisdiction
     && !view.emphasis && !view.dol_q;
 }
 
 const NEWS_QUERY_KEYS = [
-  'q', 'section', 'part', 'state', 'min_penalty', 'gravity',
+  'q', 'cfr_title', 'section', 'part', 'state', 'min_penalty', 'gravity',
   'naics', 'gdc', 'fatality', 'jurisdiction', 'emphasis', 'dol_q', 'dol_mode',
 ];
 
@@ -499,8 +503,11 @@ export function newsActionsHtml(a: NewsArticle): string {
   const defaultTitle = articleNewsTitle(a);
   const scope = newsScope(defaultTitle);
   const actNr = inspectionActivityNr(a);
+  const frDoc = !actNr ? frDocumentNumber(a) : null;
   if (actNr) {
     out.push(`<a class="btn btn-sm btn-accent" href="#/news/inspection/${actNr}">${icon('file')} Case file</a>`);
+  } else if (frDoc) {
+    out.push(`<a class="btn btn-sm btn-accent" href="#/news/fr/${encodeURIComponent(frDoc)}">${icon('file')} Full text</a>`);
   }
   const srcLabel = a.source === 'dol_osha' ? scope.agencySourceLabel : 'Federal Register';
   const link = safeHttpUrl(a.link);
@@ -509,7 +516,7 @@ export function newsActionsHtml(a: NewsArticle): string {
   if (pdf) out.push(`<a class="btn btn-sm" target="_blank" rel="noopener" href="${escapeHtml(pdf)}">${icon('external')} PDF</a>`);
   const sec = (a.sections || [])[0];
   const partRef = (a.cfr_parts || [])[0];
-  const secCls = actNr ? 'btn btn-sm' : 'btn btn-sm btn-accent';
+  const secCls = actNr || frDoc ? 'btn btn-sm' : 'btn btn-sm btn-accent';
   if (sec) out.push(`<a class="${secCls}" href="${newsSectionHref(defaultTitle, sec)}">${icon('book')} Open § ${escapeHtml(sec)}</a>`);
   else if (partRef) out.push(`<a class="${secCls}" href="${newsPartHref(partRef.title, partRef.part)}">${icon('book')} Open Part ${escapeHtml(String(partRef.part))}</a>`);
   return out.join('');
@@ -524,9 +531,12 @@ export function newsCardHtml(a: NewsArticle, { hero = false }: { hero?: boolean 
     return `<dt>${escapeHtml(t.label)}</dt><dd>${text}</dd>`;
   }).join('');
   const actNr = inspectionActivityNr(a);
+  const frDoc = !actNr ? frDocumentNumber(a) : null;
   const titleHtml = actNr
     ? `<a href="#/news/inspection/${actNr}">${escapeHtml(a.title)}</a>`
-    : extLink(a.link, escapeHtml(a.title));
+    : frDoc
+      ? `<a href="#/news/fr/${encodeURIComponent(frDoc)}">${escapeHtml(a.title)}</a>`
+      : extLink(a.link, escapeHtml(a.title));
   return `
     <${tag} class="news-card${hero ? ' news-hero' : ''}" data-guid="${escapeHtml(a.guid || '')}" data-cat="${escapeHtml(a.category)}">
       <div class="news-card-top"><span class="news-kicker">${escapeHtml(newsKicker(a))}</span>${figure}</div>
@@ -551,6 +561,7 @@ export function newsFilterChipsHtml(view: NewsViewQuery): string {
   const chips: string[] = [];
   const chip = (key: string, label: string) =>
     chips.push(`<button type="button" class="news-filter-chip" data-news-act="clear-filter" data-filter-key="${key}" aria-label="Remove filter: ${escapeHtml(label)}">${escapeHtml(label)}${icon('close')}</button>`);
+  if (view.cfr_title) chip('cfr_title', `${view.cfr_title} CFR`);
   if (view.section) chip('section', `Citing § ${view.section}`);
   if (view.part) chip('part', `Citing Part ${view.part}`);
   if (view.state) chip('state', stateName(view.state));

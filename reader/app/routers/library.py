@@ -109,6 +109,12 @@ def library_update_all() -> dict:
     return _library_call(library.update_all)
 
 
+@router.post("/reload")
+def library_reload() -> dict:
+    """Release cached SQLite connections and render caches so external CLI builds are seen."""
+    return {"reloaded": library.reload_installed()}
+
+
 @router.get("/{title}")
 def library_title(title: int = Path(ge=1, le=50)) -> dict:
     return _library_call(library.title_view, title)

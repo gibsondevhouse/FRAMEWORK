@@ -5,13 +5,17 @@ import tempfile
 import threading
 import unittest
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
 from app import config, news, news_store, news_worker
 from tests.news_fixtures import (DOL_VIOLATIONS, FR_DOCS_JSON, FakeAPI,
                                  NetworkGuardTestCase, PI_JSON)
+
+# The DOL fixture rows (DOL_VIOLATIONS) are dated Oct-Nov 2026 and FakeAPI applies the
+# request's issuance_date "gt" filter, so tests that expect rows back pin "today".
+FIXTURE_TODAY = date(2026, 11, 18)
 
 AGENCY = "occupational-safety-and-health-administration"
 FR_PATH = "/api/v1/documents.json"
@@ -82,7 +86,8 @@ class DolFetchTests(FetchTestCase):
     def test_two_requests_key_in_query_and_in_filter(self):
         fake = FakeAPI()
         with fake.patch_client(), news.client() as c:
-            items = news.fetch_enforcement(c, "secret-key", days=30, limit=1000, max_inspections=50)
+            items = news.fetch_enforcement(c, "secret-key", days=30, limit=1000, max_inspections=50,
+                                           today=FIXTURE_TODAY)
         dol_reqs = fake.requests_for("/v4/")
         self.assertEqual(len(dol_reqs), 2)                        # one violations, one inspections
         for req in dol_reqs:
@@ -116,7 +121,8 @@ class DolFetchTests(FetchTestCase):
     def test_window_arguments_are_used(self):
         fake = FakeAPI()
         with fake.patch_client(), news.client() as c:
-            news.fetch_enforcement(c, "k", days=90, limit=5000, max_inspections=1)
+            news.fetch_enforcement(c, "k", days=90, limit=5000, max_inspections=1,
+                                   today=FIXTURE_TODAY)
         viol = fake.requests_for(VIOL_PATH)[0]
         self.assertEqual(viol.url.params.get("limit"), "5000")
         insp = fake.requests_for(INSP_PATH)[0]
@@ -292,6 +298,25 @@ class WorkerSyncTests(FetchTestCase):
         fake_429 = FakeAPI(rate_limit_paths=("/v4/get/OSHA/inspection/json",))
         with fake_429.patch_client(), news.client() as c:
             self.assertEqual(news_worker.enrich_priority_cases(c, "k", max_cases=5), 0)
+
+    def test_multi_agency_and_installed_title_fr_sync(self):
+        fake = FakeAPI()
+        with mock.patch.dict("os.environ", {"NEWS_AGENCIES": "occupational-safety-and-health-administration,environmental-protection-agency"}), \
+             mock.patch.object(config, "installed_titles", lambda: [29, 40]), \
+             fake.patch_client():
+            res = news_worker.sync_sources(["federal_register"])
+        self.assertEqual(res["federal_register"], 3)
+        fr_reqs = fake.requests_for(FR_PATH)
+        # 2 agency queries (OSHA + EPA) + 1 CFR title query (40; 29 skipped since OSHA is covered)
+        self.assertEqual(len(fr_reqs), 3)
+        self.assertEqual(fr_reqs[2].url.params.get("conditions[cfr][title][]"), "40")
+
+    def test_fetch_fr_body_guards_invalid_doc_and_host(self):
+        import httpx
+        with httpx.Client() as c:
+            with self.assertRaises(ValueError):
+                news.fetch_fr_body(c, "../etc/passwd")
+            self.assertIsNone(news.fetch_fr_body(c, "2026-17726", body_html_url="https://evil.example/x.html"))
 
 
 if __name__ == "__main__":

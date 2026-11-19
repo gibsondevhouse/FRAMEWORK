@@ -247,6 +247,50 @@ class LibraryApiGuardTests(HermeticTestCase):
         self.assertEqual(res.status_code, 400)
         submit.assert_not_called()
 
+    def test_retry_delay_429_and_404_fast_fail(self):
+        import httpx
+        req = httpx.Request("GET", "https://www.ecfr.gov/api/versioner/v1/titles.json")
+        r429 = httpx.Response(429, headers={"Retry-After": "12"}, request=req)
+        r404 = httpx.Response(404, request=req)
+        self.assertEqual(build._retry_delay(httpx.HTTPStatusError("rate", request=req, response=r429), 0), 12.0)
+        self.assertIsNone(build._retry_delay(httpx.HTTPStatusError("missing", request=req, response=r404), 0))
+
+        calls = []
+        transport = httpx.MockTransport(lambda r: (calls.append(r), httpx.Response(404, request=r))[1])
+        with httpx.Client(transport=transport) as client, mock.patch.object(build, "_pace_ecfr"):
+            with self.assertRaises(httpx.HTTPStatusError):
+                build.fetch_json(client, "https://www.ecfr.gov/api/versioner/v1/structure/2026-01-01/title-35.json")
+        self.assertEqual(len(calls), 1)
+
+    def test_completeness_meta_and_empty_scope_error(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self.addCleanup(store.release_title, 99)
+        with mock.patch.object(config, "DATA_DIR", tmp), \
+             mock.patch.object(build, "fetch_json", fake_fetch_json), \
+             mock.patch.object(build, "download_stream", fake_download), \
+             mock.patch.object(library, "ecfr_titles", lambda refresh=False: fake_fetch_json(None, "/titles.json")["titles"]):
+            # Title 99 has reserved section 2.2 with no XML: should NOT count as missing_leaves.
+            build.build(99, force=True)
+            self.assertEqual(store.meta(99)["missing_leaves"], "0")
+
+            # Empty XML for Part 2 must fail cleanly with no .tmp left behind.
+            def empty_dl(_c, _url, dest, on_bytes=None):
+                dest.write_text('<DIV5 N="2"></DIV5>', encoding="utf-8")
+            with mock.patch.object(build, "download_stream", empty_dl):
+                with self.assertRaises(ValueError):
+                    build.build(99, force=True, scope={"parts": ["2"], "sections": []})
+            self.assertFalse((tmp / "title-99.tmp").exists())
+
+    def test_reload_endpoint_and_temp_detection(self):
+        from app.library import disk
+        self.assertTrue(disk._is_temp("title-29.xml.tmp.download"))
+        with mock.patch.object(library, "reload_installed", return_value=[29, 40]) as rel:
+            res = self.client.post("/api/library/reload")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {"reloaded": [29, 40]})
+        rel.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

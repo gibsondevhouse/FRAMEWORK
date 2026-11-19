@@ -600,7 +600,7 @@ async function handleCfrLinkClick(e: MouseEvent, root: HTMLElement): Promise<voi
 
   const isDocRef = (root === dom.view || root === dom.splitPane)
     && !link.classList.contains('xref-local')
-    && link.matches('.reg-body a.xref[href^="#"], .full-section a.xref[href^="#"], .front-matter a.xref[href^="#"]');
+    && link.matches('.reg-body a.xref[href^="#"], .full-section a.xref[href^="#"], .front-matter a.xref[href^="#"], .fr-doc-body a.xref[href^="#"]');
   if (isDocRef && !e.altKey) {
     const parsed = parseCfrHref(link.getAttribute('href'), rootTitle) as ParsedHrefTarget | null;
     if (parsed && parsed.kind === 'section') {

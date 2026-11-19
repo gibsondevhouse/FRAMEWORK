@@ -46,9 +46,11 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a lightw
 - **Storage cleanup.** Check how much disk space each title uses and clear out leftover temporary files right from **Settings**.
 
 ### OSHA News (sanctioned APIs only)
-- **A newsroom for Title 29.** The **News** rail item (`#/news`, `G N`) shows OSHA **Final Rules**, **Proposed Rules**, **Notices**, and **Public Inspection** filings from the official **Federal Register API** — no credentials needed — plus **Enforcement & Penalties** from the **DOL Open Data API** when you add a free `DOL_API_KEY`.
+- **A newsroom for your regulations.** The **News** rail item (`#/news`, `G N`) shows OSHA **Final Rules**, **Proposed Rules**, **Notices**, and **Public Inspection** filings from the official **Federal Register API** — no credentials needed — plus **Enforcement & Penalties** from the **DOL Open Data API** when you add a free `DOL_API_KEY`.
 - **Facts, not summaries.** Every card carries three fixed bullets (*Action*, *CFR*, *Dates* — or *Incident*, *Standards*, *Penalty* for enforcement) built directly from the record's own fields. No language model writes or summarises anything.
-- **Linked into the reader.** CFR citations on cards are chips straight into your installed titles, and Title 29 section and part pages grow an activity button ("3 rules & citations") with a timeline of related rulemaking and enforcement.
+- **Linked into the reader.** CFR citations on cards are chips straight into your installed titles, and section and part pages of every installed title grow an activity button ("3 rules & citations") with a timeline of related rulemaking and enforcement.
+- **Every title you install, every agency you follow.** The Federal Register sync covers each agency in `NEWS_AGENCIES` (OSHA by default) plus the CFR titles you have installed, so installing Title 40 or 49 brings in the rules and notices that amend them.
+- **Read Federal Register documents in the app.** Opening a final rule, proposed rule or notice (from a News card or the activity timeline) shows its full preamble at `#/news/fr/{document_number}` with the dates, docket and CFR chips up top, and its citations link into your installed titles. The text is fetched only when you open the document, cleaned up, and kept locally; if the Federal Register offers no inline text you get a link to it instead.
 - **Inspection case files.** Each enforcement item opens an in-app case file instead of a CAPTCHA-guarded osha.gov page: establishment facts, every violation with its standard decoded to the exact CFR paragraph, the citation history (contested, modified, final order), General Duty Clause narratives and accident abstracts, with a one-click **Enrich from DOL** when the local cache is thin. The Enforcement tab opens with a four-card briefing of totals, gravity mix, most-cited sections and states.
 - **Search & facets inside News.** The filter box finds items by keyword, company, `§ 1910.1030` or `91 FR 55744`; the Enforcement tab can be narrowed by state, penalty and gravity.
 - **Polite syncing.** A background worker fetches each source only after its publication window (FR by 06:15 ET, Public Inspection three times a day, DOL daily), identifies itself honestly, and never scrapes osha.gov. The page paints instantly from a local cache and quietly revalidates.
@@ -116,7 +118,7 @@ ANTHROPIC_MODEL=
 
 *(Note: Anthropic API usage is billed through the Anthropic Console and is separate from a Claude consumer subscription.)*
 
-The same `.env` also configures OSHA News — all optional: `DOL_API_KEY` (free, from [dataportal.dol.gov/registration](https://dataportal.dol.gov/registration)) switches on the Enforcement tab; `NEWS_SYNC=0` turns the background news sync off; `NEWS_RETENTION_DAYS` (default 365) sets how much history is kept.
+The same `.env` also configures OSHA News — all optional: `DOL_API_KEY` (free, from [dataportal.dol.gov/registration](https://dataportal.dol.gov/registration)) switches on the Enforcement tab; `NEWS_AGENCIES` (comma-separated Federal Register agency slugs, OSHA by default) chooses which agencies News follows; `NEWS_SYNC=0` turns the background news sync off; `NEWS_RETENTION_DAYS` (default 365) sets how much history is kept.
 
 ### 4. Start the workstation
 
@@ -144,7 +146,7 @@ cd reader
 ../.venv/bin/python -m app.build --title 29 --renest  # Fix subpart nesting in place (no download)
 ```
 
-Note that a CLI build isn't picked up by an already-running server until you restart it. Downloads started inside the app's **Library** take effect right away.
+Note that a CLI build isn't picked up by an already-running server until you restart it or call `POST /api/library/reload`. Downloads started inside the app's **Library** take effect right away.
 
 ### 6. Running the tests
 
