@@ -1,5 +1,5 @@
 {
-  "sha256": "6635f074179d321532d7a27430073236ba410400e7d666c6240d68f40f173680",
+  "sha256": "9a18ff5b1e4d6e06d0dadb0b32cccc551fac084bea74cbfdccecea4a6eff443d",
   "files": [
     "index.html",
     "src/api/client.ts",
@@ -61,6 +61,7 @@
     "src/styles/styles.css",
     "src/usage.ts",
     "src/views/core.ts",
+    "src/views/data_sources.ts",
     "src/views/doc_utils.ts",
     "src/views/help.ts",
     "src/views/home.ts",

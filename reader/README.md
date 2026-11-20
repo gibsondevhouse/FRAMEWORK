@@ -45,6 +45,7 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a strict
 - **Curated bundles.** Install related titles together in one click, statutes included—such as *Environment, Health & Safety* (CFR Titles 29, 40, 49 plus 29, 42 and 49 U.S.C.), *Trade & Commerce*, or *Government Contracting*.
 - **Granular installs.** Download an entire title, a single part, or just one section or appendix. You can always expand a partial install later, or hit **Update all** to bring everything up to the latest eCFR edition.
 - **Floating Transfer Dock.** Downloads run in a background queue with a compact floating progress card in the corner—showing pipeline stages, download speed, and time remaining—so you can keep reading while titles install.
+- **Data sources checklist.** **Settings → Data sources** lists every federal source (U.S. Code, CFR, Federal Register archive, news, DOL enforcement) as plain checkboxes: switch each on or off, choose how often it updates, and tick exactly which titles, agencies or document types to collect. Start from a template (Recommended, Everything, Minimal, or a desk/bundle), save your own, and share templates as a file. Nothing downloads until you review the changes and apply them, and unticking keeps your data unless you choose to remove it.
 - **Storage cleanup.** Check how much disk space each title uses and clear out leftover temporary files right from **Settings**.
 
 ### Federal Register Newsroom (sanctioned APIs only)
