@@ -702,7 +702,9 @@ Request:
 }
 ```
 
-`section_id` (optional) is the section open in the reader; its text is given to Claude as context. Claude may call four local tools: `search_regulations`, `read_section` (40,000 characters per call, continued with `offset`), `list_part` (each taking an optional `title` or `'all'` for search), and `search_enforcement` (reads locally cached `osha_news.sqlite3` only). At most 10 tool rounds run per request.
+`section_id` (optional) is the CFR section open in the reader; its text is given to Claude as context. `open` (optional) does the same for a page of another framework: `{"corpus": "usc" | "constitution" | "plaw" | "fr" | "agenda", "key": "<the store's own id>", "collection": "<U.S.C. title, or Agenda edition YYYYMM>"}`, for example `{"corpus": "usc", "collection": "42", "key": "2000e–2"}` or `{"corpus": "constitution", "key": "amdt14-s1"}`. It is turned into a canonical id (`app/ids.py`); a value that is not one is ignored, and an unknown `corpus` is a `422`. When both are sent, `section_id` wins.
+
+Claude may call six local, read-only tools: `search_federal` (every installed framework, each hit with its canonical id), `read_provision` (any unit by citation or id: a U.S.C. section, a Constitution unit, a Public Law, a CFR section or part, a Federal Register document or an Agenda rule; 40,000 characters per call, continued with `offset`), and for CFR-only work `search_regulations`, `read_section`, `list_part` (each taking an optional `title`, or `'all'` for search) and `search_enforcement` (reads locally cached `osha_news.sqlite3` only). No tool makes a network request or writes anything. Every tool result reaches Claude inside a `<retrieved>` fence that the text cannot close, and the system prompt tells Claude never to follow instructions found in retrieved text. At most 10 tool rounds run per request.
 
 Response is **Server-Sent Events**: lines of `data: {json}\n\n` with these `type`s:
 

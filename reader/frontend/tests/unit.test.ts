@@ -40,6 +40,7 @@ import {
   newsViewFromParams,
 } from '../src/views/news';
 import { state } from '../src/state';
+import { openItemFromHash } from '../src/core/chat_context';
 
 test('escapeHtml & cleanInlineLabel sanitize inline HTML safely', () => {
   assert.equal(escapeHtml('<script>"a" & \'b\'</script>'), '&lt;script&gt;&quot;a&quot; &amp; &#39;b&#39;&lt;/script&gt;');
@@ -394,4 +395,26 @@ test('cross-framework search blocks become one row shape, installed frameworks o
   assert.equal(parseFrameworkFilter('usc'), 'usc');
   assert.equal(parseFrameworkFilter('state'), 'all');
   assert.equal(parseFrameworkFilter(null), 'all');
+});
+
+test('openItemFromHash names the non-CFR unit on screen for Claude (TL-09)', () => {
+  assert.deepEqual(openItemFromHash('#/usc/42/section/2000e%E2%80%932'),
+    { corpus: 'usc', key: '2000e\u20132', collection: '42', label: '42 U.S.C. \u00a7 2000e\u20132' });
+  assert.equal(openItemFromHash('#/usc/42/section/655/b?p=(b)(1)')?.key, '655');
+  assert.equal(openItemFromHash('#/usc/105/section/App-rule1')?.label.startsWith('5 U.S.C. App.'), true);
+  assert.equal(openItemFromHash('#/usc/42/'), null);
+  assert.equal(openItemFromHash('#/usc/42/node/ch21'), null);
+  assert.deepEqual(openItemFromHash('#/constitution/amdt14-s1'),
+    { corpus: 'constitution', key: 'amdt14-s1', label: 'U.S. Constitution \u00b7 amdt14-s1' });
+  assert.equal(openItemFromHash('#/constitution/'), null);
+  assert.equal(openItemFromHash('#/law/117-58/s1')?.key, '117-58');
+  assert.equal(openItemFromHash('#/law/118-pvt-3')?.label, 'Private Law 118-3');
+  assert.deepEqual(openItemFromHash('#/news/fr/2026-20001'), { corpus: 'fr', key: '2026-20001', label: 'FR Doc. 2026-20001' });
+  assert.deepEqual(openItemFromHash('#/news/agenda/1218-ad39?edition=202510'),
+    { corpus: 'agenda', key: '1218-AD39', label: 'RIN 1218-AD39', collection: '202510' });
+  assert.equal(openItemFromHash('#/news/agenda/1218-AD39?edition=bad')?.collection, undefined);
+  assert.equal(openItemFromHash('#/title/29/section/1910.134'), null);
+  assert.equal(openItemFromHash('#/news'), null);
+  assert.equal(openItemFromHash('#/law/%E0%A4%A'), null);
+  assert.equal(openItemFromHash('#/law/' + 'x'.repeat(300)), null);
 });

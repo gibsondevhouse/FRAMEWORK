@@ -33,6 +33,7 @@ async def post_title_chat(req: deps.ChatRequest, title: int = Depends(deps.valid
         req.section_id,
         req.model,
         title=title,
+        open_item=req.open.model_dump() if req.open else None,
     )
     return StreamingResponse(stream, media_type="text/event-stream", headers=deps.STREAM_HEADERS)
 

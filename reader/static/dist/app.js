@@ -9234,6 +9234,91 @@ if (dom.mainTabs) dom.mainTabs.addEventListener("click", (e) => {
 	const saveBtn = t?.closest("[data-tabs-act=\"save-group\"]");
 	if (saveBtn) emit("tabs:save-group", { anchor: saveBtn });
 });
+// src/core/chat_context.ts
+/**
+* What Claude should know is open when the reader is on a non-CFR page (TL-09).
+*
+* `openItemFromHash` reads the current hash route and returns the unit on screen as the
+* store keys it: `{corpus, key, collection?}`. The server (`chat.open_ref`) turns that into
+* a canonical id and ignores anything that is not one, so this module never needs the full
+* ID grammar. A CFR section is not handled here: it still travels as `section_id`.
+*
+* Pure (no DOM, no state) so it is unit-tested in `tests/unit.test.ts`.
+*/
+var MAX_KEY = 240;
+function dec(s) {
+	try {
+		return decodeURIComponent(s);
+	} catch {
+		return null;
+	}
+}
+function clean(s) {
+	if (!s) return null;
+	const t = s.trim();
+	return t && t.length <= MAX_KEY ? t : null;
+}
+function openItemFromHash(hash) {
+	const raw = (hash || "").replace(/^#/, "");
+	const qi = raw.indexOf("?");
+	const path = qi >= 0 ? raw.slice(0, qi) : raw;
+	const params = new URLSearchParams(qi >= 0 ? raw.slice(qi + 1) : "");
+	let m = /^\/usc\/(\d{1,3})\/section\/([^/?]+)/.exec(path);
+	if (m) {
+		const key = clean(dec(m[2]));
+		const title = parseInt(m[1], 10);
+		if (!key) return null;
+		return {
+			corpus: "usc",
+			key,
+			collection: String(title),
+			label: `${uscCite(title)} § ${key}`
+		};
+	}
+	m = /^\/constitution\/([^/]+)\/?$/.exec(path);
+	if (m) {
+		const key = clean(dec(m[1]));
+		if (!key) return null;
+		return {
+			corpus: "constitution",
+			key,
+			label: `U.S. Constitution · ${key}`
+		};
+	}
+	m = /^\/law\/([^/]+)/.exec(path);
+	if (m) {
+		const key = clean(dec(m[1]));
+		if (!key) return null;
+		const pvt = /^(\d+)-pvt-(\d+)$/.exec(key);
+		return {
+			corpus: "plaw",
+			key,
+			label: pvt ? `Private Law ${pvt[1]}-${pvt[2]}` : `Pub. L. ${key}`
+		};
+	}
+	m = /^\/news\/fr\/([^/]+)\/?$/.exec(path);
+	if (m) {
+		const key = clean(dec(m[1]));
+		if (!key) return null;
+		return {
+			corpus: "fr",
+			key,
+			label: `FR Doc. ${key}`
+		};
+	}
+	m = /^\/news\/agenda\/([0-9A-Za-z-]{4,20})\/?$/.exec(path);
+	if (m) {
+		const edition = params.get("edition");
+		const item = {
+			corpus: "agenda",
+			key: m[1].toUpperCase(),
+			label: `RIN ${m[1].toUpperCase()}`
+		};
+		if (edition && /^\d{6}$/.test(edition)) item.collection = edition;
+		return item;
+	}
+	return null;
+}
 // src/components/chat.ts
 var chatAbort = null;
 var chatGenSeq = 0;
@@ -9270,13 +9355,23 @@ function closeChat() {
 	dom.chatToggle.setAttribute("aria-expanded", "false");
 	if (hadFocus) dom.chatToggle.focus();
 }
+/** The non-CFR unit on screen (U.S.C., Constitution, law, FR document, Agenda rule), if any. */
+function currentOpenItem() {
+	if (state.currentSection) return null;
+	return openItemFromHash(location.hash);
+}
 function updateChatContext() {
+	const open = currentOpenItem();
 	if (state.currentSection) {
 		dom.chatContext.hidden = false;
 		dom.contextLabel.textContent = `${state.currentSection.label} (Title ${state.currentTitle})`;
+	} else if (open) {
+		dom.chatContext.hidden = false;
+		dom.contextLabel.textContent = open.label;
 	} else dom.chatContext.hidden = true;
 	if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
 }
+on("route:changed", () => updateChatContext());
 var HOME_PROMPTS = {
 	29: [
 		"How do overtime exemptions work under Part 541?",
@@ -9327,7 +9422,13 @@ function renderChatWelcome() {
 		"Who is exempt and who is covered?",
 		"Draft an audit and compliance checklist for this rule."
 	];
-	if (!state.currentSection) prompts = HOME_PROMPTS[state.currentTitle] || [
+	const open = currentOpenItem();
+	if (open) prompts = [
+		"Explain this in plain English.",
+		"Which regulations or statutes connect to this?",
+		"What are the key dates and obligations here?"
+	];
+	else if (!state.currentSection) prompts = HOME_PROMPTS[state.currentTitle] || [
 		"What does this title cover, at a high level?",
 		"What are the most important definitions in this title?",
 		"Find the penalty and enforcement provisions in this title."
@@ -9335,8 +9436,8 @@ function renderChatWelcome() {
 	const titleList = state.installedTitles.map((t) => "Title " + t.title).join(", ") || `Title ${state.currentTitle}`;
 	dom.chatMessages.innerHTML = `
     <div class="chat-empty">
-      <h3>Ask Claude about ${state.currentSection ? escapeHtml(state.currentSection.label) : "Title " + state.currentTitle}</h3>
-      <p>Claude searches and reads the full regulation text across ${escapeHtml(titleList)}. Select any passage in a section to ask about it.</p>
+      <h3>Ask Claude about ${state.currentSection ? escapeHtml(state.currentSection.label) : open ? escapeHtml(open.label) : "Title " + state.currentTitle}</h3>
+      <p>Claude searches and reads every installed federal framework: the Constitution, the U.S. Code, Public Laws, the CFR (${escapeHtml(titleList)}), the Federal Register and the Unified Agenda. Select any passage to ask about it.</p>
       <div class="suggestions">
         ${prompts.map((p) => `<button type="button" data-prompt="${escapeHtml(p)}">${escapeHtml(p)}</button>`).join("")}
       </div>
@@ -9376,7 +9477,14 @@ async function submitChat() {
 	state.isGenerating = true;
 	dom.chatSend.disabled = true;
 	const model = dom.modelSelect.value || state.chatConfig.default;
-	const sectionId = dom.contextToggle.checked && state.currentSection && state.currentSection ? state.currentSection.id : null;
+	const includeContext = dom.contextToggle.checked;
+	const sectionId = includeContext && state.currentSection ? state.currentSection.id : null;
+	const openItem = includeContext ? currentOpenItem() : null;
+	const open = openItem ? {
+		corpus: openItem.corpus,
+		key: openItem.key,
+		...openItem.collection ? { collection: openItem.collection } : {}
+	} : null;
 	let replyText = "";
 	let renderRaf = 0;
 	let contentDiv = null;
@@ -9405,6 +9513,7 @@ async function submitChat() {
 			body: JSON.stringify({
 				messages: state.chatHistory,
 				section_id: sectionId,
+				open,
 				model
 			})
 		});
