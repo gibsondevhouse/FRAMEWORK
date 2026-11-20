@@ -444,10 +444,17 @@ def build(
     report("Installing")
     tmp_tree = target_tree.with_suffix(".json.tmp")
     tmp_tree.write_text(json.dumps(tree, separators=(",", ":")), encoding="utf-8")
-    _replace_with_retry(tmp_db, target_db, before_install)
-    _replace_with_retry(tmp_tree, target_tree, before_install)
-    if before_install is None:
+    release = before_install
+    if release is None:
+        # No server-side swap coordinator (CLI or tests): still close this process's cached
+        # read handles first, because Windows refuses to replace a file that is open.
         from . import store
+
+        def release() -> None:
+            store.release_title(title)
+    _replace_with_retry(tmp_db, target_db, release)
+    _replace_with_retry(tmp_tree, target_tree, release)
+    if before_install is None:
         store.release_title(title)
 
     # Title 29 also keeps the legacy file names some older code paths look for.
