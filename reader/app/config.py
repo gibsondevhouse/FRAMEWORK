@@ -1,11 +1,15 @@
 """Paths and settings for the multi-title CFR reader."""
 from __future__ import annotations
 
+import logging
 import os
 import re
+import stat
 import tempfile
 import threading
+import traceback
 from pathlib import Path
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 
@@ -188,8 +192,27 @@ def _format_env_value(value: str) -> str:
     return value
 
 
+def secure_env_file(path: Path | None = None) -> None:
+    """Make reader/.env readable and writable by its owner only (register SEC-004). The app
+    writes the file that way itself; this covers one made by hand (`cp .env.example .env`
+    leaves it readable by everyone on the machine). Windows has no such file modes: there the
+    file is protected by the permissions of the folder it is in."""
+    target = path or env_path()
+    if os.name != "posix":
+        return
+    try:
+        mode = stat.S_IMODE(target.stat().st_mode)
+        if mode & 0o077:
+            os.chmod(target, mode & 0o700)
+    except OSError:
+        pass
+
+
 def write_env_updates(updates: dict[str, str | None]) -> dict:
-    """Create or update reader/.env atomically and apply changes to os.environ."""
+    """Create or update reader/.env atomically and apply changes to os.environ. The file is
+    written owner-only: `mkstemp` creates the temporary file with mode 0600 before any key is
+    in it, and that file then replaces reader/.env, so the keys are never readable by anyone
+    else, not even for a moment, whatever mode the old file had."""
     cleaned: dict[str, str | None] = {}
     for key, val in updates.items():
         if key not in ENV_ALLOWED_KEYS:
@@ -245,3 +268,90 @@ def write_env_updates(updates: dict[str, str | None]) -> dict:
                 os.environ[k] = v
 
         return env_status()
+
+
+# --- Keys never reach a log (register SEC-004) ----------------------------------------------
+#
+# The DOL and GovInfo APIs take their key as a query parameter, and the HTTP client logs every
+# request address at INFO ("HTTP Request: GET https://…?X-API-KEY=…"). Nothing prints that by
+# default, but one `logging.basicConfig(level=logging.INFO)` anywhere would. So every log
+# record made in this process has its keys removed before any handler sees it.
+
+LOG_SECRET_KEYS = (*ENV_SECRET_KEYS, "GOVINFO_API_KEY")
+REDACTED = "[redacted]"
+MIN_SECRET_CHARS = 8          # shorter values are not keys, and replacing them would mangle text
+# The lookahead skips a value that is already the marker, so redacting twice changes nothing
+# more: `_redact_record` relies on that to tell a cleaned record from one that still has a key.
+_SECRET_PARAM_RE = re.compile(r"(?i)\b((?:x-api-key|api[_-]?key)=)(?!\[redacted\])[^&\s\"'<>)\]]+")
+
+
+def redact_secrets(text: str) -> str:
+    """`text` without any API key: the value of a key-carrying query parameter (`X-API-KEY=`,
+    `api_key=`), and every configured key wherever it appears, plain or URL-encoded."""
+    out = _SECRET_PARAM_RE.sub(lambda m: m.group(1) + REDACTED, text)
+    for name in LOG_SECRET_KEYS:
+        value = os.environ.get(name, "").strip()
+        if len(value) < MIN_SECRET_CHARS:
+            continue
+        for form in {value, quote(value, safe="")}:
+            if form in out:
+                out = out.replace(form, REDACTED)
+    return out
+
+
+def _clean_log_arg(arg):
+    if arg is None or isinstance(arg, (bool, int, float)):
+        return arg
+    try:
+        text = arg if isinstance(arg, str) else str(arg)
+    except Exception:
+        return arg
+    clean = redact_secrets(text)
+    return arg if clean == text else clean
+
+
+def _redact_record(record: logging.LogRecord) -> None:
+    try:
+        message = record.getMessage()
+    except Exception:
+        return                                      # a malformed record: logging reports it itself
+    if redact_secrets(message) != message:
+        # Clean the arguments in place first, so a formatter that reads `record.args` (the
+        # server's access log does) still finds them; flatten only if a key is still there.
+        args = record.args
+        if isinstance(args, dict):
+            record.args = {k: _clean_log_arg(v) for k, v in args.items()}
+        elif isinstance(args, tuple):
+            record.args = tuple(_clean_log_arg(a) for a in args)
+        if isinstance(record.msg, str):
+            record.msg = redact_secrets(record.msg)
+        try:
+            still = record.getMessage()
+        except Exception:
+            still = message
+        if redact_secrets(still) != still:
+            record.msg, record.args = redact_secrets(message), None
+    if record.exc_info and record.exc_info[0] is not None and not record.exc_text:
+        text = "".join(traceback.format_exception(*record.exc_info)).rstrip("\n")
+        if redact_secrets(text) != text:
+            record.exc_text = redact_secrets(text)  # formatters use this instead of re-formatting
+
+
+def install_log_redaction() -> None:
+    """Wrap the process's log-record factory so that no record carries an API key. Safe to
+    call more than once."""
+    current = logging.getLogRecordFactory()
+    if getattr(current, "redacts_secrets", False):
+        return
+
+    def factory(*args, **kwargs) -> logging.LogRecord:
+        record = current(*args, **kwargs)
+        _redact_record(record)
+        return record
+
+    factory.redacts_secrets = True  # type: ignore[attr-defined]
+    logging.setLogRecordFactory(factory)
+
+
+secure_env_file()
+install_log_redaction()
