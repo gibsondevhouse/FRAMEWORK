@@ -1,4 +1,5 @@
 import {
+  ConstitutionStatus,
   AuthorityTier, CorpusSummary, HomeFrCat, HomeTab, NewsStatusSnapshot,
   state, TitleSnapshotRow, TransferJob,
 } from '../state';
@@ -32,6 +33,8 @@ import {
 import { fmtMB, fmtSections, SEP, joinSep, shortDate, statPill } from '../components/ui';
 import { startNewWorkspace } from '../views/projects';
 import { pageMastheadHtml, switchboardHtml, SwitchboardTab } from '../components/page_shell';
+import { CONST_LIB_HREF, CONST_START_HREF, constCached, constGroups, constJob, fetchConstitution } from '../core/constitution';
+import { constEdition } from './library_constitution';
 
 const HOME_NEWS_CACHE = 'newsCache:v1:all';
 const HOME_STATUS_CACHE = 'newsCache:v1:status';
@@ -455,8 +458,34 @@ function systemsStripHtml(
 
   return `
     <section class="hm-systems" id="hm-systems" aria-label="Recent changes across federal frameworks">
-      <div class="hm-sys-grid">${cards}</div>
+      <div class="hm-sys-grid">${constSysCardHtml()}${cards}</div>
     </section>`;
+}
+
+/** The Constitution beside the three codes: a link into the reader (or its Library tab before install). */
+function constSysCardHtml(c: ConstitutionStatus | null = constCached()): string {
+  const job = constJob();
+  const installed = Boolean(c?.installed);
+  const amend = installed ? new Set(c!.outline.filter(u => u.amendment).map(u => u.amendment)).size : 0;
+  const statusHtml = job
+    ? statPill('busy', job.state === 'running' ? 'Downloading' : 'Queued', { bare: true })
+    : installed ? statPill('synced', 'Installed', { bare: true })
+      : `<span class="hm-sys-note">${c ? 'Not installed' : 'Checking…'}</span>`;
+  const headline = installed ? `${amend} amendments · ${constGroups(c!.outline).articles.length} articles` : 'The supreme law';
+  const detail = installed
+    ? `Preamble, articles and amendments with ${c!.note_count.toLocaleString()} Parliamentarian’s annotations`
+    : 'Download the full text, with the House Parliamentarian’s annotations kept apart';
+  const footer = installed ? (constEdition(c) || 'Installed') : 'GovInfo · no key needed';
+  return `
+      <a class="hm-sys-card" id="hm-sys-const" href="${installed ? CONST_START_HREF : CONST_LIB_HREF}" data-ref-tier="const">
+        <div class="hm-sys-top">
+          <span class="hm-sys-kicker">Constitution</span>
+          ${statusHtml}
+        </div>
+        <div class="hm-sys-val">${escapeHtml(headline)}</div>
+        <div class="hm-sys-sub">${escapeHtml(detail)}</div>
+        <div class="hm-sys-meta">${escapeHtml(footer)}</div>
+      </a>`;
 }
 
 function updatesBannerHtml(attention: UpdateAttentionItem[], titles: TitleSnapshotRow[]): string {
@@ -1903,7 +1932,13 @@ async function hydrateHome(seq: number): Promise<void> {
     patchHomeDynamicBands(titles, cachedNewsStatus());
   }).catch(() => {});
 
-  await Promise.allSettled([titlesPromise, newsPromise, libPromise]);
+  const constPromise = fetchConstitution().then((c) => {
+    if (seq !== state.routeSeq) return;
+    const card = document.getElementById('hm-sys-const');
+    if (card) card.outerHTML = constSysCardHtml(c);
+  }).catch(() => {});
+
+  await Promise.allSettled([titlesPromise, newsPromise, libPromise, constPromise]);
 }
 
 export function renderHomeScreen({ enter = true }: { enter?: boolean } = {}): void {

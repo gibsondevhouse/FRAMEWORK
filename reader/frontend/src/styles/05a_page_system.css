@@ -153,3 +153,39 @@
   .pg-head { flex-direction: column; align-items: flex-start; }
   .pg-head .pg-display { font-size: 32px; }
 }
+
+/* Library → Constitution tab before install: what the download holds. */
+.const-preview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 28px; margin-top: 22px; }
+.const-pv-head { margin: 0 0 10px; font: var(--w-medium) 12px/1.2 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--fg-3); }
+.const-pv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.const-pv-list.is-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+.const-pv-list li { display: flex; gap: 10px; align-items: baseline; min-width: 0; font-size: 13px; color: var(--fg-2); }
+.const-pv-num { flex: 0 0 auto; min-width: 4.6em; font: var(--w-medium) 12px/1.4 var(--mono); color: var(--ref-const); font-variant-numeric: tabular-nums; }
+.const-pv-list.is-cols .const-pv-num { min-width: 2.6em; }
+.const-pv-name { min-width: 0; }
+@container pg (max-width: 760px) {
+  .const-preview { grid-template-columns: minmax(0, 1fr); }
+}
+@container pg (max-width: 520px) {
+  .const-pv-list.is-cols { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Library → Public Laws: one tile per Congress, newest first; a missing one is dimmed. */
+.plaw-congs { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin: 18px 0 6px; }
+.plaw-cong {
+  display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: var(--r-8);
+  border: 1px solid var(--line-soft); background: var(--card-bg, var(--card)); color: var(--fg-2); text-decoration: none;
+  transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out);
+}
+.plaw-cong:hover { background: var(--hover); color: var(--fg-strong); text-decoration: none; }
+.plaw-cong.is-on { border-color: color-mix(in oklab, var(--ref-usc) 55%, var(--line)); background: color-mix(in oklab, var(--ref-usc) 8%, var(--card)); color: var(--fg-strong); }
+.plaw-cong.is-missing .plaw-cong-num, .plaw-cong.is-missing .plaw-cong-count { color: var(--fg-4); }
+.plaw-cong-num { font: 400 17px/1.15 var(--serif); color: var(--fg-strong); }
+.plaw-cong-years { font: var(--w-regular) 11.5px/1.2 var(--sans); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.plaw-cong-count { font: var(--w-medium) 11.5px/1.2 var(--sans); color: color-mix(in oklab, var(--ref-usc) 75%, var(--fg-2)); font-variant-numeric: tabular-nums; }
+.plaw-explain { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 20px; max-width: 980px; }
+.plaw-explain p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--fg-2); }
+.plaw-explain strong { color: var(--fg); }
+@container pg (max-width: 760px) {
+  .plaw-explain { grid-template-columns: minmax(0, 1fr); }
+}

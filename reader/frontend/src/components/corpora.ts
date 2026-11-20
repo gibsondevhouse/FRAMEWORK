@@ -3,10 +3,12 @@ import {
   RefTier, state, TitleSnapshotRow,
 } from '../state';
 import { escapeHtml, lsGet, lsSet } from '../dom';
+import { uscCite } from '../core/usc_label';
 
 const ACTIVE_DESK_KEY = 'framework_desk_v1';
 
 export const TIER_ORDER = [
+  'federal-constitution',
   'federal-statute',
   'federal-reg',
   'federal-register',
@@ -28,6 +30,13 @@ export interface TierMeta {
 }
 
 export const TIER_META: Record<string, TierMeta> = {
+  'federal-constitution': {
+    label: 'U.S. Constitution',
+    short: 'Const.',
+    refTier: 'const',
+    tag: 'CONSTITUTION',
+    subtitle: 'The supreme law',
+  },
   'federal-statute': {
     label: 'U.S. Code (U.S.C.)',
     short: 'U.S.C.',
@@ -456,7 +465,7 @@ export function allSystemFrameworks(
       tier: 'federal-statute',
       jurisdiction: 'US',
       jurisdiction_label: 'Federal',
-      code: `${u.title} U.S.C.`,
+      code: uscCite(u.title),
       title_num: u.title,
       name: u.title_name || `Title ${u.title}`,
       desk: mapRawDeskToId('', u.title),

@@ -554,7 +554,7 @@ class BehaviorTests(BrowserCase):
           const seg = document.querySelector('.news-tabs');
           return { sw: seg.scrollWidth, cw: seg.clientWidth, count: seg.querySelectorAll('button').length };
         }""")
-        self.assertEqual(news_overflow["count"], 6)
+        self.assertEqual(news_overflow["count"], 7)
         self.assertLessEqual(news_overflow["sw"], news_overflow["cw"] + 1)
 
         # 3. Workspaces label consistency in primary sidebar and page heading (drawer stays retracted on main pages).
@@ -843,8 +843,8 @@ class BehaviorTests(BrowserCase):
     def test_newsroom_filters_setup_notice_and_activity_popover(self):
         import json as _json
         page = self.open_page("/news", "#news-q")
-        # 6 tabs rendered
-        self.assertEqual(page.locator('.news-tabs [role="tab"]').count(), 6)
+        # 7 tabs rendered (the last, Unified Agenda, has its own view)
+        self.assertEqual(page.locator('.news-tabs [role="tab"]').count(), 7)
         # Filter input debounces into hash query
         page.fill('#news-q', 'helmet')
         page.wait_for_function("() => location.hash.includes('q=helmet')", timeout=5000)
@@ -888,21 +888,26 @@ class BehaviorTests(BrowserCase):
 
     def test_library_tabs_usc_catalog_and_legacy_links(self):
         page = self.open_page("/library", "#lib-tabs")
-        # Overview is the default tab: three tabs, installed shelf and bundles with statutes.
-        self.assertEqual(page.locator("#lib-tabs [data-lib-tab]").count(), 3)
+        # Overview is the default tab: five tabs (Overview, Constitution, U.S. Code, Public Laws, CFR), installed shelf and bundles with statutes.
+        self.assertEqual(page.locator("#lib-tabs [data-lib-tab]").count(), 5)
         self.assertEqual(page.get_attribute("#lib-tab-overview", "aria-selected"), "true")
         self.assertGreaterEqual(page.locator(".lib-bundle .citation-chip[data-ref-tier='uninstalled'], .lib-bundle .citation-chip[data-ref-tier='usc']").count(), 1)
         self.assertIn("Federal Register", page.inner_text(".pg-head-acts"))
-        # The U.S. Code tab lists every title (53 live + 1 reserved) under topic desks.
+        # The U.S. Code tab lists every title (53 live + 1 reserved) under topic desks, then the
+        # appendix titles (5a, 11a, 18a, 28a live; 50a eliminated, under Reserved).
         page.click("#lib-tab-usc")
         page.wait_for_selector(".lib-front[data-lib-tab='usc'] .lib-story[data-ref-tier='usc']", timeout=10000)
         self.assertTrue(page.evaluate("location.hash").startswith("#/library/usc"))
-        self.assertEqual(page.locator(".lib-story[data-ref-tier='usc']").count(), 54)
+        self.assertEqual(page.locator(".lib-story[data-ref-tier='usc']").count(), 59)
+        self.assertEqual(page.locator(".lib-desk[aria-label='Appendices'] .lib-story").count(), 4)
         page.fill("#lib-filter", "29 cfr")
         self.assertEqual(page.locator(".lib-story:not([hidden])").count(), 1)
-        # ArrowRight moves to the CFR tab and keeps focus on the tablist.
+        # ArrowRight moves to the Public Laws tab, End to CFR, and focus stays on the tablist.
         page.locator("#lib-tab-usc").focus()
         page.keyboard.press("ArrowRight")
+        page.wait_for_selector(".lib-front[data-lib-tab='plaw']", timeout=10000)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "lib-tab-plaw")
+        page.keyboard.press("End")
         page.wait_for_selector(".lib-front[data-lib-tab='cfr'] .lib-seg", timeout=10000)
         self.assertEqual(page.evaluate("document.activeElement.id"), "lib-tab-cfr")
         # A title page for an uninstalled U.S. Code title offers the download and its CFR titles.

@@ -12,13 +12,16 @@ import { dom } from './state_init';
 import { renderHome } from './views/core';
 import { renderHomeScreen } from './views/home';
 import { loadHelp } from './views/help';
-import { loadLibrary } from './views/library';
+import { loadLibrary, loadPlawTab } from './views/library';
 import { loadInspection, loadNews } from './views/news';
 import { loadFrDocument } from './views/news_fr';
+import { loadAgendaRule, loadAgendaTab } from './views/news_agenda';
 import { renderProjects } from './views/projects';
 import { loadSection } from './views/reader';
 import { loadPart, loadPartFull } from './views/reader_part';
 import { loadUscRoute } from './views/reader_usc';
+import { loadConstitutionRoute } from './views/reader_constitution';
+import { loadLawRoute } from './views/reader_plaw';
 import { loadSearchPage } from './views/search';
 import { renderWelcome } from './views/welcome';
 
@@ -39,7 +42,7 @@ export async function handleRoute(): Promise<void> {
 
   syncNavToRoute(path);
 
-  if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus|usc)(\/|$)/.test(path)) {
+  if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus|usc|constitution|law)(\/|$)/.test(path)) {
     emit('route:changed', { path });
     await renderWelcome();
     return;
@@ -68,6 +71,30 @@ export async function handleRoute(): Promise<void> {
   state.currentUscTitle = null;
   state.currentUscNode = null;
   state.currentUscSection = null;
+
+  const constMatch = /^\/constitution(?:\/([^/]*))?\/?$/.exec(path);
+  if (constMatch) {
+    hideMainTabs();
+    clearTreeSelection();
+    let unitId: string | null = null;
+    try { unitId = constMatch[1] ? decodeURIComponent(constMatch[1]) : null; } catch { unitId = constMatch[1] || null; }
+    await loadConstitutionRoute(unitId);
+    applyNav();
+    emit('route:changed', { path });
+    return;
+  }
+  state.currentConstUnit = null;
+
+  const lawMatch = /^\/law\/([^/]+)(?:\/([^/]+))?\/?$/.exec(path);
+  if (lawMatch) {
+    hideMainTabs();
+    clearTreeSelection();
+    const dec = (s: string): string => { try { return decodeURIComponent(s); } catch { return s; } };
+    await loadLawRoute(dec(lawMatch[1]), lawMatch[2] ? dec(lawMatch[2]) : null);
+    applyNav();
+    emit('route:changed', { path });
+    return;
+  }
 
   let checkPath = path;
   let titleMatch: RegExpMatchArray | [string, string, string] | null = path.match(/^\/title\/(\d+)(\/.*)?$/);
@@ -167,12 +194,16 @@ export async function handleRoute(): Promise<void> {
     // #/library/{n}[/part/{p}] CFR links are rewritten to their /cfr/ form.
     const legacy = /^\/library\/(\d+)((?:\/part\/.+)?)\/?$/.exec(checkPath);
     const usc = /^\/library\/usc(?:\/(\d+))?\/?$/.exec(checkPath);
+    const constTab = /^\/library\/constitution\/?$/.test(checkPath);
+    const plawTab = /^\/library\/plaw(?:\/(\d+))?\/?$/.exec(checkPath);
     const cfr = /^\/library\/cfr(?:\/(\d+)(?:\/part\/(.+))?)?\/?$/.exec(checkPath);
     if (legacy) {
       history.replaceState(null, '', `#/library/cfr/${legacy[1]}${legacy[2]}`);
       const m = /^\/part\/(.+)$/.exec(legacy[2]);
       await loadLibrary('cfr', parseInt(legacy[1], 10), m ? decode(m[1]) : null);
-    } else if (usc) await loadLibrary('usc', usc[1] ? parseInt(usc[1], 10) : null, null);
+    } else if (constTab) await loadLibrary('constitution', null, null);
+    else if (plawTab) await loadPlawTab(plawTab[1] ? parseInt(plawTab[1], 10) : null);
+    else if (usc) await loadLibrary('usc', usc[1] ? parseInt(usc[1], 10) : null, null);
     else if (cfr) await loadLibrary('cfr', cfr[1] ? parseInt(cfr[1], 10) : null, cfr[2] ? decode(cfr[2]) : null);
     else if (/^\/library\/?$/.test(checkPath)) await loadLibrary('overview', null, null);
     else renderNotFound();
@@ -182,7 +213,11 @@ export async function handleRoute(): Promise<void> {
     renderProjects(id ? decodeURIComponent(id) : null);
   } else if (!titleMatch && (checkPath === '/news' || checkPath === '/news/')) {
     hideMainTabs();
-    await loadNews(params);
+    if (params?.get('cat') === 'agenda') await loadAgendaTab(params);
+    else await loadNews(params);
+  } else if (!titleMatch && /^\/news\/agenda\/[0-9A-Za-z-]{4,20}\/?$/.test(checkPath)) {
+    hideMainTabs();
+    await loadAgendaRule(decodeURIComponent(checkPath.split('/')[3]).toUpperCase(), params);
   } else if (!titleMatch && /^\/news\/inspection\/\d+\/?$/.test(checkPath)) {
     hideMainTabs();
     const actNr = parseInt(checkPath.split('/')[3], 10);

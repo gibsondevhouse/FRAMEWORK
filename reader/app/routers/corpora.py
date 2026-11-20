@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
-from .. import agenda, constitution, plaw
+from .. import agenda, constitution, library, plaw
 
 
 def _no_store(response: Response) -> None:
@@ -46,6 +46,21 @@ def constitution_build() -> dict:
     return {"job": constitution.submit()}
 
 
+@corpora_router.post("/api/constitution/update")
+def constitution_update() -> dict:
+    """Rebuild only if GovInfo lists a newer House Manual (a download when nothing is installed)."""
+    return {"job": constitution.submit("constitution-update")}
+
+
+@corpora_router.delete("/api/constitution")
+def constitution_remove() -> dict:
+    if library.queue.busy_with(constitution.JOB_KEY):
+        raise HTTPException(409, "The Constitution has a download in progress.")
+    if not constitution.remove():
+        raise HTTPException(404, "The Constitution isn't installed.")
+    return {"removed": "constitution"}
+
+
 # --- Public Laws ----------------------------------------------------------------
 
 class PlawBuild(BaseModel):
@@ -65,11 +80,28 @@ def plaw_search(q: str = Query(..., min_length=1, max_length=200), limit: int = 
 
 
 @corpora_router.get("/api/plaw/law/{law_id}")
-def plaw_law(law_id: str, xml: bool = False) -> dict:
+def plaw_law(law_id: str, xml: bool = False, text: bool = True) -> dict:
+    """One law's metadata, U.S. Code links and provenance (`text=false` leaves out the plain
+    text, which the reader gets as HTML units from …/text instead)."""
     law = plaw.get_law(law_id, include_xml=xml)
     if law is None:
         raise HTTPException(404, "No such law in the local copy.")
+    if not text:
+        law.pop("text", None)
     return law
+
+
+@corpora_router.get("/api/plaw/law/{law_id}/text")
+def plaw_law_text(law_id: str, unit: str | None = Query(None, max_length=40)) -> dict:
+    """The law as reading units: `mode`, `outline`, and `html` for one unit (`?unit=`, '' = first)
+    of a long law, or for the whole law."""
+    try:
+        d = plaw.law_text(law_id, unit)
+    except KeyError:
+        raise HTTPException(404, "No such section in this law.")
+    if d is None:
+        raise HTTPException(404, "No such law in the local copy.")
+    return d
 
 
 @corpora_router.get("/api/plaw/usc/{title}/{section}")
@@ -89,6 +121,15 @@ def plaw_update() -> dict:
     return {"job": plaw.submit("plaw-update")}
 
 
+@corpora_router.delete("/api/plaw")
+def plaw_remove() -> dict:
+    if library.queue.busy_with(plaw.JOB_KEY):
+        raise HTTPException(409, "Public Laws have a download in progress.")
+    if not plaw.remove():
+        raise HTTPException(404, "Public Laws aren't installed.")
+    return {"removed": "plaw"}
+
+
 # --- Unified Agenda ---------------------------------------------------------------
 
 class AgendaBuild(BaseModel):
@@ -100,8 +141,14 @@ class AgendaBuild(BaseModel):
 @corpora_router.get("/api/agenda")
 def agenda_list(edition: str | None = Query(None, pattern=r"^\d{6}$"), agency: str | None = Query(None, pattern=r"^\d{4}$"),
                 stage: str | None = Query(None, max_length=40), limit: int = Query(50, ge=1, le=200),
-                offset: int = Query(0, ge=0)) -> dict:
-    return {**agenda.list_entries(edition, agency, stage, limit, offset), "status": agenda.status()}
+                offset: int = Query(0, ge=0), q: str | None = Query(None, max_length=200)) -> dict:
+    return {**agenda.list_entries(edition, agency, stage, limit, offset, q), "status": agenda.status()}
+
+
+@corpora_router.get("/api/agenda/facets")
+def agenda_facets(edition: str | None = Query(None, pattern=r"^\d{6}$")) -> dict:
+    """Entries per parent agency and per stage in one edition (the Newsroom's filters)."""
+    return agenda.facets(edition)
 
 
 @corpora_router.get("/api/agenda/search")
@@ -126,3 +173,12 @@ def agenda_build(req: AgendaBuild | None = None) -> dict:
 @corpora_router.post("/api/agenda/update")
 def agenda_update() -> dict:
     return {"job": agenda.submit("agenda-update")}
+
+
+@corpora_router.delete("/api/agenda")
+def agenda_remove() -> dict:
+    if library.queue.busy_with(agenda.JOB_KEY):
+        raise HTTPException(409, "The Unified Agenda has a download in progress.")
+    if not agenda.remove():
+        raise HTTPException(404, "The Unified Agenda isn't installed.")
+    return {"removed": "agenda"}

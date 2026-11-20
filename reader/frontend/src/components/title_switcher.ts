@@ -8,6 +8,7 @@ import { clearTreeSelection, switchTitle } from '../components/sidebar';
 import { setViewHead } from '../components/view_head';
 import { enterView, escapeHtml, icon, safeHttpUrl } from '../dom';
 import { dom } from '../state_init';
+import { uscCite } from '../core/usc_label';
 
 // --- Federal Framework Switcher (top bar) ---
 let switcherDeskFilter = 'all';
@@ -16,6 +17,8 @@ function activeRouteKind(): 'cfr' | 'usc' | 'fr' | 'corpus' | 'platform' {
   const p = (state.activeRoute || '/').split('?')[0] || '/';
   if (p.startsWith('/news')) return 'fr';
   if (/^\/usc\/\d+(?:\/|$)/.test(p)) return 'usc';
+  if (/^\/constitution(?:\/|$)/.test(p)) return 'corpus';
+  if (/^\/law\/[^/]+/.test(p)) return 'corpus';
   if (p.startsWith('/corpus/')) {
     return state.activeCorpus?.tier === 'federal-register' ? 'fr' : 'corpus';
   }
@@ -128,13 +131,13 @@ export function fillTitleSelect(): void {
   } else if (kind === 'usc' && state.currentUscTitle) {
     const curUsc = state.installedUscTitles.find(u => u.title === state.currentUscTitle);
     const name = curUsc?.title_name || state.activeCorpus?.name || `Title ${state.currentUscTitle}`;
-    if (numEl) numEl.textContent = `${state.currentUscTitle} U.S.C.`;
+    if (numEl) numEl.textContent = uscCite(state.currentUscTitle);
     if (nameEl) nameEl.textContent = name;
     dom.titleSelect.dataset.refTier = 'usc';
-    dom.titleSelect.title = `${state.currentUscTitle} U.S.C.: ${name} · Switch federal framework`;
+    dom.titleSelect.title = `${uscCite(state.currentUscTitle)}: ${name} · Switch federal framework`;
     if (dom.edition) {
       dom.edition.textContent = curUsc?.release_point ? `Release ${curUsc.release_point}` : 'U.S. Code';
-      dom.edition.title = `${state.currentUscTitle} U.S.C. release point`;
+      dom.edition.title = `${uscCite(state.currentUscTitle)} release point`;
     }
   } else if (kind === 'corpus' && state.activeCorpus) {
     const shortCode = state.activeCorpus.tier === 'federal-statute'

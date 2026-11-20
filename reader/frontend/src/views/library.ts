@@ -32,6 +32,12 @@ import {
   uscChipsHtml, uscDetailActions, uscDetailBodyHtml, uscDetailSub, uscJobFor, uscLibHref, uscStats,
   uscStatusPill, uscStory, uscTabHtml, uscCite,
 } from './library_usc';
+import { constTabCounts, constTabHtml } from './library_constitution';
+import { plawScopeWith, plawSelected, plawTabCounts, plawTabHtml } from './library_plaw';
+import { fetchCongressLaws, fetchPlawStatus, plawCounts, PLAW_LIB_HREF, PlawLawRow, PlawStatus } from '../core/plaw';
+import { uscTitleLabel } from '../core/usc_label';
+import { CONST_LIB_HREF, fetchConstitution } from '../core/constitution';
+import type { ConstitutionStatus } from '../state';
 
 export type LibSort = 'desk' | 'number' | 'updated';
 
@@ -93,15 +99,22 @@ export interface LibraryPartDetailResponse {
   groups: LibraryPartGroup[];
 }
 
-export type LibTab = 'overview' | 'usc' | 'cfr';
-export const LIB_TAB_ORDER: LibTab[] = ['overview', 'usc', 'cfr'];
-export const LIB_TAB_HREF: Record<LibTab, string> = { overview: '#/library', usc: '#/library/usc', cfr: '#/library/cfr' };
+export type LibTab = 'overview' | 'constitution' | 'usc' | 'plaw' | 'cfr';
+export const LIB_TAB_ORDER: LibTab[] = ['overview', 'constitution', 'usc', 'plaw', 'cfr'];
+export const LIB_TAB_HREF: Record<LibTab, string> = {
+  overview: '#/library', constitution: CONST_LIB_HREF, usc: '#/library/usc', plaw: PLAW_LIB_HREF, cfr: '#/library/cfr',
+};
 
 export interface LibViewState {
   /** tab = which switchboard tab; title/part = a CFR drill-down (tab 'cfr') or a U.S. Code title (tab 'usc'). */
   view: { tab: LibTab; title: number | null; part: string | null } | null;
   data: LibraryCatalogData | LibraryTitleDetailResponse | LibraryPartDetailResponse | null;
   usc: UscCatalog | null;
+  constitution: ConstitutionStatus | null;
+  plaw: PlawStatus | null;
+  /** The Congress the Public Laws tab shows (#/library/plaw/{c}); null = the newest installed. */
+  plawCongress: number | null;
+  plawLaws: { congress: number; rows: PlawLawRow[] } | null;
   uscTree: { title: number; tree: UscTreeNode | null } | null;
   filter: string;
   sort: LibSort;
@@ -115,7 +128,7 @@ export interface LibViewState {
 // the server and run one at a time; `jobs` polls while any are active, wherever you are,
 // and refreshes the title list (and this page) as each finishes.
 export const lib: LibViewState = {
-  view: null, data: null, usc: null, uscTree: null, filter: '', sort: 'desk', wire: null, focusTab: false,
+  view: null, data: null, usc: null, constitution: null, plaw: null, plawCongress: null, plawLaws: null, uscTree: null, filter: '', sort: 'desk', wire: null, focusTab: false,
 };
 
 const savedSort = lsGet('libSort');
@@ -133,7 +146,7 @@ const removeTimers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
 
 // Status helpers are imported from core/library_meta and re-exported above.
 
-const fetchUscCatalog = (): Promise<UscCatalog | null> => getJSON<UscCatalog>('/api/usc/catalog').catch(() => null);
+const fetchUscCatalog = (): Promise<UscCatalog | null> => getJSON<UscCatalog>('/api/usc/catalog?appendix=true').catch(() => null);
 
 const installedCfrSet = (): Set<number> => new Set((state.installedTitles || []).map(t => t.title));
 
@@ -151,10 +164,20 @@ async function fetchView(tab: LibTab, title: number | null, part: string | null)
     return;
   }
   if (!title) {
-    const [data, cat] = await Promise.all([getJSON<LibraryCatalogData>('/api/library'), fetchUscCatalog()]);
+    const [data, cat, constitution, plaw] = await Promise.all([
+      getJSON<LibraryCatalogData>('/api/library'), fetchUscCatalog(), fetchConstitution({ force: true }), fetchPlawStatus(),
+    ]);
     setJobs(data.jobs);
     lib.data = data;
     lib.usc = cat;
+    lib.constitution = constitution;
+    lib.plaw = plaw;
+    if (tab === 'plaw' && plaw?.installed) {
+      const sel = plawSelected(plaw, lib.plawCongress);
+      if (plawCounts(plaw).has(sel) && lib.plawLaws?.congress !== sel) {
+        lib.plawLaws = { congress: sel, rows: await fetchCongressLaws(sel).catch(() => []) };
+      }
+    }
     return;
   }
   const url = part ? `/api/library/${title}/part/${encodeURIComponent(part)}` : `/api/library/${title}`;
@@ -201,6 +224,13 @@ export async function loadLibrary(tab: LibTab = 'overview', title?: number | nul
     });
     document.getElementById('lib-retry')?.addEventListener('click', () => loadLibrary(tab, normTitle, normPart));
   }
+}
+
+/** #/library/plaw[/{congress}]: the Public Laws tab, showing one Congress's laws. */
+export function loadPlawTab(congress: number | null): Promise<void> {
+  if (lib.plawCongress !== congress) lib.filter = '';
+  lib.plawCongress = congress;
+  return loadLibrary('plaw', null, null);
 }
 
 // Refetch the page's data in place (after a download or removal), keeping filter and scroll.
@@ -503,10 +533,18 @@ function libTabsHtml(d: LibraryCatalogData, cat: UscCatalog | null, tab: LibTab)
         alert: due > 0,
       },
       {
+        id: 'constitution', label: 'U.S. Constitution', abbr: 'Const.', refTier: 'const', href: LIB_TAB_HREF.constitution,
+        ...constTabCounts(lib.constitution),
+      },
+      {
         id: 'usc', label: 'United States Code', abbr: 'U.S.C.', refTier: 'usc', href: LIB_TAB_HREF.usc,
-        countLabel: `${u.inst.length} of ${u.live.length || 53} titles`,
+        countLabel: `${u.inst.filter(t => t.title < 100).length} of ${u.main.length || 53} titles`,
         sub: releaseLine(cat),
         alert: u.stale.length > 0, alertTitle: 'Behind the current release point',
+      },
+      {
+        id: 'plaw', label: 'Public Laws', abbr: 'Pub. L.', refTier: 'usc', href: LIB_TAB_HREF.plaw,
+        ...plawTabCounts(lib.plaw),
       },
       {
         id: 'cfr', label: 'Code of Federal Regulations', abbr: 'CFR', refTier: 'cfr', href: LIB_TAB_HREF.cfr,
@@ -656,7 +694,10 @@ export function libFrontHtml(d: LibraryCatalogData, cat: UscCatalog | null = lib
       + `<a class="btn btn-sm" href="#/news">${icon('news')} Federal Register in the Newsroom</a>`,
     tabsHtml: libTabsHtml(d, cat, tab),
   });
-  const body = tab === 'usc' ? uscTabHtml(cat, lib.filter, installedCfrSet())
+  const body = tab === 'constitution' ? constTabHtml(lib.constitution, lib.filter)
+    : tab === 'usc' ? uscTabHtml(cat, lib.filter, installedCfrSet())
+    : tab === 'plaw' ? plawTabHtml(lib.plaw, lib.plawCongress,
+      lib.plawLaws && lib.plawLaws.congress === plawSelected(lib.plaw, lib.plawCongress) ? lib.plawLaws.rows : null, lib.filter)
     : tab === 'cfr' ? cfrTabHtml(d)
       : overviewHtml(d, cat);
   return `<div class="lib lib-front pg" data-lib-tab="${tab}">
@@ -668,7 +709,8 @@ export function libFrontHtml(d: LibraryCatalogData, cat: UscCatalog | null = lib
 function renderFront(fresh: boolean): void {
   const d = lib.data as LibraryCatalogData;
   const tab = lib.view?.tab || 'overview';
-  document.title = `${tab === 'usc' ? 'U.S. Code · ' : tab === 'cfr' ? 'CFR · ' : ''}Library · FRAMEWORK`;
+  const tabTitle = { overview: '', constitution: 'Constitution · ', usc: 'U.S. Code · ', plaw: 'Public Laws · ', cfr: 'CFR · ' }[tab];
+  document.title = `${tabTitle}Library · FRAMEWORK`;
   const scrollTop = dom.main.scrollTop;
   // A re-render replaces the tabs, so keep keyboard focus on the tablist when it was there.
   const keepTabFocus = lib.focusTab || Boolean(document.activeElement?.closest('#lib-tabs'));
@@ -722,7 +764,7 @@ function renderUscDetail(fresh: boolean): void {
     ${pageMastheadHtml({
       folioLeftHtml: `<a href="#/">Home</a>${SEP}<a href="#/library">Library</a>${SEP}<a href="${LIB_TAB_HREF.usc}">U.S. Code</a>`,
       folioRightHtml: `<span>${escapeHtml(uscCite(title))}</span>${SEP}${uscStatusPill(t, true)}`,
-      title: `Title ${title} — ${t.name}`,
+      title: `Title ${uscTitleLabel(title)} — ${t.name}`,
       subHtml: uscDetailSub(t),
       actionsHtml: uscDetailActions(t, tree),
     })}
@@ -944,8 +986,9 @@ onView('click', async (e) => {
   const isUsc = btn.dataset.uscTitle !== undefined;
   const title = parseInt((isUsc ? btn.dataset.uscTitle : btn.dataset.title) || '', 10);
   const act = btn.dataset.act;
-  if (act === 'remove' || act === 'usc-remove') {
-    const what = act === 'usc-remove' ? `${title} U.S.C.` : `Title ${title}`;
+  if (act === 'remove' || act === 'usc-remove' || act === 'const-remove' || act === 'plaw-remove') {
+    const what = act === 'usc-remove' ? uscCite(title) : act === 'const-remove' ? 'the Constitution'
+      : act === 'plaw-remove' ? 'Public Laws' : `Title ${title}`;
     // Two clicks: the first arms the button for a few seconds.
     if (!btn.classList.contains('is-armed')) {
       btn.classList.add('is-armed');
@@ -960,6 +1003,13 @@ onView('click', async (e) => {
       if (act === 'usc-remove') {
         await getJSON(`/api/usc/${title}`, { method: 'DELETE' });
         showToast(`Removed ${what}`);
+      } else if (act === 'const-remove') {
+        await getJSON('/api/constitution', { method: 'DELETE' });
+        showToast('Removed the Constitution');
+      } else if (act === 'plaw-remove') {
+        await getJSON('/api/plaw', { method: 'DELETE' });
+        lib.plawLaws = null;
+        showToast('Removed Public Laws');
       } else {
         await getJSON(`/api/library/${title}`, { method: 'DELETE' });
         invalidateTitleCaches([title]);
@@ -1007,6 +1057,28 @@ onView('click', async (e) => {
         showToast('Everything installed is already current');
         btn.disabled = false;
       }
+      await pollJobs();
+      return;
+    }
+    if (act === 'plaw-download' || act === 'plaw-add' || act === 'plaw-update') {
+      const all = btn.dataset.congresses === 'all';
+      const congresses = act === 'plaw-add' ? plawScopeWith(lib.plaw, parseInt(btn.dataset.congress || '0', 10))
+        : act === 'plaw-download' && !all ? [parseInt(btn.dataset.congresses || '0', 10)] : null;
+      const res = act === 'plaw-update'
+        ? await getJSON<{ job: TransferJob }>('/api/plaw/update', { method: 'POST' })
+        : await getJSON<{ job: TransferJob }>('/api/plaw/build', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(congresses ? { congresses } : {}),
+        });
+      state.jobsSeenActive.add(res.job.id);
+      lib.plawLaws = null;
+      await pollJobs();
+      return;
+    }
+    if (act === 'const-download' || act === 'const-update') {
+      const res = await getJSON<{ job: TransferJob }>(`/api/constitution/${act === 'const-update' ? 'update' : 'build'}`, { method: 'POST' });
+      state.jobsSeenActive.add(res.job.id);
       await pollJobs();
       return;
     }

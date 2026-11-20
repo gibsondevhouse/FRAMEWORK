@@ -3,7 +3,9 @@ import {
   cleanInlineLabel, copyText, escapeHtml, icon, safeHttpUrl,
   setModalBackgroundInert, smoothScrollToTarget, trapFocusKeydown,
 } from '../dom';
-import { clipToWorkspace, USC_TIER, WorkspaceSectionRef } from '../core/projects_store';
+import { clipToWorkspace, CONST_TIER, USC_TIER, WorkspaceSectionRef } from '../core/projects_store';
+import { constCitation } from '../core/constitution_text';
+import { uscCite } from '../core/usc_label';
 import { paragraphPathFrom } from '../citations';
 import { emptyStateHtml } from '../components/ui';
 import { dom } from '../state_init';
@@ -284,7 +286,8 @@ export function formatCfrCitation(title: number | string, sectionLabelOrId: stri
 
 /** The citation for a workspace reference: "29 U.S.C. § 655(b)(1)" for a statute, else CFR form. */
 export function formatRefCitation(ref: WorkspaceSectionRef, para = ''): string {
-  if (ref.tier === USC_TIER) return `${ref.title} U.S.C. § ${ref.id}${para || ''}`;
+  if (ref.tier === USC_TIER) return `${uscCite(ref.title)} § ${ref.id}${para || ''}`;
+  if (ref.tier === CONST_TIER) return constCitation(ref.label);
   return formatCfrCitation(ref.title, cleanInlineLabel(ref.label), para);
 }
 

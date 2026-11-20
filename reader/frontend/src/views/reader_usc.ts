@@ -7,12 +7,15 @@ import { citePop } from '../components/cfr_resolver';
 import { pinButtonHtml } from '../components/pin_pop';
 import { bindRail, railHtml, unitKind, unitName, unitShort, watchRail } from '../components/rail';
 import { collectSectionReferences, openRefsLedgerPopover } from '../components/refs_popovers';
-import { fmtSections, statPill } from '../components/ui';
+import { fmtSections, shortDate, statPill } from '../components/ui';
+import { getJSON } from '../api/client';
+import { lawHref, lawShort, PlawLawRow } from '../core/plaw';
 import { docStepBtn, setViewHead } from '../components/view_head';
 import { enterView, escapeHtml, icon, plural } from '../dom';
 import { dom } from '../state_init';
 import { createParaToolsController, enhanceDomAnchors, highlightTarget, renderViewError } from './doc_utils';
-import { cfrChipsHtml, uscCite, uscLibHref, uscSectionHref } from './library_usc';
+import { cfrChipsHtml, uscLibHref, uscSectionHref } from './library_usc';
+import { isUscAppendix, uscCite, uscTitleLabel } from '../core/usc_label';
 
 export const uscTitleHref = (title: number): string => `#/usc/${title}/`;
 export const uscNodeHref = (title: number, nodeId: string): string => `#/usc/${title}/node/${encodeURIComponent(nodeId)}`;
@@ -62,7 +65,7 @@ function setUscActiveCorpus(titleNum: number, meta: UscTitleSummary | null): voi
     tier: 'federal-statute',
     jurisdiction: 'US',
     jurisdiction_label: 'Federal',
-    code: `${titleNum} U.S.C.`,
+    code: uscCite(titleNum),
     title_num: titleNum,
     name: meta?.title_name || `Title ${titleNum}`,
     desk: 'all',
@@ -121,7 +124,7 @@ function renderUscTitleStart(titleNum: number, meta: UscTitleSummary | null, tre
   dom.view.innerHTML = `<div class="ts-front">
     <header class="ts-masthead">
       <div class="ts-kicker">
-        <span class="ref-badge" data-ref-tier="usc">U.S.C. · TITLE ${titleNum}</span>
+        <span class="ref-badge" data-ref-tier="usc">U.S.C. · TITLE ${escapeHtml(uscTitleLabel(titleNum).toUpperCase())}${isUscAppendix(titleNum) ? ' APPENDIX' : ''}</span>
         ${meta?.positive_law ? '<span class="ts-kicker-tag">Positive law</span>' : ''}
         ${statPill('synced', 'Installed')}
       </div>
@@ -247,7 +250,7 @@ function renderUscSection(titleNum: number, meta: UscTitleSummary | null, d: Usc
     ? (chapter.id ? `<a href="${uscNodeHref(titleNum, chapter.id)}">${escapeHtml(chapterLabel)}</a>` : escapeHtml(chapterLabel))
     : '';
   const label = (d.label || `§ ${d.id}`).replace(/\.\s*$/, '');
-  document.title = `${titleNum} U.S.C. ${label}${current ? ' ' + unitShort(current) : ''} · FRAMEWORK`;
+  document.title = `${uscCite(titleNum)} ${label}${current ? ' ' + unitShort(current) : ''} · FRAMEWORK`;
   const toggle = d.mode !== 'units' ? ''
     : full ? `<a class="btn" href="${uscSectionHref(titleNum, d.id)}">${icon('stack')} Read in parts</a>`
     : `<a class="btn" href="${uscUnitHref(titleNum, d.id, 'full')}">${icon('expand')} See full section</a>`;
@@ -290,6 +293,7 @@ function renderUscSection(titleNum: number, meta: UscTitleSummary | null, d: Usc
       ${notes.length ? `<button type="button" class="btn" id="usc-jump-notes">${icon('stack')} Notes (${notes.length})</button>` : ''}
       <button type="button" class="btn" id="usc-btn-cited" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('link')} <span>Cited by</span></button>
       <button type="button" class="btn" id="usc-btn-refs" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('list')} <span>Refs</span></button>
+      <button type="button" class="btn" id="usc-btn-laws" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('stack')} <span>Enacted by</span></button>
       <div class="spacer"></div>
       <div class="doc-actions-util">
         <a class="btn" href="/usc/${titleNum}/${encodeURIComponent(d.id)}" target="_blank" rel="noopener" title="Open a printable standalone page">${icon('external')} Standalone</a>
@@ -337,6 +341,47 @@ async function fillUscCitedBy(titleNum: number, sectionId: string, seq: number, 
   const span = btn.querySelector('span');
   if (span) span.textContent = `Cited by ${data.count}`;
   btn.hidden = false;
+}
+
+// --- Enacted by: Public Laws (113th Congress on) that placed, amended or cite this section ---
+const lawsCache = new Map<string, PlawLawRow[]>();
+
+async function fillUscLaws(titleNum: number, sectionId: string, seq: number, signal?: AbortSignal): Promise<void> {
+  const key = `${titleNum}|${sectionId}`;
+  let rows = lawsCache.get(key) || null;
+  if (!rows) {
+    try {
+      const d = await getJSON<{ installed: boolean; results: PlawLawRow[] }>(
+        `/api/plaw/usc/${titleNum}/${encodeURIComponent(sectionId)}`, { signal });
+      if (!d.installed) return;
+      rows = d.results;
+      lawsCache.set(key, rows);
+    } catch { return; }
+  }
+  if (!rows.length || seq !== state.routeSeq || state.currentUscSection?.id !== sectionId) return;
+  const btn = document.getElementById('usc-btn-laws');
+  if (!btn) return;
+  const span = btn.querySelector('span');
+  if (span) span.textContent = `Enacted by ${rows.length}`;
+  btn.hidden = false;
+}
+
+const LAW_KIND: Record<string, string> = { codified: 'placed it here', note: 'added a note here', reference: 'amends or cites it' };
+
+function openUscLaws(btn: Element, rows: PlawLawRow[]): void {
+  const html = rows.slice(0, 60).map((l) => {
+    const how = (l.kinds || '').split(',').map(k => LAW_KIND[k]).filter(Boolean).join(', ');
+    return citedRow(lawHref(l.id), lawShort(l), [l.title || '', l.approved_date ? shortDate(l.approved_date) : '', how].filter(Boolean).join(' · '));
+  }).join('');
+  citePop.open(btn, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${plural(rows.length, 'Public Law')} touch this section</div>
+      <span class="peek-badge">ENACTED BY</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close Public Laws">${icon('close')}</button>
+    </div>
+    <div class="refs-ledger-wrap"><div class="refs-ledger-group" data-ref-tier="usc">${html}</div></div>
+    <p class="peek-text">From the Public Laws installed on this computer (GovInfo has them from the 113th Congress, 2013, on).</p>
+  `, { interactive: true, returnFocus: btn, focusSelector: '.refs-ledger-link', refTier: 'usc' });
 }
 
 function citedRow(href: string, code: string, sub: string): string {
@@ -390,7 +435,7 @@ export function renderUscDrawerHtml(titleNum: number): string {
       <h3 class="dr-label"><span>Framework Navigation</span></h3>
       <a class="dr-row${isStart ? ' is-current' : ''}" href="${uscTitleHref(titleNum)}"${isStart ? ' aria-current="page"' : ''}>
         <span class="tier-pip" data-ref-tier="usc" aria-hidden="true"></span>
-        <span class="dr-name">Title ${titleNum} start page</span>
+        <span class="dr-name">Title ${uscTitleLabel(titleNum)} start page</span>
       </a>
       <a class="dr-row" href="${uscLibHref(titleNum)}">
         <span class="dr-name">Manage in Library</span>${icon('chevronRight')}
@@ -454,6 +499,7 @@ export async function loadUscRoute(
       renderUscSection(titleNum, meta, sec, full);
       if (opts.para) highlightTarget(dom.view, opts.para);
       fillUscCitedBy(titleNum, sec.id, seq, signal);
+      fillUscLaws(titleNum, sec.id, seq, signal);
       if (drawerPanel) drawerPanel.innerHTML = renderUscDrawerHtml(titleNum);
     } catch (err) {
       if ((err as Error)?.name === 'AbortError' || seq !== state.routeSeq) return;
@@ -495,6 +541,12 @@ onView('click', async (e: Event) => {
   }
   const refsBtn = t.closest('#usc-btn-refs');
   if (refsBtn && state.currentUscSection) { openRefsLedgerPopover(refsBtn, dom.view); return; }
+  const lawsBtn = t.closest('#usc-btn-laws');
+  if (lawsBtn && state.currentUscSection && state.currentUscTitle) {
+    const rows = lawsCache.get(`${state.currentUscTitle}|${state.currentUscSection.id}`);
+    if (rows) openUscLaws(lawsBtn, rows);
+    return;
+  }
   const citedBtn = t.closest('#usc-btn-cited');
   if (citedBtn && state.currentUscSection && state.currentUscTitle) {
     const data = citedCache.get(`${state.currentUscTitle}|${state.currentUscSection.id}`);

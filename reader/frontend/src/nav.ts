@@ -80,6 +80,8 @@ export function isFrameworkRoute(path = state.activeRoute): boolean {
   const p = (path || '/').split('?')[0] || '/';
   if (/^\/corpus\/(?!state\/|county\/)/.test(p)) return true;
   if (/^\/usc\/\d+(?:\/|$)/.test(p)) return true;
+  if (/^\/constitution(?:\/|$)/.test(p)) return true;
+  if (/^\/law\/[^/]+/.test(p)) return true;
   if (state.noTitles) return false;
   return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/)/.test(p);
 }
@@ -101,6 +103,8 @@ export function routeTarget(path = state.activeRoute): NavTarget {
   if (p === '/') return 'overview';
   if (p.startsWith('/corpus/')) return 'corpus';
   if (/^\/usc\/\d+/.test(p)) return 'corpus';
+  if (/^\/constitution(?:\/|$)/.test(p)) return 'corpus';
+  if (/^\/law\/[^/]+/.test(p)) return 'corpus';
   if (/^\/title\/\d+\/?$/.test(p)) return 'home';
   const rest = p.replace(/^\/title\/\d+/, '');
   if (rest.startsWith('/library')) return 'library';
@@ -193,7 +197,9 @@ export function applyNav(): void {
 
 export function panelMeta(panel: NavPanelKey): string {
   if (panel === 'corpus' && state.activeCorpus) {
-    return TIER_META[state.activeCorpus.tier]?.short || state.activeCorpus.jurisdiction_label || '';
+    const meta = TIER_META[state.activeCorpus.tier];
+    if (state.activeCorpus.tier === 'federal-constitution') return meta?.subtitle || '';
+    return meta?.short || state.activeCorpus.jurisdiction_label || '';
   }
   if (panel === 'reader') {
     if (state.noTitles) return 'No titles installed';
@@ -460,6 +466,11 @@ export function renderSidebarFrameworks(): void {
   };
 
   const parts: string[] = [];
+  parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Constitution</div><a class="ar-fw-row" href="#/constitution/" data-ref-tier="const" data-fw-id="us:constitution" title="U.S. Const. — Constitution of the United States">
+      <span class="ar-fw-bar" aria-hidden="true"></span>
+      <span class="ar-fw-name">U.S. Constitution</span>
+      <span class="ar-fw-code">Const.</span>
+    </a></div>`);
   if (usc.length) {
     const installedUsc = usc.filter(c => c.installed);
     const shownUsc = installedUsc.length ? [...installedUsc, ...usc.filter(c => !c.installed)].slice(0, Math.max(3, installedUsc.length)) : usc.slice(0, 3);
@@ -598,7 +609,9 @@ if (HAS_DOC) document.addEventListener('keydown', (e) => {
     toggleDrawer();
     return;
   }
-  if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'd' && state.currentSection && routeTarget() === 'reader') {
+  if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'd'
+    && ((state.currentSection && routeTarget() === 'reader')
+      || ((state.currentUscSection || state.currentConstUnit) && routeTarget() === 'corpus'))) {
     e.preventDefault();
     emit('pin:open');
     return;

@@ -142,6 +142,7 @@
   --ref-cross: oklch(0.77 0.130 234);         /* 3. Cross-title installed Federal CFR */
   --ref-uninstalled: oklch(0.79 0.125 56);    /* 4. Uninstalled downloadable corpus */
   --ref-usc: oklch(0.81 0.120 92);            /* 5. Federal Statute (U.S.C.) */
+  --ref-const: oklch(0.84 0.070 70);          /* 5a. U.S. Constitution (parchment, beside the statutes) */
   --ref-fr: oklch(0.76 0.138 14);             /* 6. Federal Register rulemaking */
   --ref-ibr: oklch(0.78 0.132 304);           /* 7. IBR Consensus Standard (ANSI, NFPA, ASTM...) */
   --ref-state: oklch(0.79 0.120 158);         /* 8. State statute / admin code */
@@ -501,6 +502,7 @@ select option { background: var(--pop); color: var(--fg); }
 [data-ref-tier="cross"] { --tier-hue: var(--ref-cross); }
 [data-ref-tier="uninstalled"] { --tier-hue: var(--ref-uninstalled); }
 [data-ref-tier="usc"] { --tier-hue: var(--ref-usc); }
+[data-ref-tier="const"] { --tier-hue: var(--ref-const); }
 [data-ref-tier="fr"] { --tier-hue: var(--ref-fr); }
 [data-ref-tier="ibr"] { --tier-hue: var(--ref-ibr); }
 [data-ref-tier="state"] { --tier-hue: var(--ref-state); }
@@ -1140,6 +1142,42 @@ body.resizing { cursor: col-resize; -webkit-user-select: none; user-select: none
   .pg-head { flex-direction: column; align-items: flex-start; }
   .pg-head .pg-display { font-size: 32px; }
 }
+
+/* Library → Constitution tab before install: what the download holds. */
+.const-preview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 28px; margin-top: 22px; }
+.const-pv-head { margin: 0 0 10px; font: var(--w-medium) 12px/1.2 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--fg-3); }
+.const-pv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.const-pv-list.is-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+.const-pv-list li { display: flex; gap: 10px; align-items: baseline; min-width: 0; font-size: 13px; color: var(--fg-2); }
+.const-pv-num { flex: 0 0 auto; min-width: 4.6em; font: var(--w-medium) 12px/1.4 var(--mono); color: var(--ref-const); font-variant-numeric: tabular-nums; }
+.const-pv-list.is-cols .const-pv-num { min-width: 2.6em; }
+.const-pv-name { min-width: 0; }
+@container pg (max-width: 760px) {
+  .const-preview { grid-template-columns: minmax(0, 1fr); }
+}
+@container pg (max-width: 520px) {
+  .const-pv-list.is-cols { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Library → Public Laws: one tile per Congress, newest first; a missing one is dimmed. */
+.plaw-congs { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin: 18px 0 6px; }
+.plaw-cong {
+  display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: var(--r-8);
+  border: 1px solid var(--line-soft); background: var(--card-bg, var(--card)); color: var(--fg-2); text-decoration: none;
+  transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out);
+}
+.plaw-cong:hover { background: var(--hover); color: var(--fg-strong); text-decoration: none; }
+.plaw-cong.is-on { border-color: color-mix(in oklab, var(--ref-usc) 55%, var(--line)); background: color-mix(in oklab, var(--ref-usc) 8%, var(--card)); color: var(--fg-strong); }
+.plaw-cong.is-missing .plaw-cong-num, .plaw-cong.is-missing .plaw-cong-count { color: var(--fg-4); }
+.plaw-cong-num { font: 400 17px/1.15 var(--serif); color: var(--fg-strong); }
+.plaw-cong-years { font: var(--w-regular) 11.5px/1.2 var(--sans); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.plaw-cong-count { font: var(--w-medium) 11.5px/1.2 var(--sans); color: color-mix(in oklab, var(--ref-usc) 75%, var(--fg-2)); font-variant-numeric: tabular-nums; }
+.plaw-explain { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 20px; max-width: 980px; }
+.plaw-explain p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--fg-2); }
+.plaw-explain strong { color: var(--fg); }
+@container pg (max-width: 760px) {
+  .plaw-explain { grid-template-columns: minmax(0, 1fr); }
+}
 /* ---------- Title Start (#/title/{n}/): Broadsheet Newsroom Front Page ---------- */
 .view:has(> .home-hero),
 .view:has(> .ts-front) { max-width: 1180px; padding-top: 24px; padding-bottom: 84px; }
@@ -1659,9 +1697,10 @@ a.hm-chain-node:hover { color: var(--fg-strong); text-decoration: none; }
 .hm-upd-name { flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: var(--w-regular); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hm-upd-detail { flex: 0 0 auto; font: var(--w-regular) 11.5px/1 var(--sans); color: var(--fg-3); font-variant-numeric: tabular-nums; }
 
-/* Band 1: Cushioned Federal Framework Pulse Cards (U.S.C. · CFR · FR) */
+/* Band 1: Cushioned Federal Framework Pulse Cards (Constitution · U.S.C. · CFR · FR) */
 .hm-systems { border: 0; }
-.hm-sys-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.hm-sys-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+a.hm-sys-card { text-decoration: none; }
 .hm-sys-card {
   position: relative; display: flex; flex-direction: column; align-items: stretch; text-align: left; min-width: 0;
   padding: 18px 20px; border-radius: var(--r-12);
@@ -1996,6 +2035,9 @@ a.hm-resume-title:hover { color: var(--brand-hover); text-decoration: none; }
   .hm-top { grid-template-columns: minmax(0, 1fr); }
   .hm-title-grid, .hm-title-grid.is-usc-grid, .hm-news-skel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hm-news-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@container hm (max-width: 1040px) {
+  .hm-sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container hm (max-width: 640px) {
   .hm-sys-grid { grid-template-columns: minmax(0, 1fr); }
@@ -2341,6 +2383,7 @@ a.lib-main:hover .lib-name { color: var(--fg); }
 }
 a.dr-row:hover { background: var(--hover); color: var(--fg-strong); text-decoration: none; }
 .dr-row.is-static { color: var(--fg-2); }
+.dr-row.is-current { background: var(--active); color: var(--fg-strong); }
 .dr-num { flex: 0 0 24px; font-size: 12px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .dr-name { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dr-time { flex: 0 0 auto; font-size: 12px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
@@ -3452,6 +3495,38 @@ mark { background: var(--mark); color: var(--fg); border-radius: 2px; padding: 0
 .usc-note-card { background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-8); padding: 12px 14px; margin-bottom: 8px; font-size: 13.5px; line-height: 1.6; color: var(--fg-2); }
 .usc-note-card .usc-heading { display: block; font-weight: var(--w-semibold); color: var(--fg); margin-bottom: 4px; }
 .usc-note-card p { margin: 6px 0 0; }
+
+
+/* U.S. Constitution reader (#/constitution/{id}): plain prose; numbered clauses carry a small
+   number that copies "U.S. Const. art. I, § 8, cl. 3". Annotations reuse the .usc-notes cards. */
+.const-body { max-width: 66ch; }
+.const-p { margin: 0 0 .9em; text-wrap: pretty; }
+.const-clause { position: relative; padding-left: 2.1em; }
+.const-cl {
+  position: absolute; left: 0; top: .1em; min-width: 1.6em; padding: 0 .35em;
+  border: 1px solid color-mix(in oklab, var(--ref-const) 30%, var(--line)); border-radius: var(--r-6, 6px);
+  background: color-mix(in oklab, var(--ref-const) 7%, transparent);
+  color: color-mix(in oklab, var(--ref-const) 80%, var(--fg-2));
+  font: var(--w-medium) .74em/1.6 var(--sans); font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out);
+}
+.const-cl:hover, .const-cl:focus-visible { background: color-mix(in oklab, var(--ref-const) 16%, transparent); border-color: var(--ref-const); color: var(--fg); }
+.const-notes-src { margin: -8px 0 14px; font-size: 12.5px; color: var(--fg-3); }
+
+/* Public Law reader (#/law/{id}): section headings, GPO margin notes, the U.S. Code panel. */
+.plaw-sec-head { margin: 1.4em 0 .7em; font: var(--w-semibold) 1em/1.4 var(--sans); color: var(--fg); letter-spacing: .01em; }
+.plaw-body > .plaw-sec-head:first-child, .plaw-body .reg-unit:first-child .plaw-sec-head { margin-top: 0; }
+.plaw-sec-title { font-weight: var(--w-regular); color: var(--fg-2); }
+.plaw-preamble { color: var(--fg); }
+.plaw-sidenote {
+  margin: -.3em 0 .9em; padding-left: 10px; border-left: 2px solid color-mix(in oklab, var(--ref-usc) 40%, var(--line));
+  font: var(--w-regular) .78em/1.5 var(--sans); color: var(--fg-3);
+}
+.plaw-usc-group + .plaw-usc-group { margin-top: 18px; }
+.plaw-usc-head { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font: var(--w-medium) 13px/1.3 var(--sans); color: var(--fg); }
+.plaw-usc-hint { margin: 0 0 8px; font-size: 12.5px; color: var(--fg-3); }
+.plaw-usc-more { font-size: 12px; color: var(--fg-3); align-self: center; }
+.plaw-prov { margin-top: 28px; font-size: 11.5px; color: var(--fg-4); overflow-wrap: anywhere; max-width: 66ch; }
 /* ---------- Chat ---------- */
 .chat { display: flex; flex-direction: column; min-height: 0; overflow: hidden; animation: chat-in var(--t-ui) var(--ease-out); }
 @keyframes chat-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
@@ -3973,6 +4048,63 @@ a:hover > .tl-title { color: var(--fg-strong); text-decoration: underline; }
   padding: 6px 8px; border: 1px solid var(--line-soft); text-align: left; vertical-align: top;
 }
 .fr-doc-body th { background: var(--surface-2); color: var(--fg-strong); font-weight: var(--w-semibold); }
+
+/* --- Unified Agenda tab (#/news?cat=agenda) and planned-rule page (#/news/agenda/{RIN}) --- */
+.view:has(> .agenda-rule) { max-width: 900px; }
+.agenda-intro { max-width: 66ch; padding: 20px 22px; background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-8); }
+.agenda-intro h2 { margin: 0 0 8px; font: var(--w-semibold) 18px/1.3 var(--sans); color: var(--fg-strong); }
+.agenda-intro p { margin: 0 0 10px; font-size: 14px; line-height: 1.6; color: var(--fg-2); }
+.agenda-intro-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.agenda-facets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.agenda-stages { margin-bottom: 14px; flex-wrap: wrap; }
+.agenda-count { margin: 4px 0 6px; }
+.agenda-list { display: flex; flex-direction: column; border: 1px solid var(--line-soft); border-radius: var(--r-8); overflow: hidden; background: var(--panel); }
+.agenda-row {
+  display: grid; grid-template-columns: 9.5ch minmax(0, 1fr) auto; align-items: center; gap: 14px;
+  padding: 10px 14px 10px 16px; color: var(--fg); text-decoration: none;
+  transition: background-color var(--t-quick) var(--ease);
+}
+.agenda-row + .agenda-row { box-shadow: inset 0 1px 0 var(--line-soft); }
+.agenda-row:hover { background: var(--hover); }
+.agenda-row:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus, var(--line-strong)); }
+.agenda-rin { font: var(--w-medium) 12.5px/1.2 var(--mono); color: var(--fg-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.agenda-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.agenda-title { font-size: 14px; line-height: 1.4; color: var(--fg); overflow-wrap: anywhere; }
+.agenda-meta { font-size: 12px; color: var(--fg-3); }
+.agenda-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.agenda-stage, .agenda-major {
+  font: var(--w-medium) 11.5px/1 var(--sans); padding: 4px 8px; border-radius: 99px; white-space: nowrap;
+  border: 1px solid var(--line); color: var(--fg-2); background: var(--card);
+}
+.agenda-major { color: var(--editorial-gold); border-color: color-mix(in oklch, var(--editorial-gold) 40%, transparent); }
+.agenda-row[data-stage="final"] .agenda-stage { color: var(--ref-fr); border-color: color-mix(in oklch, var(--ref-fr) 45%, transparent); }
+.agenda-row[data-stage="proposed"] .agenda-stage { color: var(--fg); border-color: var(--line-strong); }
+.agenda-row[data-stage="completed"] .agenda-stage, .agenda-row[data-stage="long_term"] .agenda-stage { color: var(--fg-3); }
+@container news (max-width: 620px) {
+  .agenda-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
+  .agenda-row .agenda-main { grid-column: 1 / -1; grid-row: 2; }
+}
+
+.agenda-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1px; margin: 18px 0; background: var(--line-soft); border: 1px solid var(--line-soft); border-radius: var(--r-8); overflow: hidden; }
+.agenda-facts > div { background: var(--card); padding: 10px 12px; min-width: 0; }
+.agenda-facts dt { font: var(--w-medium) 11px/1.2 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--fg-3); margin-bottom: 4px; }
+.agenda-facts dd { margin: 0; font-size: 13.5px; line-height: 1.4; color: var(--fg); overflow-wrap: anywhere; }
+.agenda-abstract { margin-bottom: 8px; }
+.agenda-sec { margin-top: 28px; }
+.agenda-sec-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--w-semibold); letter-spacing: .04em; text-transform: uppercase; color: var(--fg-2); margin: 0 0 12px; }
+.agenda-chips-label { margin: 12px 0 0; font: var(--w-medium) 12px/1.2 var(--sans); color: var(--fg-3); }
+.agenda-chips-label + .story-links { margin-top: 6px; }
+.agenda-tt td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.agenda-frdocs { display: flex; flex-direction: column; gap: 8px; }
+.agenda-frdoc { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px 10px 16px; background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-8); color: var(--fg); text-decoration: none; transition: border-color var(--t-quick) var(--ease); }
+.agenda-frdoc:hover { border-color: var(--line-strong); }
+.agenda-frdoc-kicker { font-size: 12px; color: var(--fg-3); }
+.agenda-frdoc-title { font-size: 14px; line-height: 1.4; }
+.agenda-hist { margin: 0; padding-left: 18px; font-size: 13.5px; line-height: 1.8; color: var(--fg-2); }
+.agenda-front .news-head-status { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+@container news (max-width: 620px) {
+  .agenda-front .news-head-status { justify-content: flex-start; }
+}
 /* ---------- Help & Setup Guide (#/help) + .env Editor Modal ---------- */
 
 .view:has(> .help-front) { max-width: 1060px; }

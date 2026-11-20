@@ -70,6 +70,8 @@ export const NEWS_CATEGORIES: Array<{ key: string; label: string }> = [
   { key: 'enforcement', label: 'Enforcement & Penalties' },
   { key: 'public_inspection', label: 'Public Inspection' },
   { key: 'notices', label: 'Notices' },
+  // Rendered by views/news_agenda.ts (the router sends cat=agenda there).
+  { key: 'agenda', label: 'Unified Agenda' },
 ];
 
 export function newsSnippetHtml(snippet?: string | null): string {

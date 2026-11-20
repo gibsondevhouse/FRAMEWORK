@@ -23,11 +23,16 @@ try:
 except ImportError:
     HAVE_PLAYWRIGHT = False
 
-from app import news_store, news_worker, store
+from contextlib import closing
+
+from app import agenda, constitution, fr_store, gov_http, news_store, news_worker, plaw, store, usc_build, usc_client
 from app.library import client as lib_client
 from app.main import app
 import fake_titles
 from tests.base import HermeticTestCase, TRACKED_KEYS
+from tests.test_new_corpora import FakeGov, plaw_xml, zip_of
+from tests.test_usc_corpus import FakeOLRC
+from tests.test_fr_corpus import HAZCOM
 
 REQUIRE_BROWSER = os.environ.get("REQUIRE_BROWSER") == "1"
 
@@ -338,8 +343,6 @@ class Milestone3BrowserTests(HermeticTestCase):
         page.evaluate("() => fetch('/api/sources/selection', {method: 'DELETE'})")
         self.assertEqual(page._page_errors, [])
         self.assertEqual(self.external, [])
-
-
     def test_settings_data_sources_template_sticky_bar_and_import(self):
         page = self._new_page()
         page.goto(f"{self.base_url}/#/settings/sources", wait_until="networkidle")
@@ -381,7 +384,169 @@ class Milestone3BrowserTests(HermeticTestCase):
         self.assertGreater(checked, 0)
         self.assertEqual(page._page_errors, [])
         self.assertEqual(self.external, [])
+    def test_constitution_library_tab_reader_and_home(self):
+        """The Constitution: Library tab (download), the reader with clauses and annotations, Pin, Home's card."""
+        constitution.remove()
+        self.addCleanup(constitution.remove)
+        page = self._new_page()
 
+        # Not installed: the tab explains it and offers one Download button; Home's card says so.
+        page.goto(f"{self.base_url}/#/library/constitution", wait_until="networkidle")
+        page.wait_for_selector("#lib-tab-constitution[aria-selected='true']", timeout=10000)
+        self.assertIn("Not installed", page.locator("#lib-tab-constitution").inner_text())
+        self.assertIn("Women’s right to vote", page.locator(".const-preview").inner_text())
+
+        # Download runs through the job queue against a fake GovInfo, then the contents appear.
+        with FakeGov().patch(), mock.patch.object(gov_http, "_sleep", lambda s: None), \
+                mock.patch.object(constitution, "log", lambda msg: None):
+            page.locator("[data-act='const-download']").click()
+            page.wait_for_selector("#lib-list a.lib-row[href='#/constitution/art1-s2']", timeout=15000)
+        self.assertIn("2 amendments", page.locator("#lib-tab-constitution").inner_text())
+        page.locator("#lib-filter").fill("due process")
+        page.wait_for_function("() => document.querySelector(\"#lib-list a[href='#/constitution/art1-s2']\").hidden", timeout=3000)
+        self.assertTrue(page.locator("#lib-list a[href='#/constitution/amdt14-s1']").is_visible())
+
+        # The reader: numbered clauses that copy their citation, annotations below, prev/next.
+        page.goto(f"{self.base_url}/#/constitution/art1-s2", wait_until="networkidle")
+        page.wait_for_selector(".const-body #cl2", timeout=10000)
+        self.assertEqual(page.locator("h1.doc-title").inner_text().strip(), "Art. I, § 2 The House of Representatives")
+        self.assertEqual(page.locator("#cl2 .const-cl").get_attribute("data-const-cite"), "U.S. Const. art. I, § 2, cl. 2")
+        self.assertEqual(page.locator("#const-btn-cite").get_attribute("data-const-cite"), "U.S. Const. art. I, § 2")
+        self.assertIn("This clause requires election by the people.", page.locator("#const-notes").inner_text())
+        self.assertNotIn("requires election", page.locator(".const-body").inner_text())
+        self.assertEqual(page.locator("#view-head [data-step='section-prev']").get_attribute("href"), "#/constitution/art1-s1")
+        self.assertIn("Amdt. XIV — Citizenship", page.locator("#panel-corpus").inner_text())
+        self.assertTrue(page.evaluate("() => document.documentElement.classList.contains('in-framework')"))
+
+        # Pin saves it to a workspace that links back to the reader.
+        page.locator("#btn-pin").click()
+        page.wait_for_selector("#pin-pop:not([hidden])", timeout=3000)
+        page.locator("#pin-pop .pin-new input").fill("Constitutional basis")
+        page.locator("#pin-pop .pin-new input").press("Enter")
+        page.wait_for_function("() => (localStorage.getItem('framework_projects_v1') || '').includes('art1-s2')", timeout=3000)
+        pins = page.evaluate("() => JSON.parse(localStorage.getItem('framework_projects_v1'))[0].sections")
+        self.assertEqual(pins[0]["tier"], "federal-constitution")
+        page.goto(f"{self.base_url}/#/projects", wait_until="networkidle")
+        page.locator(".proj-card a").first.click()
+        page.wait_for_selector(".proj-item a[href='#/constitution/art1-s2']", timeout=5000)
+
+        # Home: the Constitution sits beside the three codes and opens the reader.
+        page.goto(f"{self.base_url}/#/", wait_until="networkidle")
+        page.wait_for_selector("#hm-sys-const[href='#/constitution/']", timeout=10000)
+        self.assertIn("Installed", page.locator("#hm-sys-const").inner_text())
+        self.assertEqual(page._page_errors, [])
+        self.assertEqual(self.external, [])
+
+    def test_public_laws_tab_reader_and_enacted_by(self):
+        """Public Laws: Library tab by Congress, the law reader with its U.S. Code links, U.S.C. "Enacted by"."""
+        plaw.remove()
+        self.addCleanup(plaw.remove)
+        self.addCleanup(lambda: usc_build.remove(4))
+        page = self._new_page()
+
+        page.goto(f"{self.base_url}/#/library/plaw", wait_until="networkidle")
+        page.wait_for_selector("#lib-tab-plaw[aria-selected='true']", timeout=10000)
+        self.assertIn("Not installed", page.locator("#lib-tab-plaw").inner_text())
+
+        fake = FakeGov()
+        fake.plaw[(114, "public")] = zip_of({
+            "PLAW-114publ1.xml": plaw_xml(114, 1, "Second law", '<ref href="/us/usc/t42/s6921">42 U.S.C. 6921</ref>', "42 USC 6921a."),
+            "PLAW-114publ2.xml": plaw_xml(114, 2, "Third law about silica"),
+            "PLAW-114publ3.xml": plaw_xml(114, 3, "Flag law", '<ref href="/us/usc/t4/s1">4 U.S.C. 1</ref>', "4 USC 1 note."),
+        })
+        with fake.patch(), mock.patch.object(gov_http, "_sleep", lambda s: None), \
+                mock.patch.object(plaw, "log", lambda msg: None):
+            page.locator("[data-act='plaw-download'][data-congresses='all']").click()
+            page.wait_for_selector("#lib-list a.lib-row[href='#/law/114-1']", timeout=15000)
+        self.assertIn("4 laws", page.locator("#lib-tab-plaw").inner_text())
+        page.locator("#lib-filter").fill("silica")
+        page.wait_for_function("() => document.querySelector(\"#lib-list a[href='#/law/114-1']\").hidden", timeout=3000)
+        self.assertTrue(page.locator("#lib-list a[href='#/law/114-2']").is_visible())
+        page.locator(".plaw-cong[href='#/library/plaw/113']").click()
+        page.wait_for_selector("#lib-list a.lib-row[href='#/law/113-1']", timeout=5000)
+        self.assertIn("Not downloaded", page.locator(".plaw-cong[href='#/library/plaw/115']").inner_text())
+
+        # The law reader: heading, citation, and where it went in the U.S. Code.
+        page.goto(f"{self.base_url}/#/law/114-1", wait_until="networkidle")
+        page.wait_for_selector("#plaw-usc", timeout=10000)
+        self.assertEqual(page.locator("h1.doc-title").inner_text().strip(), "Pub. L. 114-1 Second law")
+        self.assertEqual(page.locator("#plaw-btn-cite").get_attribute("data-plaw-cite"), "Pub. L. No. 114-1, 137 Stat. 10 (2023)")
+        usc = page.locator("#plaw-usc").inner_text()
+        self.assertIn("42 U.S.C. § 6921a", usc)
+        self.assertIn("42 U.S.C. § 6921", usc)
+        self.assertTrue(page.evaluate("() => document.documentElement.classList.contains('in-framework')"))
+
+        # The U.S. Code tab lists the appendix titles in their own group.
+        page.goto(f"{self.base_url}/#/library/usc", wait_until="networkidle")
+        page.wait_for_selector(".lib-desk[aria-label='Appendices'] .lib-story", timeout=10000)
+        self.assertEqual(page.locator(".lib-desk[aria-label='Appendices'] .lib-story").count(), 4)
+        self.assertIn("Bankruptcy — Appendix", page.locator(".lib-desk[aria-label='Appendices']").inner_text())
+
+        # A U.S. Code section lists the laws that enacted or amended it.
+        usc_client.clear_cache()
+        with FakeOLRC().patch(), mock.patch.object(usc_build, "log", lambda msg: None):
+            usc_build.build(4, force=True)
+        page.goto(f"{self.base_url}/#/usc/4/section/1", wait_until="networkidle")
+        page.wait_for_selector("#usc-btn-laws:not([hidden])", timeout=10000)
+        self.assertIn("Enacted by 1", page.locator("#usc-btn-laws").inner_text())
+        page.locator("#usc-btn-laws").click()
+        page.wait_for_selector("#cite-pop a[href='#/law/114-3']", timeout=5000)
+        self.assertEqual(page._page_errors, [])
+        self.assertEqual(self.external, [])
+
+    def test_unified_agenda_tab_and_rule_page(self):
+        """The Newsroom's Unified Agenda tab (download, edition/agency/stage/word filters) and a RIN page."""
+        agenda.remove()
+        self.addCleanup(agenda.remove)
+        self.addCleanup(lambda: fr_store.db_path().unlink(missing_ok=True))
+        with closing(fr_store.connect()) as con:          # the FR archive holds the silica rule's final document
+            fr_store.upsert_documents(con, [HAZCOM], "https://www.federalregister.gov/api/v1/documents.json")
+            con.commit()
+        page = self._new_page()
+        page.goto(f"{self.base_url}/#/news?cat=agenda", wait_until="networkidle")
+        page.wait_for_selector(".agenda-front [data-news-cat='agenda'][aria-selected='true']", timeout=10000)
+        self.assertIn("Regulation Identifier Number", page.locator(".agenda-intro").inner_text())
+
+        with FakeGov().patch(), mock.patch.object(gov_http, "_sleep", lambda s: None), \
+                mock.patch.object(agenda, "log", lambda msg: None):
+            page.locator("[data-agenda-act='download']").click()
+            page.wait_for_selector(".agenda-row[href*='1218-AD39']", timeout=15000)
+        self.assertEqual(page.locator(".agenda-row").count(), 3)
+        self.assertIn("Fall 2025 edition", page.locator(".agenda-count").inner_text())
+        # Stage buttons, the agency select and the word filter narrow the list in place.
+        page.locator("[data-agenda-stage='final']").click()
+        page.wait_for_function("() => document.querySelectorAll('.agenda-row').length === 1", timeout=5000)
+        self.assertIn("stage=final", page.evaluate("location.hash"))
+        page.locator("[data-agenda-stage='']").click()
+        page.wait_for_function("() => document.querySelectorAll('.agenda-row').length === 3", timeout=5000)
+        page.locator("[data-agenda-filter='agency']").select_option("2000")
+        page.wait_for_function("() => document.querySelectorAll('.agenda-row').length === 1", timeout=5000)
+        self.assertEqual(page.locator(".agenda-row[href*='2060-AV00']").count(), 1)
+        page.locator("[data-agenda-filter='agency']").select_option("")
+        page.wait_for_function("() => document.querySelectorAll('.agenda-row').length === 3", timeout=5000)
+        page.locator("#agenda-q").fill("silica")
+        page.wait_for_function("() => document.querySelectorAll('.agenda-row').length === 1", timeout=5000)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "agenda-q")
+        page.locator("[data-agenda-filter='edition']").select_option("202504")
+        page.wait_for_selector(".agenda-count:has-text('Spring 2025')", timeout=5000)
+
+        # The planned rule: facts, CFR chips into the reader, the FR document it became, its editions.
+        page.locator(".agenda-row[href*='1218-AD00']").click()
+        page.wait_for_selector("h1.doc-title:has-text('Respirable Crystalline Silica')", timeout=10000)
+        self.assertIn("Proposed Rule Stage", page.locator(".agenda-facts").inner_text())
+        self.assertEqual(page.locator(".agenda-sec .citation-chip:has-text('29 CFR 1910')").count(), 1)
+        self.assertEqual(page.locator(".agenda-frdoc[href='#/news/fr/2026-20001']").count(), 1)
+        self.assertEqual(page.locator(".agenda-hist a[href='#/news/agenda/1218-AD00?edition=202510']").count(), 1)
+        page.goto(f"{self.base_url}/#/news/agenda/9999-ZZ99", wait_until="networkidle")
+        page.wait_for_selector(".empty-state:has-text('9999-ZZ99')", timeout=5000)
+
+        # The other tabs are still the news feed.
+        page.goto(f"{self.base_url}/#/news?cat=agenda", wait_until="networkidle")
+        page.wait_for_selector(".agenda-row", timeout=10000)
+        page.locator("[data-news-cat='rules']").click()
+        page.wait_for_function("() => !document.querySelector('.agenda-front') && document.querySelector('.news-front')", timeout=5000)
+        self.assertEqual(page._page_errors, [])
+        self.assertEqual(self.external, [])
 
 if __name__ == "__main__":
     unittest.main()

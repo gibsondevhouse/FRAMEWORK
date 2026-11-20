@@ -357,25 +357,31 @@ A standalone HTML page for one section: the href of local U.S.C. citation links 
 - `GET /api/constitution/unit/{id}` → `{id, ord, kind, article, amendment, section, label, text, note_count, notes[], prev, next}` (404 unknown/not installed)
 - `GET /api/constitution/search?q=&notes=false&limit=20` → `{installed, total, results[{id, label, snippet, kind: text|annotation}]}` (`\x02`/`\x03` snippet sentinels)
 - `POST /api/constitution/build` → `{job}` (queue key 2000; the scheduled `constitution-update` job rebuilds only when GovInfo lists a newer Manual)
+- `POST /api/constitution/update` → `{job}` (a `constitution-update` job: rebuilds only when GovInfo lists a newer Manual; downloads it when nothing is installed)
+- `DELETE /api/constitution` → `{removed: "constitution"}` (409 while its job is queued or running, 404 when not installed)
 
 ## Public Laws
 
 `data/plaw.sqlite3`, from GovInfo bulk data `bulkdata/PLAW/{congress}/{public|private}/PLAW-{congress}-{type}.zip` (USLM, 113th Congress on; no key). `python -m app.plaw [--congress 118-119] [--types public,private] [--force] | --update | --status`. Builds are resumable per (congress, type) chunk and replace the live file atomically; `update()` re-reads the newest congress (and, for an "all congresses" scope, any newer one). Law ids: `118-2` (public), `118-pvt-5` (private).
 
-- `GET /api/plaw?congress=&type=&limit=&offset=` → `{installed, total, results[{id, congress, law_type, number, citation, statute, title, approved_date, bill}], status}`
-- `GET /api/plaw/law/{id}?xml=false` → the law plus `text`, `usc[{title, section, kind: reference|codified|note}]` and `provenance{source_url, sha256, byte_len, fetched_at}` (`xml=true` adds the USLM)
+- `GET /api/plaw?congress=&type=&limit=&offset=` → `{installed, total, results[{id, congress, law_type, number, citation, statute, title, approved_date, bill}], status}`; `status` carries `installed`, `law_count`, `usc_link_count`, `meta` (with the `scope` JSON), `congresses[{congress, law_type, laws}]`, and `first_congress` (113) / `current_congress` (from today's date) for the Library's Congress tiles
+- `GET /api/plaw/law/{id}?xml=false&text=true` → the law plus `text`, `usc[{title, section, kind: reference|codified|note}]` and `provenance{source_url, sha256, byte_len, fetched_at}` (`xml=true` adds the USLM; `text=false` leaves out the plain text)
+- `GET /api/plaw/law/{id}/text?unit=` → the law as reading units: `{id, mode: units|page, outline[{key, label, title, kind, group, group_label, group_title, chars}], chars, unit, unit_prev, unit_next, html}`. Units are `preamble` (long title and enacting clause) and `s1`, `s2` … (every `SEC.` in reading order, labelled with its division/title as `group_label`); margin notes render as `p.plaw-sidenote`. A long law (2+ units past 25,000 characters) is `units`: with `unit` (`''` = the first) only that unit's `html`; otherwise, and for a short law, `html` is the whole law with each unit in `section.reg-unit#u-{key}`. 404 for an unknown law or unit
 - `GET /api/plaw/usc/{title}/{section}` → laws that cite, amend or place provisions at that U.S. Code section (`kinds`)
 - `GET /api/plaw/search?q=` → `Pub. L. 118-31` / `118-31` is an exact hit; else FTS over title and text
 - `POST /api/plaw/build` `{congresses?, types?}` · `POST /api/plaw/update` → `{job}` (queue key 3000)
+- `DELETE /api/plaw` → `{removed: "plaw"}`; 409 while a Public Laws job is queued or running, 404 when not installed
 
 ## Unified Agenda
 
 `data/agenda.sqlite3`, from reginfo.gov's XML editions (`XMLViewFileAction?f=REGINFO_RIN_DATA_{YYYYMM}.xml`, listed on `eAgendaXmlReport`; no key). `python -m app.agenda [--years 2] [--agencies 2000,1200] [--stages final,proposed] [--force] | --update | --status`. One row per (RIN, edition); agency contact names, phones and e-mails are not stored. Builds are resumable per edition; `update()` adds newer editions.
 
-- `GET /api/agenda?edition=YYYYMM&agency=NNNN&stage=final&limit=&offset=` → `{installed, edition (default newest), total, results[{rin, edition, agency, agency_acronym, parent, parent_acronym, title, stage, priority, major}], status}`
+- `GET /api/agenda?edition=YYYYMM&agency=NNNN&stage=final&q=&limit=&offset=` → `{installed, edition (default newest), total, results[{rin, edition, agency_code, agency, agency_acronym, parent_code, parent, parent_acronym, title, stage, priority, major, rin_status}], status}`; `agency` matches the parent or sub-agency code, `stage` a key (`prerule`, `proposed`, `final`, `long_term`, `completed`) or its label, `q` a RIN (`1218-ad39`) or words (FTS over title and abstract)
+- `GET /api/agenda/facets?edition=` → `{installed, edition, agencies[{code, acronym, name, entries}] (most first), stages[{key, label, entries}] (in stage order, empty stages left out)}` for the Newsroom's filters
 - `GET /api/agenda/rin/{rin}?edition=` → the entry (`abstract`, `cfr[]`, `authority[]`, `timetable[{action, date, fr_citation}]`, `related[]`, `history[{edition, stage, rin_status}]`) plus `fr_documents[]` — Federal Register corpus documents whose `regulation_id_numbers` include the RIN or whose citation matches a timetable FR citation
 - `GET /api/agenda/search?q=` → a RIN (`1218-AD39`) is an exact hit; else FTS over title and abstract
 - `POST /api/agenda/build` `{years, agencies?, stages?}` · `POST /api/agenda/update` → `{job}` (queue key 4000)
+- `DELETE /api/agenda` → `{removed: "agenda"}`; 409 while an Agenda job is queued or running, 404 when not installed
 
 `GET /api/integrity` (and `python -m app.integrity --corpus constitution|plaw|agenda`) covers the three: database `quick_check`, counts vs meta, completeness (7 articles and 27 amendments), every law file re-hashed against its SHA-256, congress/type and edition coverage, recorded provenance, and (online) whether GovInfo / reginfo.gov has something newer.
 

@@ -517,9 +517,10 @@ a.hm-chain-node:hover { color: var(--fg-strong); text-decoration: none; }
 .hm-upd-name { flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: var(--w-regular); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hm-upd-detail { flex: 0 0 auto; font: var(--w-regular) 11.5px/1 var(--sans); color: var(--fg-3); font-variant-numeric: tabular-nums; }
 
-/* Band 1: Cushioned Federal Framework Pulse Cards (U.S.C. · CFR · FR) */
+/* Band 1: Cushioned Federal Framework Pulse Cards (Constitution · U.S.C. · CFR · FR) */
 .hm-systems { border: 0; }
-.hm-sys-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.hm-sys-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+a.hm-sys-card { text-decoration: none; }
 .hm-sys-card {
   position: relative; display: flex; flex-direction: column; align-items: stretch; text-align: left; min-width: 0;
   padding: 18px 20px; border-radius: var(--r-12);
@@ -854,6 +855,9 @@ a.hm-resume-title:hover { color: var(--brand-hover); text-decoration: none; }
   .hm-top { grid-template-columns: minmax(0, 1fr); }
   .hm-title-grid, .hm-title-grid.is-usc-grid, .hm-news-skel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hm-news-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@container hm (max-width: 1040px) {
+  .hm-sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container hm (max-width: 640px) {
   .hm-sys-grid { grid-template-columns: minmax(0, 1fr); }

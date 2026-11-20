@@ -856,3 +856,34 @@ mark { background: var(--mark); color: var(--fg); border-radius: 2px; padding: 0
 .usc-note-card .usc-heading { display: block; font-weight: var(--w-semibold); color: var(--fg); margin-bottom: 4px; }
 .usc-note-card p { margin: 6px 0 0; }
 
+
+/* U.S. Constitution reader (#/constitution/{id}): plain prose; numbered clauses carry a small
+   number that copies "U.S. Const. art. I, § 8, cl. 3". Annotations reuse the .usc-notes cards. */
+.const-body { max-width: 66ch; }
+.const-p { margin: 0 0 .9em; text-wrap: pretty; }
+.const-clause { position: relative; padding-left: 2.1em; }
+.const-cl {
+  position: absolute; left: 0; top: .1em; min-width: 1.6em; padding: 0 .35em;
+  border: 1px solid color-mix(in oklab, var(--ref-const) 30%, var(--line)); border-radius: var(--r-6, 6px);
+  background: color-mix(in oklab, var(--ref-const) 7%, transparent);
+  color: color-mix(in oklab, var(--ref-const) 80%, var(--fg-2));
+  font: var(--w-medium) .74em/1.6 var(--sans); font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out);
+}
+.const-cl:hover, .const-cl:focus-visible { background: color-mix(in oklab, var(--ref-const) 16%, transparent); border-color: var(--ref-const); color: var(--fg); }
+.const-notes-src { margin: -8px 0 14px; font-size: 12.5px; color: var(--fg-3); }
+
+/* Public Law reader (#/law/{id}): section headings, GPO margin notes, the U.S. Code panel. */
+.plaw-sec-head { margin: 1.4em 0 .7em; font: var(--w-semibold) 1em/1.4 var(--sans); color: var(--fg); letter-spacing: .01em; }
+.plaw-body > .plaw-sec-head:first-child, .plaw-body .reg-unit:first-child .plaw-sec-head { margin-top: 0; }
+.plaw-sec-title { font-weight: var(--w-regular); color: var(--fg-2); }
+.plaw-preamble { color: var(--fg); }
+.plaw-sidenote {
+  margin: -.3em 0 .9em; padding-left: 10px; border-left: 2px solid color-mix(in oklab, var(--ref-usc) 40%, var(--line));
+  font: var(--w-regular) .78em/1.5 var(--sans); color: var(--fg-3);
+}
+.plaw-usc-group + .plaw-usc-group { margin-top: 18px; }
+.plaw-usc-head { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font: var(--w-medium) 13px/1.3 var(--sans); color: var(--fg); }
+.plaw-usc-hint { margin: 0 0 8px; font-size: 12.5px; color: var(--fg-3); }
+.plaw-usc-more { font-size: 12px; color: var(--fg-3); align-self: center; }
+.plaw-prov { margin-top: 28px; font-size: 11.5px; color: var(--fg-4); overflow-wrap: anywhere; max-width: 66ch; }

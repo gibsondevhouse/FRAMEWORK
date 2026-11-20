@@ -277,3 +277,86 @@ test('paragraphPathFrom walks folded markers without repeating siblings', () => 
   assert.equal(paragraphPathFrom(paras, 8), '(b)(2)(B)');
   assert.equal(paragraphPathFrom(paras, 9), '');
 });
+
+import { constCitation, constGroups, splitClauses, toRoman } from '../src/core/constitution_text';
+
+test('constCitation writes the Bluebook form of a Constitution unit', () => {
+  assert.equal(constCitation('Art. I, § 8'), 'U.S. Const. art. I, § 8');
+  assert.equal(constCitation('Art. V'), 'U.S. Const. art. V');
+  assert.equal(constCitation('Amdt. XIV, § 1'), 'U.S. Const. amend. XIV, § 1');
+  assert.equal(constCitation('Amdt. I'), 'U.S. Const. amend. I');
+  assert.equal(constCitation('Preamble'), 'U.S. Const. pmbl.');
+  assert.equal(toRoman(27), 'XXVII');
+});
+
+test('splitClauses splits numbered clauses and leaves plain text whole', () => {
+  const two = splitClauses('1 The House shall be chosen every second Year. 2 No Person shall be a Representative under 25.');
+  assert.deepEqual(two.map(c => c.n), [1, 2]);
+  assert.equal(two[1].text, 'No Person shall be a Representative under 25.');
+  assert.deepEqual(splitClauses('Congress shall make no law respecting religion.'), [{ n: null, text: 'Congress shall make no law respecting religion.' }]);
+  // A "1" that never reaches a "2" is not a numbered list.
+  assert.equal(splitClauses('1 Year after the ratification of this article.')[0].n, null);
+  // A number inside a sentence (no closing punctuation before it) does not split.
+  assert.equal(splitClauses('1 Each State shall have 2 Senators. 2 The Senate shall choose.').length, 2);
+});
+
+test('constGroups orders the Preamble, articles and amendments', () => {
+  const u = (id: string, kind: 'preamble' | 'section' | 'article' | 'amendment', article: number | null, amendment: number | null, section: number | null, label: string) =>
+    ({ id, kind, article, amendment, section, label, chars: 1, note_count: 0 });
+  const g = constGroups([
+    u('preamble', 'preamble', null, null, null, 'Preamble'),
+    u('art1-s1', 'section', 1, null, 1, 'Art. I, § 1'),
+    u('art1-s2', 'section', 1, null, 2, 'Art. I, § 2'),
+    u('art5', 'article', 5, null, null, 'Art. V'),
+    u('amdt14-s1', 'amendment', null, 14, 1, 'Amdt. XIV, § 1'),
+  ]);
+  assert.equal(g.preamble?.label, 'Preamble');
+  assert.deepEqual(g.articles.map(a => [a.label, a.units.length]), [['Article I', 2], ['Article V', 1]]);
+  assert.equal(g.amendments[0].name, 'Citizenship, due process and equal protection');
+});
+
+import { congressYears, lawCitation, lawShort, ordinal } from '../src/core/plaw';
+import { isUscAppendix, uscCite, uscTitleLabel } from '../src/core/usc_label';
+
+test('Public Law names, citations and Congress years', () => {
+  assert.deepEqual([1, 2, 3, 4, 11, 12, 13, 21, 113, 118, 122].map(ordinal),
+    ['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '113th', '118th', '122nd']);
+  assert.equal(congressYears(118), '2023–2024');
+  assert.equal(congressYears(113), '2013–2014');
+  const law = { congress: 118, number: 5, law_type: 'public' as const, statute: '137 Stat. 50', approved_date: '2023-06-03' };
+  assert.equal(lawShort(law), 'Pub. L. 118-5');
+  assert.equal(lawCitation(law), 'Pub. L. No. 118-5, 137 Stat. 50 (2023)');
+  assert.equal(lawCitation({ ...law, law_type: 'private', statute: null, approved_date: null }), 'Priv. L. No. 118-5');
+});
+
+test('U.S. Code appendix titles are keyed 100 + N', () => {
+  assert.equal(isUscAppendix(105), true);
+  assert.equal(isUscAppendix(42), false);
+  assert.equal(uscTitleLabel(105), '5a');
+  assert.equal(uscTitleLabel(29), '29');
+  assert.equal(uscCite(128), '28 U.S.C. App.');
+  assert.equal(uscCite(29), '29 U.S.C.');
+});
+
+import { agendaDate, editionLabel, parseAgendaCfr, parseAgendaUsc, stageKey, stageShort } from '../src/core/agenda';
+
+test('Unified Agenda editions, dates and stages read plainly', () => {
+  assert.equal(editionLabel('202510'), 'Fall 2025');
+  assert.equal(editionLabel('202504'), 'Spring 2025');
+  assert.equal(editionLabel('201200'), '2012');
+  assert.equal(agendaDate('10/00/2025'), 'Oct 2025');
+  assert.equal(agendaDate('03/15/2026'), 'Mar 15, 2026');
+  assert.equal(agendaDate('To Be Determined'), 'To Be Determined');
+  assert.equal(stageShort('Final Rule Stage'), 'Final rule');
+  assert.equal(stageKey('Long-Term Actions'), 'long_term');
+  assert.equal(stageShort('Something new'), 'Something new');
+});
+
+test('Unified Agenda CFR and legal-authority strings become reader links', () => {
+  assert.deepEqual(parseAgendaCfr('29 CFR 1910'), { title: 29, part: '1910', section: null });
+  assert.deepEqual(parseAgendaCfr('40 CFR 261.3'), { title: 40, part: '261', section: '261.3' });
+  assert.equal(parseAgendaCfr('Not Yet Determined'), null);
+  assert.deepEqual(parseAgendaUsc('29 U.S.C. 655'), { title: 29, section: '655' });
+  assert.deepEqual(parseAgendaUsc('42 USC 7401 et seq'), { title: 42, section: '7401' });
+  assert.equal(parseAgendaUsc('Pub. L. 117-58'), null);
+});
