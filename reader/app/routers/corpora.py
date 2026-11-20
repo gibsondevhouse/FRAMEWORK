@@ -141,8 +141,14 @@ class AgendaBuild(BaseModel):
 @corpora_router.get("/api/agenda")
 def agenda_list(edition: str | None = Query(None, pattern=r"^\d{6}$"), agency: str | None = Query(None, pattern=r"^\d{4}$"),
                 stage: str | None = Query(None, max_length=40), limit: int = Query(50, ge=1, le=200),
-                offset: int = Query(0, ge=0)) -> dict:
-    return {**agenda.list_entries(edition, agency, stage, limit, offset), "status": agenda.status()}
+                offset: int = Query(0, ge=0), q: str | None = Query(None, max_length=200)) -> dict:
+    return {**agenda.list_entries(edition, agency, stage, limit, offset, q), "status": agenda.status()}
+
+
+@corpora_router.get("/api/agenda/facets")
+def agenda_facets(edition: str | None = Query(None, pattern=r"^\d{6}$")) -> dict:
+    """Entries per parent agency and per stage in one edition (the Newsroom's filters)."""
+    return agenda.facets(edition)
 
 
 @corpora_router.get("/api/agenda/search")
@@ -167,3 +173,12 @@ def agenda_build(req: AgendaBuild | None = None) -> dict:
 @corpora_router.post("/api/agenda/update")
 def agenda_update() -> dict:
     return {"job": agenda.submit("agenda-update")}
+
+
+@corpora_router.delete("/api/agenda")
+def agenda_remove() -> dict:
+    if library.queue.busy_with(agenda.JOB_KEY):
+        raise HTTPException(409, "The Unified Agenda has a download in progress.")
+    if not agenda.remove():
+        raise HTTPException(404, "The Unified Agenda isn't installed.")
+    return {"removed": "agenda"}

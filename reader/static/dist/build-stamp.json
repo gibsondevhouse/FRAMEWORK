@@ -1,5 +1,5 @@
 {
-  "sha256": "cdc1ed6481913ce81766a892caab24b5add624e28fa422162f11732ac18202be",
+  "sha256": "5c213f35ed9367ce97d5ede2530e661079d88fb6bb78ac8e6faccb6725dc395d",
   "files": [
     "index.html",
     "src/api/client.ts",
@@ -27,6 +27,7 @@
     "src/components/transfer_dock.ts",
     "src/components/ui.ts",
     "src/components/view_head.ts",
+    "src/core/agenda.ts",
     "src/core/constitution.ts",
     "src/core/constitution_text.ts",
     "src/core/events.ts",
@@ -74,6 +75,7 @@
     "src/views/library_plaw.ts",
     "src/views/library_usc.ts",
     "src/views/news.ts",
+    "src/views/news_agenda.ts",
     "src/views/news_case.ts",
     "src/views/news_fr.ts",
     "src/views/projects.ts",

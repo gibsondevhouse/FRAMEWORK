@@ -23,13 +23,16 @@ try:
 except ImportError:
     HAVE_PLAYWRIGHT = False
 
-from app import constitution, gov_http, news_store, news_worker, plaw, store, usc_build, usc_client
+from contextlib import closing
+
+from app import agenda, constitution, fr_store, gov_http, news_store, news_worker, plaw, store, usc_build, usc_client
 from app.library import client as lib_client
 from app.main import app
 import fake_titles
 from tests.base import HermeticTestCase, TRACKED_KEYS
 from tests.test_new_corpora import FakeGov, plaw_xml, zip_of
 from tests.test_usc_corpus import FakeOLRC
+from tests.test_fr_corpus import HAZCOM
 
 REQUIRE_BROWSER = os.environ.get("REQUIRE_BROWSER") == "1"
 
@@ -449,6 +452,60 @@ class Milestone3BrowserTests(HermeticTestCase):
         self.assertIn("Enacted by 1", page.locator("#usc-btn-laws").inner_text())
         page.locator("#usc-btn-laws").click()
         page.wait_for_selector("#cite-pop a[href='#/law/114-3']", timeout=5000)
+        self.assertEqual(page._page_errors, [])
+        self.assertEqual(self.external, [])
+
+    def test_unified_agenda_tab_and_rule_page(self):
+        """The Newsroom's Unified Agenda tab (download, edition/agency/stage/word filters) and a RIN page."""
+        agenda.remove()
+        self.addCleanup(agenda.remove)
+        self.addCleanup(lambda: fr_store.db_path().unlink(missing_ok=True))
+        with closing(fr_store.connect()) as con:          # the FR archive holds the silica rule's final document
+            fr_store.upsert_documents(con, [HAZCOM], "https://www.federalregister.gov/api/v1/documents.json")
+            con.commit()
+        page = self._new_page()
+        page.goto(f"{self.base_url}/#/news?cat=agenda", wait_until="networkidle")
+        page.wait_for_selector(".agenda-front [data-news-cat='agenda'][aria-selected='true']", timeout=10000)
+        self.assertIn("Regulation Identifier Number", page.locator(".agenda-intro").inner_text())
+
+        with FakeGov().patch(), mock.patch.object(gov_http, "_sleep", lambda s: None), \
+                mock.patch.object(agenda, "log", lambda msg: None):
+            page.locator("[data-agenda-act='download']").click()
+            page.wait_for_selector(".agenda-row[href*='1218-AD39']", timeout=15000)
+        self.assertEqual(page.locator(".agenda-row").count(), 3)
+        self.assertIn("Fall 2025 edition", page.locator(".agenda-count").inner_text())
+        # Stage buttons, the agency select and the word filter narrow the list in place.
+        page.locator("[data-agenda-stage='final']").click()
+        page.wait_for_function("() => document.querySelectorAll('.agenda-row').length === 1", timeout=5000)
+        self.assertIn("stage=final", page.evaluate("location.hash"))
+        page.locator("[data-agenda-stage='']").click()
+        page.wait_for_function("() => document.querySelectorAll('.agenda-row').length === 3", timeout=5000)
+        page.locator("[data-agenda-filter='agency']").select_option("2000")
+        page.wait_for_function("() => document.querySelectorAll('.agenda-row').length === 1", timeout=5000)
+        self.assertEqual(page.locator(".agenda-row[href*='2060-AV00']").count(), 1)
+        page.locator("[data-agenda-filter='agency']").select_option("")
+        page.wait_for_function("() => document.querySelectorAll('.agenda-row').length === 3", timeout=5000)
+        page.locator("#agenda-q").fill("silica")
+        page.wait_for_function("() => document.querySelectorAll('.agenda-row').length === 1", timeout=5000)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "agenda-q")
+        page.locator("[data-agenda-filter='edition']").select_option("202504")
+        page.wait_for_selector(".agenda-count:has-text('Spring 2025')", timeout=5000)
+
+        # The planned rule: facts, CFR chips into the reader, the FR document it became, its editions.
+        page.locator(".agenda-row[href*='1218-AD00']").click()
+        page.wait_for_selector("h1.doc-title:has-text('Respirable Crystalline Silica')", timeout=10000)
+        self.assertIn("Proposed Rule Stage", page.locator(".agenda-facts").inner_text())
+        self.assertEqual(page.locator(".agenda-sec .citation-chip:has-text('29 CFR 1910')").count(), 1)
+        self.assertEqual(page.locator(".agenda-frdoc[href='#/news/fr/2026-20001']").count(), 1)
+        self.assertEqual(page.locator(".agenda-hist a[href='#/news/agenda/1218-AD00?edition=202510']").count(), 1)
+        page.goto(f"{self.base_url}/#/news/agenda/9999-ZZ99", wait_until="networkidle")
+        page.wait_for_selector(".empty-state:has-text('9999-ZZ99')", timeout=5000)
+
+        # The other tabs are still the news feed.
+        page.goto(f"{self.base_url}/#/news?cat=agenda", wait_until="networkidle")
+        page.wait_for_selector(".agenda-row", timeout=10000)
+        page.locator("[data-news-cat='rules']").click()
+        page.wait_for_function("() => !document.querySelector('.agenda-front') && document.querySelector('.news-front')", timeout=5000)
         self.assertEqual(page._page_errors, [])
         self.assertEqual(self.external, [])
 

@@ -554,7 +554,7 @@ class BehaviorTests(BrowserCase):
           const seg = document.querySelector('.news-tabs');
           return { sw: seg.scrollWidth, cw: seg.clientWidth, count: seg.querySelectorAll('button').length };
         }""")
-        self.assertEqual(news_overflow["count"], 6)
+        self.assertEqual(news_overflow["count"], 7)
         self.assertLessEqual(news_overflow["sw"], news_overflow["cw"] + 1)
 
         # 3. Workspaces label consistency in primary sidebar and page heading (drawer stays retracted on main pages).
@@ -843,8 +843,8 @@ class BehaviorTests(BrowserCase):
     def test_newsroom_filters_setup_notice_and_activity_popover(self):
         import json as _json
         page = self.open_page("/news", "#news-q")
-        # 6 tabs rendered
-        self.assertEqual(page.locator('.news-tabs [role="tab"]').count(), 6)
+        # 7 tabs rendered (the last, Unified Agenda, has its own view)
+        self.assertEqual(page.locator('.news-tabs [role="tab"]').count(), 7)
         # Filter input debounces into hash query
         page.fill('#news-q', 'helmet')
         page.wait_for_function("() => location.hash.includes('q=helmet')", timeout=5000)

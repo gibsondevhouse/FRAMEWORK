@@ -280,7 +280,7 @@ export interface TransferJob {
   /** CFR titles 1–50; Federal Register corpus 0; U.S. Code title N is 1000 + N; the Constitution 2000. */
   title: number;
   kind: 'title' | 'part' | 'section' | 'update' | 'usc-title' | 'usc-update' | 'fr-build' | 'fr-update'
-    | 'constitution-build' | 'constitution-update' | 'plaw-build' | 'plaw-update';
+    | 'constitution-build' | 'constitution-update' | 'plaw-build' | 'plaw-update' | 'agenda-build' | 'agenda-update';
   target?: { t?: string; id?: string; part?: string; usc_title?: number } | null;
   label: string;
   state: 'queued' | 'running' | 'done' | 'error' | 'cancelled';
