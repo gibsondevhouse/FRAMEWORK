@@ -13,7 +13,7 @@ This document tracks idiosyncrasies, data anomalies, duplicate identifiers, and 
 | **QUIRK-003** | eCFR | Title 35 | Informational | Reserved title; eCFR returns HTTP 404 for structure JSON | Handled gracefully by library views |
 | **QUIRK-004** | eCFR | Cross-Title | Moderate | Un-nested loose sections following empty subpart headers | Handled via `nest_loose_sections` in `tree.py` |
 | **QUIRK-005** | State Codes | Cal/OSHA (Title 8 CCR) | Out of Scope | Historical note: non-standard state section numbering (`§ 3203`, `§ 5192`); state-law ingestion is out of scope under the federal-only direction | Out of Scope |
-| **QUIRK-006** | U.S.C. | Federal Titles (USLM XML) | Architectural | Uncodified statutory notes and historical notes sharing section references | Planned: URRI Scheme |
+| **QUIRK-006** | U.S.C. | Federal Titles (USLM XML) | Architectural | Uncodified statutory notes and historical notes sharing section references | **Mitigated**: `ingest/uslm.py` stores notes apart from section text (`notes` table, category editorial / statutory / executive by crossHeading); URRI scheme still planned |
 
 ---
 

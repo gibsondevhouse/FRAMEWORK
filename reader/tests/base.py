@@ -3,7 +3,7 @@
 `HermeticTestCase` gives each test two guarantees, under both `pytest` and
 `python -m unittest discover tests`:
 
-1. **Env hygiene** — the six tracked `.env` keys are saved and *removed*
+1. **Env hygiene** — the tracked `.env` keys are saved and *removed*
    (`os.environ.pop`) before each test, then restored afterwards, so a
    populated `reader/.env` (real `DOL_API_KEY`, `ANTHROPIC_API_KEY`, …) can
    never leak into assertions. The keys are popped, never set to `""`:
@@ -28,6 +28,10 @@ TRACKED_KEYS = (
     "NEWS_AGENCIES",
     "NEWS_SYNC",
     "NEWS_RETENTION_DAYS",
+    "FR_CORPUS_TITLES",
+    "FR_CORPUS_YEARS",
+    "FR_MIN_INTERVAL",
+    "GOVINFO_API_KEY",
 )
 
 
@@ -50,9 +54,16 @@ class HermeticTestCase(unittest.TestCase):
 
         self.addCleanup(restore)
 
-        from app import news
+        from app import fr_client, news
         news.reset_dol_rate_state()
         self.addCleanup(news.reset_dol_rate_state)
+        # Federal Register pacing/backoff never really sleeps under test; tests that care
+        # read `self.fr_sleeps`.
+        self.fr_sleeps: list[float] = []
+        fr_sleep = mock.patch.object(fr_client, "_sleep", self.fr_sleeps.append)
+        fr_sleep.start()
+        self.addCleanup(fr_sleep.stop)
+        fr_client.reset_pacing()
 
         sync_guard = mock.patch.object(
             httpx.HTTPTransport, "handle_request",

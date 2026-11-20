@@ -71,6 +71,21 @@ def _norm_para(para: str) -> str:
     return para.strip()
 
 
+def _usc_anchor(u_title: str, core: str, text: str) -> str:
+    """A U.S.C. link: the local copy (`/usc/{t}/{s}`, class `xref-usc-local`) when that title
+    is installed and has the section, else Cornell LII exactly as before."""
+    from .uslm_html import usc_href
+    try:
+        href, local = usc_href(u_title, core)
+    except (TypeError, ValueError):
+        href, local = f"https://www.law.cornell.edu/uscode/text/{u_title}/{core}", False
+    if local:
+        return (f'<a class="xref xref-usc xref-usc-local" target="_blank" rel="noopener noreferrer" '
+                f'title="View {u_title} U.S.C. {core} (local copy)" href="{href}">{text}</a>')
+    return (f'<a class="xref xref-usc" target="_blank" rel="noopener noreferrer" '
+            f'title="View {u_title} U.S.C. {core} at Cornell LII" href="https://www.law.cornell.edu/uscode/text/{u_title}/{core}">{text}</a>')
+
+
 def make_linkifier(
     known: Callable[[str], bool],
     title: int = 29,
@@ -245,21 +260,16 @@ def make_linkifier(
                 targets = parse_usc_targets(expr)
                 if len(targets) == 1 and expr.strip() == targets[0][2]:
                     core, _, _ = targets[0]
-                    href = f"https://www.law.cornell.edu/uscode/text/{u_title}/{core}"
-                    return f'<a class="xref xref-usc" target="_blank" rel="noopener noreferrer" title="View {u_title} U.S.C. {core} at Cornell LII" href="{href}">{m.group(0)}</a>'
+                    return _usc_anchor(u_title, core, m.group(0))
 
                 def repl_usc_item(um: re.Match) -> str:
                     raw = um.group(0)
                     parsed = parse_usc_targets(raw)
                     if len(parsed) == 2:
                         (c1, _, _), (c2, _, _) = parsed
-                        return (
-                            f'<a class="xref xref-usc" target="_blank" rel="noopener noreferrer" title="View {u_title} U.S.C. {c1} at Cornell LII" href="https://www.law.cornell.edu/uscode/text/{u_title}/{c1}">{c1}</a>-'
-                            f'<a class="xref xref-usc" target="_blank" rel="noopener noreferrer" title="View {u_title} U.S.C. {c2} at Cornell LII" href="https://www.law.cornell.edu/uscode/text/{u_title}/{c2}">{c2}</a>'
-                        )
+                        return f"{_usc_anchor(u_title, c1, c1)}-{_usc_anchor(u_title, c2, c2)}"
                     core = parsed[0][0]
-                    href = f"https://www.law.cornell.edu/uscode/text/{u_title}/{core}"
-                    return f'<a class="xref xref-usc" target="_blank" rel="noopener noreferrer" title="View {u_title} U.S.C. {core} at Cornell LII" href="{href}">{raw}</a>'
+                    return _usc_anchor(u_title, core, raw)
 
                 prefix = m.group(0)[:len(m.group(0)) - len(expr)]
                 linked = re.sub(r"[0-9]+[a-z]*(?:-[0-9]+[a-z]*)*(?:\([a-zA-Z0-9]{1,4}\))*", repl_usc_item, expr)

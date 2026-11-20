@@ -34,15 +34,18 @@ from .citations.parser import (
     XREF_RE,
 )
 
-USER_AGENT = "FRAMEWORK-ComplianceReader/1.0 (local-reader)"
-FR_BASE = "https://www.federalregister.gov/api/v1"
+# The Federal Register plumbing is shared with the corpus builder (fr_build.py).
+from . import fr_client
+from .fr_client import (FR_BASE, USER_AGENT, SourceUnavailable,  # noqa: F401  (re-exported)
+                        client, fetch_fr_body, sanitize_fr_html)
+from .fr_client import FrSanitizer as _FrSanitizer  # noqa: F401
+from .fr_client import DOC_NUM_RE as _FR_DOC_NUM_RE  # noqa: F401
+from .fr_client import is_fr_host as _is_fr_host  # noqa: F401
+from .fr_client import get_json as _get_json
+
 DOL_BASE = "https://apiprod.dol.gov/v4"
 
-FR_FIELDS = [
-    "title", "document_number", "publication_date", "type", "abstract", "action", "dates",
-    "effective_on", "comments_close_on", "cfr_references", "citation", "html_url", "pdf_url",
-    "body_html_url", "agencies", "docket_ids",
-]
+FR_FIELDS = fr_client.NEWS_FIELDS
 FR_TYPE_TO_CATEGORY = {"Rule": "rules", "Proposed Rule": "rulemaking",
                        "Notice": "notices", "Presidential Document": "notices"}
 
@@ -152,28 +155,6 @@ def dol_cooldown_remaining() -> float:
         return round(rem, 2) if rem > 0 else 0.0
 
 
-class SourceUnavailable(Exception):
-    """A source failed (network, HTTP status, bad payload). The worker records it and moves on."""
-
-
-def client(extra: dict[str, str] | None = None) -> httpx.Client:
-    """One client per sync run (the worker opens it and passes it to every fetcher)."""
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
-    headers.update(extra or {})
-    return httpx.Client(headers=headers, timeout=20.0, follow_redirects=True)
-
-
-def _get_json(c: httpx.Client, url: str, params) -> dict:
-    try:
-        r = c.get(url, params=params)
-        r.raise_for_status()
-        return r.json()
-    except httpx.HTTPStatusError as e:
-        raise SourceUnavailable(f"{url.split('?')[0]}: HTTP {e.response.status_code}") from None
-    except (httpx.HTTPError, ValueError) as e:
-        raise SourceUnavailable(f"{url.split('?')[0]}: {type(e).__name__}") from None
-
-
 def empty_item() -> dict:
     """Every key of the item shape, so fetchers only fill what they know."""
     return {
@@ -193,15 +174,7 @@ def empty_item() -> dict:
 # ---------------------------------------------------------------------------
 
 def _fr_paginated(c: httpx.Client, base_params: list[tuple[str, str]]) -> list[dict]:
-    params: list[tuple[str, str]] | None = list(base_params) + [("fields[]", f) for f in FR_FIELDS]
-    url: str | None = f"{FR_BASE}/documents.json"
-    results: list[dict] = []
-    for _ in range(FR_MAX_PAGES):
-        page = _get_json(c, url, params)
-        results += page.get("results", [])
-        url, params = page.get("next_page_url"), None  # next_page_url carries the query
-        if not url:
-            break
+    results, _count, _urls = fr_client.paginate(c, base_params, FR_FIELDS, FR_MAX_PAGES)
     return results
 
 
@@ -254,115 +227,7 @@ def fr_document_item(doc: dict, agency: str | None = None) -> dict:
     }
 
 
-_FR_DOC_NUM_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-_FR_ALLOWED_TAGS = frozenset({
-    "div", "section", "article", "header", "footer", "p", "h1", "h2", "h3", "h4", "h5", "h6",
-    "span", "a", "em", "strong", "b", "i", "u", "sup", "sub", "small", "ul", "ol", "li",
-    "dl", "dt", "dd", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption",
-    "colgroup", "col", "blockquote", "pre", "code", "hr", "br",
-})
-_FR_DROP_CONTENT_TAGS = frozenset({"script", "style", "iframe", "object", "embed", "svg", "math", "noscript"})
-_FR_VOID_TAGS = frozenset({"br", "hr", "col"})
-_FR_SAFE_ATTRS = frozenset({"class", "id", "colspan", "rowspan", "scope", "headers"})
-
-
-class _FrSanitizer(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=False)
-        self.out: list[str] = []
-        self._drop_depth = 0
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        t = tag.lower()
-        if t in _FR_DROP_CONTENT_TAGS:
-            self._drop_depth += 1
-            return
-        if self._drop_depth or t not in _FR_ALLOWED_TAGS:
-            return
-        kept: list[str] = []
-        is_ext_link = False
-        for k, v in attrs:
-            ak = (k or "").lower()
-            if v is None:
-                continue
-            if ak == "href" and t == "a":
-                val = v.strip()
-                if val.startswith("/"):
-                    val = "https://www.federalregister.gov" + val
-                parsed = urlparse(val)
-                if parsed.scheme in ("http", "https"):
-                    kept.append(f'href="{escape(val, quote=True)}"')
-                    is_ext_link = True
-                elif val.startswith("#") and len(val) > 1:
-                    kept.append(f'href="{escape(val, quote=True)}"')
-            elif ak in _FR_SAFE_ATTRS:
-                kept.append(f'{ak}="{escape(v, quote=True)}"')
-        if is_ext_link:
-            kept.append('target="_blank" rel="noopener noreferrer"')
-        attr_str = (" " + " ".join(kept)) if kept else ""
-        self.out.append(f"<{t}{attr_str}>")
-
-    def handle_endtag(self, tag: str) -> None:
-        t = tag.lower()
-        if t in _FR_DROP_CONTENT_TAGS:
-            if self._drop_depth:
-                self._drop_depth -= 1
-            return
-        if self._drop_depth or t not in _FR_ALLOWED_TAGS or t in _FR_VOID_TAGS:
-            return
-        self.out.append(f"</{t}>")
-
-    def handle_data(self, data: str) -> None:
-        if not self._drop_depth:
-            self.out.append(escape(data, quote=False))
-
-    def handle_entityref(self, name: str) -> None:
-        if not self._drop_depth:
-            self.out.append(f"&{name};")
-
-    def handle_charref(self, name: str) -> None:
-        if not self._drop_depth:
-            self.out.append(f"&#{name};")
-
-
-def sanitize_fr_html(raw_html: str) -> str:
-    """Allowlist-sanitize Federal Register body HTML so scripts, forms, and inline handlers are removed."""
-    parser = _FrSanitizer()
-    parser.feed(raw_html or "")
-    parser.close()
-    return "".join(parser.out).strip()
-
-
-def _is_fr_host(url: str) -> bool:
-    p = urlparse(url or "")
-    return p.scheme == "https" and (p.hostname or "").lower() in ("www.federalregister.gov", "federalregister.gov")
-
-
-def fetch_fr_body(c: httpx.Client, document_number: str, body_html_url: str | None = None) -> dict | None:
-    """Fetch FR document metadata + sanitized body HTML on demand for `document_number`."""
-    doc_num = (document_number or "").strip()
-    if not doc_num or not _FR_DOC_NUM_RE.fullmatch(doc_num):
-        raise ValueError("Invalid Federal Register document number")
-    meta: dict | None = None
-    url = (body_html_url or "").strip() or None
-    if not url:
-        meta = _get_json(
-            c,
-            f"{FR_BASE}/documents/{doc_num}.json",
-            [("fields[]", f) for f in FR_FIELDS],
-        )
-        url = (meta.get("body_html_url") or "").strip() or None
-    if not url or not _is_fr_host(url):
-        return None
-    try:
-        r = c.get(url)
-        r.raise_for_status()
-        body_html = sanitize_fr_html(r.text)
-    except httpx.HTTPStatusError as e:
-        raise SourceUnavailable(f"{url.split('?')[0]}: HTTP {e.response.status_code}") from None
-    except httpx.HTTPError as e:
-        raise SourceUnavailable(f"{url.split('?')[0]}: {type(e).__name__}") from None
-    return {"doc": meta, "body_html": body_html}
+# Sanitizer, host guard and on-demand body fetch live in fr_client (re-exported above).
 
 
 def fetch_public_inspection(c: httpx.Client, agency: str) -> list[dict]:

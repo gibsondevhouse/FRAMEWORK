@@ -80,6 +80,26 @@ def news_sync_enabled() -> bool:
     return os.getenv("NEWS_SYNC", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
+def fr_corpus_titles() -> list[int] | None:
+    """CFR titles whose Federal Register documents the FR corpus collects
+    (`FR_CORPUS_TITLES`, comma-separated). None = the installed titles."""
+    raw = os.getenv("FR_CORPUS_TITLES", "").strip()
+    out: list[int] = []
+    for tok in raw.split(","):
+        tok = tok.strip()
+        if tok.isdigit() and 1 <= int(tok) <= 50 and int(tok) not in out:
+            out.append(int(tok))
+    return out or None
+
+
+def fr_corpus_years() -> int:
+    """How many years back the FR corpus reaches (`FR_CORPUS_YEARS`, default 5, 1-30)."""
+    try:
+        return max(1, min(30, int(os.getenv("FR_CORPUS_YEARS", "5").strip() or 5)))
+    except ValueError:
+        return 5
+
+
 def preferred_model() -> str | None:
     model = os.getenv("ANTHROPIC_MODEL", "").strip()
     return model or None

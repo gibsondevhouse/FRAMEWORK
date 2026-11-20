@@ -150,6 +150,8 @@ def reload_installed() -> list[int]:
         for n in titles:
             store.release_title(n)
         store.clear_caches()
+        from .. import usc_store
+        usc_store.clear_caches()  # CLI-built U.S.C. titles (python -m app.usc_build)
         with lib._cache_lock:
             lib._structures.clear()
         return titles

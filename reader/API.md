@@ -290,6 +290,62 @@ section route (`1910.134`, `§ 1910.134`, `1910.134(c)`). `404` for an unknown s
 
 ---
 
+## Federal Register corpus
+
+A local copy of Federal Register documents that cite the corpus CFR titles, in `data/fr.sqlite3` (built with `python -m app.fr_build`, or `POST /api/fr/build`). Every response is `Cache-Control: no-store`. GETs never touch the network and return empty results (`installed: false`) before the corpus is built.
+
+### `GET /api/fr/status`
+`{installed, doc_count, body_count, titles, coverage[{title,start,end,fetched,chunks}], meta, due, default_titles, default_years}`.
+
+### `GET /api/fr/search`
+Params: `q`, `type` (`Rule`, `Proposed Rule`, `Notice`, `Presidential Document`), `agency` (FR slug), `title`, `part`, `since`, `until` (ISO dates), `limit` (≤100), `offset`. A document number (`2026-22306`) or an FR citation (`91 FR 69100`, matched inside each document's page range) is an exact hit (`exact: true`) first; otherwise FTS5 (bm25 title 3 / abstract 1.5 / action 1 / body 1) with `\x02`/`\x03` snippet sentinels, or newest first without `q`. Returns `{installed, total, results[{document_number, type, title, abstract, action, publication_date, effective_on, comments_close_on, citation, html_url, agencies, cfr_references, snippet}]}`.
+
+### `GET /api/fr/document/{document_number}`
+The full record: metadata, `agencies`, `cfr_references`, `docket_ids`, `regulation_id_numbers`, `cfr_links[{title, part, section, sources}]` (`reference` = the API's cfr_references, `text` = citations in title/abstract/action, `body` = citations in the fetched full text), `provenance{source, source_url, raw_sha256, fetched_at, first_seen_at, content_changed_at}` and `body` (`{format, sha256, byte_len, source_url, fetched_at}` or `null`; `?body=true` adds `content` and `text`). 404 when not in the corpus.
+
+### `POST /api/fr/document/{document_number}/body`
+Downloads the document's full text (`full_text_xml_url`, else `body_html_url`, federalregister.gov only), stores it with the SHA-256 of the bytes as served and indexes it. 404 not in corpus, 422 no full-text URL, 503 upstream failure.
+
+### `GET /api/fr/by-cfr/{title}/{part}` · `GET /api/fr/by-cfr/{title}/{part}/{section}`
+Documents linked to a CFR part, or to a section (its exact links plus part-level links of its part). `limit` ≤200, `offset`. 422 when the section isn't in the part.
+
+### `POST /api/fr/build` · `POST /api/fr/update`
+Queue a full corpus build (`{titles?, years?}`; titles default to `FR_CORPUS_TITLES` or the installed titles) or an incremental update on the library queue (jobs appear in `GET /api/library/jobs` with `title: 0`, `kind: fr-build | fr-update`).
+
+`GET /api/search?include=fr` adds the corpus to search as a separate `fr` block (`{installed, total, results}`); the CFR result shape is unchanged.
+
+## U.S. Code
+
+Installed U.S. Code titles, built from the OLRC's USLM XML (`python -m app.usc_build --title N`, or `POST /api/usc/download`) into `data/usc-{N}.sqlite3`. Responses are `Cache-Control: no-store`.
+
+### `GET /api/usc/titles`
+Installed titles, local only: `{titles[{title, name, release_point, built_at, section_count, note_count, positive_law, xml_sha256, zip_sha256, source_url}]}`.
+
+### `GET /api/usc/release`
+Asks the OLRC for the current release point (cached 30 min; `?refresh=true` bypasses): `{release_point, current_through, available_titles, titles[… + stale]}`. 503 when the OLRC doesn't answer.
+
+### `GET /api/usc/{title}/meta` · `GET /api/usc/{title}/tree`
+Title summary, and the contents tree (`t/id/l/d/c`, sections carry `s` = status). 404 when not installed.
+
+### `GET /api/usc/{title}/section/{section_id}`
+Accepts `655`, `§ 655` or `29 U.S.C. 655(b)`. Returns `id, identifier, label, heading, status` (`repealed`, `omitted`, `transferred`, … or `null`), `chapter, path, ord, text, source_credit, html` (allowlist-rendered body; U.S.C. references link to the local copy when installed, else Cornell LII), `notes[{category: editorial | statutory | executive, topic, heading, html, text}]` (kept apart from the section text, QUIRK-006), `prev`, `next`, `citation`.
+
+### `GET /api/usc/search`
+`q`, optional `title`, `limit`; `notes=true` (with `title`) also searches the notes. Exact section number first, then FTS5 (bm25 label 8 / heading 6 / text 1).
+
+### `POST /api/usc/download` · `POST /api/usc/update-all` · `DELETE /api/usc/{title}`
+Queue one title (`{title}`) or every installed title that is behind the current release point on the library queue (jobs appear with `title: 1000 + N`, `kind: usc-title | usc-update`); remove a title (409 while it has a job).
+
+### `GET /usc/{title}/{section_id}`
+A standalone HTML page for one section (the target of local U.S.C. citation links until the app has a U.S.C. reader).
+
+`GET /api/search?include=usc` (or `include=fr,usc`) adds a `usc` block (`{installed, total, results}`).
+
+## Integrity
+
+### `GET /api/integrity`
+Params: `corpus` (`cfr` | `fr` | `usc`), `title` (cfr/usc), `offline` (skip eCFR / OLRC / GovInfo), `govinfo_date`. Returns `{status, summary{OK,WARN,FAIL,INFO}, items[{corpus, target, check, status, detail, …}], checked_at, online}`, the same report as `python -m app.integrity --json`. Checks database health, counts, recorded hashes and versions (`unknown` for stores built before they were recorded), cached source re-hashes, FR record/body hashes, FR coverage gaps and freshness, staleness against eCFR / the OLRC, and (with `GOVINFO_API_KEY`) a GovInfo cross-check of one day's FR documents.
+
 ## Library (download from eCFR)
 
 ### `GET /api/library`
