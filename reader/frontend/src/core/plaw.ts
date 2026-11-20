@@ -86,11 +86,21 @@ export function plawScope(st: PlawStatus | null): { congresses: number[]; follow
   }
 }
 
-/** Law counts per Congress (public laws only), newest first. */
+/** Law counts per Congress (public and private laws together, FT-25), newest first. */
 export function plawCounts(st: PlawStatus | null): Map<number, number> {
   const m = new Map<number, number>();
-  for (const r of st?.congresses || []) if (r.law_type === 'public') m.set(r.congress, (m.get(r.congress) || 0) + r.laws);
+  for (const r of st?.congresses || []) m.set(r.congress, (m.get(r.congress) || 0) + r.laws);
   return m;
+}
+
+/** How many installed laws are private laws (0 when none were downloaded). */
+export function plawPrivateCount(st: PlawStatus | null): number {
+  return (st?.congresses || []).reduce((n, r) => n + (r.law_type === 'private' ? r.laws : 0), 0);
+}
+
+/** One Congress's laws split by type, each in the order the API gave them. */
+export function splitLawTypes<T extends Pick<PlawLawRow, 'law_type'>>(rows: T[]): { public: T[]; private: T[] } {
+  return { public: rows.filter(r => r.law_type !== 'private'), private: rows.filter(r => r.law_type === 'private') };
 }
 
 export async function fetchPlawStatus(): Promise<PlawStatus | null> {
@@ -102,12 +112,12 @@ export async function fetchPlawStatus(): Promise<PlawStatus | null> {
   }
 }
 
-/** Every public law of one Congress (the API pages at 200). */
+/** Every law of one Congress, public and private (the API pages at 200). */
 export async function fetchCongressLaws(congress: number, signal?: AbortSignal): Promise<PlawLawRow[]> {
   const out: PlawLawRow[] = [];
   for (let offset = 0; offset < 5000; offset += 200) {
     const d = await getJSON<{ total: number; results: PlawLawRow[] }>(
-      `/api/plaw?congress=${congress}&type=public&limit=200&offset=${offset}`, { signal });
+      `/api/plaw?congress=${congress}&limit=200&offset=${offset}`, { signal });
     out.push(...d.results);
     if (out.length >= d.total || !d.results.length) break;
   }
