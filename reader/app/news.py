@@ -675,11 +675,17 @@ def fetch_inspection_case(c: httpx.Client, key: str, activity_nr: int) -> dict |
 
     accidents: list[dict] = []
     if (insp.get("insp_type") or "").strip().upper() in ("A", "M"):
-        inj_rows = _dol_get_optional(c, key, "accident_injury", {
-            "limit": 20,
-            "fields": "summary_nr,rel_insp_nr,degree_of_inj,fall_distance,fall_ht,fat_cause",
-            "filter_object": json.dumps({"field": "rel_insp_nr", "operator": "eq", "value": activity_nr}),
-        })
+        inj_rows: list[dict] = []                         # one row per injured person, paged like violations
+        for inj_offset in range(0, 1000, 200):
+            page = _dol_get_optional(c, key, "accident_injury", {
+                "limit": 200,
+                "offset": inj_offset,
+                "fields": "summary_nr,rel_insp_nr,degree_of_inj,fall_distance,fall_ht,fat_cause",
+                "filter_object": json.dumps({"field": "rel_insp_nr", "operator": "eq", "value": activity_nr}),
+            })
+            inj_rows.extend(page)
+            if len(page) < 200:
+                break
         sum_nrs = sorted({int(r["summary_nr"]) for r in inj_rows if r.get("summary_nr")})
         injuries_by_sum: dict[int, list[dict]] = {}
         for ir in inj_rows:                                   # FT-28: keep what each injured person's row says
