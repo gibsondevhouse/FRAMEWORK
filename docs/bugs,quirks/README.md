@@ -14,6 +14,7 @@ This document tracks idiosyncrasies, data anomalies, duplicate identifiers, and 
 | **QUIRK-004** | eCFR | Cross-Title | Moderate | Un-nested loose sections following empty subpart headers | Handled via `nest_loose_sections` in `tree.py` |
 | **QUIRK-005** | State Codes | Cal/OSHA (Title 8 CCR) | Out of Scope | Historical note: non-standard state section numbering (`§ 3203`, `§ 5192`); state-law ingestion is out of scope under the federal-only direction | Out of Scope |
 | **QUIRK-006** | U.S.C. | Federal Titles (USLM XML) | Architectural | Uncodified statutory notes and historical notes sharing section references | **Mitigated**: `ingest/uslm.py` stores notes apart from section text (`notes` table, category editorial / statutory / executive by crossHeading); URRI scheme still planned |
+| **QUIRK-007** | U.S.C. | Section ids (OLRC USLM) | Moderate | Section ids keep the OLRC's en dash (`2000e–2`; 1,711 of 8,017 ids on the development install), while citations, `uslm_html.usc_href` and `law_usc.section` use a hyphen. A dashed section is never matched locally: reader links to it fall back to Cornell, and "Enacted by" misses its laws | **Open** (store and ingest). `app/ids.py` writes the hyphen in the canonical id and gives the store's spelling back in `to_store_key` |
 
 ---
 
@@ -24,5 +25,6 @@ This document tracks idiosyncrasies, data anomalies, duplicate identifiers, and 
 2. **Corpus Namespacing (URRI Scheme)**:
    Every federal entity resolves to a Uniform Regulatory Resource Identifier:
    `reg://federal/[corpus]/[collection]/[unit]` (e.g., `cfr`, `usc`, `fr`, `constitution`, `plaw`, `agenda`).
+   Implemented in `reader/app/ids.py` (DM-101), which holds the grammar; `python -m app.resolve` resolves a citation or id.
 3. **Pluggable Federal Ingestion Adapters**:
    Each federal legal publisher (eCFR XML/JSON, Federal Register API v1, OLRC USLM XML for U.S.C., GovInfo bulk data for Constitution & Public Laws, reginfo.gov XML for Unified Agenda) implements an independent ingest pipeline.
