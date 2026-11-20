@@ -265,6 +265,98 @@ def outdated(release: dict) -> list[int]:
 
 
 # ---------------------------------------------------------------------------
+# The Library's U.S. Code catalog (offline: static names + installed meta + cached release)
+# ---------------------------------------------------------------------------
+
+_CATALOG_PATH = Path(__file__).parent / "usc_titles.json"
+_catalog_cache: dict | None = None
+
+
+def static_catalog() -> dict:
+    """`usc_titles.json`: {desks, titles{"N": {name, positive_law, desk, cfr[] | reserved}}}."""
+    global _catalog_cache
+    if _catalog_cache is None:
+        try:
+            _catalog_cache = json.loads(_CATALOG_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _catalog_cache = {"desks": [], "titles": {}}
+    return _catalog_cache
+
+
+def title_bytes(title: int) -> int:
+    size = 0
+    for p in (usc_store.db_path(title), usc_store.tree_path(title)):
+        try:
+            size += p.stat().st_size
+        except OSError:
+            pass
+    return size
+
+
+def catalog() -> dict:
+    """Every title 1-54 with its static facts, install summary, bytes on disk and, when this
+    process has already asked the OLRC, whether it is behind the current release point.
+    Never touches the network: `GET /api/usc/release?refresh=true` is the explicit check."""
+    static = static_catalog()
+    release = usc_client.cached_release()
+    current = release["release_point"] if release else None
+    installed = set(usc_store.installed_titles())
+    rows = []
+    for n in usc_client.TITLE_RANGE:
+        s = static["titles"].get(str(n), {})
+        inst = usc_store.title_summary(n) if n in installed else None
+        row = {
+            "title": n,
+            "name": s.get("name") or (inst or {}).get("name") or f"Title {n}",
+            "reserved": n in usc_client.RESERVED or bool(s.get("reserved")),
+            "positive_law": bool(inst["positive_law"]) if inst else bool(s.get("positive_law")),
+            "desk": s.get("desk") or "More titles",
+            "cfr": list(s.get("cfr") or []),
+            "installed": None,
+        }
+        if inst:
+            row["installed"] = {
+                "release_point": inst["release_point"],
+                "built_at": inst["built_at"],
+                "section_count": inst["section_count"],
+                "note_count": inst["note_count"],
+                "bytes": title_bytes(n),
+                "stale": bool(current and inst["release_point"] != current),
+            }
+        rows.append(row)
+    return {
+        "release": ({"release_point": release["release_point"], "current_through": release.get("current_through")}
+                    if release else None),
+        "desks": list(static.get("desks") or []),
+        "titles": rows,
+    }
+
+
+def queue_titles(titles: list[int]) -> dict:
+    """Queue installs for titles that aren't installed and, when the current release point is
+    known, updates for installed titles behind it (a bundle download). Reserved titles skip."""
+    from . import library as lib
+    release = usc_client.cached_release()
+    current = release["release_point"] if release else None
+    queued, skipped = [], []
+    for n in dict.fromkeys(int(t) for t in titles):
+        if n not in usc_client.TITLE_RANGE or n in usc_client.RESERVED:
+            skipped.append({"title": n, "code": "usc", "reason": "reserved"})
+            continue
+        if lib.queue.busy_with(job_key(n)):
+            skipped.append({"title": n, "code": "usc", "reason": "queued"})
+            continue
+        inst = usc_store.title_summary(n)
+        if inst is None:
+            queued.append(submit(n, "usc-title"))
+        elif current and inst["release_point"] != current:
+            queued.append(submit(n, "usc-update"))
+        else:
+            skipped.append({"title": n, "code": "usc", "reason": "current"})
+    return {"queued": queued, "skipped": skipped, "count": len(queued)}
+
+
+# ---------------------------------------------------------------------------
 # Library queue and daily check
 # ---------------------------------------------------------------------------
 

@@ -275,9 +275,10 @@ export interface NewsActivityCtx {
 
 export interface TransferJob {
   id: number;
+  /** CFR titles 1–50; Federal Register corpus 0; U.S. Code title N is 1000 + N. */
   title: number;
-  kind: 'title' | 'part' | 'section' | 'update';
-  target?: { t?: string; id?: string; part?: string } | null;
+  kind: 'title' | 'part' | 'section' | 'update' | 'usc-title' | 'usc-update' | 'fr-build' | 'fr-update';
+  target?: { t?: string; id?: string; part?: string; usc_title?: number } | null;
   label: string;
   state: 'queued' | 'running' | 'done' | 'error' | 'cancelled';
   phase?: string;

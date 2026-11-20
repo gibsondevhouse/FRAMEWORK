@@ -10,7 +10,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel, Field
 
-from .. import config, library
+from .. import config, library, usc_build
 
 router = APIRouter(prefix="/api/library")
 
@@ -94,7 +94,12 @@ def library_batch_download(req: BatchDownloadRequest) -> dict:
         suite = library.COMPLIANCE_SUITES.get(req.suite)
         if not suite:
             raise HTTPException(404, f"No suite {req.suite!r}.")
-        titles = suite["titles"]
+        res = _library_call(library.queue_titles, suite["titles"])
+        if suite.get("usc_titles"):
+            usc = usc_build.queue_titles(suite["usc_titles"])
+            res = {"queued": res["queued"] + usc["queued"], "skipped": res["skipped"] + usc["skipped"],
+                   "count": res["count"] + usc["count"]}
+        return res
     elif req.titles:
         if any(not 1 <= t <= 50 for t in req.titles):
             raise HTTPException(400, "CFR titles are numbered 1 to 50.")

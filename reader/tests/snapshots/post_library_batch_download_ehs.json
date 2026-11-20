@@ -1,6 +1,55 @@
 {
-  "count": 0,
-  "queued": [],
+  "count": 3,
+  "queued": [
+    {
+      "done": null,
+      "error": null,
+      "finished_at": null,
+      "id": 1,
+      "kind": "usc-title",
+      "label": "U.S. Code Title 29",
+      "phase": "Waiting",
+      "queued_at": "«int»",
+      "state": "queued",
+      "target": {
+        "usc_title": 29
+      },
+      "title": 1029,
+      "total": null
+    },
+    {
+      "done": null,
+      "error": null,
+      "finished_at": null,
+      "id": 2,
+      "kind": "usc-title",
+      "label": "U.S. Code Title 42",
+      "phase": "Waiting",
+      "queued_at": "«int»",
+      "state": "queued",
+      "target": {
+        "usc_title": 42
+      },
+      "title": 1042,
+      "total": null
+    },
+    {
+      "done": null,
+      "error": null,
+      "finished_at": null,
+      "id": 3,
+      "kind": "usc-title",
+      "label": "U.S. Code Title 49",
+      "phase": "Waiting",
+      "queued_at": "«int»",
+      "state": "queued",
+      "target": {
+        "usc_title": 49
+      },
+      "title": 1049,
+      "total": null
+    }
+  ],
   "skipped": [
     {
       "reason": "current",

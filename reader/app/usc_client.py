@@ -104,6 +104,13 @@ def current_release(c: httpx.Client | None = None, force: bool = False) -> dict:
             c.close()
 
 
+def cached_release() -> dict | None:
+    """The last release point fetched in this process, however old, or None. Never touches the
+    network (the Library's catalog uses it to mark stale titles while staying offline)."""
+    with _cache_lock:
+        return dict(_release_cache[1]) if _release_cache else None
+
+
 def clear_cache() -> None:
     global _release_cache
     with _cache_lock:

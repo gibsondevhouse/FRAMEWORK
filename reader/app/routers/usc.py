@@ -43,6 +43,13 @@ def list_titles() -> dict:
     return {"titles": rows}
 
 
+@usc_router.get("/catalog")
+def title_catalog() -> dict:
+    """All 54 titles for the Library: static facts, install state, bytes, staleness against
+    the release point this server last saw. Local only."""
+    return usc_build.catalog()
+
+
 @usc_router.get("/release")
 def current_release(refresh: bool = False) -> dict:
     """The OLRC's current release point and which installed titles are behind it."""

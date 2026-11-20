@@ -39,8 +39,9 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a strict
 - **Portable by default.** Workspaces live in your browser's `localStorage` and can be exported or imported as JSON files anytime for backups or sharing.
 
 ### The Library & Transfer Dock
+- **Two codes, one library.** The Library has three tabs: **Overview** (what's installed, what needs updating, and the bundles), **U.S. Code** (all 54 titles by topic, with the CFR titles each one authorizes) and **CFR**. The Federal Register stays in the Newsroom.
 - **Newsroom-style catalog.** Browse all 50 CFR titles organized by topic desk, see what's installed or outdated at a glance, and check the **Regulatory Wire** to see which titles were amended most recently.
-- **Curated Compliance Suites.** Install related titles together in one click—such as *Environment, Health & Safety* (Titles 29, 40, 49), *Trade & Commerce*, or *Government Contracting*.
+- **Curated bundles.** Install related titles together in one click, statutes included—such as *Environment, Health & Safety* (CFR Titles 29, 40, 49 plus 29, 42 and 49 U.S.C.), *Trade & Commerce*, or *Government Contracting*.
 - **Granular installs.** Download an entire title, a single part, or just one section or appendix. You can always expand a partial install later, or hit **Update all** to bring everything up to the latest eCFR edition.
 - **Floating Transfer Dock.** Downloads run in a background queue with a compact floating progress card in the corner—showing pipeline stages, download speed, and time remaining—so you can keep reading while titles install.
 - **Storage cleanup.** Check how much disk space each title uses and clear out leftover temporary files right from **Settings**.

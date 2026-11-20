@@ -406,6 +406,32 @@ class ApiTests(UscTestCase):
         self.assertIn("<title>4 U.S.C. 7</title>", page.text)
         self.assertIn('href="/usc/4/1"', page.text)
 
+    def test_catalog_is_offline_and_marks_stale_from_the_cached_release(self):
+        with mock.patch.object(usc_client, "client", side_effect=AssertionError("network")):
+            c = self.client.get("/api/usc/catalog").json()
+        self.assertIsNone(c["release"])
+        self.assertEqual(len(c["titles"]), 54)
+        self.assertIn("Labor, Health & Safety", c["desks"])
+        t29 = c["titles"][28]
+        self.assertEqual((t29["title"], t29["name"], t29["desk"], t29["cfr"], t29["installed"]),
+                         (29, "Labor", "Labor, Health & Safety", [29], None))
+        self.assertTrue(c["titles"][52]["reserved"])
+        self.assertTrue(c["titles"][48]["positive_law"])
+
+        self.install(FakeOLRC(rp="119-140"))
+        c = self.client.get("/api/usc/catalog").json()
+        inst = c["titles"][3]["installed"]
+        self.assertEqual((inst["release_point"], inst["section_count"], inst["stale"]), ("119-140", 4, False))
+        self.assertGreater(inst["bytes"], 0)
+        usc_client.clear_cache()
+        with FakeOLRC(rp="119-142").patch():
+            self.client.get("/api/usc/release")
+        c = self.client.get("/api/usc/catalog").json()
+        self.assertEqual(c["release"]["release_point"], "119-142")
+        self.assertTrue(c["titles"][3]["installed"]["stale"])
+        storage = self.client.get("/api/library/storage").json()
+        self.assertEqual([u["title"] for u in storage["usc"]], [4])
+
     def test_federated_search_include_usc(self):
         self.install()
         with mock.patch.object(config, "installed_titles", return_value=[]):

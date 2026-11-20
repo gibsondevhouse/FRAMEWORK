@@ -1,0 +1,155 @@
+/* ---------- Shared page system: the editorial look Home introduced ----------
+   One masthead (folio line, serif display title, sub line, actions), one cushioned tab
+   switchboard, a tab lead card and a KPI strip, reused by Home (#/) and the Library
+   (#/library…) through components/page_shell.ts. Page-specific bands keep their own
+   prefixes (hm-, lib-). A page root carries `.pg` (container `pg`) and its own class. */
+.view:has(> .pg) { max-width: 1160px; padding-top: 22px; padding-bottom: 108px; }
+.pg {
+  --pg-ink: color-mix(in oklab, var(--fg-strong) 94%, var(--accent) 6%);
+  container: pg / inline-size; position: relative; display: flex; flex-direction: column; gap: 16px;
+  background-image: radial-gradient(ellipse 74% 240px at 50% -40px, color-mix(in oklab, var(--accent) 5%, transparent), transparent 74%);
+  background-repeat: no-repeat;
+}
+.pg-tab-body { display: flex; flex-direction: column; gap: 18px; }
+
+/* Masthead: calm dateline, approachable serif title, soft-contoured tab dock */
+.pg-masthead { display: flex; flex-direction: column; gap: 0; }
+.pg-folio {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 0 2px 12px; border-bottom: 1px solid var(--line-soft);
+  font: var(--w-regular) 11.5px/1.2 var(--sans); letter-spacing: .02em;
+  color: var(--fg-3); font-variant-numeric: tabular-nums;
+}
+.pg-folio a { color: var(--fg-2); text-decoration: none; }
+.pg-folio a:hover { color: var(--fg-strong); }
+.pg-folio-brand { font-weight: var(--w-medium); letter-spacing: .12em; color: var(--fg-2); font-size: 10.5px; }
+.pg-folio-left, .pg-folio-right { display: inline-flex; align-items: center; gap: 0; flex-wrap: wrap; }
+.pg-folio .sep, .pg-sub .sep, .pg-lead-kicker .sep, .pg-kpi-sub .sep { margin: 0 8px; color: var(--fg-4); }
+
+.pg-head {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+  padding: 20px 2px 18px;
+}
+.pg-title-copy { min-width: 0; flex: 1 1 340px; }
+.pg-head .pg-display {
+  margin: 0 0 6px; font: 400 38px/1.08 var(--serif);
+  letter-spacing: -.02em; color: var(--pg-ink); text-rendering: optimizeLegibility;
+}
+.pg-sub { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.pg-head-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 2px; }
+.pg-head-acts .btn { border-radius: var(--r-8); }
+.pg-head-acts .btn .icon { width: 14px; height: 14px; }
+
+/* Tab switchboard: cushioned rounded tray of equal tabs */
+.pg-tabs {
+  display: grid; grid-template-columns: repeat(var(--pg-tab-count, 4), minmax(0, 1fr)); width: 100%;
+  gap: 6px; padding: 6px;
+  border-radius: 14px; border: 1px solid var(--line-soft);
+  background: color-mix(in oklab, var(--card) 75%, var(--panel));
+  box-shadow: var(--shadow-inset-field);
+}
+.pg-tab {
+  position: relative; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px;
+  min-width: 0; width: 100%; padding: 12px 15px;
+  border-radius: var(--r-10); border: 1px solid transparent;
+  background: transparent; text-align: left; text-decoration: none;
+  font: var(--w-medium) 13px/1.25 var(--sans); color: var(--fg-3); cursor: pointer;
+  transition: color var(--t-ui) var(--ease-out), background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out);
+}
+.pg-tab:hover {
+  color: var(--fg); text-decoration: none;
+  background: color-mix(in oklab, var(--tier-hue, var(--fg)) 4%, var(--hover));
+}
+.pg-tab.is-active {
+  color: var(--pg-ink);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--tier-hue, var(--fg)) 8%, var(--card-hover)) 0%, var(--card) 100%);
+  border-color: color-mix(in oklab, var(--tier-hue, var(--line-strong)) 30%, var(--line));
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.pg-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.pg-tab-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 16px;
+}
+.pg-tab-abbr {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: var(--w-semibold) 10.5px/1 var(--mono); letter-spacing: .05em; text-transform: uppercase;
+  color: color-mix(in oklab, var(--tier-hue, var(--fg-3)) 82%, var(--fg-3));
+}
+.pg-tab-right { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.pg-tab-count {
+  flex: 0 0 auto; font: var(--w-regular) 11px/1 var(--sans); color: var(--fg-4); font-variant-numeric: tabular-nums;
+}
+.pg-tab.is-active .pg-tab-count { color: var(--fg-3); }
+.pg-tab-label {
+  font: 400 15.5px/1.24 var(--serif); letter-spacing: -.012em; color: var(--fg);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pg-tab.is-active .pg-tab-label { color: var(--pg-ink); }
+.pg-tab-sub {
+  font: var(--w-regular) 11.5px/1.35 var(--sans); color: var(--fg-3);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Tab lead card & KPI strip */
+.pg-lead {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  padding: 22px 24px;
+  border-radius: 14px; border: 1px solid var(--line-soft);
+  background: radial-gradient(120% 110% at 0% 0%, color-mix(in oklab, var(--tier-hue, var(--fg)) 6.5%, transparent), transparent 65%), var(--card-bg);
+  box-shadow: var(--card-top);
+}
+.pg-lead-copy { min-width: 0; flex: 1 1 360px; display: flex; flex-direction: column; gap: 6px; }
+.pg-lead-kicker {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font: var(--w-regular) 11.5px/1.2 var(--sans); color: var(--fg-3);
+}
+.pg-lead-title {
+  margin: 0; font: 400 26px/1.18 var(--serif); letter-spacing: -.016em; color: var(--pg-ink);
+}
+.pg-lead-sub { margin: 0; font-size: 13.5px; color: var(--fg-2); line-height: 1.55; max-width: 68ch; text-wrap: pretty; }
+.pg-lead-acts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pg-lead-acts .btn { border-radius: var(--r-8); }
+.pg-lead-acts .btn .icon { width: 14px; height: 14px; }
+
+.pg-kpi-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.pg-kpi-cell {
+  display: flex; flex-direction: column; gap: 5px; min-width: 0;
+  padding: 16px 18px;
+  border-radius: var(--r-12); border: 1px solid var(--line-soft);
+  background: var(--card-bg); box-shadow: var(--card-top);
+}
+.pg-kpi-cell.is-alert { border-color: color-mix(in oklab, var(--warn, var(--editorial-gold)) 34%, var(--line-soft)); }
+.pg-kpi-lbl {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: var(--w-medium) 11px/1.2 var(--sans); letter-spacing: .03em;
+  color: color-mix(in oklab, var(--tier-hue, var(--fg-3)) 74%, var(--fg-3));
+}
+.pg-kpi-val {
+  font: 400 20px/1.2 var(--serif); letter-spacing: -.014em; color: var(--pg-ink);
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pg-kpi-sub {
+  font: var(--w-regular) 11.5px/1.35 var(--sans); color: var(--fg-3); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pg-kpi-sub .metric-link { font-size: inherit; }
+
+/* Section flag: a quiet band heading with a count on the right */
+.pg-flag {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 4px 2px 0;
+}
+.pg-flag-title { margin: 0; font: 400 20px/1.25 var(--serif); letter-spacing: -.012em; color: var(--pg-ink); }
+.pg-flag-meta { font: var(--w-regular) 12px/1.3 var(--sans); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+
+@container pg (max-width: 820px) {
+  .pg-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container pg (max-width: 860px) {
+  .pg-kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container pg (max-width: 560px) {
+  .pg-kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 12px; }
+  .pg-head { flex-direction: column; align-items: flex-start; }
+  .pg-head .pg-display { font-size: 32px; }
+}
