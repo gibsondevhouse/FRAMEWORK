@@ -388,6 +388,56 @@ def install(kind: str, staged: Path, path: Path) -> None:
         usc_store.clear_caches(title)
 
 
+@contextmanager
+def staged_copy(kind: str, path: Path, tag: str = "reindex") -> Iterator[Path]:
+    """For rewriting part of a built artifact (a CFR or U.S.C. title) without touching the
+    live file: yields the path of a private, consistent copy. On a clean exit the copy must
+    pass `quick_check`, then it replaces the live file under the store's swap rules, which
+    also drops that title's caches. On any error it is deleted and the live file is as it was."""
+    path = Path(path)
+    work = work_path(path, tag)
+    with _LOCK:
+        seen = _fingerprint(path)
+        try:
+            _copy(path, work)
+            yield work
+            with closing(sqlite3.connect(work)) as con:
+                found = quick_check(con)
+            if found != "ok":
+                raise MigrationError(f"the rewritten copy of {path.name} failed its integrity check: {found}")
+            if _fingerprint(path) != seen:
+                raise MigrationError(f"{path.name} changed while its copy was being rewritten; nothing was replaced. Run it again.")
+            install(kind, work, path)
+        except BaseException:
+            _discard(work)
+            raise
+
+
+@contextmanager
+def staged_file(path: Path, tag: str = "reindex") -> Iterator[Path]:
+    """For building a derived SQLite store from scratch: yields a temporary path beside
+    `path`. On a clean exit the new file must pass `quick_check`, then it is renamed over
+    `path`; on any error it is deleted and `path` is as it was. A store replaced this way
+    must not use WAL mode (a leftover `-wal` would be applied to the new file)."""
+    from .build import _replace_with_retry
+    path = Path(path)
+    work = work_path(path, tag)
+    _discard(work)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        yield work
+        if not work.exists():
+            raise MigrationError(f"nothing was written for {path.name}")
+        with closing(sqlite3.connect(work)) as con:
+            found = quick_check(con)
+        if found != "ok":
+            raise MigrationError(f"the new {path.name} failed its integrity check: {found}")
+        _replace_with_retry(work, path)
+    except BaseException:
+        _discard(work)
+        raise
+
+
 # ---------------------------------------------------------------------------
 # The runner
 # ---------------------------------------------------------------------------
