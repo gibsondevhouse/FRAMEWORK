@@ -1,7 +1,9 @@
 """Dependencies and CI (register SEC-005): the Python locks are fully pinned and hashed and
-agree with the ranges they were compiled from, the audit covers every pin, and the workflows
-pin their actions by commit and run with least privilege."""
+agree with the ranges they were compiled from, the audit covers every pin, the committed
+frontend bundle was built from the locked frontend dependencies, and the workflows pin their
+actions by commit and run with least privilege."""
 import importlib.util
+import json
 import re
 import unittest
 from pathlib import Path
@@ -16,6 +18,13 @@ REPO = Path(__file__).resolve().parents[2]
 READER = REPO / "reader"
 WORKFLOWS = REPO / ".github" / "workflows"
 LOCKS = ("requirements", "requirements-dev", "requirements-audit")
+FRONTEND = READER / "frontend"
+BUNDLE = READER / "static" / "dist" / "app.js"
+# How each runtime dependency that is compiled into the bundle states its version there.
+BUNDLE_VERSION_MARKS = {
+    "dompurify": (r'DOMPurify\.version = "(\d+\.\d+\.\d+)"', r"@license DOMPurify (\d+\.\d+\.\d+)"),
+    "marked": (r"\bmarked v(\d+\.\d+\.\d+)",),
+}
 
 _spec = importlib.util.spec_from_file_location("audit_python_locks", REPO / ".github" / "scripts" / "audit_python_locks.py")
 audit = importlib.util.module_from_spec(_spec)
@@ -120,6 +129,53 @@ class AuditCoverageTests(HermeticTestCase):
             want = sorted((audit.normalize(audit.PIN.match(b[0]).group("name")), audit.PIN.match(b[0]).group("version"))
                           for b in original)
             self.assertEqual(sorted(seen), want, name)
+
+
+def bundle_problems(runtime: dict, lock: dict, bundle: str) -> list[str]:
+    """Why the bundle cannot have been built from these locked runtime dependencies; empty when it was."""
+    problems = []
+    if set(runtime) != set(BUNDLE_VERSION_MARKS):
+        problems.append("a runtime dependency was added or removed: say in BUNDLE_VERSION_MARKS how the bundle shows its version")
+    for name, marks in BUNDLE_VERSION_MARKS.items():
+        locked = lock[f"node_modules/{name}"]["version"]
+        if lock[""]["dependencies"].get(name) != runtime.get(name):
+            problems.append(f"package.json and package-lock.json disagree on {name}")
+        for mark in marks:
+            built = set(re.findall(mark, bundle))
+            if not built:
+                problems.append(f"static/dist/app.js no longer states its {name} version ({mark})")
+            elif built != {locked}:
+                problems.append(f"static/dist/app.js was built with {name} {sorted(built)}, but the lock pins {locked}: "
+                                "run `npm ci && npm run build` in reader/frontend and commit reader/static/dist/")
+    return problems
+
+
+class FrontendBundleTests(HermeticTestCase):
+    """`npm audit` reads package-lock.json, but what the app serves is the committed
+    static/dist/app.js, which has marked and DOMPurify compiled in. An update that changes only
+    the lock (a security bump from Dependabot) would pass the audit and leave the old code
+    being served, and the build stamp would not notice, since it covers sources only. So the
+    version each library states inside the bundle must be the locked one."""
+
+    def setUp(self):
+        super().setUp()
+        self.runtime = json.loads((FRONTEND / "package.json").read_text(encoding="utf-8"))["dependencies"]
+        self.lock = json.loads((FRONTEND / "package-lock.json").read_text(encoding="utf-8"))["packages"]
+        self.bundle = BUNDLE.read_text(encoding="utf-8")
+
+    def test_the_committed_bundle_was_built_from_the_locked_dependencies(self):
+        self.assertEqual(bundle_problems(self.runtime, self.lock, self.bundle), [])
+
+    def test_a_lock_only_update_is_caught(self):
+        for name in BUNDLE_VERSION_MARKS:
+            bumped = json.loads(json.dumps(self.lock))
+            bumped[f"node_modules/{name}"]["version"] = "999.0.1"          # the lock moved; the bundle did not
+            problems = bundle_problems(self.runtime, bumped, self.bundle)
+            self.assertTrue(problems and all(f"lock pins 999.0.1" in p for p in problems), (name, problems))
+        # Other ways the check must not pass quietly.
+        self.assertTrue(bundle_problems(self.runtime, self.lock, "console.log('no libraries here')"))
+        self.assertTrue(bundle_problems({**self.runtime, "left-pad": "1.0.0"}, self.lock, self.bundle))
+        self.assertTrue(bundle_problems({**self.runtime, "marked": "0.0.1"}, self.lock, self.bundle))
 
 
 class WorkflowTests(HermeticTestCase):

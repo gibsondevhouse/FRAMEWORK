@@ -41,7 +41,10 @@ jobs:
         with:
           node-version: "22"
 
-      # Reads package-lock.json only; nothing is installed. Any severity fails.
+      # Reads package-lock.json only; nothing is installed. Any severity fails. That the
+      # committed bundle in reader/static/dist/ was built from these locked versions is checked
+      # by tests/test_dependency_locks.py in the CI workflow, so a lock-only update cannot
+      # leave old library code being served.
       - name: Audit frontend dependencies
         if: ${{ !cancelled() }}
         working-directory: reader/frontend
