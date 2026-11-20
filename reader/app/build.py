@@ -147,6 +147,45 @@ def download_stream(client: httpx.Client, url: str, dest_path: Path, on_bytes=No
     raise RuntimeError("unreachable")
 
 
+def file_sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def provenance_rows(base_url: str, structure_url: str, structure: dict,
+                    piece_hashes: list[tuple[str, str]], fetched_at: str) -> list[tuple[str, str]]:
+    """meta rows recording where a build's inputs came from and what they hashed to.
+
+    - `source_url`: the full-text XML URL (`?part=`/`?section=` pieces share it as base).
+    - `xml_sha256`: SHA-256 of the downloaded XML file (decoded bytes as written to disk);
+      with several pieces, the SHA-256 of a manifest of `url<TAB>sha256` lines
+      (`xml_sha256_kind` = `file` | `manifest`, pieces listed in `xml_pieces`).
+    - `structure_sha256`: SHA-256 of the structure JSON in canonical form (sorted keys,
+      compact separators), since `fetch_json` hands back parsed JSON, not bytes.
+    - `fetched_at`: UTC time the structure (and then the XML) was fetched.
+    Titles built before these rows existed simply lack them; readers report "unknown"."""
+    import hashlib
+    canon = json.dumps(structure, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    rows = [
+        ("source_url", base_url),
+        ("structure_url", structure_url),
+        ("structure_sha256", hashlib.sha256(canon.encode("utf-8")).hexdigest()),
+        ("fetched_at", fetched_at),
+    ]
+    if len(piece_hashes) == 1:
+        rows += [("xml_sha256", piece_hashes[0][1]), ("xml_sha256_kind", "file")]
+    else:
+        manifest = "".join(f"{u}\t{h}\n" for u, h in piece_hashes)
+        rows += [("xml_sha256", hashlib.sha256(manifest.encode("utf-8")).hexdigest()),
+                 ("xml_sha256_kind", "manifest"),
+                 ("xml_pieces", json.dumps([{"url": u, "sha256": h} for u, h in piece_hashes]))]
+    return rows
+
+
 def _replace_with_retry(src: Path, dest: Path, before=None, attempts: int = 40) -> None:
     """Windows won't replace a file another handle has open (the server's SQLite connections
     and tree responses). `before()` asks those holders to let go; retry briefly until they do."""
@@ -222,7 +261,9 @@ def build(
 
         report("Downloading contents")
         log("downloading structure JSON...")
-        structure = fetch_json(client, f"{config.ECFR_API}/structure/{edition}/title-{title}.json")
+        structure_url = f"{config.ECFR_API}/structure/{edition}/title-{title}.json"
+        structure = fetch_json(client, structure_url)
+        fetched_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         tree = disambiguate_leaf_ids(nest_loose_sections(trim_tree(structure)))
         if scope is not None:
             tree = prune_tree(tree, scope)
@@ -278,6 +319,7 @@ def build(
 
         log(f"downloading full text XML via streaming ({len(pieces)} request{'s' if len(pieces) != 1 else ''})...")
         piece_parts: list[str] = []
+        piece_hashes: list[tuple[str, str]] = []
         for i, (url, path, p_hint) in enumerate(pieces):
             if len(pieces) == 1:
                 # Without a Content-Length, measure the XML written against the structure's own
@@ -290,6 +332,7 @@ def build(
             download_stream(client, url, path, on_bytes=on_bytes)
             xml_paths.append(path)
             piece_parts.append(p_hint)
+            piece_hashes.append((url, file_sha256(path)))
         report("Downloading text", 1, 1)
 
     log(f"parsing XML for Title {title} using iterparse (flat memory)...")
@@ -384,6 +427,7 @@ def build(
             ]
             if missing:
                 meta_rows.append(("missing_sample", json.dumps(missing[:10])))
+            meta_rows += provenance_rows(base, structure_url, structure, piece_hashes, fetched_at)
             if scope is not None:
                 meta_rows.append(("scope", json.dumps(scope)))
             con.executemany("INSERT INTO meta VALUES (?,?)", meta_rows)

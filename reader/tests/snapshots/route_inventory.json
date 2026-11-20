@@ -57,6 +57,7 @@
   "POST /api/usc/update-all",
   "DELETE /api/usc/{title}",
   "GET /usc/{title}/{section_id:path}",
+  "GET /api/integrity",
   "GET /api/{title}/meta",
   "GET /api/{title}/tree",
   "GET /api/{title}/section/{section_id:path}",

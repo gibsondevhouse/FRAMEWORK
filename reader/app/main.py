@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config, library, news_store, news_worker, store
 from .routers import chat as chat_routes
 from .routers import fr as fr_routes
+from .routers import integrity as integrity_routes
 from .routers import library as library_routes
 from .routers import news as news_routes
 from .routers import reader as reader_routes
@@ -83,6 +84,7 @@ app.include_router(news_router)
 app.include_router(fr_routes.fr_router)
 app.include_router(usc_routes.usc_router)
 app.include_router(usc_routes.usc_page_router)
+app.include_router(integrity_routes.integrity_router)
 app.include_router(reader_routes.title_router)
 app.include_router(chat_routes.title_router)
 app.include_router(reader_routes.legacy_router)

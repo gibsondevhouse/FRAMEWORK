@@ -93,8 +93,13 @@ def build(
     progress=None,
     release: dict | None = None,
     keep_xml: bool = False,
+    keep_source: bool = False,
 ) -> dict:
-    """Build (or rebuild) one title at the current release point."""
+    """Build (or rebuild) one title at the current release point.
+
+    `keep_source` keeps the downloaded zip and extracted XML as `usc-{N}.zip` /
+    `usc-{N}.xml` in DATA_DIR, so `python -m app.integrity` can re-hash them later
+    (`keep_xml` keeps just the XML)."""
     report = progress or _noop
     title = valid_title(title)
     target_db = usc_store.db_path(title)
@@ -114,7 +119,6 @@ def build(
                                           on_bytes=lambda got, total: report("Downloading title", got, total))
         report("Extracting")
         member, xml_sha = _extract_xml(zip_tmp, xml_tmp)
-        zip_tmp.unlink(missing_ok=True)
 
         report("Reading text", 0, None)
         db_tmp.unlink(missing_ok=True)
@@ -193,8 +197,17 @@ def build(
         for p in tmp_files(title):
             p.unlink(missing_ok=True)
         raise
-    if not keep_xml:
+    zip_cache, xml_cache = source_cache(title)
+    if keep_source:
+        zip_tmp.replace(zip_cache)
+    else:
+        zip_tmp.unlink(missing_ok=True)
+        zip_cache.unlink(missing_ok=True)      # a stale cache would no longer match meta
+    if keep_source or keep_xml:
+        xml_tmp.replace(xml_cache)
+    else:
         xml_tmp.unlink(missing_ok=True)
+        xml_cache.unlink(missing_ok=True)
     after_install(title)
     result = {"title": title, "name": meta["title_name"], "release_point": meta["release_point"],
               "section_count": counters["sections"], "note_count": counters["notes"],
@@ -203,6 +216,11 @@ def build(
     log(f"built Title {title} at {meta['release_point']}: {counters['sections']} sections, "
         f"{counters['notes']} notes in {result['elapsed_sec']}s")
     return result
+
+
+def source_cache(title: int) -> tuple[Path, Path]:
+    """Where `keep_source` leaves the title's zip and XML."""
+    return config.DATA_DIR / f"usc-{title}.zip", config.DATA_DIR / f"usc-{title}.xml"
 
 
 def sqlite3_connect(path: Path):
@@ -221,7 +239,7 @@ def after_install(title: int | None = None) -> None:
 def remove(title: int) -> bool:
     title = valid_title(title)
     gone = False
-    for p in (usc_store.db_path(title), usc_store.tree_path(title)):
+    for p in (usc_store.db_path(title), usc_store.tree_path(title), *source_cache(title)):
         if p.exists():
             p.unlink()
             gone = True
@@ -320,6 +338,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--update", action="store_true", help="rebuild installed titles that are behind")
     parser.add_argument("--status", action="store_true", help="show installed vs current release points")
     parser.add_argument("--keep-xml", action="store_true", help="keep the extracted XML in data/")
+    parser.add_argument("--keep-source", action="store_true",
+                        help="keep the zip and XML in data/ so `python -m app.integrity` can re-hash them")
     args = parser.parse_args(argv)
     try:
         if args.status:
@@ -334,7 +354,8 @@ def main(argv: list[str] | None = None) -> None:
             parser.error("give --title N (or --update / --status)")
         release = usc_client.current_release()
         for t in args.title:
-            print(json.dumps(build(t, force=args.force, release=release, keep_xml=args.keep_xml), indent=2))
+            print(json.dumps(build(t, force=args.force, release=release, keep_xml=args.keep_xml,
+                                   keep_source=args.keep_source), indent=2))
     except (usc_client.SourceUnavailable, ValueError, zipfile.BadZipFile) as exc:
         log(f"failed: {exc}")
         sys.exit(1)

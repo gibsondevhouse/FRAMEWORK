@@ -25,8 +25,8 @@ Rate limits: requests are paced (FR_MIN_INTERVAL seconds apart, default 1) and 4
 answers are retried with backoff (Retry-After honoured). A build that still stops is
 resumable: run the same command again and finished (title, month) chunks are skipped.
 
-TODO(govinfo): cross-check `raw_sha256`/page ranges against GovInfo's FR package
-metadata once an api.data.gov key is configured (`verify_against_govinfo` below).
+GovInfo cross-check: `verify_against_govinfo(day)` / `python -m app.integrity`
+(needs GOVINFO_API_KEY, an api.data.gov key).
 """
 from __future__ import annotations
 
@@ -184,8 +184,10 @@ def pending_build() -> dict | None:
     tmp = fr_store.tmp_path()
     if not tmp.exists():
         return None
-    try:
-        with closing(fr_store.connect(path=tmp)) as con:
+    try:  # read-only: a build may be writing to the staging DB right now
+        import sqlite3
+        with closing(sqlite3.connect(f"{tmp.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0)) as con:
+            con.row_factory = sqlite3.Row
             raw = fr_store.get_meta(con).get("pending_build")
     except Exception:
         return None
@@ -385,10 +387,14 @@ def fetch_body(document_number: str, c=None) -> dict:  # noqa: C901
             "source_url": url, "fetched_at": fetched, "chars": len(text)}
 
 
-def verify_against_govinfo(document_number: str) -> None:  # pragma: no cover - TODO hook
-    """TODO(govinfo): compare a stored document with GovInfo's FR granule metadata
-    (needs an api.data.gov key). Intentionally unimplemented."""
-    raise NotImplementedError
+def verify_against_govinfo(day: str) -> dict | None:
+    """Compare the corpus's documents published on `day` with GovInfo's FR package
+    (`app.govinfo`; None without GOVINFO_API_KEY). Also run by `python -m app.integrity`."""
+    from . import govinfo
+    with fr_store.read_con() as con:
+        nums = {r[0] for r in con.execute(
+            "SELECT document_number FROM documents WHERE publication_date = ?", (day,))} if con else set()
+    return govinfo.cross_check_fr(day, nums)
 
 
 # ---------------------------------------------------------------------------

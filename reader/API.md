@@ -341,6 +341,11 @@ A standalone HTML page for one section (the target of local U.S.C. citation link
 
 `GET /api/search?include=usc` (or `include=fr,usc`) adds a `usc` block (`{installed, total, results}`).
 
+## Integrity
+
+### `GET /api/integrity`
+Params: `corpus` (`cfr` | `fr` | `usc`), `title` (cfr/usc), `offline` (skip eCFR / OLRC / GovInfo), `govinfo_date`. Returns `{status, summary{OK,WARN,FAIL,INFO}, items[{corpus, target, check, status, detail, …}], checked_at, online}`, the same report as `python -m app.integrity --json`. Checks database health, counts, recorded hashes and versions (`unknown` for stores built before they were recorded), cached source re-hashes, FR record/body hashes, FR coverage gaps and freshness, staleness against eCFR / the OLRC, and (with `GOVINFO_API_KEY`) a GovInfo cross-check of one day's FR documents.
+
 ## Library (download from eCFR)
 
 ### `GET /api/library`
