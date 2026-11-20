@@ -41,6 +41,7 @@ TRACKED_KEYS = (
     "GOVINFO_API_KEY",
     "GOV_MIN_INTERVAL",
     "SERVER_ALLOWED_HOSTS",
+    "SERVER_REQUIRE_TOKEN",
 )
 
 # Starlette's TestClient sends `Host: testserver`. The local trust guard (app/security.py)

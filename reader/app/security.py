@@ -25,8 +25,16 @@ and no proxy forwarding header. The `Host` header alone proves nothing (any clie
 `Host: localhost` to a server bound to the network), which is why the connection's own
 address is checked. Local use is unchanged: no token, no prompt, and no token file is created.
 
+One case cannot be told apart from local use: a reverse proxy on this same computer that
+passes requests on without any forwarding header. Its visitors arrive over loopback, and one
+of them can send `Host: localhost`. Such a proxy must add `X-Forwarded-For` (any
+`X-Forwarded-*`, `Forwarded` or `X-Real-IP` header counts) to every request, or the owner sets
+`SERVER_REQUIRE_TOKEN=1`, which asks every request for the token, local ones included.
+
 The token is 256 random bits, generated on this computer the first time it is needed and kept
-in `data/access-token`, readable by its owner only. It is never logged and never put in a URL.
+in `data/access-token`, readable by its owner only (POSIX file modes; Windows has none, so
+there the file has the permissions of the folder it is in). It is read from the file on every
+use, never cached, never logged and never put in a URL.
 A browser presents it through its built-in sign-in prompt (HTTP Basic: any user name, the
 token as the password) and then sends it by itself on every request, including the page's own
 `fetch` calls, so the single-page app needs no change. Scripts send
@@ -54,6 +62,7 @@ import re
 import secrets
 import stat
 import sys
+import tempfile
 import threading
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -76,12 +85,16 @@ EXTRA_ALLOWED_HOSTS: set[str] = set()
 # The same for the address on the other end of the connection (the test client's `testclient`).
 EXTRA_LOCAL_PEERS: set[str] = set()
 
-# Headers a reverse proxy adds when it relays a request for someone else.
-FORWARDING_HEADERS = ("forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip")
+# Headers a reverse proxy adds when it relays a request for someone else: these two, and
+# anything that starts with `x-forwarded-` (-for, -host, -proto, -port, ...).
+FORWARDING_HEADERS = ("forwarded", "x-real-ip")
+FORWARDING_PREFIX = "x-forwarded-"
 
 TOKEN_FILE = "access-token"
-TOKEN_BYTES = 32            # 256 bits; `secrets.token_urlsafe` writes them as 43 characters
-MIN_TOKEN_CHARS = 32        # anything shorter in the file was not generated here: replace it
+TOKEN_BYTES = 32                                            # 256 bits
+TOKEN_CHARS = len(secrets.token_urlsafe(TOKEN_BYTES))       # which is 43 URL-safe characters
+# What a token generated here looks like. Anything else in the file is replaced, never accepted.
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{%d,}" % TOKEN_CHARS)
 
 BAD_HOST = ("Invalid Host header. FRAMEWORK only answers under this computer's own name; "
             "list another name in SERVER_ALLOWED_HOSTS (reader/.env) to serve it there.")
@@ -151,66 +164,97 @@ def is_local_peer(client: tuple | list | None) -> bool:
     return (getattr(ip, "ipv4_mapped", None) or ip).is_loopback
 
 
+def is_forwarded(headers: Headers) -> bool:
+    """True when a header says a proxy relayed this request for someone else."""
+    return any(name in FORWARDING_HEADERS or name.startswith(FORWARDING_PREFIX) for name in headers.keys())
+
+
+def token_always_required() -> bool:
+    """`SERVER_REQUIRE_TOKEN=1`: ask every request for the token, local ones included. For a
+    reverse proxy on this computer that cannot be made to add a forwarding header."""
+    return os.environ.get("SERVER_REQUIRE_TOKEN", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def is_local_request(headers: Headers, client: tuple | list | None = None) -> bool:
     """True for a request made on this computer, which needs no token: a loopback `Host`, a
     loopback peer, and nothing saying a proxy relayed it for someone else."""
+    if token_always_required():
+        return False
     if host_name(headers.get("host", "")) not in (LOOPBACK_HOSTS | EXTRA_ALLOWED_HOSTS):
         return False
-    return is_local_peer(client) and not any(h in headers for h in FORWARDING_HEADERS)
+    return is_local_peer(client) and not is_forwarded(headers)
 
 
 # --- The access token (SEC-002) -------------------------------------------------------------
 
 _token_lock = threading.Lock()
-_token_cache: tuple[tuple, str] | None = None
 
 
 def token_path() -> Path:
     return config.DATA_DIR / TOKEN_FILE
 
 
-def _write_private(path: Path, text: str) -> None:
-    """Write `text` to `path` so that it is never readable by anyone but its owner, not even
-    briefly: the temporary file is created with mode 0600, then moved into place."""
+def _read_token(path: Path) -> str | None:
+    """The token in the file, or None when there is no file or it does not hold a token
+    generated here. Read from disk every time, never cached: a rotation, however it was done,
+    counts from the next request. The file is made owner-only again if someone loosened it."""
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return None
+    if os.name == "posix" and stat.S_IMODE(st.st_mode) & 0o077:
+        os.chmod(path, 0o600)
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except UnicodeDecodeError:
+        return None
+    return token if _TOKEN_RE.fullmatch(token) else None
+
+
+def _install_token(path: Path, token: str, replace: bool) -> None:
+    """Put a token file in place without it ever being readable by anyone but its owner: it is
+    written to a temporary file of its own (created with mode 0600, under a unique name, so
+    two processes never share one) and then moved into place in one step.
+
+    With `replace` the new file takes the old one's place. Without it the first writer wins:
+    if another process has created the file meanwhile, that file stays and this one is dropped.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".new")
-    tmp.unlink(missing_ok=True)
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    tmp = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-        os.replace(tmp, path)
-    except BaseException:
+            fh.write(token + "\n")
+        if replace:
+            os.replace(tmp, path)
+            return
+        try:
+            os.link(tmp, path)                  # atomic, and refuses to overwrite
+        except FileExistsError:
+            pass                                # someone else's token is already there: keep it
+        except OSError:
+            os.replace(tmp, path)               # a filesystem without hard links
+    finally:
         tmp.unlink(missing_ok=True)
-        raise
 
 
 def access_token(rotate: bool = False) -> str:
-    """The access token, created on first use (or replaced, with `rotate`). Re-read when the
-    file changes, so a token rotated from the command line takes effect without a restart.
-    Raises `OSError` when the file can be neither read nor written."""
-    global _token_cache
+    """The access token as it is on disk right now, created on first use (or replaced, with
+    `rotate`). Always returns what the file holds after the call, which is another process's
+    token if that process got there first. Raises `OSError` when the file can be neither read
+    nor written."""
     path = token_path()
     with _token_lock:
+        replace = rotate
         if not rotate:
-            try:
-                st = path.stat()
-            except OSError:
-                st = None
-            if st is not None:
-                key = (str(path), st.st_mtime_ns, st.st_size)
-                if _token_cache is not None and _token_cache[0] == key:
-                    return _token_cache[1]
-                token = path.read_text(encoding="utf-8").strip()
-                if len(token) >= MIN_TOKEN_CHARS:
-                    if os.name == "posix" and stat.S_IMODE(st.st_mode) & 0o077:
-                        os.chmod(path, 0o600)       # someone loosened it: owner-only again
-                    _token_cache = (key, token)
-                    return token
-        token = secrets.token_urlsafe(TOKEN_BYTES)
-        _write_private(path, token + "\n")
-        st = path.stat()
-        _token_cache = ((str(path), st.st_mtime_ns, st.st_size), token)
+            token = _read_token(path)
+            if token is not None:
+                return token
+            replace = path.exists()             # there, but not a token generated here
+        _install_token(path, secrets.token_urlsafe(TOKEN_BYTES), replace)
+        token = _read_token(path)
+        if token is None:
+            raise OSError(f"the access token file could not be written: {path}")
         return token
 
 

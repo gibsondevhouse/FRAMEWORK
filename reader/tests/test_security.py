@@ -204,8 +204,28 @@ class LocalRequestTests(HermeticTestCase):
         self.assertFalse(security.is_local_request(local, LAN_PEER))
         # A listed name is another computer's way in, even over loopback (a local reverse proxy).
         self.assertFalse(security.is_local_request(Headers({"host": LAN_HOST}), THIS_PEER))
-        for name in security.FORWARDING_HEADERS:
+        # Whatever a reverse proxy adds to say it is relaying, `X-Forwarded-Proto` alone included.
+        for name in ("forwarded", "x-real-ip", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto",
+                     "X-Forwarded-Port", "x-forwarded-server"):
             self.assertFalse(security.is_local_request(Headers({"host": HOST, name: "203.0.113.9"}), THIS_PEER), name)
+        self.assertTrue(security.is_local_request(Headers({"host": HOST, "x-requested-with": "x", "via": "1.1 dev"}), THIS_PEER))
+
+    def test_the_owner_can_require_the_token_from_everyone(self):
+        """For a reverse proxy on this computer that adds no forwarding header: its visitors
+        look local, so `SERVER_REQUIRE_TOKEN=1` stops treating anything as local."""
+        local = Headers({"host": HOST})
+        self.assertFalse(security.token_always_required())
+        for value in ("1", "true", "YES", " on "):
+            os.environ["SERVER_REQUIRE_TOKEN"] = value
+            self.assertFalse(security.is_local_request(local, THIS_PEER), value)
+            self.assertEqual(security.check_request("GET", "/api/titles", local, "http", THIS_PEER),
+                             (401, security.NEED_TOKEN), value)
+        token = security.access_token()
+        self.assertIsNone(security.check_request(
+            "GET", "/api/titles", Headers({"host": HOST, "authorization": f"Bearer {token}"}), "http", THIS_PEER))
+        for value in ("", "0", "no", "off"):
+            os.environ["SERVER_REQUIRE_TOKEN"] = value
+            self.assertTrue(security.is_local_request(local, THIS_PEER), value)
 
 
 class TokenStoreTests(HermeticTestCase):
@@ -217,7 +237,10 @@ class TokenStoreTests(HermeticTestCase):
         self.assertRegex(token, r"^[A-Za-z0-9_-]+$")
         self.assertEqual(path.read_text(encoding="utf-8"), token + "\n")
         self.assertEqual(security.access_token(), token)
+        self.assertEqual(len(token), security.TOKEN_CHARS)
         self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["access-token"])   # no temp file left
+        security.access_token(rotate=True)
+        self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["access-token"])
 
     def test_two_installs_never_share_a_token(self):
         first = security.access_token()
@@ -241,9 +264,12 @@ class TokenStoreTests(HermeticTestCase):
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         security.access_token(rotate=True)
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        os.chmod(path, 0o644)                        # loosened by hand: tightened again on the next read
-        security._token_cache = None
-        security.access_token()
+        for loose in (0o644, 0o660, 0o604):          # loosened by hand: tightened again on the very next use
+            os.chmod(path, loose)
+            security.access_token()
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600, oct(loose))
+        os.chmod(path, 0o644)
+        self.assertFalse(security.token_matches("Bearer wrong"))                 # ... a refused request included
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_a_rotation_from_the_command_line_takes_effect_without_a_restart(self):
@@ -266,14 +292,76 @@ class TokenStoreTests(HermeticTestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(security.main(["--help"]), 2)
 
+    def test_a_rotation_counts_even_when_the_files_size_and_timestamp_do_not_change(self):
+        """A filesystem with coarse timestamps: the new token has the same length as the old,
+        and the file the same modification time. The old token must stop working at once."""
+        path = security.token_path()
+        old = security.access_token()
+        before = path.stat()
+        new = "n" * len(old)
+        path.write_text(new + "\n", encoding="utf-8")
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        after = path.stat()
+        self.assertEqual((after.st_size, after.st_mtime_ns), (before.st_size, before.st_mtime_ns))
+        self.assertFalse(security.token_matches(f"Bearer {old}"))
+        self.assertTrue(security.token_matches(f"Bearer {new}"))
+
     def test_a_token_that_was_not_generated_here_is_replaced(self):
         path = security.token_path()
-        for weak in ("", "hunter2\n", "   \n"):
-            path.write_text(weak, encoding="utf-8")
-            security._token_cache = None
+        short = security.TOKEN_CHARS - 1
+        for weak in (b"", b"hunter2\n", b"   \n", b"a" * 32, b"a" * short, b"a" * short + b"!", b"a" * short + b" b",
+                     b"\xff\xfe" + b"a" * 50):
+            path.write_bytes(weak)
             token = security.access_token()
-            self.assertGreaterEqual(len(token), 43)
-            self.assertFalse(security.token_matches(f"Bearer {weak.strip()}"))
+            self.assertEqual(len(token), security.TOKEN_CHARS, weak)
+            self.assertNotEqual(token.encode(), weak.strip())
+            self.assertFalse(security.token_matches("Bearer " + weak.decode("latin-1").strip()), weak)
+        path.write_text("a" * security.TOKEN_CHARS + "\n", encoding="utf-8")       # the shape of a generated one: kept
+        self.assertEqual(security.access_token(), "a" * security.TOKEN_CHARS)
+
+    def test_two_processes_creating_the_token_at_once_end_up_with_the_same_one(self):
+        """The server and `python -m app.security` both find no token and both generate one.
+        The first file in place wins; the other process uses that one, not its own."""
+        path = security.token_path()
+        theirs = "t" * security.TOKEN_CHARS
+        real_install = security._install_token
+
+        def other_process_gets_there_first(p, token, replace):
+            real_install(p, theirs, False)             # the other process, between our read and our write
+            real_install(p, token, replace)
+
+        with mock.patch.object(security, "_install_token", other_process_gets_there_first):
+            ours = security.access_token()
+        self.assertEqual(ours, theirs)
+        self.assertEqual(path.read_text(encoding="utf-8").strip(), theirs)
+        self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["access-token"])
+        # A rotation, on the other hand, is meant to replace what is there.
+        self.assertNotEqual(security.access_token(rotate=True), theirs)
+
+    def test_temporary_files_are_private_and_never_shared(self):
+        path = security.token_path()
+        made: list[str] = []
+        real_mkstemp = tempfile.mkstemp
+
+        def watch(*args, **kwargs):
+            fd, name = real_mkstemp(*args, **kwargs)
+            made.append(name)
+            if os.name == "posix":
+                self.assertEqual(stat.S_IMODE(os.stat(name).st_mode), 0o600)        # before anything is written
+            return fd, name
+
+        with mock.patch.object(security.tempfile, "mkstemp", watch):
+            security.access_token()
+            security.access_token(rotate=True)
+        self.assertEqual(len(set(made)), 2)                                         # a name of its own each time
+        self.assertTrue(all(Path(n).parent == path.parent and n.endswith(".tmp") for n in made))
+        self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["access-token"])
+
+    def test_a_filesystem_without_hard_links_still_gets_a_token(self):
+        with mock.patch.object(security.os, "link", side_effect=OSError("not supported")):
+            token = security.access_token()
+        self.assertEqual(security.token_path().read_text(encoding="utf-8").strip(), token)
+        self.assertEqual(sorted(p.name for p in security.token_path().parent.iterdir()), ["access-token"])
 
     def test_the_header_forms(self):
         self.assertEqual(security.presented_token("Bearer abc"), "abc")
@@ -340,7 +428,6 @@ class TokenRuleTests(HermeticTestCase):
         blocker = security.token_path().parent / "not-a-directory"
         blocker.write_text("", encoding="utf-8")
         with mock.patch.object(security, "token_path", lambda: blocker / "access-token"):
-            security._token_cache = None
             self.assertEqual(lan_check(authorization="Bearer anything"), (503, security.TOKEN_UNAVAILABLE))
             self.assertIsNone(lan_check(client=THIS_PEER, host=HOST))             # local use still works
 
