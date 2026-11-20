@@ -1,0 +1,5 @@
+# The dependency audit tool that CI runs (.github/workflows/audit.yml). Kept apart from the
+# runtime and dev locks so that auditing never changes what the app is tested with.
+# Do not install from this file. Install from requirements-audit.txt, the hashed lock compiled from it
+# (the commands are at the top of requirements.in).
+pip-audit>=2.10,<3

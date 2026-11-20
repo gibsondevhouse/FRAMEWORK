@@ -24,6 +24,8 @@ cd reader
 
 Frontend sources changed? `cd reader/frontend && npm install && npm run build` (Node 20+), then commit `reader/static/dist/`. Windows: `..\.venv\Scripts\python`.
 
+Python dependencies: `reader/requirements*.txt` are hashed locks compiled from the `.in` files beside them (`uv pip compile --universal --generate-hashes`; the commands are at the top of `reader/requirements.in`). Edit the `.in`, recompile, commit both; never hand-edit a lock, never install from a `.in`, and keep every GitHub Action pinned to a commit with a `# vX.Y.Z` comment and every workflow at `permissions: contents: read` (`tests/test_dependency_locks.py` checks all of it; `.github/workflows/audit.yml` fails on a known vulnerability).
+
 ## Contracts a change must keep
 
 1. **Build stamp.** `tests/test_build_stamp.py` hashes `reader/frontend/src/**` + `index.html` and compares with `static/dist/build-stamp.json`. Editing frontend sources without `npm run build` fails CI.

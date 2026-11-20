@@ -44,6 +44,8 @@ cd reader
 ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
+`reader/requirements.txt` is a locked list: every package at one exact version, with checksums that `pip` verifies as it installs. The ranges it is compiled from are in `reader/requirements.in`.
+
 ### Manual setup (Windows / PowerShell)
 
 ```powershell
