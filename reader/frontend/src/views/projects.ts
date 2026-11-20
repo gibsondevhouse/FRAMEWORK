@@ -6,6 +6,7 @@ import {
   createProject, addTabGroupToWorkspace, updateProject, projectHue, projDot, secKey,
   projectsWith, togglePin, currentSectionRef, clipToWorkspace, downloadJson, exportProjects,
   WorkspaceRecord,
+  USC_TIER,
 } from '../core/projects_store';
 import { updateChatContext } from '../components/chat';
 import { clearTreeSelection } from '../components/sidebar';
@@ -262,19 +263,23 @@ export function renderProjects(id: string | null): void {
   }
   document.title = `${p.name} · Workspaces · FRAMEWORK`;
   const installed = new Set(state.installedTitles.map(t => t.title));
+  const installedUsc = new Set((state.installedUscTitles || []).map(t => t.title));
   const groupedHtml = TIER_ORDER.map(tier => {
     const tierSecs = p.sections.filter(s => (s.tier || 'federal-reg') === tier);
     if (!tierSecs.length) return '';
     const tMeta = TIER_META[tier] || TIER_META['federal-reg'];
     const rTier = tMeta.refTier;
     const rows = tierSecs.map(s => {
-      const href = `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
+      const isUsc = s.tier === USC_TIER;
+      const href = isUsc ? `#/usc/${s.title}/section/${encodeURIComponent(s.id)}` : `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
+      const have = isUsc ? installedUsc.has(s.title) : installed.has(s.title);
+      const libHref = isUsc ? `#/library/usc/${s.title}` : `#/library/${s.title}`;
       return `<article class="proj-item has-tier-bar" data-ref-tier="${rTier}">
         <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(tMeta.tag)}</span>${SEP}Title ${s.title}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ''}</span>
           <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || '').slice(0, 10)))}</span></div>
-        <h3 class="story-name">${installed.has(s.title) ? `<a href="${href}">${escapeHtml(s.label || '§ ' + s.id)} ${escapeHtml(s.heading || '')}</a>`
+        <h3 class="story-name">${have ? `<a href="${href}">${escapeHtml(s.label || '§ ' + s.id)} ${escapeHtml(s.heading || '')}</a>`
           : `${escapeHtml(s.label || '§ ' + s.id)} ${escapeHtml(s.heading || '')}`}</h3>
-        ${installed.has(s.title) ? '' : `<p class="proj-missing">Title ${s.title} isn’t installed. <a href="#/library/${s.title}">Download it</a> to read this section.</p>`}
+        ${have ? '' : `<p class="proj-missing">${isUsc ? `${s.title} U.S.C.` : `Title ${s.title}`} isn’t installed. <a href="${libHref}">Download it</a> to read this section.</p>`}
         <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || '')}</textarea>
         <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
       </article>`;

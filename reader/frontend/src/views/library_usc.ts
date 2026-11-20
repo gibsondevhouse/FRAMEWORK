@@ -10,8 +10,8 @@ import { kpiStripHtml, tabLeadHtml } from '../components/page_shell';
 // `GET /api/usc/catalog` lists all 54 titles offline (static names, desks and implementing
 // CFR titles from app/usc_titles.json, install state from each usc-{N}.sqlite3, staleness
 // against the release point this server last fetched). Installs run on the shared library
-// queue as title 1000 + N (`usc-title` / `usc-update`). Sections open on the server-rendered
-// page `/usc/{t}/{s}` until the SPA has a U.S. Code reader.
+// queue as title 1000 + N (`usc-title` / `usc-update`). Sections open in the in-app U.S. Code
+// reader (views/reader_usc.ts, `#/usc/{t}/section/{s}`).
 
 export const USC_JOB_BASE = 1000;
 

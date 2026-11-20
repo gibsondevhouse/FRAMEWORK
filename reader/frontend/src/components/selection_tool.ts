@@ -4,7 +4,7 @@ import { openChat } from '../components/chat';
 import { positionPopover } from './popover';
 import { getActiveSplitDoc } from './split_pane';
 import { dom } from '../state_init';
-import { formatCfrCitation, resolveParagraphPath } from '../views/doc_utils';
+import { formatRefCitation, resolveParagraphPath } from '../views/doc_utils';
 
 // --- Selection Floating Tool ("Explain", "Ask about this", "Clip") ---
 state.selectedText = '';
@@ -67,7 +67,7 @@ dom.askFloat.addEventListener('click', (e) => {
       clipToWorkspace(ref, {
         para: selectedPara,
         quote: state.selectedText,
-        cite: formatCfrCitation(ref.title, ref.label, selectedPara),
+        cite: formatRefCitation(ref, selectedPara),
       });
     }
     dom.askFloat.hidden = true;

@@ -342,12 +342,35 @@ class RenderAndLinkTests(UscTestCase):
         self.install()
         d = usc_store.get_section(4, "7")
         html = uslm_html.render_body(d["xml"])
-        self.assertIn('<div class="usc-level usc-subsection"><span class="usc-num">(b)</span>', html)
+        # Levels render as the CFR reader's flat paragraphs (marker, run-in heading, deterministic id).
+        self.assertIn('<p class="reg-p" id="p1">The flag, when carried in a procession—</p>', html)
+        self.assertIn('<p class="reg-p lvl-1" id="p2"><span class="pmark">(a)</span> should not be displayed', html)
+        self.assertIn('<p class="reg-p lvl-1" id="p3"><span class="pmark">(b)</span> <strong class="runin">Wind</strong> should be hoisted', html)
+        self.assertNotIn("usc-level", html)
+        self.assertIn('<div class="table-wrap"><table class="reg-table">', html)
         self.assertIn('<th colspan="2">Hours</th>', html)
         self.assertNotIn("onclick", html)
         self.assertNotIn("§ 7.", html)                                 # num/heading come from the payload
         self.assertIn('href="/usc/4/1"', html)                         # installed → local
         self.assertIn('href="https://www.law.cornell.edu/uscode/text/36/301"', html)   # not installed → Cornell
+
+    def test_nested_levels_flatten_to_cfr_paragraphs(self):
+        xml = ('<section><num>§ 9.</num><heading>H</heading><subsection><num>(a)</num><heading>In general.—</heading>'
+               '<chapeau>lead</chapeau><paragraph><num>(1)</num><content><p>one</p><p>more</p></content></paragraph>'
+               '<paragraph><num>(2)</num><subparagraph><num>(A)</num><content>deep</content></subparagraph></paragraph>'
+               '<continuation>after</continuation></subsection><subsection><num>(b)</num><content>bee'
+               '<quotedContent><subsection><num>(z)</num><content>quoted</content></subsection></quotedContent>'
+               '</content></subsection><sourceCredit>(Pub. L. 1.)</sourceCredit></section>')
+        html = uslm_html.render_body(xml)
+        self.assertIn('<p class="reg-p lvl-1" id="p1"><span class="pmark">(a)</span> <strong class="runin">In general.—</strong> lead</p>', html)
+        self.assertIn('<p class="reg-p lvl-2" id="p2"><span class="pmark">(1)</span> one</p>', html)
+        self.assertIn('<p class="reg-p lvl-2" id="p3">more</p>', html)
+        # A number with no text of its own folds into its first child, as eCFR writes "(5)(A)".
+        self.assertIn('<p class="reg-p lvl-2" id="p4"><span class="pmark">(2)(A)</span> deep</p>', html)
+        self.assertIn('<p class="reg-p lvl-1 reg-continuation" id="p5">after</p>', html)
+        # Quoted (amending) text is not flattened into this section's own paragraphs.
+        self.assertIn('<blockquote class="usc-quotedContent"><div class="usc-level usc-subsection">', html)
+        self.assertIn('<p class="usc-sourceCredit">(Pub. L. 1.)</p>', html)
 
     def test_cfr_linkifier_points_to_local_copy_when_installed(self):
         lk = make_linkifier(lambda x: False, 29, installed_titles=lambda: [])
@@ -405,6 +428,13 @@ class ApiTests(UscTestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn("<title>4 U.S.C. 7</title>", page.text)
         self.assertIn('href="/usc/4/1"', page.text)
+        # Same stylesheet and markup as the in-app reader, not a design of its own.
+        self.assertIn('<link rel="stylesheet" href="/static/dist/app.css">', page.text)
+        self.assertIn('<h1 class="doc-title">§ 7 Position and manner of display</h1>', page.text)
+        self.assertIn('<article class="reg-body usc-body"><p class="reg-p"', page.text)
+        self.assertIn('href="/#/usc/4/section/7"', page.text)
+        self.assertNotIn("Georgia", page.text)
+        self.assertIn('This section is repealed.', self.client.get("/usc/4/2").text)
 
     def test_catalog_is_offline_and_marks_stale_from_the_cached_release(self):
         with mock.patch.object(usc_client, "client", side_effect=AssertionError("network")):

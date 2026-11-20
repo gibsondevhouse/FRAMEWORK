@@ -27,6 +27,7 @@ docs/title-29-api/
 reader/data/*.sqlite3
 reader/data/*.sqlite3-*
 reader/data/tree*.json
+reader/data/usc-tree*.json
 reader/data/*.tmp
 
 # Frontend toolchain (reader/static/dist/ is committed on purpose)

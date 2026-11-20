@@ -150,7 +150,24 @@ export function togglePin(projectId: string, sec: WorkspaceSectionRef): boolean 
   return pinned;
 }
 
+export const USC_TIER = 'federal-statute';
+
+/** A U.S. Code section's workspace reference (tier `federal-statute`, so Workspaces link it to the U.S.C. reader). */
+export function uscSectionRef(title: number, sec: { id: string; label?: string; heading?: string }): WorkspaceSectionRef {
+  return {
+    title,
+    id: sec.id,
+    label: (sec.label || `§ ${sec.id}`).replace(/\.\s*$/, ''),
+    heading: sec.heading || '',
+    tier: USC_TIER,
+    jurisdiction: 'US',
+  };
+}
+
 export function currentSectionRef(): WorkspaceSectionRef | null {
+  if (!state.currentSection && state.currentUscSection && state.currentUscTitle) {
+    return uscSectionRef(state.currentUscTitle, state.currentUscSection);
+  }
   if (!state.currentSection) return null;
   return {
     title: state.currentTitle,

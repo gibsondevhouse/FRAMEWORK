@@ -20,9 +20,8 @@ function activePinSection(): WorkspaceSectionRef | null {
 }
 
 export function pinButtonHtml(secRef: Pick<WorkspaceSectionRef, 'title' | 'id'> | null = null, id = 'btn-pin'): string {
-  const t = secRef ? secRef.title : state.currentTitle;
-  const sId = secRef ? secRef.id : state.currentSection?.id;
-  const n = sId ? projectsWith(t, sId).length : 0;
+  const ref = secRef || currentSectionRef();
+  const n = ref ? projectsWith(ref.title, ref.id).length : 0;
   const cls = id === 'btn-pin' ? 'btn' : 'btn btn-small';
   return `<button type="button" class="${cls}${n ? ' is-pinned' : ''}" id="${id}" aria-haspopup="dialog" aria-expanded="false" title="Pin to a workspace (${isMac ? '⌘' : 'Ctrl '}D)">${icon(n ? 'bookmarkFilled' : 'bookmark')} ${n ? 'Pinned' : 'Pin'}</button>`;
 }

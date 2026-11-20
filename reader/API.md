@@ -331,7 +331,7 @@ Asks the OLRC for the current release point (cached 30 min; `?refresh=true` bypa
 Title summary, and the contents tree (`t/id/l/d/c`, sections carry `s` = status). 404 when not installed.
 
 ### `GET /api/usc/{title}/section/{section_id}`
-Accepts `655`, `§ 655` or `29 U.S.C. 655(b)`. Returns `id, identifier, label, heading, status` (`repealed`, `omitted`, `transferred`, … or `null`), `chapter, path, ord, text, source_credit, html` (allowlist-rendered body; U.S.C. references link to the local copy when installed, else Cornell LII), `notes[{category: editorial | statutory | executive, topic, heading, html, text}]` (kept apart from the section text, QUIRK-006), `prev`, `next`, `citation`.
+Accepts `655`, `§ 655` or `29 U.S.C. 655(b)`. Returns `id, identifier, label, heading, status` (`repealed`, `omitted`, `transferred`, … or `null`), `chapter, path, ord, text, source_credit, html` (allowlist-rendered body as the CFR reader's flat paragraphs — `<p class="reg-p lvl-N" id="pN">` with a `span.pmark` number; U.S.C. references link to the local copy when installed, else Cornell LII), `notes[{category: editorial | statutory | executive, topic, heading, html, text}]` (kept apart from the section text, QUIRK-006), `prev`, `next`, `citation`.
 
 ### `GET /api/usc/search`
 `q`, optional `title`, `limit`; `notes=true` (with `title`) also searches the notes. Exact section number first, then FTS5 (bm25 label 8 / heading 6 / text 1).
@@ -340,7 +340,7 @@ Accepts `655`, `§ 655` or `29 U.S.C. 655(b)`. Returns `id, identifier, label, h
 Queue one title (`{title}`) or every installed title that is behind the current release point on the library queue (jobs appear with `title: 1000 + N`, `kind: usc-title | usc-update`); remove a title (409 while it has a job).
 
 ### `GET /usc/{title}/{section_id}`
-A standalone HTML page for one section (the target of local U.S.C. citation links until the app has a U.S.C. reader).
+A standalone HTML page for one section: the href of local U.S.C. citation links (inside the app a click opens the in-app reader at `#/usc/{title}/section/{id}` instead) and a printable fallback. It links the app's own stylesheet, so it looks like the reader.
 
 `GET /api/search?include=usc` (or `include=fr,usc`) adds a `usc` block (`{installed, total, results}`).
 

@@ -54,7 +54,7 @@ export async function handleRoute(): Promise<void> {
     const decodeUsc = (s: string): string => { try { return decodeURIComponent(s); } catch { return s; } };
     if (rest.startsWith('section/')) {
       const secId = decodeUsc(rest.slice('section/'.length));
-      await loadUscRoute(uscTitle, { sectionId: secId });
+      await loadUscRoute(uscTitle, { sectionId: secId, para: params.get('p') });
     } else if (rest.startsWith('node/')) {
       const nodeId = decodeUsc(rest.slice('node/'.length));
       await loadUscRoute(uscTitle, { nodeId });

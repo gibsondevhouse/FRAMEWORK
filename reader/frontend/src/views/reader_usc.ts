@@ -1,13 +1,14 @@
 import { state, UscSectionData, UscTitleSummary, UscTreeNodeData } from '../state';
 import { fetchUscMeta, fetchUscSection, fetchUscTree } from '../api/client';
+import { currentSectionRef, uscSectionRef } from '../core/projects_store';
 import { onView } from '../core/view_dispatch';
 import { corpusHashFor } from '../components/corpora';
-import { adjustFontSize } from '../components/rail';
+import { pinButtonHtml } from '../components/pin_pop';
 import { fmtSections, statPill } from '../components/ui';
 import { docStepBtn, setViewHead } from '../components/view_head';
-import { enterView, escapeHtml, icon, showToast } from '../dom';
+import { enterView, escapeHtml, icon, plural } from '../dom';
 import { dom } from '../state_init';
-import { renderViewError } from './doc_utils';
+import { createParaToolsController, highlightTarget, renderViewError } from './doc_utils';
 import { cfrChipsHtml, uscCite, uscLibHref, uscSectionHref } from './library_usc';
 
 export const uscTitleHref = (title: number): string => `#/usc/${title}/`;
@@ -168,7 +169,7 @@ function renderUscNode(
   const crumbs = [
     `<a href="${uscTitleHref(titleNum)}">${escapeHtml(uscCite(titleNum))}</a>`,
     ...ancestors.map(a => `<a href="${uscNodeHref(titleNum, a.id)}">${escapeHtml(nodeDisplayLabel(a))}</a>`),
-  ].join(' <span aria-hidden="true">›</span> ');
+  ].join('<span class="sep" aria-hidden="true">›</span>');
 
   const children = node.c || [];
   const rows = children.map(c => {
@@ -186,12 +187,22 @@ function renderUscNode(
     </a>`;
   }).join('');
 
-  dom.view.innerHTML = `<div class="ts-front">
-    <header class="reg-head">
-      <div class="reg-kicker">${crumbs}${meta?.title_name ? ` · ${escapeHtml(meta.title_name)}` : ''}</div>
-      <h1 class="reg-title">${escapeHtml(nodeDisplayLabel(node))}${node.d ? ` — ${escapeHtml(node.d)}` : ''}</h1>
-    </header>
-    <div style="margin-bottom:14px">
+  const sep = '<span class="sep" aria-hidden="true">·</span>';
+  const counts = nodeStats(node);
+  dom.view.innerHTML = `<div class="usc-node-page">
+    <div class="doc-kicker" data-ref-tier="usc">
+      <span class="ref-badge">U.S. CODE</span>${sep}${crumbs}
+      ${counts.total ? `${sep}<span>${plural(counts.total - counts.inactive, 'active section')}</span>` : ''}
+    </div>
+    <h1 class="doc-title">${escapeHtml(nodeDisplayLabel(node))}${node.d ? ` — ${escapeHtml(node.d)}` : ''}</h1>
+    <div class="doc-actions">
+      ${counts.first ? `<a class="btn btn-accent" href="${uscSectionHref(titleNum, counts.first)}">${icon('book')} Start reading</a>` : ''}
+      <div class="spacer"></div>
+      <div class="doc-actions-util">
+        <button type="button" class="btn" id="btn-copy-link" title="Copy direct link">${icon('link')} Copy link</button>
+      </div>
+    </div>
+    <div class="usc-node-tools">
       <input class="lib-filter" id="usc-node-filter" type="search" placeholder="Filter sections and subchapters…" aria-label="Filter sections" autocomplete="off" spellcheck="false">
     </div>
     <div class="lib-list" id="usc-node-list">${rows || '<p class="lib-none">No sections in this division.</p>'}</div>
@@ -210,20 +221,14 @@ function renderUscSection(titleNum: number, meta: UscTitleSummary | null, d: Usc
     : '';
   setViewHead(stepHtml);
 
-  const crumbs = [
-    `<a href="${uscTitleHref(titleNum)}">${escapeHtml(uscCite(titleNum))}</a>`,
-    ...(d.path || []).map(p => {
-      const label = [p.l, p.d].filter(Boolean).join(' ').trim();
-      if (!label) return '';
-      return p.id
-        ? `<a href="${uscNodeHref(titleNum, p.id)}">${escapeHtml(label)}</a>`
-        : escapeHtml(label);
-    }).filter(Boolean),
-  ].join(' <span aria-hidden="true">›</span> ');
-
-  const statusTag = d.status
-    ? ` <span class="ref-badge" data-ref-tier="usc" style="vertical-align:middle">${escapeHtml(d.status)}</span>`
+  // Like the CFR kicker ("29 CFR Part 1910"): the title, then the chapter holding the section.
+  const chapter = [...(d.path || [])].reverse().find(p => p.t === 'chapter') || (d.path || [])[0] || null;
+  const chapterLabel = chapter ? [chapter.l, chapter.d].filter(Boolean).join(' — ').trim() : '';
+  const chapterLink = chapter && chapterLabel
+    ? (chapter.id ? `<a href="${uscNodeHref(titleNum, chapter.id)}">${escapeHtml(chapterLabel)}</a>` : escapeHtml(chapterLabel))
     : '';
+  const label = (d.label || `§ ${d.id}`).replace(/\.\s*$/, '');
+  document.title = `${titleNum} U.S.C. ${label} · FRAMEWORK`;
 
   const notes = d.notes || [];
   let notesHtml = '';
@@ -246,20 +251,30 @@ function renderUscSection(titleNum: number, meta: UscTitleSummary | null, d: Usc
     </section>`;
   }
 
-  dom.view.innerHTML = `<header class="reg-head">
-      <div class="reg-kicker">${crumbs}${meta?.release_point ? ` · Release ${escapeHtml(meta.release_point)}` : ''}</div>
-      <h1 class="reg-title">${escapeHtml(d.label)} ${escapeHtml(d.heading)}${statusTag}</h1>
-      <div class="doc-actions">
-        ${notes.length ? `<button type="button" class="btn" id="usc-jump-notes">${icon('list')} Notes (${notes.length})</button>` : ''}
-        <a class="btn" href="/usc/${titleNum}/${encodeURIComponent(d.id)}" target="_blank" rel="noopener noreferrer">${icon('external')} Standalone</a>
-        <button type="button" class="btn" id="usc-copy">${icon('link')} Copy link</button>
+  dom.view.innerHTML = `
+    <div class="doc-kicker" data-ref-tier="usc">
+      <a href="${uscTitleHref(titleNum)}">${escapeHtml(uscCite(titleNum))}</a> ${chapterLink}
+      ${meta?.release_point ? `<span class="sep" aria-hidden="true">·</span><span>Release ${escapeHtml(meta.release_point)}</span>` : ''}
+    </div>
+    <h1 class="doc-title">${escapeHtml(label)} ${escapeHtml(d.heading)}</h1>
+
+    <div class="doc-actions">
+      ${chapter?.id ? `<a class="btn" href="${uscNodeHref(titleNum, chapter.id)}">${icon('list')} Chapter contents</a>` : ''}
+      ${pinButtonHtml(uscSectionRef(titleNum, d))}
+      ${notes.length ? `<button type="button" class="btn" id="usc-jump-notes">${icon('stack')} Notes (${notes.length})</button>` : ''}
+      <div class="spacer"></div>
+      <div class="doc-actions-util">
+        <a class="btn" href="/usc/${titleNum}/${encodeURIComponent(d.id)}" target="_blank" rel="noopener" title="Open a printable standalone page">${icon('external')} Standalone</a>
+        <button type="button" class="btn" id="btn-copy-link" title="Copy direct link">${icon('link')} Copy link</button>
         <div class="size-ctl" role="group" aria-label="Text size">
-          <button type="button" id="usc-font-dec" aria-label="Decrease text size" title="Smaller text">A−</button>
-          <button type="button" id="usc-font-inc" aria-label="Increase text size" title="Larger text">A+</button>
+          <button type="button" id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+          <button type="button" id="font-inc" title="Larger text" aria-label="Larger text">A+</button>
         </div>
       </div>
-    </header>
-    <article class="reg-body usc-body" id="reg-body">${d.html}</article>
+    </div>
+
+    ${d.status ? `<div class="reserved-note">This section is ${escapeHtml(d.status.toLowerCase())}.</div>` : ''}
+    <div class="reg-body usc-body" id="reg-body">${d.html}</div>
     ${notesHtml}`;
   enterView();
 }
@@ -306,13 +321,15 @@ export function renderUscDrawerHtml(titleNum: number): string {
 
 export async function loadUscRoute(
   titleNum: number,
-  opts: { nodeId?: string | null; sectionId?: string | null } = {},
+  opts: { nodeId?: string | null; sectionId?: string | null; para?: string | null } = {},
 ): Promise<void> {
   const seq = state.routeSeq;
   const signal = state.routeAbort?.signal;
   state.currentUscTitle = titleNum;
   state.currentUscNode = opts.nodeId || null;
   state.currentUscSection = null;
+  // The CFR reader's section state would otherwise keep its Cite/Pin/⌘D tools pointed at CFR.
+  state.currentSection = null;
 
   const { meta, tree } = await ensureUscTitleData(titleNum, signal);
   if (seq !== state.routeSeq) return;
@@ -335,6 +352,7 @@ export async function loadUscRoute(
       if (seq !== state.routeSeq) return;
       state.currentUscSection = sec;
       renderUscSection(titleNum, meta, sec);
+      if (opts.para) highlightTarget(dom.view, opts.para);
       if (drawerPanel) drawerPanel.innerHTML = renderUscDrawerHtml(titleNum);
     } catch (err) {
       if ((err as Error)?.name === 'AbortError' || seq !== state.routeSeq) return;
@@ -356,20 +374,22 @@ export async function loadUscRoute(
   renderUscTitleStart(titleNum, meta, tree);
 }
 
-onView('click', (e: Event) => {
+// Cite / Clip on hover, exactly as in the CFR reader, citing "29 U.S.C. § 655(b)(1)".
+const uscParaTools = createParaToolsController({
+  root: dom.view,
+  bodySelector: '.usc-body',
+  paraSelector: '.usc-body > .reg-p[id]',
+  isActive: () => Boolean(state.currentUscSection && !state.currentSection),
+  getSectionRef: currentSectionRef,
+  citeTitle: 'Copy U.S. Code citation',
+});
+
+onView('click', async (e: Event) => {
+  if (await uscParaTools.handleClick(e)) return;
   const t = e.target as Element | null;
   if (!t) return;
-  if (t.closest('#usc-font-dec')) { adjustFontSize(-1); return; }
-  if (t.closest('#usc-font-inc')) { adjustFontSize(1); return; }
   if (t.closest('#usc-jump-notes')) {
     document.getElementById('usc-notes')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    return;
-  }
-  if (t.closest('#usc-copy')) {
-    navigator.clipboard?.writeText(window.location.href)
-      .then(() => showToast('Link copied'))
-      .catch(() => showToast('Copy failed'));
-    return;
   }
 });
 

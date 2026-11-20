@@ -80,15 +80,109 @@ def render_element(el: ET.Element) -> str:
     return f'<span class="usc-{escape(tag, quote=True)}">{_children(el)}</span>'
 
 
+def _local(el: ET.Element) -> str:
+    return el.tag.rsplit("}", 1)[-1]
+
+
+def _block_html(el: ET.Element) -> str:
+    """A block that interrupts the paragraph flow (table, quoted text, source credit…)."""
+    if _local(el) == "table":
+        return f'<div class="table-wrap">{render_element(el).replace("<table", "<table class=\"reg-table\"", 1)}</div>'
+    return render_element(el)
+
+
+class _FlatBody:
+    """Flattens a section's nested USLM levels into the CFR reader's paragraph stream.
+
+    Every level (subsection (a) → paragraph (1) → subparagraph (A) → clause (i) …) becomes one
+    `<p class="reg-p lvl-N" id="pN">` with its number in `span.pmark` and its heading as a
+    `strong.runin`, exactly the shape `render/html.Renderer.paragraph` gives CFR text — so the
+    reader's measure, indents, hierarchy guides, deep links and Cite/Clip tools apply as-is.
+    Quoted (amending) text and tables stay blocks; nothing inside quotedContent is flattened.
+    """
+
+    def __init__(self) -> None:
+        self.out: list[str] = []
+        self.n = 0
+        self.run: list[str] = []
+        self.mark = ""
+        self.heading = ""
+        self.carry = ""   # a bare number ("(5)" with no text) folds into its first child: "(5)(A)"
+        self.lift = 0     # …and that paragraph keeps the outermost folded level's indent
+
+    def flush(self, depth: int, extra: str = "") -> None:
+        inner = "".join(self.run).strip()
+        if self.heading:
+            inner = f'<strong class="runin">{self.heading}</strong> {inner}'.rstrip()
+        if inner or self.mark:
+            self.n += 1
+            depth -= self.lift
+            cls = "reg-p" + (f" lvl-{min(depth, 6)}" if depth else "") + extra
+            mark = f'<span class="pmark">{self.mark}</span> ' if self.mark else ""
+            self.out.append(f'<p class="{cls}" id="p{self.n}">{(mark + inner).rstrip()}</p>')
+        self.run, self.mark, self.heading, self.lift = [], "", "", 0
+
+    def flow(self, el: ET.Element, depth: int) -> None:
+        """Inline text of a content/chapeau/continuation; its own <p>s become paragraphs."""
+        self.run.append(escape(el.text or "", quote=False))
+        for c in el:
+            tag = _local(c)
+            if tag in _SKIP:
+                pass
+            elif tag == "p":
+                if "".join(self.run).strip():
+                    self.flush(depth)
+                self.flow(c, depth)
+                self.flush(depth)
+            elif tag in _LEVEL_TAGS:
+                self.flush(depth)
+                self.level(c, depth + 1)
+            elif tag in _INLINE or tag == "ref":
+                self.run.append(render_element(c))
+            else:
+                self.flush(depth)
+                self.out.append(_block_html(c))
+            self.run.append(escape(c.tail or "", quote=False))
+
+    def level(self, el: ET.Element, depth: int, *, root: bool = False) -> None:
+        for c in el:
+            tag = _local(c)
+            if tag in _SKIP or (tag in ("notes", "note") and root):
+                continue
+            if tag in ("num", "heading"):
+                if not root:
+                    text = _children(c).strip()
+                    if tag == "num":
+                        self.mark, self.carry = self.carry + text, ""
+                    else:
+                        self.heading = text
+            elif tag in _LEVEL_TAGS:
+                if self.mark and not self.heading and not "".join(self.run).strip():
+                    self.carry, self.mark, self.run = self.mark, "", []
+                    self.lift += 1
+                else:
+                    self.flush(depth)
+                self.level(c, depth + 1)
+            elif tag in ("content", "chapeau"):
+                self.flow(c, depth)
+            elif tag == "continuation":
+                self.flush(depth)
+                self.flow(c, depth)
+                self.flush(depth, " reg-continuation")
+            elif tag == "p":
+                self.flow(c, depth)
+                self.flush(depth)
+            else:
+                self.flush(depth)
+                self.out.append(_block_html(c))
+        self.flush(depth)
+
+
 def render_body(xml: str) -> str:
-    """A stored section's body: everything but its own num and heading."""
-    root = ET.fromstring(xml)
-    out = [escape(root.text or "", quote=False).strip()]
-    for c in root:
-        if c.tag not in ("num", "heading"):
-            out.append(render_element(c))
-        out.append(escape(c.tail or "", quote=False))
-    return "".join(out).strip()
+    """A stored section's body (everything but its own num and heading) as flat CFR-style paragraphs."""
+    flat = _FlatBody()
+    flat.level(ET.fromstring(xml), 0, root=True)
+    return "".join(flat.out)
 
 
 def render_fragment(xml: str) -> str:
