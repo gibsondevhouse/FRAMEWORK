@@ -65,12 +65,15 @@ class FakeFR:
     """documents.json filtered on conditions[cfr][title] + publication_date window, paged."""
 
     def __init__(self, docs: list[dict], per_page_override: int | None = None, cap_ranges_wider_than: int | None = None,
-                 fail: bool = False, bodies: dict[str, bytes] | None = None):
+                 fail: bool = False, bodies: dict[str, bytes] | None = None,
+                 fail_months: tuple[str, ...] = (), throttle: list[httpx.Response] | None = None):
         self.docs = list(docs)
         self.per_page_override = per_page_override
         self.cap_days = cap_ranges_wider_than
         self.fail = fail
         self.bodies = bodies or {}
+        self.fail_months = fail_months          # e.g. ("2026-09",): 503 for queries starting that month
+        self.throttle = list(throttle or [])    # responses served (in order) before real answers
         self.requests: list[httpx.Request] = []
 
     def transport(self) -> httpx.MockTransport:
@@ -83,6 +86,12 @@ class FakeFR:
         self.requests.append(request)
         if self.fail:
             return httpx.Response(500, json={"error": "down"}, request=request)
+        if self.throttle:
+            r = self.throttle.pop(0)
+            return httpx.Response(r.status_code, headers=r.headers, json={"error": "slow down"}, request=request)
+        gte = request.url.params.get("conditions[publication_date][gte]", "")
+        if any(gte.startswith(m) for m in self.fail_months):
+            return httpx.Response(503, json={"error": "unavailable"}, request=request)
         if request.url.path.startswith("/documents/full_text/"):
             num = request.url.path.rsplit("/", 1)[-1].split(".")[0]
             if num in self.bodies:
@@ -264,13 +273,13 @@ class BuildTests(FrTestCase):
         self.assertEqual(len(days), 31, "split ranges must cover the month exactly")
         self.assertEqual(self.con().execute("SELECT count(*) FROM documents").fetchone()[0], 1)
 
-    def test_failed_build_keeps_live_corpus_and_removes_tmp(self):
+    def test_failed_build_keeps_live_corpus_and_staging_for_resume(self):
         self.build(FakeFR([HAZCOM]))
         before = fr_store.db_path().read_bytes()
         with self.assertRaises(fr_client.SourceUnavailable):
             self.build(FakeFR([], fail=True))
         self.assertEqual(fr_store.db_path().read_bytes(), before)
-        self.assertFalse(fr_store.tmp_path().exists())
+        self.assertTrue(fr_store.tmp_path().exists())       # kept for the next run to resume
 
     def test_build_without_titles_refuses(self):
         with mock.patch.object(config, "installed_titles", return_value=[]):
@@ -283,6 +292,125 @@ class BuildTests(FrTestCase):
         with FakeFR([HAZCOM]).patch():
             res = fr_build.build(titles=[29])
         self.assertEqual(res["mode"], "update")
+
+
+class RateLimitTests(FrTestCase):
+    def test_429_is_retried_honouring_retry_after(self):
+        fake = FakeFR([HAZCOM], throttle=[httpx.Response(429, headers={"Retry-After": "30"}),
+                                          httpx.Response(429, headers={"Retry-After": "7"})])
+        res = self.build(fake, titles=[29], since="2026-11-01", until="2026-11-18")
+        self.assertEqual(res["doc_count"], 1)
+        self.assertEqual(len(fake.doc_requests()), 3)
+        self.assertIn(30.0, self.fr_sleeps)
+        self.assertIn(7.0, self.fr_sleeps)
+
+    def test_5xx_backs_off_exponentially_then_gives_up(self):
+        fake = FakeFR([], fail=True)
+        with fake.patch(), mock.patch("random.uniform", return_value=1.0), \
+                self.assertRaises(fr_client.SourceUnavailable) as ctx:
+            fr_build.build(titles=[29], since="2026-11-01", until="2026-11-18", force=True)
+        self.assertIn("HTTP 500", str(ctx.exception))
+        self.assertEqual(len(fake.doc_requests()), fr_client.MAX_RETRIES + 1)
+        backoff = [x for x in self.fr_sleeps if x >= 2.0]
+        self.assertEqual(backoff, [2.0, 4.0, 8.0, 16.0, 32.0, 64.0])
+
+    def test_backoff_is_capped_and_jittered(self):
+        self.assertEqual(fr_client.backoff_delay(10), fr_client.MAX_BACKOFF_SEC)
+        self.assertEqual(fr_client.backoff_delay(0, retry_after=900), fr_client.MAX_BACKOFF_SEC)
+        for _ in range(20):
+            self.assertTrue(1.5 <= fr_client.backoff_delay(0) <= 2.5)
+
+    def test_retry_after_parsing(self):
+        now = datetime(2026, 11, 20, 0, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(fr_client.retry_after_seconds("12", now), 12.0)
+        self.assertEqual(fr_client.retry_after_seconds("Fri, 20 Nov 2026 00:01:30 GMT", now), 90.0)
+        self.assertEqual(fr_client.retry_after_seconds("Thu, 19 Nov 2026 23:00:00 GMT", now), 0.0)
+        self.assertIsNone(fr_client.retry_after_seconds("soon", now))
+        self.assertIsNone(fr_client.retry_after_seconds(None, now))
+
+    def test_requests_are_paced(self):
+        with mock.patch.dict("os.environ", {"FR_MIN_INTERVAL": "1.5"}):
+            fr_client.pace()
+            fr_client.pace()
+        self.assertEqual(len(self.fr_sleeps), 1)
+        self.assertTrue(1.4 < self.fr_sleeps[0] <= 1.5)
+        with mock.patch.dict("os.environ", {"FR_MIN_INTERVAL": "nonsense"}):
+            self.assertEqual(fr_client.min_interval(), fr_client.DEFAULT_MIN_INTERVAL)
+
+    def test_one_request_at_a_time(self):
+        fake = FakeFR([HAZCOM, RCRA])
+        self.build(fake)
+        # sequential: one client, requests in chunk order, never interleaved
+        months = [r.url.params["conditions[publication_date][gte]"][:7] for r in fake.doc_requests()]
+        self.assertEqual(months[:6], ["2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11"])
+
+    def test_newsroom_keeps_single_attempt(self):
+        from tests.news_fixtures import FakeAPI
+        fake = FakeAPI(rate_limit_paths=("/api/v1/documents.json",))
+        with fake.patch_client(), news.client() as c, self.assertRaises(news.SourceUnavailable):
+            news.fetch_federal_register_documents(c, "osha", "2026-11-01")
+        self.assertEqual(len(fake.requests_for("/api/v1/documents.json")), 1)
+
+
+class ResumeTests(FrTestCase):
+    def test_interrupted_build_resumes_and_skips_finished_chunks(self):
+        docs = [HAZCOM, RCRA, JOINT]
+        flaky = FakeFR(docs, fail_months=("2026-09",))
+        with flaky.patch(), self.assertRaises(fr_client.SourceUnavailable):
+            fr_build.build(titles=[29, 40], since="2026-06-01", until="2026-11-18")
+        self.assertFalse(fr_store.db_path().exists())
+        self.assertTrue(fr_store.tmp_path().exists())
+        self.assertEqual(fr_build.pending_build(), {"titles": [29, 40], "since": "2026-06-01", "until": "2026-11-18"})
+        done_before = self.chunk_count()
+        self.assertEqual(done_before, 3)                   # Jun-Aug of title 29 finished
+
+        healthy = FakeFR(docs)
+        with healthy.patch():
+            res = fr_build.build(titles=[29, 40])           # same command, no window: resumes
+        self.assertEqual(res["resumed_chunks"], 3)
+        months = {(r.url.params["conditions[cfr][title]"], r.url.params["conditions[publication_date][gte]"][:7])
+                  for r in healthy.doc_requests()}
+        self.assertNotIn(("29", "2026-06"), months)
+        self.assertIn(("29", "2026-09"), months)
+        self.assertEqual(len(healthy.doc_requests()), 12 - 3)
+        self.assertTrue(fr_store.db_path().exists())
+        self.assertFalse(fr_store.tmp_path().exists())
+        meta = fr_store.read_meta()
+        self.assertNotIn("pending_build", meta)
+        self.assertEqual((meta["window_start"], meta["window_end"]), ("2026-06-01", "2026-11-18"))
+        self.assertEqual(meta["doc_count"], "3")
+
+    def test_force_starts_clean(self):
+        with FakeFR([HAZCOM], fail_months=("2026-09",)).patch(), self.assertRaises(fr_client.SourceUnavailable):
+            fr_build.build(titles=[29], since="2026-06-01", until="2026-11-18")
+        fake = FakeFR([HAZCOM])
+        with fake.patch():
+            res = fr_build.build(titles=[29], since="2026-06-01", until="2026-11-18", force=True)
+        self.assertEqual(res["resumed_chunks"], 0)
+        self.assertEqual(len(fake.doc_requests()), 6)
+
+    def test_different_titles_discard_the_pending_build(self):
+        with FakeFR([HAZCOM], fail_months=("2026-09",)).patch(), self.assertRaises(fr_client.SourceUnavailable):
+            fr_build.build(titles=[29], since="2026-06-01", until="2026-11-18")
+        fake = FakeFR([RCRA])
+        with fake.patch():
+            res = fr_build.build(titles=[40], since="2026-06-01", until="2026-11-18")
+        self.assertEqual(res["resumed_chunks"], 0)
+        self.assertEqual(fr_store.read_meta()["titles"], "[40]")
+
+    def test_progress_lines_per_chunk(self):
+        lines: list[str] = []
+        with mock.patch.object(fr_build, "log", lines.append):
+            self.build(FakeFR([HAZCOM]), titles=[29], since="2026-10-01", until="2026-11-18")
+        self.assertIn("title 29 2026-10: 0 docs (1/2)", lines)
+        self.assertIn("title 29 2026-11: 1 docs (2/2)", lines)
+
+    def chunk_count(self) -> int:
+        c = sqlite3.connect(fr_store.tmp_path())
+        try:
+            return c.execute("SELECT count(*) FROM build_chunks").fetchone()[0]
+        finally:
+            c.close()
 
 
 class UpdateTests(FrTestCase):

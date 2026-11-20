@@ -21,6 +21,10 @@ pulls one document's XML on demand and stores it with its SHA-256.
     python -m app.fr_build --update            # incremental refresh only
     python -m app.fr_build --body 2026-22306   # fetch and store one document's full text
 
+Rate limits: requests are paced (FR_MIN_INTERVAL seconds apart, default 1) and 429/5xx
+answers are retried with backoff (Retry-After honoured). A build that still stops is
+resumable: run the same command again and finished (title, month) chunks are skipped.
+
 TODO(govinfo): cross-check `raw_sha256`/page ranges against GovInfo's FR package
 metadata once an api.data.gov key is configured (`verify_against_govinfo` below).
 """
@@ -109,12 +113,18 @@ def query_params(title: int, start: str, end: str) -> list[tuple[str, str]]:
     ]
 
 
+def _on_retry(attempt: int, retries: int, delay: float, reason: str) -> None:
+    log(f"{reason} from federalregister.gov; retry {attempt}/{retries} in {delay:.0f}s")
+
+
 def fetch_range(c, title: int, start: str, end: str) -> list[tuple[list[dict], str, str, str]]:
     """Every document citing `title` published in [start, end], as
     [(docs, source_url, start, end)] — one entry per sub-range actually fetched. A range
-    whose count reaches the API's 10,000 ceiling is split in half and re-queried."""
+    whose count reaches the API's 10,000 ceiling is split in half and re-queried. Each
+    request is paced and retried on 429/5xx (see fr_client)."""
     max_pages = -(-fr_client.RESULT_CAP // fr_client.MAX_PER_PAGE)
-    docs, count, urls = fr_client.paginate(c, query_params(title, start, end), fr_client.CORPUS_FIELDS, max_pages)
+    docs, count, urls = fr_client.paginate(c, query_params(title, start, end), fr_client.CORPUS_FIELDS,
+                                           max_pages, retries=fr_client.MAX_RETRIES, on_retry=_on_retry)
     if count >= fr_client.RESULT_CAP:
         halves = split_range(start, end)
         if halves is not None:
@@ -126,31 +136,64 @@ def fetch_range(c, title: int, start: str, end: str) -> list[tuple[list[dict], s
     return [(docs, urls[0] if urls else fr_client.documents_url(), start, end)]
 
 
-def _ingest_ranges(con, titles: list[int], ranges: dict[int, list[tuple[str, str]]], report) -> dict[str, int]:
-    """Fetch each (title, chunk) and upsert it, committing per chunk."""
-    totals = {"inserted": 0, "changed": 0, "unchanged": 0, "skipped": 0, "requests": 0}
+def _ingest_ranges(con, titles: list[int], ranges: dict[int, list[tuple[str, str]]], report,
+                   resume: bool = False) -> dict[str, int]:
+    """Fetch each (title, chunk) and upsert it, committing per chunk together with its
+    `build_chunks` row. With `resume`, chunks already in `build_chunks` are skipped."""
+    totals = {"inserted": 0, "changed": 0, "unchanged": 0, "skipped": 0, "requests": 0, "resumed_chunks": 0}
     steps = sum(len(ranges[t]) for t in titles)
+    done_set: set[tuple[int, str, str]] = set()
+    if resume:
+        done_set = {(r[0], r[1], r[2]) for r in con.execute("SELECT title, start, end FROM build_chunks")}
     done = 0
     report("Fetching Federal Register", 0, steps)
     with fr_client.client() as c:
         for t in titles:
             for start, end in ranges[t]:
+                done += 1
+                if (t, start, end) in done_set:
+                    totals["resumed_chunks"] += 1
+                    report("Fetching Federal Register", done, steps)
+                    continue
+                n_docs = 0
                 for docs, src, s, e in fetch_range(c, t, start, end):
                     fetched_at = fr_store.now_iso()
                     counts = fr_store.upsert_documents(con, docs, src, fetched_at)
                     for k, v in counts.items():
                         totals[k] += v
                     totals["requests"] += 1
+                    n_docs += len(docs)
                     fr_store.record_coverage(con, t, s, e, len(docs), fetched_at)
+                con.execute(
+                    "INSERT OR REPLACE INTO build_chunks (title, start, end, docs, done_at) VALUES (?,?,?,?,?)",
+                    (t, start, end, n_docs, fr_store.now_iso()))
                 con.commit()
-                done += 1
+                log(f"title {t} {start[:7]}: {n_docs} docs ({done}/{steps})")
                 report("Fetching Federal Register", done, steps)
+    if totals["resumed_chunks"]:
+        log(f"resumed: skipped {totals['resumed_chunks']} chunk(s) finished by an earlier run")
     return totals
 
 
 # ---------------------------------------------------------------------------
-# Build (atomic) and update (in place)
+# Build (atomic, resumable) and update (in place)
 # ---------------------------------------------------------------------------
+
+def pending_build() -> dict | None:
+    """The parameters of an interrupted full build whose staging DB is on disk."""
+    tmp = fr_store.tmp_path()
+    if not tmp.exists():
+        return None
+    try:
+        with closing(fr_store.connect(path=tmp)) as con:
+            raw = fr_store.get_meta(con).get("pending_build")
+    except Exception:
+        return None
+    try:
+        return json.loads(raw) if raw else None
+    except ValueError:
+        return None
+
 
 def build(
     titles: list[int] | None = None,
@@ -160,45 +203,65 @@ def build(
     force: bool = False,
     progress=None,
 ) -> dict:
-    """Full build into `fr.sqlite3.tmp`, then atomic replace. Without `force`, an existing
-    corpus is updated in place instead."""
+    """Full build into `fr.sqlite3.tmp`, then atomic replace once every chunk is done.
+
+    Resumable: each finished (title, month) chunk is committed to the staging DB with a
+    `build_chunks` row. If a build stops (429s that outlast the retries, Ctrl-C, a lost
+    connection), running the same command again reuses the staging DB and its window and
+    skips finished chunks. `force` discards any staging DB and starts clean. Without
+    `force`, an existing corpus with no pending build is updated in place instead."""
     report = progress or _noop
-    if fr_store.exists() and not force:
+    pending = None if force else pending_build()
+    req_titles = sorted(set(titles or default_titles()))
+    if pending and req_titles == pending.get("titles") and (since in (None, pending["since"])) \
+            and (until in (None, pending["until"])) and years is None:
+        titles, since, until = pending["titles"], pending["since"], pending["until"]
+        resume = True
+    elif fr_store.exists() and not force and not pending:
         return update(titles=titles, progress=progress)
-    titles = sorted(set(titles or default_titles()))
+    else:
+        if pending:
+            log(f"discarding an unfinished build for {pending.get('titles')} (different titles or window)")
+        titles = req_titles
+        d_since, d_until = default_window(years)
+        since, until = since or d_since, until or d_until
+        resume = False
     if not titles:
         raise ValueError("No CFR titles to collect Federal Register documents for. "
                          "Install a title or set FR_CORPUS_TITLES.")
-    d_since, d_until = default_window(years)
-    since, until = since or d_since, until or d_until
     if since > until:
         raise ValueError(f"Empty window: {since} is after {until}")
     started = time.perf_counter()
-    log(f"building corpus for CFR titles {titles}, {since} → {until}")
     tmp = fr_store.tmp_path()
-    tmp.unlink(missing_ok=True)
-    try:
-        con = fr_store.connect(path=tmp)
-        with closing(con):
-            ranges = {t: month_chunks(since, until) for t in titles}
-            totals = _ingest_ranges(con, titles, ranges, report)
-            report("Indexing", None, None)
-            built = fr_store.now_iso()
-            fr_store.set_meta(con, {
-                "source": fr_store.SOURCE, "schema": str(fr_store.SCHEMA_VERSION),
-                "built_at": built, "updated_at": built, "last_ok_at": built,
-                "window_start": since, "window_end": until, "titles": titles,
-                "fail_count": "0", "last_error": "", "last_error_at": "",
-            })
-            fr_store.refresh_counts(con)
-            con.commit()
-        report("Installing")
-        with fr_store.WRITE_LOCK:
-            from .build import _replace_with_retry
-            _replace_with_retry(tmp, fr_store.db_path())
-    except BaseException:
+    if not resume:
         tmp.unlink(missing_ok=True)
-        raise
+    ranges = {t: month_chunks(since, until) for t in titles}
+    steps = sum(len(v) for v in ranges.values())
+    log(f"{'resuming' if resume else 'building'} corpus for CFR titles {titles}, {since} → {until} "
+        f"({steps} chunks, ≥{fr_client.min_interval():g}s between requests)")
+    con = fr_store.connect(path=tmp)
+    with closing(con):
+        if not resume:
+            fr_store.set_meta(con, {"pending_build": {"titles": titles, "since": since, "until": until},
+                                    "build_started_at": fr_store.now_iso()})
+            con.commit()
+        # Any failure from here leaves the staging DB for the next run to resume.
+        totals = _ingest_ranges(con, titles, ranges, report, resume=resume)
+        report("Indexing", None, None)
+        built = fr_store.now_iso()
+        fr_store.set_meta(con, {
+            "source": fr_store.SOURCE, "schema": str(fr_store.SCHEMA_VERSION),
+            "built_at": built, "updated_at": built, "last_ok_at": built,
+            "window_start": since, "window_end": until, "titles": titles,
+            "fail_count": "0", "last_error": "", "last_error_at": "",
+        })
+        con.execute("DELETE FROM meta WHERE key = 'pending_build'")
+        fr_store.refresh_counts(con)
+        con.commit()
+    report("Installing")
+    with fr_store.WRITE_LOCK:
+        from .build import _replace_with_retry
+        _replace_with_retry(tmp, fr_store.db_path())
     result = {**totals, "titles": titles, "window_start": since, "window_end": until,
               "doc_count": _doc_count(), "elapsed_sec": round(time.perf_counter() - started, 2), "mode": "build"}
     log(f"built: {result['doc_count']} documents in {result['elapsed_sec']}s ({totals['requests']} queries)")
@@ -280,7 +343,7 @@ def xml_to_text(content: str) -> str:
         return _WS.sub(" ", html.unescape(_TAG.sub(" ", content))).strip()
 
 
-def fetch_body(document_number: str, c=None) -> dict:
+def fetch_body(document_number: str, c=None) -> dict:  # noqa: C901
     """Download one document's full text (XML, else body HTML), store it with the SHA-256
     of the bytes as served, and index it. Raises LookupError if the document isn't in the
     corpus, ValueError if it has no full-text URL, `fr_client.SourceUnavailable` on HTTP

@@ -22,6 +22,8 @@ Tables (schema below, `PRAGMA user_version = SCHEMA_VERSION`):
                     (the API's cfr_references), `text` (citations in title/abstract/action),
                     `body` (citations in the fetched full text).
 - `coverage`        which (title, start, end) date ranges were fetched, with counts.
+- `build_chunks`    the (title, month) chunks a full build has completed, committed with
+                    their documents, so an interrupted build resumes where it stopped.
 - `documents_fts`   FTS5 over title / abstract / action / body (porter unicode61),
                     keyed by the documents rowid.
 
@@ -113,6 +115,14 @@ CREATE TABLE IF NOT EXISTS coverage (
     end TEXT NOT NULL,
     doc_count INTEGER NOT NULL,
     fetched_at TEXT NOT NULL,
+    PRIMARY KEY (title, start, end)
+);
+CREATE TABLE IF NOT EXISTS build_chunks (    -- (title, month) chunks a build has finished
+    title INTEGER NOT NULL,
+    start TEXT NOT NULL,
+    end TEXT NOT NULL,
+    docs INTEGER NOT NULL,
+    done_at TEXT NOT NULL,
     PRIMARY KEY (title, start, end)
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(

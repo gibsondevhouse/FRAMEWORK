@@ -18,7 +18,13 @@ opens its own connection.
 from __future__ import annotations
 
 import hashlib
+import os
+import random
 import re
+import threading
+import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from html import escape
 from html.parser import HTMLParser
 from urllib.parse import urlparse
@@ -65,15 +71,110 @@ def client(extra: dict[str, str] | None = None) -> httpx.Client:
     return httpx.Client(headers=headers, timeout=20.0, follow_redirects=True)
 
 
-def get_json(c: httpx.Client, url: str, params) -> dict:
+# ---------------------------------------------------------------------------
+# Pacing and retries
+# ---------------------------------------------------------------------------
+# federalregister.gov rate-limits bursts with HTTP 429. Every FR request in this process
+# (corpus builds, the news worker, on-demand bodies) goes through one pacer, so they
+# never run faster than FR_MIN_INTERVAL seconds apart (default 1.0) between them.
+# Corpus requests also retry 429/5xx/transport errors with exponential backoff + jitter,
+# honouring Retry-After (seconds or HTTP-date), up to MAX_RETRIES times, each wait capped
+# at MAX_BACKOFF_SEC. Tests patch `_sleep` (tests/base.py makes it a no-op).
+
+DEFAULT_MIN_INTERVAL = 1.0
+MAX_RETRIES = 6
+BASE_BACKOFF_SEC = 2.0
+MAX_BACKOFF_SEC = 120.0
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+_pace_lock = threading.Lock()
+_last_request = 0.0
+_sleep = time.sleep
+
+
+def min_interval() -> float:
     try:
-        r = c.get(url, params=params)
-        r.raise_for_status()
+        return max(0.0, float(os.getenv("FR_MIN_INTERVAL", str(DEFAULT_MIN_INTERVAL)).strip()))
+    except ValueError:
+        return DEFAULT_MIN_INTERVAL
+
+
+def pace() -> None:
+    """Block until FR_MIN_INTERVAL has passed since the previous FR request."""
+    global _last_request
+    with _pace_lock:
+        wait = min_interval() - (time.monotonic() - _last_request)
+        if wait > 0:
+            _sleep(wait)
+        _last_request = time.monotonic()
+
+
+def reset_pacing() -> None:
+    global _last_request
+    with _pace_lock:
+        _last_request = 0.0
+
+
+def retry_after_seconds(value: str | None, now: datetime | None = None) -> float | None:
+    """Retry-After as seconds: an integer/float, or an HTTP-date. None if absent/unparseable."""
+    v = (value or "").strip()
+    if not v:
+        return None
+    try:
+        return max(0.0, float(v))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(v)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (when - (now or datetime.now(timezone.utc))).total_seconds())
+
+
+def backoff_delay(attempt: int, retry_after: float | None = None) -> float:
+    """Wait before retry number `attempt` (0-based): Retry-After when given, else
+    2s·2^attempt with ±25% jitter; always capped at MAX_BACKOFF_SEC."""
+    if retry_after is not None:
+        return min(MAX_BACKOFF_SEC, retry_after)
+    base = BASE_BACKOFF_SEC * (2 ** attempt)
+    return min(MAX_BACKOFF_SEC, base * random.uniform(0.75, 1.25))
+
+
+def _request(c: httpx.Client, url: str, params, retries: int, on_retry=None) -> httpx.Response:
+    for attempt in range(retries + 1):
+        pace()
+        try:
+            r = c.get(url, params=params)
+        except httpx.HTTPError as e:
+            if attempt >= retries:
+                raise SourceUnavailable(f"{url.split('?')[0]}: {type(e).__name__}") from None
+            delay = backoff_delay(attempt)
+            reason = type(e).__name__
+        else:
+            if r.status_code < 400:
+                return r
+            if r.status_code not in RETRY_STATUSES or attempt >= retries:
+                raise SourceUnavailable(f"{url.split('?')[0]}: HTTP {r.status_code}")
+            delay = backoff_delay(attempt, retry_after_seconds(r.headers.get("retry-after")))
+            reason = f"HTTP {r.status_code}"
+        if on_retry:
+            on_retry(attempt + 1, retries, delay, reason)
+        _sleep(delay)
+    raise SourceUnavailable(f"{url.split('?')[0]}: retries exhausted")  # unreachable
+
+
+def get_json(c: httpx.Client, url: str, params, retries: int = 0, on_retry=None) -> dict:
+    """GET JSON. `retries` > 0 retries 429/5xx/transport errors with backoff; the newsroom
+    keeps 0 (its worker has its own backoff schedule), the corpus uses MAX_RETRIES."""
+    r = _request(c, url, params, retries, on_retry)
+    try:
         return r.json()
-    except httpx.HTTPStatusError as e:
-        raise SourceUnavailable(f"{url.split('?')[0]}: HTTP {e.response.status_code}") from None
-    except (httpx.HTTPError, ValueError) as e:
-        raise SourceUnavailable(f"{url.split('?')[0]}: {type(e).__name__}") from None
+    except ValueError:
+        raise SourceUnavailable(f"{url.split('?')[0]}: JSONDecodeError") from None
 
 
 def documents_url() -> str:
@@ -85,6 +186,8 @@ def paginate(
     base_params: list[tuple[str, str]],
     fields: list[str],
     max_pages: int,
+    retries: int = 0,
+    on_retry=None,
 ) -> tuple[list[dict], int, list[str]]:
     """Follow `next_page_url` from documents.json for up to `max_pages` pages.
 
@@ -96,7 +199,7 @@ def paginate(
     count = 0
     urls: list[str] = []
     for i in range(max_pages):
-        page = get_json(c, url, params)
+        page = get_json(c, url, params, retries=retries, on_retry=on_retry)
         if i == 0:
             try:
                 count = int(page.get("count") or 0)
@@ -115,18 +218,11 @@ def is_fr_host(url: str) -> bool:
     return p.scheme == "https" and (p.hostname or "").lower() in FR_HOSTS
 
 
-def fetch_bytes(c: httpx.Client, url: str) -> bytes:
+def fetch_bytes(c: httpx.Client, url: str, retries: int = MAX_RETRIES) -> bytes:
     """GET a federalregister.gov full-text file (XML, HTML or text). Refuses any other host."""
     if not is_fr_host(url):
         raise ValueError(f"Refusing non-Federal Register URL: {url.split('?')[0]}")
-    try:
-        r = c.get(url)
-        r.raise_for_status()
-        return r.content
-    except httpx.HTTPStatusError as e:
-        raise SourceUnavailable(f"{url.split('?')[0]}: HTTP {e.response.status_code}") from None
-    except httpx.HTTPError as e:
-        raise SourceUnavailable(f"{url.split('?')[0]}: {type(e).__name__}") from None
+    return _request(c, url, None, retries).content
 
 
 def sha256_hex(data: bytes | str) -> str:
@@ -234,6 +330,7 @@ def fetch_fr_body(c: httpx.Client, document_number: str, body_html_url: str | No
     if not url or not is_fr_host(url):
         return None
     try:
+        pace()
         r = c.get(url)
         r.raise_for_status()
         body_html = sanitize_fr_html(r.text)

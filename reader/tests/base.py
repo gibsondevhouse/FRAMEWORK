@@ -30,6 +30,8 @@ TRACKED_KEYS = (
     "NEWS_RETENTION_DAYS",
     "FR_CORPUS_TITLES",
     "FR_CORPUS_YEARS",
+    "FR_MIN_INTERVAL",
+    "GOVINFO_API_KEY",
 )
 
 
@@ -52,9 +54,16 @@ class HermeticTestCase(unittest.TestCase):
 
         self.addCleanup(restore)
 
-        from app import news
+        from app import fr_client, news
         news.reset_dol_rate_state()
         self.addCleanup(news.reset_dol_rate_state)
+        # Federal Register pacing/backoff never really sleeps under test; tests that care
+        # read `self.fr_sleeps`.
+        self.fr_sleeps: list[float] = []
+        fr_sleep = mock.patch.object(fr_client, "_sleep", self.fr_sleeps.append)
+        fr_sleep.start()
+        self.addCleanup(fr_sleep.stop)
+        fr_client.reset_pacing()
 
         sync_guard = mock.patch.object(
             httpx.HTTPTransport, "handle_request",
