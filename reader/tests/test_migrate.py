@@ -270,6 +270,20 @@ class AdoptionTests(MigrateTestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             migrate.main(["--status"])                             # a report alone never fails
 
+    def test_only_the_copies_of_dead_runs_are_cleared(self):
+        path = baseline_store("plaw", self.tmp / "plaw.sqlite3")
+        dead = path.with_name("plaw.sqlite3.migrate.999999999.tmp")           # no such process
+        running = path.with_name(f"plaw.sqlite3.reindex.{os.getppid()}.tmp")   # another process, still alive
+        staging = path.with_name("plaw.sqlite3.tmp")                           # a resumable build's file: not ours
+        for f in (dead, running, staging):
+            f.write_bytes(b"x")
+        self.assertNotIn(str(os.getppid()), migrate.work_path(path).name)      # copies are per process
+        migrate.migrate_all()
+        self.assertFalse(dead.exists())
+        self.assertTrue(staging.exists())
+        if sys.platform != "win32":            # there an open copy cannot be deleted in the first place
+            self.assertTrue(running.exists())
+
     def test_empty_install(self):
         self.assertEqual(migrate.status(), [])
         self.assertEqual(migrate.migrate_all(), [])
@@ -420,9 +434,14 @@ class CfrMigrationTests(CfrTitleCase):
         self.assertEqual(run_and_kill("cfr", self.db), 9)
         self.assertEqual(sha(self.db), before)
         self.assertEqual(store.get_section("1910.134", 29)["id"], "1910.134")
-        self.assertIn("title-29.sqlite3.migrate.tmp", self.leftovers())    # the dead run's copy
-        with extra_migration("cfr"):                               # the next run starts clean
+        dead = self.leftovers()                 # the dead run's copy (and its journal), named for its process
+        self.assertRegex(dead[0], r"^title-29\.sqlite3\.migrate\.\d+\.tmp$")
+        self.assertNotEqual(dead[0], migrate.work_path(self.db).name)
+        self.assertTrue(all(n.startswith(dead[0]) for n in dead), dead)
+        with extra_migration("cfr"):                               # the next run is not in its way…
             self.assertEqual(migrate.ensure("cfr", self.db)["to"], 2)
+            self.assertEqual(self.leftovers(), dead)
+            migrate.migrate_all()                                  # …and the command clears it away
         self.assertEqual(self.leftovers(), [])
         self.assertEqual(store.get_section("1910.134", 29)["id"], "1910.134")
 
@@ -533,7 +552,7 @@ class InPlaceMigrationTests(MigrateTestCase):
         self.assertNotIn("half_done", tables(path))
         with closing(sqlite3.connect(path)) as con:
             self.assertEqual(con.execute("PRAGMA quick_check").fetchone()[0], "ok")
-        self.assertEqual(self.leftovers(), ["sources.sqlite3.migrate.tmp"])   # the dead run's copy, a temp file
+        self.assertRegex(self.leftovers()[0], r"^sources\.sqlite3\.migrate\.\d+\.tmp$")   # the dead run's copy
         migrate.migrate_all()                                               # the command (or storage cleanup) removes it
         self.assertEqual(self.leftovers(), [])
 

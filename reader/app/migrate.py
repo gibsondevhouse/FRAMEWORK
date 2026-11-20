@@ -60,7 +60,9 @@ from typing import Callable, Iterator
 
 from . import config
 
-WORK_SUFFIX = ".migrate.tmp"    # the copy taken before a migration (".tmp": library.prune_temp may delete a leftover)
+# The copy a run works on or keeps as its way back: <store>.<tag>.<pid>.tmp. The process id
+# keeps two processes from ever sharing one; ".tmp" lets library.prune_temp delete a leftover.
+_WORK_FILE = re.compile(r"^\.(?:migrate|reindex)\.(\d+)\.tmp$")
 _SIDECARS = ("-journal", "-wal", "-shm")
 _TITLE_FILE = re.compile(r"^(?:title-?|usc-)(\d+)\.sqlite3$")
 _LOCK = threading.RLock()       # one migration at a time in this process
@@ -280,8 +282,31 @@ def quick_check(con: sqlite3.Connection) -> str:
 # Files
 # ---------------------------------------------------------------------------
 
-def work_path(path: Path) -> Path:
-    return path.with_name(path.name + WORK_SUFFIX)
+def work_path(path: Path, tag: str = "migrate") -> Path:
+    return path.with_name(f"{path.name}.{tag}.{os.getpid()}.tmp")
+
+
+def _process_alive(pid: int) -> bool:
+    if sys.platform == "win32":      # os.kill would terminate it there; an open copy can't be deleted anyway
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def discard_stale_copies(path: Path) -> int:
+    """Delete the copies that runs which died left beside the store at `path`."""
+    gone = 0
+    for f in path.parent.glob("*.tmp"):
+        m = _WORK_FILE.match(f.name[len(path.name):]) if f.name.startswith(path.name + ".") else None
+        if m and int(m.group(1)) != os.getpid() and not _process_alive(int(m.group(1))):
+            _discard(f)
+            gone += 1
+    return gone
 
 
 def backup_path(path: Path, version: int) -> Path:
@@ -585,7 +610,7 @@ def migrate_all(corpus: str | None = None, title: int | None = None, keep_backup
                 row.update(state="migrated", detail=f"schema version {row['from']} -> {row['to']}")
             else:
                 row["state"], row["detail"] = _state(s.kind, row["to"])
-            _discard(work_path(s.path))      # the copy of a run that died before it could clean up
+            discard_stale_copies(s.path)     # what a run that died left behind
         except DowngradeError:
             row["state"], row["detail"] = _state(s.kind, row["from"])
         except (sqlite3.Error, OSError) as exc:
