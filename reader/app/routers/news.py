@@ -10,13 +10,15 @@ well-formed results, never a 500. No GET endpoint ever queues or runs a sync.
 from __future__ import annotations
 
 from contextlib import closing
+import html
+import json
 from datetime import datetime, timezone
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
-from .. import config, news, news_schedule as sched, news_store, news_worker, render
+from .. import config, fr_store, news, news_schedule as sched, news_store, news_worker, render
 from .. import store as reg_store
 
 
@@ -369,6 +371,33 @@ def dol_live_search(
         raise HTTPException(503, f"DOL search unavailable ({msg}).") from None
 
 
+def _archived_fr(doc_num: str) -> dict | None:
+    """One document from the local FR archive (`fr.sqlite3`), shaped for the FR reader: a
+    Newsroom-style `article` built from the stored API record, a stored sanitized-HTML body
+    (`body_html`) or the plain text of a stored XML body (`text`). None when it isn't there."""
+    try:
+        with fr_store.read_con() as con:
+            if con is None:
+                return None
+            row = con.execute("SELECT raw_json, body_html_url FROM documents WHERE document_number = ?",
+                              (doc_num,)).fetchone()
+            if row is None:
+                return None
+            body = con.execute("SELECT format, content, text, fetched_at FROM document_bodies "
+                               "WHERE document_number = ?", (doc_num,)).fetchone()
+        item = news.enrich_item(news.fr_document_item(json.loads(row["raw_json"]), None))
+    except (sqlite3.Error, ValueError, KeyError):
+        return None
+    is_html = body is not None and body["format"] == "html"
+    return {
+        "article": {k: v for k, v in item.items() if not k.startswith("_")},
+        "body_html": body["content"] if is_html else None,
+        "text": body["text"] if body is not None and not is_html else None,
+        "fetched_at": body["fetched_at"] if body is not None else None,
+        "body_html_url": row["body_html_url"],
+    }
+
+
 def _fr_linkifier():
     installed = set(config.installed_titles())
 
@@ -412,11 +441,34 @@ def get_fr_document(document_number: str) -> dict:
             "fetched_at": cached_body["fetched_at"],
             "cached": True,
         }
+    # The local FR archive next: its record stands in for a Newsroom article that was never
+    # synced (or has aged out), and a stored HTML body needs no network at all.
+    archived = _archived_fr(doc_num)
+    if archived is not None:
+        article = article or archived["article"]
+        if archived["body_html"]:
+            return {
+                "document_number": doc_num,
+                "article": article,
+                "body_html": _fr_linkifier().without_self(archived["body_html"]),
+                "fetched_at": archived["fetched_at"],
+                "cached": True,
+            }
     try:
         with news.client() as c:
-            fetched = news.fetch_fr_body(c, doc_num)
+            fetched = news.fetch_fr_body(c, doc_num, archived["body_html_url"] if archived else None)
     except news.SourceUnavailable as e:
-        raise HTTPException(503, f"Federal Register unavailable ({e}).") from None
+        if archived is None:
+            raise HTTPException(503, f"Federal Register unavailable ({e}).") from None
+        # Offline with an archived record: its metadata, plus the stored XML's plain text if any.
+        text = archived["text"]
+        return {
+            "document_number": doc_num,
+            "article": article,
+            "body_html": f"<p>{html.escape(text)}</p>" if text else None,
+            "fetched_at": archived["fetched_at"],
+            "cached": bool(text),
+        }
     if fetched is None:
         if article is None:
             raise HTTPException(404, f"Federal Register document {doc_num} was not found.")

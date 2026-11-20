@@ -520,7 +520,8 @@ def search(q: str, limit: int = 20) -> dict:
             "snippet(laws_fts, 2, char(2), char(3), ' … ', 24) AS snippet FROM laws_fts "
             "JOIN laws l ON l.id = laws_fts.id WHERE laws_fts MATCH ? ORDER BY bm25(laws_fts, 0, 3.0, 1.0) LIMIT ?",
             (fq, limit)).fetchall()
-    return {"installed": True, "total": len(rows), "results": [dict(r) for r in rows]}
+        total = con.execute("SELECT count(*) FROM laws_fts WHERE laws_fts MATCH ?", (fq,)).fetchone()[0]
+    return {"installed": True, "total": total, "results": [dict(r) for r in rows]}
 
 
 def remove() -> bool:

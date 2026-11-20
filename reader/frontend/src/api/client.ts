@@ -204,9 +204,11 @@ export function fetchSearchResults(
   query: string,
   limit = 100,
   opts?: RequestInit,
+  include?: string,
 ): Promise<SearchResponse> {
-  const url = titleNum === 'all'
-    ? `/api/search?q=${encodeURIComponent(query)}&title=all&limit=${limit}`
+  // `include` (other federal frameworks as extra blocks) only exists on the global route.
+  const url = titleNum === 'all' || include
+    ? `/api/search?q=${encodeURIComponent(query)}&title=${titleNum}&limit=${limit}${include ? `&include=${include}` : ''}`
     : `/api/${titleNum}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
   return getJSON<SearchResponse>(url, opts);
 }

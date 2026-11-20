@@ -197,12 +197,25 @@ export interface SearchResultItem {
   score?: number;
 }
 
+/** One optional corpus block of `GET /api/search?include=…`. */
+export interface SearchBlock<T> { installed: boolean; total: number; results: T[] }
+export interface UscSearchHit { id: string; label?: string; heading?: string; status?: string | null; usc_title: number; snippet?: string; exact?: boolean }
+export interface FrSearchHit { document_number: string; type?: string | null; title?: string; abstract?: string | null; publication_date?: string | null; citation?: string | null; snippet?: string }
+export interface ConstSearchHit { id: string; label?: string | null; snippet?: string; kind?: 'text' | 'annotation' }
+export interface PlawSearchHit { id: string; congress: number; law_type: 'public' | 'private'; number: number; statute?: string | null; title?: string | null; approved_date?: string | null; snippet?: string | null }
+export interface AgendaSearchHit { rin: string; edition: string; title?: string | null; stage?: string | null; parent_acronym?: string | null; snippet?: string }
+
 export interface SearchResponse {
   query: string;
   title: number | string;
   total: number;
   results: SearchResultItem[];
   ms: number;
+  usc?: SearchBlock<UscSearchHit>;
+  fr?: SearchBlock<FrSearchHit>;
+  constitution?: SearchBlock<ConstSearchHit>;
+  plaw?: SearchBlock<PlawSearchHit>;
+  agenda?: SearchBlock<AgendaSearchHit>;
 }
 
 export interface SearchViewState {
@@ -210,6 +223,8 @@ export interface SearchViewState {
   allTitles: boolean;
   data: SearchResponse;
   view: 'compact' | 'grouped';
+  /** Which framework's results are on screen; 'all' previews each one. */
+  framework: 'all' | 'cfr' | 'const' | 'usc' | 'plaw' | 'fr' | 'agenda';
   filters: {
     title: number | null;
     part: string | null;

@@ -243,6 +243,13 @@ class ConstitutionTests(CorpusTestCase):
         self.assertEqual(d["outline"][0]["id"], "preamble")
         self.assertEqual(c.get("/api/constitution/unit/amdt1").json()["label"], "Amdt. I")
         self.assertEqual(c.get("/api/constitution/search", params={"q": "religion"}).json()["results"][0]["id"], "amdt1")
+        # Global search carries the Constitution (and any other requested corpus) as its own block.
+        g = c.get("/api/search", params={"q": "religion", "title": "all",
+                                         "include": "fr,usc,constitution,plaw,agenda"}).json()
+        self.assertEqual(g["constitution"]["results"][0]["id"], "amdt1")
+        self.assertEqual(g["constitution"]["total"], len(g["constitution"]["results"]))
+        self.assertEqual((g["plaw"]["installed"], g["agenda"]["installed"]), (False, False))
+        self.assertEqual(c.get("/api/search", params={"q": "x", "include": "constitution,cfr"}).status_code, 422)
         # The Library tab's Remove: refused while a job for the Constitution is queued, then removes it.
         with mock.patch.object(library.queue, "busy_with", lambda key: key == constitution.JOB_KEY):
             self.assertEqual(c.delete("/api/constitution").status_code, 409)
@@ -274,6 +281,7 @@ class PublicLawTests(CorpusTestCase):
         self.assertEqual([r["id"] for r in plaw.laws_for_usc(10, "101")], ["113-1"])
         self.assertEqual(plaw.search("Pub. L. 114-2")["results"][0]["exact"], True)
         self.assertEqual(plaw.search("silica")["results"][0]["id"], "114-2")
+        self.assertGreater(plaw.search("law", limit=1)["total"], 1)      # total counts matches, not the page
         # A new congress appears: an "all congresses" scope follows it.
         self.fake.plaw[(115, "public")] = zip_of({"PLAW-115publ1.xml": plaw_xml(115, 1, "Newest law")})
         self.fake.plaw_latest = 115
@@ -396,6 +404,11 @@ class AgendaTests(CorpusTestCase):
         with self.fake.patch():
             up = agenda.update()
         self.assertEqual(up["new_editions"], ["202604"])
+        # Search lists a rule once (its newest matching edition) and counts rules, not editions.
+        hits = agenda.search("heat stress")
+        self.assertEqual([(r["rin"], r["edition"]) for r in hits["results"]], [("1218-AD39", "202604")])
+        self.assertEqual(hits["total"], 1)
+        self.assertIn("\x02", hits["results"][0]["snippet"])
 
     def test_api(self):
         c = TestClient(app)

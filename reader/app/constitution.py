@@ -309,12 +309,14 @@ def search(q: str, limit: int = 20, include_notes: bool = False) -> dict:
             "SELECT id, label, snippet(units_fts, 2, char(2), char(3), ' … ', 24) AS snippet "
             "FROM units_fts WHERE units_fts MATCH ? ORDER BY bm25(units_fts, 0, 2.0, 1.0) LIMIT ?",
             (fq, limit)).fetchall()
+        total = con.execute("SELECT count(*) FROM units_fts WHERE units_fts MATCH ?", (fq,)).fetchone()[0]
         out = [{**dict(r), "kind": "text"} for r in rows]
         if include_notes:
+            total += con.execute("SELECT count(*) FROM notes_fts WHERE notes_fts MATCH ?", (fq,)).fetchone()[0]
             out += [{**dict(r), "label": None, "kind": "annotation"} for r in con.execute(
                 "SELECT unit_id AS id, snippet(notes_fts, 1, char(2), char(3), ' … ', 24) AS snippet "
                 "FROM notes_fts WHERE notes_fts MATCH ? ORDER BY bm25(notes_fts) LIMIT ?", (fq, limit))]
-    return {"installed": True, "total": len(out), "results": out}
+    return {"installed": True, "total": total, "results": out}
 
 
 def remove() -> bool:

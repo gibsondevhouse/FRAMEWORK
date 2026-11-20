@@ -8,6 +8,10 @@ import { enterView, escapeHtml, icon, lsGet, lsSet, skeletonHtml } from '../dom'
 import { dom } from '../state_init';
 import { emptyStateHtml } from '../components/ui';
 import { renderViewError } from './doc_utils';
+import {
+  FRAMEWORK_LABELS, FRAMEWORK_ORDER, FRAMEWORK_PREVIEW, FrameworkGroup, FrameworkRow, frameworkGroups,
+  parseFrameworkFilter, SEARCH_INCLUDE, SearchFramework,
+} from '../core/search_frameworks';
 
 state.searchState = null;
 
@@ -113,11 +117,116 @@ function renderGroupedResults(filtered: SearchResultItem[], collapsed: Set<numbe
   }).join('')}</div>`;
 }
 
+const hlSnippet = (raw: string): string => {
+  const trimmed = raw.replace(/^[\s.…]+|[\s.…]+$/g, '');
+  const html = escapeHtml(trimmed).replace(/\x02/g, '<mark>').replace(/\x03/g, '</mark>');
+  return raw.includes('\x02') ? `…${html}…` : html;
+};
+
+function frameworkRowHtml(r: FrameworkRow): string {
+  return `
+    <div class="result">
+      <a class="result-title" href="${escapeHtml(r.href)}">
+        <span class="result-num">${escapeHtml(r.num)}</span>
+        <span class="result-name">${escapeHtml(r.name)}</span>
+        ${r.meta ? `<span class="result-part">${escapeHtml(r.meta)}</span>` : ''}
+      </a>
+      ${r.snippet ? `<div class="result-snippet">${hlSnippet(r.snippet)}</div>` : ''}
+    </div>`;
+}
+
+const nResults = (n: number): string => `${n.toLocaleString()} ${n === 1 ? 'result' : 'results'}`;
+
+/** One framework's block: every row it returned, or a preview with "Show all" on the All view. */
+function frameworkSectionHtml(
+  key: SearchFramework, tier: string, total: number, rowsHtml: string[], preview: boolean,
+): string {
+  const shown = preview ? rowsHtml.slice(0, FRAMEWORK_PREVIEW) : rowsHtml;
+  const more = preview && total > shown.length
+    ? `<button type="button" class="search-fw-more" data-sfw="${key}">Show all ${total.toLocaleString()}</button>` : '';
+  const capped = !preview && total > shown.length
+    ? `<p class="search-fw-note">Showing the ${shown.length} best matches of ${total.toLocaleString()}. Add a word to narrow the search.</p>` : '';
+  return `
+    <section class="search-title-group has-tier-bar" data-ref-tier="${tier}" data-fwgroup="${key}">
+      <div class="search-title-head is-static">
+        <span class="tier-pip" aria-hidden="true"></span>
+        <h2 class="search-title-name">${escapeHtml(FRAMEWORK_LABELS[key].label)}</h2>
+        <span class="search-title-count">${nResults(total)}</span>
+        ${more}
+      </div>
+      <div class="search-title-body"><div class="results-list">${shown.join('')}</div>${capped}</div>
+    </section>`;
+}
+
+function frameworkPillsHtml(active: string, cfrTotal: number, groups: FrameworkGroup[]): string {
+  const byKey = new Map<string, FrameworkGroup>(groups.map(g => [g.key, g]));
+  const grand = cfrTotal + groups.reduce((n, g) => n + g.total, 0);
+  const pill = (key: string, label: string, n: number, tier?: string): string =>
+    `<button type="button" class="sf-pill${active === key ? ' is-active' : ''}" data-sfw="${key}" aria-pressed="${active === key}"${tier ? ` data-ref-tier="${tier}"` : ''}>${tier ? '<span class="tier-pip" aria-hidden="true"></span>' : ''}${escapeHtml(label)} <span class="sf-pill-count">${n.toLocaleString()}</span></button>`;
+  const pills = FRAMEWORK_ORDER.map(k => {
+    if (k === 'cfr') return pill('cfr', FRAMEWORK_LABELS.cfr.short, cfrTotal, 'cfr');
+    const g = byKey.get(k);
+    return g ? pill(g.key, g.short, g.total, g.tier) : '';
+  }).join('');
+  return `<span class="search-filter-label" id="search-fw-label">Framework</span>
+    <div class="search-filter-pills" role="group" aria-labelledby="search-fw-label">${pill('all', 'All', grand)}${pills}</div>`;
+}
+
+function searchHash(query: string, allTitles: boolean, framework: string): string {
+  return `#/search?q=${encodeURIComponent(query)}${allTitles ? '&scope=all' : ''}${framework !== 'all' ? `&in=${framework}` : ''}`;
+}
+
 function patchSearchDynamicSlots(): void {
   if (!state.searchState) return;
   const { query, allTitles, data, view, filters, collapsed } = state.searchState;
   const rawResults = data.results || [];
   const total = Number(data.total || 0);
+
+  // Other federal frameworks. With none installed the page is the CFR search it always was.
+  const groups = frameworkGroups(data);
+  const fwSlot = document.getElementById('search-fw-slot');
+  const viewToggle = dom.view.querySelector<HTMLElement>('.search-view-toggle');
+  let framework = groups.length ? state.searchState.framework : 'cfr';
+  if (framework !== 'all' && framework !== 'cfr' && !groups.some(g => g.key === framework)) framework = 'all';
+  if (fwSlot) {
+    fwSlot.hidden = !groups.length;
+    fwSlot.innerHTML = groups.length ? frameworkPillsHtml(framework, total, groups) : '';
+  }
+  if (viewToggle) viewToggle.hidden = framework !== 'cfr';
+  if (framework !== 'cfr') {
+    const filtersEl = document.getElementById('search-filters-box');
+    const count = document.getElementById('search-count-slot');
+    const body = document.getElementById('search-results-slot');
+    if (!body) return;
+    if (filtersEl) filtersEl.hidden = true;
+    const grand = total + groups.reduce((n, g) => n + g.total, 0);
+    const one = groups.find(g => g.key === framework);
+    if (one) {
+      if (count) count.textContent = `${nResults(one.total)} in ${one.label}`;
+      body.innerHTML = one.rows.length
+        ? `<div class="search-groups">${frameworkSectionHtml(one.key, one.tier, one.total, one.rows.map(frameworkRowHtml), false)}</div>`
+        : emptyStateHtml({ title: 'No results', body: `Nothing in ${escapeHtml(one.label)} matches “${escapeHtml(query)}”.` });
+      return;
+    }
+    if (count) count.textContent = `${nResults(grand)} across ${groups.length + 1} frameworks`;
+    if (!grand) {
+      body.innerHTML = emptyStateHtml({
+        title: 'No results',
+        body: `Nothing in the installed frameworks matches “${escapeHtml(query)}”. Try fewer or different words.`,
+      });
+      return;
+    }
+    const byKey = new Map<string, FrameworkGroup>(groups.map(g => [g.key, g]));
+    body.innerHTML = `<div class="search-groups">${FRAMEWORK_ORDER.map(k => {
+      if (k === 'cfr') {
+        return rawResults.length
+          ? frameworkSectionHtml('cfr', 'cfr', total, rawResults.map(r => renderResultRow(r, true)), true) : '';
+      }
+      const g = byKey.get(k);
+      return g && g.rows.length ? frameworkSectionHtml(g.key, g.tier, g.total, g.rows.map(frameworkRowHtml), true) : '';
+    }).join('')}</div>`;
+    return;
+  }
 
   const countSlot = document.getElementById('search-count-slot');
   const facetsBar = document.getElementById('search-facets-slot');
@@ -162,17 +271,6 @@ function patchSearchDynamicSlots(): void {
       clearSlot.innerHTML = hasActiveFilter ? '<button type="button" class="sf-clear" id="sf-clear">Clear filters</button>' : '';
     }
     if (facetsBar) {
-      const authPills = `
-        <div class="search-filter-row">
-          <span class="search-filter-label">Authority</span>
-          <div class="search-filter-pills">
-            <button type="button" class="sf-pill is-active" data-fauth="all">All <span class="sf-pill-count">${rawResults.length}</span></button>
-            <button type="button" class="sf-pill" data-ref-tier="cfr" data-fauth="federal-reg"><span class="tier-pip" aria-hidden="true"></span>Federal CFR <span class="sf-pill-count">${rawResults.length}</span></button>
-            <button type="button" class="sf-pill" data-ref-tier="usc" disabled title="U.S.C. corpus indexing slot"><span class="tier-pip is-hollow" aria-hidden="true"></span>U.S.C.</button>
-            <button type="button" class="sf-pill" data-ref-tier="state" disabled title="State corpus indexing slot"><span class="tier-pip is-hollow" aria-hidden="true"></span>State</button>
-            <button type="button" class="sf-pill" data-ref-tier="county" disabled title="County corpus indexing slot"><span class="tier-pip is-hollow" aria-hidden="true"></span>County</button>
-          </div>
-        </div>`;
       const titlePills = sortedTitleFacets.length > 1 ? `
         <div class="search-filter-row">
           <span class="search-filter-label">Titles</span>
@@ -189,7 +287,7 @@ function patchSearchDynamicSlots(): void {
             ${sortedPartFacets.slice(0, 14).map(([p, c]) => `<button type="button" class="sf-pill${filters.part === p ? ' is-active' : ''}" data-fpart="${escapeHtml(p)}">Part ${escapeHtml(p)} <span class="sf-pill-count">${c}</span></button>`).join('')}
           </div>
         </div>` : '';
-      facetsBar.innerHTML = authPills + titlePills + partPills;
+      facetsBar.innerHTML = titlePills + partPills;
     }
     bodySlot.innerHTML = renderGroupedResults(filtered, collapsed);
   } else {
@@ -199,15 +297,14 @@ function patchSearchDynamicSlots(): void {
 
 export function renderSearchView(): void {
   if (!state.searchState) return;
-  const { query, allTitles, data, view, filters } = state.searchState;
+  const { query, allTitles, data, view, filters, framework } = state.searchState;
   const rawResults = data.results || [];
 
   let scopeHtml = '';
   if (state.installedTitles.length > 1) {
-    const qEnc = encodeURIComponent(query);
-    scopeHtml = `<span class="search-scope" role="group" aria-label="Search scope">
-      <a class="${allTitles ? '' : 'scope-on'}" href="#/search?q=${qEnc}"${allTitles ? '' : ' aria-current="true"'}>Title ${state.currentTitle}</a>
-      <a class="${allTitles ? 'scope-on' : ''}" href="#/search?q=${qEnc}&scope=all"${allTitles ? ' aria-current="true"' : ''}>All ${state.installedTitles.length} titles</a>
+    scopeHtml = `<span class="search-scope" role="group" aria-label="CFR search scope">
+      <a class="${allTitles ? '' : 'scope-on'}" href="${searchHash(query, false, framework)}"${allTitles ? '' : ' aria-current="true"'}>Title ${state.currentTitle}</a>
+      <a class="${allTitles ? 'scope-on' : ''}" href="${searchHash(query, true, framework)}"${allTitles ? ' aria-current="true"' : ''}>All ${state.installedTitles.length} titles</a>
     </span>`;
   }
 
@@ -224,6 +321,7 @@ export function renderSearchView(): void {
         <span id="search-count-slot" aria-live="polite"></span>
         <div class="search-controls">${viewToggleHtml}${scopeHtml}</div>
       </div>
+      <div class="search-fw" id="search-fw-slot" hidden></div>
       <div class="search-filters" id="search-filters-box" role="region" aria-label="Filter search results" hidden>
         <div class="search-filter-row">
           <input type="search" id="sf-text" class="search-filter-input" value="${escapeHtml(filters.text)}" placeholder="Filter these results by section, part, or phrase…" autocomplete="off" spellcheck="false">
@@ -250,6 +348,19 @@ onView('click', (e) => {
   if (!state.searchState || !dom.view.querySelector('.search-page')) return;
   const t = e.target as Element | null;
   if (!t) return;
+  const fwBtn = t.closest<HTMLElement>('[data-sfw]');
+  if (fwBtn) {
+    const next = parseFrameworkFilter(fwBtn.dataset.sfw);
+    if (next !== state.searchState.framework) {
+      state.searchState.framework = next;
+      history.replaceState(null, '', searchHash(state.searchState.query, state.searchState.allTitles, next));
+      const wasPill = fwBtn.classList.contains('sf-pill');
+      renderSearchView();
+      const target = wasPill ? `.search-fw [data-sfw="${next}"]` : '.search-fw .sf-pill.is-active';
+      dom.view.querySelector<HTMLElement>(target)?.focus();
+    }
+    return;
+  }
   const viewBtn = t.closest<HTMLElement>('[data-sview]');
   if (viewBtn) {
     const next = viewBtn.dataset.sview === 'grouped' ? 'grouped' : 'compact';
@@ -303,7 +414,7 @@ onView('click', (e) => {
   }
 });
 
-export async function loadSearchPage(query: string, scope?: string | null): Promise<void> {
+export async function loadSearchPage(query: string, scope?: string | null, framework?: string | null): Promise<void> {
   state.currentSection = null;
   state.currentPart = null;
   clearTreeSelection();
@@ -322,7 +433,7 @@ export async function loadSearchPage(query: string, scope?: string | null): Prom
   try {
     const seq = state.routeSeq;
     const signal = state.routeAbort?.signal;
-    const data = await fetchSearchResults(allTitles ? 'all' : state.currentTitle, query, 100, { signal });
+    const data = await fetchSearchResults(allTitles ? 'all' : state.currentTitle, query, 100, { signal }, SEARCH_INCLUDE);
     if (seq !== state.routeSeq) return;
 
     const savedView = lsGet('searchView') === 'grouped' ? 'grouped' : 'compact';
@@ -331,6 +442,7 @@ export async function loadSearchPage(query: string, scope?: string | null): Prom
       allTitles,
       data,
       view: savedView,
+      framework: parseFrameworkFilter(framework),
       filters: { title: null, part: null, kind: 'all', text: '' },
       collapsed: new Set(),
     };
@@ -339,7 +451,7 @@ export async function loadSearchPage(query: string, scope?: string | null): Prom
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') return;
     renderViewError(dom.view, 'Search failed', (err instanceof Error ? err.message : '') || 'Unexpected error', {
-      onRetry: () => loadSearchPage(query, scope),
+      onRetry: () => loadSearchPage(query, scope, framework),
     });
   }
 }

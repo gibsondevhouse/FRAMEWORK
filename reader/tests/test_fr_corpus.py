@@ -603,6 +603,35 @@ class ApiTests(FrTestCase):
         self.assertEqual(both["fr"]["results"][0]["document_number"], "2026-20001")
         self.assertEqual(self.client.get("/api/search", params={"q": "x", "include": "cfr"}).status_code, 422)
 
+    def test_fr_reader_uses_the_archive_before_the_network(self):
+        self.build(FakeFR([HAZCOM]), titles=[29])
+        def down(req):
+            raise httpx.ConnectError("offline", request=req)
+        offline = mock.patch.object(news, "client", lambda: httpx.Client(transport=httpx.MockTransport(down)))
+        with offline:
+            # Offline, never synced to the Newsroom: the archived record still opens.
+            d = self.client.get("/api/news/fr/2026-20001")
+            self.assertEqual(d.status_code, 200)
+            self.assertEqual(d.json()["article"]["title"], HAZCOM["title"])
+            self.assertIsNone(d.json()["body_html"])
+            self.assertFalse(any(k.startswith("_") for k in d.json()["article"]))
+            # A stored HTML body is served as is, linkified, with no request at all.
+            with fr_store.WRITE_LOCK, closing(fr_store.connect()) as con:
+                fr_store.save_body(con, "2026-20001", "html", "<p>Amends 29 CFR 1910.1200.</p>", "Amends 29 CFR 1910.1200.",
+                                   "0" * 64, 30, "https://www.federalregister.gov/x.html", fr_store.now_iso())
+                con.commit()
+            d = self.client.get("/api/news/fr/2026-20001").json()
+            self.assertTrue(d["cached"])
+            self.assertIn("1910.1200", d["body_html"])
+            # A stored XML body falls back to its plain text when the network is down.
+            with fr_store.WRITE_LOCK, closing(fr_store.connect()) as con:
+                fr_store.save_body(con, "2026-20001", "xml", "<RULE><P>Plain &amp; text</P></RULE>", "Plain & text",
+                                   "0" * 64, 30, "https://www.federalregister.gov/x.xml", fr_store.now_iso())
+                con.commit()
+            d = self.client.get("/api/news/fr/2026-20001").json()
+            self.assertEqual(d["body_html"], "<p>Plain &amp; text</p>")
+            self.assertEqual(self.client.get("/api/news/fr/2026-99999").status_code, 503)   # not archived, offline
+
     def test_writes_queue_on_the_library_queue(self):
         q = mock.Mock()
         q.submit.return_value = {"id": 7, "kind": "fr-build"}

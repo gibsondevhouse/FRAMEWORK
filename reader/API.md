@@ -1,6 +1,6 @@
 # FRAMEWORK — API Reference
 
-Welcome to the HTTP and streaming API behind **FRAMEWORK**, a local-first, federal-only platform for federal codes and laws. The backend is a **FastAPI** service that powers the browser interface and exposes a clean JSON / SSE API over your installed CFR titles and synced Federal Register data (plus optional DOL enforcement data).
+Welcome to the HTTP and streaming API behind **FRAMEWORK**, a local-first, federal-only platform for federal codes and laws. The backend is a **FastAPI** service that powers the browser interface and exposes a clean JSON / SSE API over your installed federal corpora — the U.S. Constitution, U.S. Code (including appendix titles), Public Laws, CFR titles, Federal Register archive, Unified Agenda, and synced Newsroom feeds (plus optional DOL enforcement data).
 
 - **Base URL:** `http://127.0.0.1:8000`
 - **Interactive Docs:** [Swagger UI](http://127.0.0.1:8000/docs) · [ReDoc](http://127.0.0.1:8000/redoc) · [OpenAPI JSON](http://127.0.0.1:8000/openapi.json)
@@ -322,7 +322,7 @@ Installed U.S. Code titles, built from the OLRC's USLM XML (`python -m app.usc_b
 Installed titles, local only: `{titles[{title, name, release_point, built_at, section_count, note_count, positive_law, xml_sha256, zip_sha256, source_url}]}`.
 
 ### `GET /api/usc/catalog`
-All 54 U.S. Code titles for the Library, offline (never calls the OLRC): `{release: {release_point, current_through} | null, desks, titles[{title, name, reserved, positive_law, desk, cfr, installed: {release_point, built_at, section_count, note_count, bytes, stale} | null}]}`. Names, desks and implementing CFR titles (`cfr`) come from `app/usc_titles.json`; `release` and `stale` reflect the last release the server fetched (`null` until `GET /api/usc/release` has run).
+All 54 U.S. Code titles for the Library, offline (never calls the OLRC); pass `?appendix=true` to also include the appendix titles (`5a`, `11a`, `18a`, `28a`, and reserved `50a`): `{release: {release_point, current_through} | null, desks, titles[{title, name, reserved, positive_law, desk, cfr, installed: {release_point, built_at, section_count, note_count, bytes, stale} | null}]}`. Names, desks and implementing CFR titles (`cfr`) come from `app/usc_titles.json`; `release` and `stale` reflect the last release the server fetched (`null` until `GET /api/usc/release` has run).
 
 ### `GET /api/usc/release`
 Asks the OLRC for the current release point (cached 30 min; `?refresh=true` bypasses): `{release_point, current_through, available_titles, titles[… + stale]}`. 503 when the OLRC doesn't answer.
@@ -347,7 +347,7 @@ Queue one title (`{title}`) or every installed title that is behind the current 
 ### `GET /usc/{title}/{section_id}`
 A standalone HTML page for one section: the href of local U.S.C. citation links (inside the app a click opens the in-app reader at `#/usc/{title}/section/{id}` instead) and a printable fallback. It links the app's own stylesheet, so it looks like the reader.
 
-`GET /api/search?include=usc` (or `include=fr,usc`) adds a `usc` block (`{installed, total, results}`).
+`GET /api/search?include=usc` (or `include=fr,usc`) adds a `usc` block (`{installed, total, results}`). `include` takes any comma-separated mix of `fr`, `usc`, `constitution`, `plaw` and `agenda`; each adds its own block of the same shape, capped at 20 results, with `total` the full match count. The search page requests all five.
 
 ## U.S. Constitution
 
@@ -388,7 +388,7 @@ A standalone HTML page for one section: the href of local U.S.C. citation links 
 ## Integrity
 
 ### `GET /api/integrity`
-Params: `corpus` (`cfr` | `fr` | `usc`), `title` (cfr/usc), `offline` (skip eCFR / OLRC / GovInfo), `govinfo_date`. Returns `{status, summary{OK,WARN,FAIL,INFO}, items[{corpus, target, check, status, detail, …}], checked_at, online}`, the same report as `python -m app.integrity --json`. Checks database health, counts, recorded hashes and versions (`unknown` for stores built before they were recorded), cached source re-hashes, FR record/body hashes, FR coverage gaps and freshness, staleness against eCFR / the OLRC, and (with `GOVINFO_API_KEY`) a GovInfo cross-check of one day's FR documents.
+Params: `corpus` (`cfr` | `fr` | `usc` | `constitution` | `plaw` | `agenda`), `title` (cfr/usc), `offline` (skip eCFR / OLRC / GovInfo / reginfo.gov), `govinfo_date`. Returns `{status, summary{OK,WARN,FAIL,INFO}, items[{corpus, target, check, status, detail, …}], checked_at, online}`, the same report as `python -m app.integrity --json`. Checks database health, counts, recorded hashes and versions (`unknown` for stores built before they were recorded), cached source re-hashes, FR record/body hashes, FR coverage gaps and freshness, staleness against eCFR / the OLRC / GovInfo / reginfo.gov, Constitution completeness, Public Laws per-file hashes and congress coverage, Unified Agenda edition coverage, and (with `GOVINFO_API_KEY`) a GovInfo cross-check of one day's FR documents.
 
 ## Sources (registry, selection, templates)
 
@@ -429,7 +429,7 @@ The federal source registry (`app/sources/`) is what a Settings checklist drives
 - **Sources** (`categories`: Statutes, Regulations, Rulemaking, Enforcement, News): `usc` (titles 1–54 plus the appendix titles 5a, 11a, 18a, 28a as option values 105, 111, 118, 128; 50a = 150 is eliminated and listed as reserved), `cfr`, `fr` (the archive), `news` (the News page feed), `dol_enforcement` (needs `DOL_API_KEY`), `constitution`, `public_laws` (filters `congresses` 113…current or `"all"`, `law_types` public/private) and `unified_agenda` (filters `agencies` = reginfo.gov parent agency codes such as `"2000"`, `stages` prerule/proposed/final/long_term/completed, `years`). None of the last three needs a key (GovInfo **bulk data** and reginfo.gov are keyless). Status adds per-source counts (`units`/`annotations`, `laws`/`usc_links`/`congresses`, `entries`/`editions`).
 - **Filter types**: `multi` takes a list of option values, or `"all"` when `allow_all`, or `"installed"` (the CFR titles on this computer) when `allow_installed`; `allow_custom` accepts any lowercase slug. `toggle` is a bool, `number` an int clamped to `min`..`max`, `choice` one option value. Title options carry `estimate {bytes, seconds, approximate: true}` (null for reserved titles) and `desk`.
 - **Keys**: only presence (`key_present`), never a value. `needs_key` means the source can't update without one; `optional_key` adds a feature.
-- **Status**: what is on disk (`installed`, `items`, `bytes`), `last_refresh`, queued/running `jobs`, and `integrity` — the last offline `app.integrity` result (`{status, summary, checked_at, problems}`) for cfr/usc/fr, `null` until `GET /api/sources?check=true` runs one.
+- **Status**: what is on disk (`installed`, `items`, `bytes`), `last_refresh`, queued/running `jobs`, and `integrity` — the last offline `app.integrity` result (`{status, summary, checked_at, problems}`) for cfr/usc/fr/constitution/plaw/agenda, `null` until `GET /api/sources?check=true` runs one.
 
 ### `GET /api/sources`
 `{categories, sources[], selection, saved, default_preset}`. `?check=true` runs the offline integrity check first.
