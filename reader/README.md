@@ -159,6 +159,7 @@ cd reader
 ../.venv/bin/python -m app.agenda                   # Build the Unified Agenda (reginfo.gov)
 ../.venv/bin/python -m app.integrity --offline      # Check local database integrity across all corpora
 ../.venv/bin/python -m app.migrate --status         # Show each local database's schema version (omit --status to migrate)
+../.venv/bin/python -m app.reindex --offline        # Rebuild derived data (the CFR citation graph) from local data, no download
 ```
 
 Note that a CLI build isn't picked up by an already-running server until you restart it or call `POST /api/library/reload`. Downloads started inside the app's **Library** take effect right away.
