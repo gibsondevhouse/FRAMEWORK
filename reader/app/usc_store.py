@@ -225,6 +225,28 @@ def get_section(title: int, section_id: str) -> dict | None:
         return d
 
 
+def level_notes(title: int, path: list[str]) -> list[dict] | None:
+    """Notes attached to the title itself (`path` empty) or to one chapter, subchapter, part …
+    (`path` = the tree ids from the title down, e.g. ["ch21", "schI"]; DM-113 / FT-26).
+    A level's notes are stored under its full USLM identifier ('/us/usc/t42/ch21/schI'), and a
+    level's tree id is that identifier's last segment, so the path matches the segments after
+    the title's. None when the title is not installed."""
+    with read_con(title) as con:
+        if con is None:
+            return None
+        pattern = "%/" + path[-1] if path else "%"
+        rows = con.execute(
+            "SELECT owner, category, topic, heading, xml, text FROM notes "
+            "WHERE owner_kind != 'section' AND owner LIKE ? ORDER BY ord", (pattern,)).fetchall()
+    want = [p for p in path if p]
+    out = []
+    for r in rows:
+        segs = [x for x in r["owner"].split("/") if x]
+        if len(segs) >= 3 and segs[:2] == ["us", "usc"] and segs[3:] == want:
+            out.append({k: r[k] for k in ("category", "topic", "heading", "xml", "text")})
+    return out
+
+
 def search_title(title: int, q: str, limit: int = 30, include_notes: bool = False) -> tuple[int, list[dict]]:
     """Exact section number first, then FTS5 over sections (bm25 label 8 / heading 6 / text 1);
     `include_notes` also searches the notes and returns their owner sections."""
