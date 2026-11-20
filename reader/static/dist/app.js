@@ -12,6 +12,11 @@ var state = {
 	corpora: [],
 	extraCorpora: [],
 	installedTitles: [],
+	installedUscTitles: [],
+	currentUscTitle: null,
+	currentUscSection: null,
+	currentUscNode: null,
+	uscTrees: /* @__PURE__ */ new Map(),
 	homeSnapshot: void 0,
 	noTitles: false,
 	profilesData: void 0,
@@ -5143,6 +5148,23 @@ async function tryGetJSON(url, opts) {
 function fetchInstalledTitles(opts) {
 	return getJSON("/api/titles", opts);
 }
+async function fetchInstalledUscTitles(opts) {
+	return (await tryGetJSON("/api/usc/titles", opts))?.titles || [];
+}
+function fetchUscMeta(titleNum, opts) {
+	return tryGetJSON(`/api/usc/${titleNum}/meta`, opts);
+}
+function fetchUscTree(titleNum, opts) {
+	return tryGetJSON(`/api/usc/${titleNum}/tree`, opts);
+}
+/** `unit`: null = the whole section; '' = the first unit of a long section; else that unit. */
+function fetchUscSection(titleNum, sectionId, opts, unit = null) {
+	const qs = unit === null ? "" : `?unit=${encodeURIComponent(unit)}`;
+	return getJSON(`/api/usc/${titleNum}/section/${encodeURIComponent(sectionId)}${qs}`, opts);
+}
+function fetchUscCitations(titleNum, sectionId, opts) {
+	return tryGetJSON(`/api/usc/${titleNum}/citations/${encodeURIComponent(sectionId)}`, opts);
+}
 function fetchTitlesSnapshot(opts) {
 	return tryGetJSON("/api/titles/snapshot", opts);
 }
@@ -5529,7 +5551,20 @@ function togglePin(projectId, sec) {
 	if (p) showToast(pinned ? `Pinned ${sec.label} to ${p.name}` : `Removed ${sec.label} from ${p.name}`);
 	return pinned;
 }
+var USC_TIER = "federal-statute";
+/** A U.S. Code section's workspace reference (tier `federal-statute`, so Workspaces link it to the U.S.C. reader). */
+function uscSectionRef(title, sec) {
+	return {
+		title,
+		id: sec.id,
+		label: (sec.label || `§ ${sec.id}`).replace(/\.\s*$/, ""),
+		heading: sec.heading || "",
+		tier: USC_TIER,
+		jurisdiction: "US"
+	};
+}
 function currentSectionRef() {
+	if (!state.currentSection && state.currentUscSection && state.currentUscTitle) return uscSectionRef(state.currentUscTitle, state.currentUscSection);
 	if (!state.currentSection) return null;
 	return {
 		title: state.currentTitle,
@@ -5609,6 +5644,29 @@ var exportProjects = (list, name = "framework-projects.json") => downloadJson(na
 });
 // src/citations.ts
 var NEWS_CITE_RE = /\b29\s*C\.?F\.?R\.?\s*(?:§§?\s*)?(\d{1,4}\.\d+)(?:\([a-z0-9]{1,4}\))*|§§?\s*(19\d{2}\.\d+)(?:\([a-z0-9]{1,4}\))*/gi;
+var PARA_TOKEN_RE = /\([a-zA-Z0-9]{1,4}\)/g;
+/**
+* The paragraph path ("(a)(2)(i)") of paragraph `idx` in a reader body, from each paragraph's
+* nesting level (`lvl-N`, 0 = none) and marker text (`.pmark`). A folded marker such as
+* "(a)(1)" (CFR) or "(5)(A)" (U.S.C.) sits at its first token's level, so a later child
+* keeps only the tokens above its own level: "(2)" after "(a)(1)" is "(a)(2)".
+*/
+function paragraphPathFrom(paras, idx) {
+	const tokens = (m) => m.match(PARA_TOKEN_RE) || [];
+	const own = paras[idx] ? tokens(paras[idx].marks) : [];
+	if (!own.length) return "";
+	let target = paras[idx].lvl;
+	const chain = [...own];
+	for (let i = idx - 1; i >= 0 && target > 1; i--) {
+		const p = paras[i];
+		if (p.lvl <= 0 || p.lvl >= target) continue;
+		const t = tokens(p.marks);
+		if (!t.length) continue;
+		chain.unshift(...t.slice(0, Math.min(t.length, target - p.lvl)));
+		target = p.lvl;
+	}
+	return chain.join("");
+}
 // src/core/news_format.ts
 var NEWS_SOURCE_LABELS = {
 	federal_register: "Federal Register",
@@ -6197,6 +6255,7 @@ function corpusIdForTitle(titleNum) {
 function corpusHashFor(corpus, subPath = "/") {
 	const cleanSub = subPath.startsWith("/") ? subPath : `/${subPath}`;
 	if (corpus.tier === "federal-reg" && corpus.title_num) return `#/title/${corpus.title_num}${cleanSub}`;
+	if (corpus.tier === "federal-statute" && corpus.installed && corpus.title_num) return `#/usc/${corpus.title_num}${cleanSub}`;
 	return `#/corpus/${encodeURIComponent(corpus.tier)}/${encodeURIComponent(corpus.jurisdiction || "US")}/${encodeURIComponent(corpus.code || corpus.corpus_id)}${cleanSub === "/" ? "/" : cleanSub}`;
 }
 function parseCorpusPath(path) {
@@ -6296,7 +6355,28 @@ function allSystemFrameworks(titles = state.installedTitles, snapshotRows = stat
 			update_available: hasErr
 		});
 	}
-	if (![...byId.values()].some((c) => c.tier === "federal-statute")) {
+	for (const u of state.installedUscTitles || []) {
+		const id = `us:usc:${u.title}-u.s.c.`;
+		if (byId.has(id)) continue;
+		byId.set(id, {
+			corpus_id: id,
+			tier: "federal-statute",
+			jurisdiction: "US",
+			jurisdiction_label: "Federal",
+			code: `${u.title} U.S.C.`,
+			title_num: u.title,
+			name: u.title_name || `Title ${u.title}`,
+			desk: mapRawDeskToId("", u.title),
+			agencies: ["U.S. Congress"],
+			edition: u.release_point || null,
+			section_count: u.section_count || 0,
+			summary: `${u.section_count || 0} sections${u.positive_law ? " · Positive law" : ""}`,
+			installed: true,
+			linked_titles: [],
+			status_label: "Installed"
+		});
+	}
+	if (![...byId.values()].some((c) => c.tier === "federal-statute" && !c.installed)) {
 		const matchedTitles = [...installedSet].filter((n) => KNOWN_TITLE_AUTHORITIES[n]);
 		const uscSourceTitles = matchedTitles.length ? matchedTitles : [
 			29,
@@ -6602,6 +6682,7 @@ function saveNav() {
 function isFrameworkRoute(path = state.activeRoute) {
 	const p = (path || "/").split("?")[0] || "/";
 	if (/^\/corpus\/(?!state\/|county\/)/.test(p)) return true;
+	if (/^\/usc\/\d+(?:\/|$)/.test(p)) return true;
 	if (state.noTitles) return false;
 	return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/)/.test(p);
 }
@@ -6615,6 +6696,7 @@ function routeTarget(path = state.activeRoute) {
 	const p = (path || "/").split("?")[0] || "/";
 	if (p === "/") return "overview";
 	if (p.startsWith("/corpus/")) return "corpus";
+	if (/^\/usc\/\d+/.test(p)) return "corpus";
 	if (/^\/title\/\d+\/?$/.test(p)) return "home";
 	const rest = p.replace(/^\/title\/\d+/, "");
 	if (rest.startsWith("/library")) return "library";
@@ -6920,7 +7002,11 @@ function renderSidebarFrameworks() {
     </a>`;
 	};
 	const parts = [];
-	if (usc.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Statutes (U.S.C.)</div>${usc.slice(0, 3).map((c) => rowHtml(c)).join("")}</div>`);
+	if (usc.length) {
+		const installedUsc = usc.filter((c) => c.installed);
+		const shownUsc = installedUsc.length ? [...installedUsc, ...usc.filter((c) => !c.installed)].slice(0, Math.max(3, installedUsc.length)) : usc.slice(0, 3);
+		parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Statutes (U.S.C.)</div>${shownUsc.map((c) => rowHtml(c)).join("")}</div>`);
+	}
 	if (cfr.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Regulations (CFR)</div>${cfr.map((c) => rowHtml(c, { stale: Boolean(c.title_num && staleSet.has(c.title_num)) })).join("")}</div>`);
 	if (fr.length) parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Rulemaking (FR)</div>${fr.map((c) => rowHtml(c, { stale: Boolean(c.update_available) })).join("")}</div>`);
 	box.innerHTML = parts.join("") || "<div class=\"ar-fw-empty\">No frameworks installed</div>";
@@ -7990,7 +8076,9 @@ async function onDockAction(btn) {
 async function refreshTitles(changed = []) {
 	let list;
 	try {
-		list = await fetchInstalledTitles();
+		const [cfr, usc] = await Promise.all([fetchInstalledTitles(), fetchInstalledUscTitles().catch(() => state.installedUscTitles)]);
+		list = cfr;
+		state.installedUscTitles = usc;
 	} catch {
 		return;
 	}
@@ -8480,6 +8568,7 @@ var switcherDeskFilter = "all";
 function activeRouteKind() {
 	const p = (state.activeRoute || "/").split("?")[0] || "/";
 	if (p.startsWith("/news")) return "fr";
+	if (/^\/usc\/\d+(?:\/|$)/.test(p)) return "usc";
 	if (p.startsWith("/corpus/")) return state.activeCorpus?.tier === "federal-register" ? "fr" : "corpus";
 	if (/^\/(?:title\/\d+(?:\/|$)|part\/|section\/)/.test(p)) return "cfr";
 	return "platform";
@@ -8489,6 +8578,7 @@ function searchPlaceholderFor(on) {
 	if (window.matchMedia("(max-width: 600px)").matches) return "Search…";
 	const kind = activeRouteKind();
 	if (kind === "cfr") return `Search ${state.currentTitle} CFR or jump to a section…`;
+	if (kind === "usc" && state.currentUscTitle) return `Search ${state.currentUscTitle} U.S.C. or federal codes…`;
 	if (kind === "fr") return "Search federal codes, § sections, or > commands…";
 	return "Search federal codes, § sections, or > commands…";
 }
@@ -8536,7 +8626,7 @@ function switcherGroupsHtml(query = "", desk = switcherDeskFilter) {
       <div class="tm-group" data-ref-tier="${meta.refTier}">
         <div class="tm-group-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(meta.label)}</span><span class="tm-group-count">${items.length}</span></div>
         ${items.map((c) => {
-			const isCurrent = c.tier === "federal-reg" ? kind === "cfr" && c.title_num === state.currentTitle : c.tier === "federal-register" ? kind === "fr" : kind === "corpus" && state.activeCorpus?.corpus_id === c.corpus_id;
+			const isCurrent = c.tier === "federal-reg" ? kind === "cfr" && c.title_num === state.currentTitle : c.tier === "federal-register" ? kind === "fr" : c.tier === "federal-statute" && kind === "usc" ? c.title_num === state.currentUscTitle : kind === "corpus" && state.activeCorpus?.corpus_id === c.corpus_id;
 			const numText = c.tier === "federal-reg" ? `${c.code} CFR` : c.code;
 			const tag = c.partial ? "Partial" : c.status_label || c.agencies?.[0] || "";
 			return `<button type="button" class="tm-item${isCurrent ? " is-current" : ""}" role="menuitemradio" aria-checked="${isCurrent}" data-ref-tier="${meta.refTier}" ${c.tier === "federal-reg" ? `data-title="${c.title_num}"` : `data-corpus-hash="${escapeHtml(corpusHashFor(c))}"`} tabindex="-1">
@@ -8565,6 +8655,17 @@ function fillTitleSelect() {
 			const frDate = state.navNewsStatus?.sources?.federal_register?.last_ok_at?.slice(0, 10) || "";
 			dom.edition.textContent = frDate ? `FR ${frDate}` : "Federal Register";
 			dom.edition.title = "Federal Register feed";
+		}
+	} else if (kind === "usc" && state.currentUscTitle) {
+		const curUsc = state.installedUscTitles.find((u) => u.title === state.currentUscTitle);
+		const name = curUsc?.title_name || state.activeCorpus?.name || `Title ${state.currentUscTitle}`;
+		if (numEl) numEl.textContent = `${state.currentUscTitle} U.S.C.`;
+		if (nameEl) nameEl.textContent = name;
+		dom.titleSelect.dataset.refTier = "usc";
+		dom.titleSelect.title = `${state.currentUscTitle} U.S.C.: ${name} · Switch federal framework`;
+		if (dom.edition) {
+			dom.edition.textContent = curUsc?.release_point ? `Release ${curUsc.release_point}` : "U.S. Code";
+			dom.edition.title = `${state.currentUscTitle} U.S.C. release point`;
 		}
 	} else if (kind === "corpus" && state.activeCorpus) {
 		const shortCode = state.activeCorpus.tier === "federal-statute" ? state.activeCorpus.code.split("§§")[0].trim() : state.activeCorpus.code;
@@ -9904,35 +10005,27 @@ function enhanceDomAnchors(root = dom.view) {
 }
 function resolveParagraphPath(root, paraEl) {
 	if (!root || !paraEl) return "";
-	const pm = paraEl.querySelector(".pmark");
-	if (!pm) return "";
-	const firstTok = (pm.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
-	if (!firstTok.length) return "";
-	if (firstTok.length > 1) return firstTok.join("");
-	const lvlMatch = /\blvl-(\d+)\b/.exec(paraEl.className);
-	let targetLvl = lvlMatch ? Number(lvlMatch[1]) : 0;
-	if (targetLvl <= 1) return firstTok[0] || "";
 	const paras = [...root.querySelectorAll(".reg-p")];
 	const idx = paras.indexOf(paraEl);
-	if (idx < 0) return firstTok[0] || "";
-	const chain = firstTok[0] ? [firstTok[0]] : [];
-	for (let i = idx - 1; i >= 0 && targetLvl > 1; i--) {
-		const p = paras[i];
-		const lm = /\blvl-(\d+)\b/.exec(p.className);
-		const lvl = lm ? Number(lm[1]) : 0;
-		if (lvl > 0 && lvl < targetLvl) {
-			const toks = (p.querySelector(".pmark")?.textContent || "").match(/\([a-zA-Z0-9]{1,4}\)/g);
-			if (toks && toks.length) {
-				chain.unshift(...toks);
-				targetLvl = lvl;
-			}
-		}
-	}
-	return chain.join("");
+	const levelOf = (el) => Number(/\blvl-(\d+)\b/.exec(el.className)?.[1] || 0);
+	const marksOf = (el) => el.querySelector(".pmark")?.textContent || "";
+	if (idx < 0) return paragraphPathFrom([{
+		lvl: 1,
+		marks: marksOf(paraEl)
+	}], 0);
+	return paragraphPathFrom(paras.map((p) => ({
+		lvl: levelOf(p),
+		marks: marksOf(p)
+	})), idx);
 }
 function formatCfrCitation(title, sectionLabelOrId, para = "") {
 	const cleanLabel = String(sectionLabelOrId || "").trim();
 	return `${title} C.F.R. ${cleanLabel.startsWith("§") ? cleanLabel : `§ ${cleanLabel}`}${para || ""}`;
+}
+/** The citation for a workspace reference: "29 U.S.C. § 655(b)(1)" for a statute, else CFR form. */
+function formatRefCitation(ref, para = "") {
+	if (ref.tier === "federal-statute") return `${ref.title} U.S.C. § ${ref.id}${para || ""}`;
+	return formatCfrCitation(ref.title, cleanInlineLabel(ref.label), para);
 }
 function wrapIbrMentions(root, ibrList) {
 	if (!root || !Array.isArray(ibrList) || !ibrList.length) return;
@@ -10052,7 +10145,7 @@ function bindBrokenImageFallback(root, getEcfrUrl) {
 		fig.innerHTML = `${icon("external")}<span>Figure — view on eCFR</span>`;
 	}, true);
 }
-function createParaToolsController({ root, bodySelector = ".reg-body", paraSelector = ".reg-body .reg-p[id]", isActive, getSectionRef }) {
+function createParaToolsController({ root, bodySelector = ".reg-body", paraSelector = ".reg-body .reg-p[id]", isActive, getSectionRef, formatCite = formatRefCitation, citeTitle = "Copy legal citation" }) {
 	let bar = null;
 	let target = null;
 	const hide = () => {
@@ -10069,7 +10162,7 @@ function createParaToolsController({ root, bodySelector = ".reg-body", paraSelec
 			bar.className = "para-tools";
 			bar.setAttribute("aria-label", "Paragraph actions");
 			bar.innerHTML = `
-        <button type="button" class="para-tool-btn" data-para-act="copy" title="Copy legal CFR citation">${icon("link")} Cite</button>
+        <button type="button" class="para-tool-btn" data-para-act="copy" title="${escapeHtml(citeTitle)}">${icon("link")} Cite</button>
         <button type="button" class="para-tool-btn" data-para-act="clip" title="Clip clause to workspace">${icon("bookmark")} Clip</button>
       `;
 		}
@@ -10097,8 +10190,7 @@ function createParaToolsController({ root, bodySelector = ".reg-body", paraSelec
 		const ref = getSectionRef();
 		if (!ref) return true;
 		const para = resolveParagraphPath(root, target);
-		const label = cleanInlineLabel(ref.label);
-		const cite = formatCfrCitation(ref.title, label, para);
+		const cite = formatCite(ref, para);
 		if (btn.dataset.paraAct === "copy") await copyText(cite, `Copied ${cite}`, "Couldn’t copy citation");
 		else if (btn.dataset.paraAct === "clip") {
 			const clone = target.cloneNode(true);
@@ -10136,7 +10228,8 @@ var UNIT_KIND_MAP = {
 function unitKind(u) {
 	return u.kind && UNIT_KIND_MAP[u.kind] || "part";
 }
-function railHtml(data, mode) {
+/** `hrefFor(key)` builds a unit link in units mode; the CFR's section route by default. */
+function railHtml(data, mode, hrefFor = (key) => sectionHref(data.id, key)) {
 	const units = data.outline || [];
 	if (units.length < 2 || mode !== "units" && units.length < 4) return "";
 	const maxChars = Math.max(1, ...units.map((u) => Number(u.chars) || 0));
@@ -10150,7 +10243,7 @@ function railHtml(data, mode) {
 		}
 		lastGroup = u.group;
 		const current = mode === "units" && u.key === data.unit;
-		const href = mode === "units" ? sectionHref(data.id, u.key) : `#u-${u.key}`;
+		const href = mode === "units" ? hrefFor(u.key) : `#u-${u.key}`;
 		const name = unitName(u);
 		const ratio = Math.sqrt((Number(u.chars) || 0) / maxChars);
 		const barPx = Math.round(7 + ratio * 7);
@@ -12381,18 +12474,22 @@ function renderProjects(id) {
 	}
 	document.title = `${p.name} · Workspaces · FRAMEWORK`;
 	const installed = new Set(state.installedTitles.map((t) => t.title));
+	const installedUsc = new Set((state.installedUscTitles || []).map((t) => t.title));
 	const groupedHtml = TIER_ORDER.map((tier) => {
 		const tierSecs = p.sections.filter((s) => (s.tier || "federal-reg") === tier);
 		if (!tierSecs.length) return "";
 		const tMeta = TIER_META[tier] || TIER_META["federal-reg"];
 		const rTier = tMeta.refTier;
 		const rows = tierSecs.map((s) => {
-			const href = `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
+			const isUsc = s.tier === USC_TIER;
+			const href = isUsc ? `#/usc/${s.title}/section/${encodeURIComponent(s.id)}` : `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
+			const have = isUsc ? installedUsc.has(s.title) : installed.has(s.title);
+			const libHref = isUsc ? `#/library/usc/${s.title}` : `#/library/${s.title}`;
 			return `<article class="proj-item has-tier-bar" data-ref-tier="${rTier}">
         <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(tMeta.tag)}</span>${SEP}Title ${s.title}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ""}</span>
           <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || "").slice(0, 10)))}</span></div>
-        <h3 class="story-name">${installed.has(s.title) ? `<a href="${href}">${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}</a>` : `${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}`}</h3>
-        ${installed.has(s.title) ? "" : `<p class="proj-missing">Title ${s.title} isn’t installed. <a href="#/library/${s.title}">Download it</a> to read this section.</p>`}
+        <h3 class="story-name">${have ? `<a href="${href}">${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}</a>` : `${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}`}</h3>
+        ${have ? "" : `<p class="proj-missing">${isUsc ? `${s.title} U.S.C.` : `Title ${s.title}`} isn’t installed. <a href="${libHref}">Download it</a> to read this section.</p>`}
         <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || "")}</textarea>
         <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
       </article>`;
@@ -14515,7 +14612,8 @@ on("env:saved", () => {
 // src/views/library_usc.ts
 var USC_JOB_BASE = 1e3;
 var uscLibHref = (title) => `#/library/usc${title ? `/${title}` : ""}`;
-var uscSectionHref = (title, id) => `/usc/${title}/${encodeURIComponent(id)}`;
+var uscSectionHref = (title, id) => `#/usc/${title}/section/${encodeURIComponent(id)}`;
+var uscNodeLibHref = (title, id) => `#/usc/${title}/node/${encodeURIComponent(id)}`;
 var uscCite = (title) => `${title} U.S.C.`;
 function uscJobFor(title) {
 	return [state.jobs.current, ...state.jobs.queued].filter(Boolean).find((j) => j.title === USC_JOB_BASE + title);
@@ -14703,8 +14801,9 @@ function uscChaptersHtml(title, tree) {
 		const dim = s.total > 0 && s.inactive === s.total;
 		const status = s.total ? `${escapeHtml(fmtSections(s.total - s.inactive) || "No active sections")}${s.inactive ? `<span class="lib-row-note">${s.inactive} repealed or omitted</span>` : ""}` : "";
 		const open = s.first ? `<a class="lib-act" href="${uscSectionHref(title, s.first)}">Read</a>` : "";
+		const rowHref = n.t === "section" ? uscSectionHref(title, n.id) : uscNodeLibHref(title, n.id);
 		return `<div class="lib-row${dim ? " is-dim" : ""}${open ? " has-actions" : ""}" data-hay="${escapeHtml(`${num} ${name}`.toLowerCase())}">
-      <span class="lib-main"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></span>
+      <a class="lib-main" href="${rowHref}"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></a>
       <span class="lib-status">${status}</span><span class="lib-actions">${open}</span></div>`;
 	}).join("");
 }
@@ -14743,7 +14842,7 @@ function uscDetailActions(t, tree) {
 	if (t.reserved) return "";
 	if (!t.installed) return `<button type="button" class="btn btn-accent" data-act="usc-download" data-usc-title="${t.title}">${icon("download")} Download title</button>`;
 	const first = tree ? leafStats(tree).first : null;
-	return (first ? `<a class="btn" href="${uscSectionHref(t.title, first)}">${icon("book")} Read</a>` : "") + (t.installed.stale ? `<button type="button" class="btn" data-act="usc-update" data-usc-title="${t.title}">Update</button>` : "") + `<button type="button" class="btn" data-act="usc-remove" data-usc-title="${t.title}">Remove</button>`;
+	return `<a class="btn btn-accent" href="#/usc/${t.title}/">${icon("book")} Open in reader</a>` + (first ? `<a class="btn" href="${uscSectionHref(t.title, first)}">First section</a>` : "") + (t.installed.stale ? `<button type="button" class="btn" data-act="usc-update" data-usc-title="${t.title}">Update</button>` : "") + `<button type="button" class="btn" data-act="usc-remove" data-usc-title="${t.title}">Remove</button>`;
 }
 // src/views/library.ts
 var LIB_TAB_ORDER = [
@@ -17173,9 +17272,8 @@ function activePinSection() {
 	return pinTargetOverride || currentSectionRef();
 }
 function pinButtonHtml(secRef = null, id = "btn-pin") {
-	const t = secRef ? secRef.title : state.currentTitle;
-	const sId = secRef ? secRef.id : state.currentSection?.id;
-	const n = sId ? projectsWith(t, sId).length : 0;
+	const ref = secRef || currentSectionRef();
+	const n = ref ? projectsWith(ref.title, ref.id).length : 0;
 	return `<button type="button" class="${id === "btn-pin" ? "btn" : "btn btn-small"}${n ? " is-pinned" : ""}" id="${id}" aria-haspopup="dialog" aria-expanded="false" title="Pin to a workspace (${isMac ? "⌘" : "Ctrl "}D)">${icon(n ? "bookmarkFilled" : "bookmark")} ${n ? "Pinned" : "Pin"}</button>`;
 }
 function updatePinButton() {
@@ -17438,7 +17536,9 @@ function collectSectionReferences(root = dom.view, fallbackTitle = state.current
 			const tier = classifyDomRef(el);
 			const label = cleanInlineLabel(el.textContent);
 			if (!label) continue;
-			const href = el.getAttribute("href") || "";
+			const rawHref = el.getAttribute("href") || "";
+			const uscLocal = /^\/usc\/(\d+)\/([^?#]+)$/.exec(rawHref);
+			const href = uscLocal ? `#/usc/${uscLocal[1]}/section/${uscLocal[2]}` : rawHref;
 			const anchor = el.dataset.anchor || "";
 			const ibrCode = el.dataset.ibrCode || "";
 			const localPara = el.dataset.localPara || "";
@@ -18588,6 +18688,446 @@ onView("click", async (e) => {
 onView("keydown", (e) => {
 	handlePartTocCarouselKeydown(e);
 });
+// src/views/reader_usc.ts
+var uscTitleHref = (title) => `#/usc/${title}/`;
+var uscNodeHref = (title, nodeId) => `#/usc/${title}/node/${encodeURIComponent(nodeId)}`;
+function findNodeAndParent(root, targetId, ancestors = []) {
+	if (!root) return null;
+	const kids = root.c || [];
+	for (let i = 0; i < kids.length; i++) {
+		const child = kids[i];
+		if (child.id === targetId) return {
+			node: child,
+			ancestors,
+			siblings: kids,
+			index: i
+		};
+		const hit = findNodeAndParent(child, targetId, [...ancestors, child]);
+		if (hit) return hit;
+	}
+	return null;
+}
+function nodeStats(n) {
+	if (n.t === "section") return {
+		total: 1,
+		inactive: n.s ? 1 : 0,
+		first: n.s ? null : n.id
+	};
+	let total = 0;
+	let inactive = 0;
+	let first = null;
+	for (const c of n.c || []) {
+		const s = nodeStats(c);
+		total += s.total;
+		inactive += s.inactive;
+		if (!first && s.first) first = s.first;
+	}
+	return {
+		total,
+		inactive,
+		first
+	};
+}
+function nodeDisplayLabel(n) {
+	const raw = (n.l || n.id || "").trim();
+	return n.t === "section" ? raw.replace(/^§\s*/, "§ ") : raw;
+}
+function setUscActiveCorpus(titleNum, meta) {
+	const id = `us:usc:${titleNum}-u.s.c.`;
+	state.activeCorpusId = id;
+	state.activeCorpus = {
+		corpus_id: id,
+		tier: "federal-statute",
+		jurisdiction: "US",
+		jurisdiction_label: "Federal",
+		code: `${titleNum} U.S.C.`,
+		title_num: titleNum,
+		name: meta?.title_name || `Title ${titleNum}`,
+		desk: "all",
+		agencies: ["U.S. Congress"],
+		edition: meta?.release_point || null,
+		section_count: meta?.section_count || 0,
+		installed: true,
+		status_label: "Installed"
+	};
+}
+async function ensureUscTitleData(titleNum, signal) {
+	let meta = state.installedUscTitles.find((t) => t.title === titleNum) || null;
+	let tree = state.uscTrees.get(titleNum) || null;
+	const [fetchedMeta, fetchedTree] = await Promise.all([meta ? Promise.resolve(meta) : fetchUscMeta(titleNum, { signal }), tree ? Promise.resolve(tree) : fetchUscTree(titleNum, { signal })]);
+	if (fetchedMeta) meta = fetchedMeta;
+	if (fetchedTree) {
+		tree = fetchedTree;
+		state.uscTrees.set(titleNum, fetchedTree);
+	}
+	return {
+		meta,
+		tree
+	};
+}
+function renderUscTitleStart(titleNum, meta, tree) {
+	setViewHead("");
+	const top = tree?.c || [];
+	const firstActive = tree ? nodeStats(tree).first : null;
+	const installedCfr = new Set(state.installedTitles.map((t) => t.title));
+	const linkedCfr = state.corpora.find((c) => c.tier === "federal-statute" && c.title_num === titleNum)?.linked_titles || [];
+	const rows = top.map((n) => {
+		const s = nodeStats(n);
+		const num = nodeDisplayLabel(n);
+		const name = n.d || "";
+		const dim = s.total > 0 && s.inactive === s.total;
+		const href = n.t === "section" ? uscSectionHref(titleNum, n.id) : uscNodeHref(titleNum, n.id);
+		const status = n.t === "section" ? n.s ? `<span class="lib-row-note">${escapeHtml(n.s)}</span>` : "" : `${escapeHtml(fmtSections(s.total - s.inactive) || "No active sections")}${s.inactive ? `<span class="lib-row-note">${s.inactive} repealed or omitted</span>` : ""}`;
+		return `<a class="lib-row${dim ? " is-dim" : ""}" href="${href}" data-hay="${escapeHtml(`${num} ${name}`.toLowerCase())}">
+      <span class="lib-main"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></span>
+      <span class="lib-status">${status}</span>
+    </a>`;
+	}).join("");
+	const subParts = [
+		meta?.release_point ? `Release ${meta.release_point}` : "",
+		meta?.current_through ? `Current through ${meta.current_through}` : "",
+		meta?.section_count ? `${meta.section_count.toLocaleString()} sections` : "",
+		meta?.note_count ? `${meta.note_count.toLocaleString()} notes` : ""
+	].filter(Boolean);
+	dom.view.innerHTML = `<div class="ts-front">
+    <header class="ts-masthead">
+      <div class="ts-kicker">
+        <span class="ref-badge" data-ref-tier="usc">U.S.C. · TITLE ${titleNum}</span>
+        ${meta?.positive_law ? "<span class=\"ts-kicker-tag\">Positive law</span>" : ""}
+        ${statPill("synced", "Installed")}
+      </div>
+      <h1 class="ts-title">${escapeHtml(meta?.title_name || `Title ${titleNum}`)}</h1>
+      <p class="ts-sub">${escapeHtml(subParts.join(" · ") || "United States Code")}</p>
+      <div class="ts-actions">
+        ${firstActive ? `<a class="btn btn-accent" href="${uscSectionHref(titleNum, firstActive)}">${icon("book")}<span>Start reading</span></a>` : ""}
+        <a class="btn" href="${uscLibHref(titleNum)}">${icon("grid")}<span>Title in Library</span></a>
+      </div>
+      ${linkedCfr.length ? `<div class="story-links" style="margin-top:12px"><span class="story-links-lbl">Implemented by</span>${cfrChipsHtml(linkedCfr, installedCfr)}</div>` : ""}
+    </header>
+    <section class="ts-section" aria-label="Contents">
+      <div class="ts-sec-head">
+        <h2 class="ts-sec-title">Chapters &amp; Divisions</h2>
+        <input class="lib-filter" id="usc-node-filter" type="search" placeholder="Filter chapters…" aria-label="Filter chapters" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="lib-list" id="usc-node-list">${rows || "<p class=\"lib-none\">No contents found in this title.</p>"}</div>
+      <div class="lib-none" id="usc-node-none" aria-live="polite" hidden>Nothing matches that filter.</div>
+    </section>
+  </div>`;
+	enterView();
+}
+function renderUscNode(titleNum, meta, tree, nodeId) {
+	const hit = findNodeAndParent(tree, nodeId);
+	if (!hit) {
+		renderViewError(dom.view, "Chapter not found", `${uscCite(titleNum)} does not contain “${nodeId}”.`);
+		return;
+	}
+	const { node, ancestors, siblings, index } = hit;
+	const prevSib = index > 0 ? siblings[index - 1] : null;
+	const nextSib = index >= 0 && index < siblings.length - 1 ? siblings[index + 1] : null;
+	setViewHead(prevSib || nextSib ? `<div class="doc-step">${prevSib ? docStepBtn("part", -1, uscNodeHref(titleNum, prevSib.id), nodeDisplayLabel(prevSib), prevSib.d || "") : "<span class=\"doc-step-spacer\"></span>"}<span class="doc-step-cur">${escapeHtml(nodeDisplayLabel(node))}</span>${nextSib ? docStepBtn("part", 1, uscNodeHref(titleNum, nextSib.id), nodeDisplayLabel(nextSib), nextSib.d || "") : "<span class=\"doc-step-spacer\"></span>"}</div>` : "");
+	const crumbs = [`<a href="${uscTitleHref(titleNum)}">${escapeHtml(uscCite(titleNum))}</a>`, ...ancestors.map((a) => `<a href="${uscNodeHref(titleNum, a.id)}">${escapeHtml(nodeDisplayLabel(a))}</a>`)].join("<span class=\"sep\" aria-hidden=\"true\">›</span>");
+	const rows = (node.c || []).map((c) => {
+		const num = nodeDisplayLabel(c);
+		const name = c.d || "";
+		const href = c.t === "section" ? uscSectionHref(titleNum, c.id) : uscNodeHref(titleNum, c.id);
+		const s = c.t === "section" ? null : nodeStats(c);
+		const dim = c.t === "section" ? Boolean(c.s) : Boolean(s && s.total > 0 && s.inactive === s.total);
+		const status = c.t === "section" ? c.s ? `<span class="lib-row-note">${escapeHtml(c.s)}</span>` : "" : `${escapeHtml(fmtSections((s?.total || 0) - (s?.inactive || 0)) || "No active sections")}`;
+		return `<a class="lib-row${dim ? " is-dim" : ""}" href="${href}" data-hay="${escapeHtml(`${num} ${name}`.toLowerCase())}">
+      <span class="lib-main"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></span>
+      <span class="lib-status">${status}</span>
+    </a>`;
+	}).join("");
+	const sep = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
+	const counts = nodeStats(node);
+	dom.view.innerHTML = `<div class="usc-node-page">
+    <div class="doc-kicker" data-ref-tier="usc">
+      <span class="ref-badge">U.S. CODE</span>${sep}${crumbs}
+      ${counts.total ? `${sep}<span>${plural(counts.total - counts.inactive, "active section")}</span>` : ""}
+    </div>
+    <h1 class="doc-title">${escapeHtml(nodeDisplayLabel(node))}${node.d ? ` — ${escapeHtml(node.d)}` : ""}</h1>
+    <div class="doc-actions">
+      ${counts.first ? `<a class="btn btn-accent" href="${uscSectionHref(titleNum, counts.first)}">${icon("book")} Start reading</a>` : ""}
+      <div class="spacer"></div>
+      <div class="doc-actions-util">
+        <button type="button" class="btn" id="btn-copy-link" title="Copy direct link">${icon("link")} Copy link</button>
+      </div>
+    </div>
+    <div class="usc-node-tools">
+      <input class="lib-filter" id="usc-node-filter" type="search" placeholder="Filter sections and subchapters…" aria-label="Filter sections" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="lib-list" id="usc-node-list">${rows || "<p class=\"lib-none\">No sections in this division.</p>"}</div>
+    <div class="lib-none" id="usc-node-none" aria-live="polite" hidden>Nothing matches that filter.</div>
+  </div>`;
+	enterView();
+}
+var uscUnitHref = (title, id, view) => `${uscSectionHref(title, id)}/${encodeURIComponent(view)}`;
+/** The pinned header, as the CFR builds it: ‹ section | ‹ unit … unit › | section › in units mode. */
+function uscStepHtml(titleNum, d, reading) {
+	const secBtn = (s, dir) => s ? docStepBtn("section", dir, uscSectionHref(titleNum, s.id), s.label, s.heading || "") : "";
+	const unitBtn = (u, dir) => u ? docStepBtn(unitKind(u), dir, uscUnitHref(titleNum, d.id, u.key), unitShort(u), unitName(u)) : "";
+	const sep = "<span class=\"doc-step-sep\" aria-hidden=\"true\"></span>";
+	const units = reading === "units";
+	const left = [secBtn(d.prev, -1), units ? unitBtn(d.unit_prev, -1) : ""].filter(Boolean).join(sep);
+	const right = [units ? unitBtn(d.unit_next, 1) : "", secBtn(d.next, 1)].filter(Boolean).join(sep);
+	if (!left && !right) return "";
+	return `<nav class="doc-step" aria-label="Previous and next">${left}<span class="spacer"></span>${right}</nav>`;
+}
+function renderUscSection(titleNum, meta, d, full) {
+	const outline = d.outline || [];
+	const reading = d.mode === "units" && d.unit ? "units" : "scroll";
+	const unitIdx = reading === "units" ? outline.findIndex((u) => u.key === d.unit) : -1;
+	const current = unitIdx >= 0 ? outline[unitIdx] : null;
+	setViewHead(uscStepHtml(titleNum, d, reading) + railHtml({
+		id: d.id,
+		outline,
+		unit: d.unit || ""
+	}, reading, (key) => uscUnitHref(titleNum, d.id, key)));
+	const chapter = [...d.path || []].reverse().find((p) => p.t === "chapter") || (d.path || [])[0] || null;
+	const chapterLabel = chapter ? [chapter.l, chapter.d].filter(Boolean).join(" — ").trim() : "";
+	const chapterLink = chapter && chapterLabel ? chapter.id ? `<a href="${uscNodeHref(titleNum, chapter.id)}">${escapeHtml(chapterLabel)}</a>` : escapeHtml(chapterLabel) : "";
+	const label = (d.label || `§ ${d.id}`).replace(/\.\s*$/, "");
+	document.title = `${titleNum} U.S.C. ${label}${current ? " " + unitShort(current) : ""} · FRAMEWORK`;
+	const toggle = d.mode !== "units" ? "" : full ? `<a class="btn" href="${uscSectionHref(titleNum, d.id)}">${icon("stack")} Read in parts</a>` : `<a class="btn" href="${uscUnitHref(titleNum, d.id, "full")}">${icon("expand")} See full section</a>`;
+	const unitBanner = current ? `<div class="unit-context"><span>${escapeHtml(current.label ? `Subdivision ${current.label}` : current.title || "")}</span><span class="sep" aria-hidden="true">·</span><span class="unit-pos">Unit ${unitIdx + 1} of ${outline.length}</span></div>` : "";
+	const notes = d.notes || [];
+	let notesHtml = "";
+	if (notes.length) {
+		const groups = /* @__PURE__ */ new Map();
+		for (const n of notes) {
+			const cat = (n.category || "editorial").toLowerCase();
+			if (!groups.has(cat)) groups.set(cat, []);
+			groups.get(cat).push(n);
+		}
+		const blocks = [...groups.entries()].map(([cat, items]) => `
+      <div class="usc-note-group">
+        <h3 class="usc-note-cat">${escapeHtml(cat.charAt(0).toUpperCase() + cat.slice(1))} notes</h3>
+        ${items.map((n) => `<div class="usc-note-card">${n.html}</div>`).join("")}
+      </div>
+    `).join("");
+		notesHtml = `<section class="usc-notes" id="usc-notes" aria-label="Statutory and editorial notes">
+      <h2 class="usc-notes-head">Notes <span class="usc-notes-count">${notes.length}</span></h2>
+      ${blocks}
+    </section>`;
+	}
+	dom.view.innerHTML = `
+    <div class="doc-kicker" data-ref-tier="usc">
+      <a href="${uscTitleHref(titleNum)}">${escapeHtml(uscCite(titleNum))}</a> ${chapterLink}
+      ${meta?.release_point ? `<span class="sep" aria-hidden="true">·</span><span>Release ${escapeHtml(meta.release_point)}</span>` : ""}
+    </div>
+    <h1 class="doc-title">${escapeHtml(label)} ${escapeHtml(d.heading)}</h1>
+
+    <div class="doc-actions">
+      ${toggle}
+      ${chapter?.id ? `<a class="btn" href="${uscNodeHref(titleNum, chapter.id)}">${icon("list")} Chapter contents</a>` : ""}
+      ${pinButtonHtml(uscSectionRef(titleNum, d))}
+      ${notes.length ? `<button type="button" class="btn" id="usc-jump-notes">${icon("stack")} Notes (${notes.length})</button>` : ""}
+      <button type="button" class="btn" id="usc-btn-cited" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("link")} <span>Cited by</span></button>
+      <button type="button" class="btn" id="usc-btn-refs" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("list")} <span>Refs</span></button>
+      <div class="spacer"></div>
+      <div class="doc-actions-util">
+        <a class="btn" href="/usc/${titleNum}/${encodeURIComponent(d.id)}" target="_blank" rel="noopener" title="Open a printable standalone page">${icon("external")} Standalone</a>
+        <button type="button" class="btn" id="btn-copy-link" title="Copy direct link">${icon("link")} Copy link</button>
+        <div class="size-ctl" role="group" aria-label="Text size">
+          <button type="button" id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+          <button type="button" id="font-inc" title="Larger text" aria-label="Larger text">A+</button>
+        </div>
+      </div>
+    </div>
+
+    ${d.status ? `<div class="reserved-note">This section is ${escapeHtml(d.status.toLowerCase())}.</div>` : ""}
+    ${unitBanner}
+    <div class="reg-body usc-body" id="reg-body">${d.html}</div>
+    ${notesHtml}`;
+	enhanceDomAnchors(dom.view);
+	updateUscRefsButton();
+	enterView();
+	bindRail();
+	if (reading === "scroll") watchRail();
+}
+function updateUscRefsButton() {
+	const btn = document.getElementById("usc-btn-refs");
+	if (!btn) return;
+	const n = collectSectionReferences(dom.view).length;
+	const span = btn.querySelector("span");
+	if (span) span.textContent = n ? `Refs ${n}` : "Refs";
+	btn.hidden = n === 0;
+}
+var citedCache = /* @__PURE__ */ new Map();
+async function fillUscCitedBy(titleNum, sectionId, seq, signal) {
+	const key = `${titleNum}|${sectionId}`;
+	let data = citedCache.get(key) || null;
+	if (!data) {
+		try {
+			data = await fetchUscCitations(titleNum, sectionId, { signal });
+		} catch {
+			return;
+		}
+		if (data) citedCache.set(key, data);
+	}
+	if (!data || !data.count || seq !== state.routeSeq || state.currentUscSection?.id !== sectionId) return;
+	const btn = document.getElementById("usc-btn-cited");
+	if (!btn) return;
+	const span = btn.querySelector("span");
+	if (span) span.textContent = `Cited by ${data.count}`;
+	btn.hidden = false;
+}
+function citedRow(href, code, sub) {
+	return `<div class="refs-ledger-row"><a class="refs-ledger-link" href="${href}"><span class="refs-ledger-code">${escapeHtml(code)}</span><span class="refs-ledger-sub">${escapeHtml(sub)}</span></a></div>`;
+}
+function openUscCitedBy(btn, d) {
+	const group = (tier, label, rows) => rows.length ? `<div class="refs-ledger-group" data-ref-tier="${tier}"><div class="refs-ledger-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(label)}</span><span class="refs-ledger-count">${rows.length}</span></div>${rows.slice(0, 60).join("")}</div>` : "";
+	const html = `<div class="refs-ledger-wrap">${[
+		group("cfr", "Regulations written under it (Authority)", d.authority.map((a) => citedRow(`#/title/${a.title}/part/${encodeURIComponent(a.part)}`, `${a.title} CFR Part ${a.part}`, "Authority line cites this section"))),
+		group("cross", "CFR sections citing it", d.cfr.map((c) => citedRow(`#/title/${c.title}/section/${encodeURIComponent(c.id)}`, `${c.title} CFR ${c.label}`, c.heading + (c.paragraphs.length ? ` · cites ${c.paragraphs.join(", ")}` : "")))),
+		group("usc", "U.S. Code sections citing it", d.usc.map((u) => citedRow(uscSectionHref(u.title, u.id), `${u.title} U.S.C. ${u.label}`, u.heading)))
+	].join("")}</div>`;
+	citePop.open(btn, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">Cited by ${plural(d.count, "item")} in your library</div>
+      <span class="peek-badge">CITED BY</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close citing sections">${icon("close")}</button>
+    </div>
+    ${html}
+    <p class="peek-text">Only titles installed on this computer are searched.</p>
+  `, {
+		interactive: true,
+		returnFocus: btn,
+		focusSelector: ".refs-ledger-link",
+		refTier: "usc"
+	});
+}
+function renderUscDrawerHtml(titleNum) {
+	const top = state.uscTrees.get(titleNum)?.c || [];
+	const curSection = state.currentUscSection?.id || null;
+	const curNode = state.currentUscNode || null;
+	const isStart = !curSection && !curNode;
+	const chapters = top.map((n) => {
+		const href = n.t === "section" ? uscSectionHref(titleNum, n.id) : uscNodeHref(titleNum, n.id);
+		const active = curNode === n.id || curSection && n.t === "section" && curSection === n.id;
+		const label = nodeDisplayLabel(n);
+		const title = n.d ? ` · ${n.d}` : "";
+		return `<a class="dr-row${active ? " is-current" : ""}" href="${href}"${active ? " aria-current=\"page\"" : ""} title="${escapeHtml(label + title)}">
+      <span class="tier-pip" data-ref-tier="usc" aria-hidden="true"></span>
+      <span class="dr-name">${escapeHtml(label)}${n.d ? ` — ${escapeHtml(n.d)}` : ""}</span>
+    </a>`;
+	}).join("");
+	return `<div class="dr-scroll">
+    <section class="dr-sec">
+      <h3 class="dr-label"><span>Framework Navigation</span></h3>
+      <a class="dr-row${isStart ? " is-current" : ""}" href="${uscTitleHref(titleNum)}"${isStart ? " aria-current=\"page\"" : ""}>
+        <span class="tier-pip" data-ref-tier="usc" aria-hidden="true"></span>
+        <span class="dr-name">Title ${titleNum} start page</span>
+      </a>
+      <a class="dr-row" href="${uscLibHref(titleNum)}">
+        <span class="dr-name">Manage in Library</span>${icon("chevronRight")}
+      </a>
+    </section>
+    <section class="dr-sec">
+      <h3 class="dr-label"><span>Chapters &amp; Divisions</span><span class="dr-count">${top.length}</span></h3>
+      ${chapters || "<p class=\"dr-note\">Loading contents…</p>"}
+    </section>
+    <div class="dr-foot">
+      <a class="dr-link" href="#/library/usc">U.S. Code catalog</a>
+      <a class="dr-link" href="#/">Back to Home</a>
+    </div>
+  </div>`;
+}
+async function loadUscRoute(titleNum, opts = {}) {
+	const seq = state.routeSeq;
+	const signal = state.routeAbort?.signal;
+	state.currentUscTitle = titleNum;
+	state.currentUscNode = opts.nodeId || null;
+	state.currentUscSection = null;
+	state.currentSection = null;
+	const { meta, tree } = await ensureUscTitleData(titleNum, signal);
+	if (seq !== state.routeSeq) return;
+	if (!meta && !tree) {
+		setViewHead("");
+		renderViewError(dom.view, `${uscCite(titleNum)} is not installed`, "Download this U.S. Code title in the Library to read it inside FRAMEWORK.");
+		return;
+	}
+	setUscActiveCorpus(titleNum, meta);
+	const drawerPanel = document.getElementById("panel-corpus");
+	if (drawerPanel) drawerPanel.innerHTML = renderUscDrawerHtml(titleNum);
+	if (opts.sectionId) {
+		try {
+			const full = opts.view === "full";
+			const pTok = /^\(([0-9A-Za-z]{1,8})\)/.exec(opts.para || "");
+			const unit = full ? null : opts.view || (pTok ? pTok[1].toLowerCase() : "");
+			let sec;
+			try {
+				sec = await fetchUscSection(titleNum, opts.sectionId, { signal }, unit);
+			} catch (err) {
+				if (!pTok || opts.view || err?.name === "AbortError") throw err;
+				sec = await fetchUscSection(titleNum, opts.sectionId, { signal }, null);
+			}
+			if (seq !== state.routeSeq) return;
+			uscParaTools.hide();
+			state.currentUscSection = sec;
+			renderUscSection(titleNum, meta, sec, full);
+			if (opts.para) highlightTarget(dom.view, opts.para);
+			fillUscCitedBy(titleNum, sec.id, seq, signal);
+			if (drawerPanel) drawerPanel.innerHTML = renderUscDrawerHtml(titleNum);
+		} catch (err) {
+			if (err?.name === "AbortError" || seq !== state.routeSeq) return;
+			setViewHead("");
+			renderViewError(dom.view, "Section not found", `${uscCite(titleNum)} § ${opts.sectionId} could not be loaded.`);
+		}
+		return;
+	}
+	if (opts.nodeId) {
+		renderUscNode(titleNum, meta, tree, opts.nodeId);
+		return;
+	}
+	renderUscTitleStart(titleNum, meta, tree);
+}
+var uscParaTools = createParaToolsController({
+	root: dom.view,
+	bodySelector: ".usc-body",
+	paraSelector: ".usc-body .reg-p[id]",
+	isActive: () => Boolean(state.currentUscSection && !state.currentSection),
+	getSectionRef: currentSectionRef,
+	citeTitle: "Copy U.S. Code citation"
+});
+onView("click", async (e) => {
+	if (await uscParaTools.handleClick(e)) return;
+	const t = e.target;
+	if (!t) return;
+	if (t.closest("#usc-jump-notes")) {
+		document.getElementById("usc-notes")?.scrollIntoView({
+			behavior: "smooth",
+			block: "start"
+		});
+		return;
+	}
+	const refsBtn = t.closest("#usc-btn-refs");
+	if (refsBtn && state.currentUscSection) {
+		openRefsLedgerPopover(refsBtn, dom.view);
+		return;
+	}
+	const citedBtn = t.closest("#usc-btn-cited");
+	if (citedBtn && state.currentUscSection && state.currentUscTitle) {
+		const data = citedCache.get(`${state.currentUscTitle}|${state.currentUscSection.id}`);
+		if (data) openUscCitedBy(citedBtn, data);
+	}
+});
+onView("input", (e) => {
+	const inp = e.target?.closest("#usc-node-filter");
+	if (!inp) return;
+	const list = document.getElementById("usc-node-list");
+	const none = document.getElementById("usc-node-none");
+	if (!list) return;
+	const q = inp.value.trim().toLowerCase();
+	let shown = 0;
+	for (const row of list.querySelectorAll(".lib-row")) {
+		const hay = row.dataset.hay || "";
+		const match = !q || hay.includes(q);
+		row.hidden = !match;
+		if (match) shown++;
+	}
+	if (none) none.hidden = shown > 0;
+});
 // src/views/search.ts
 state.searchState = null;
 function renderResultRow(r, showTitleInPart) {
@@ -19067,11 +19607,40 @@ async function handleRoute() {
 	} catch {}
 	state.routeAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
 	syncNavToRoute(path);
-	if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus)(\/|$)/.test(path)) {
+	if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus|usc)(\/|$)/.test(path)) {
 		emit("route:changed", { path });
 		await renderWelcome();
 		return;
 	}
+	const uscMatch = /^\/usc\/(\d+)(?:\/(.*))?$/.exec(path);
+	if (uscMatch) {
+		hideMainTabs();
+		clearTreeSelection();
+		const uscTitle = parseInt(uscMatch[1], 10);
+		const rest = (uscMatch[2] || "").replace(/^\/+/, "");
+		const decodeUsc = (s) => {
+			try {
+				return decodeURIComponent(s);
+			} catch {
+				return s;
+			}
+		};
+		if (rest.startsWith("section/")) {
+			const [rawId, rawView] = rest.slice(8).split("/");
+			await loadUscRoute(uscTitle, {
+				sectionId: decodeUsc(rawId),
+				view: rawView ? decodeUsc(rawView) : null,
+				para: params.get("p")
+			});
+		} else if (rest.startsWith("node/")) await loadUscRoute(uscTitle, { nodeId: decodeUsc(rest.slice(5)) });
+		else await loadUscRoute(uscTitle);
+		applyNav();
+		emit("route:changed", { path });
+		return;
+	}
+	state.currentUscTitle = null;
+	state.currentUscNode = null;
+	state.currentUscSection = null;
 	let checkPath = path;
 	let titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
 	const corpusMatch = !titleMatch ? parseCorpusPath(path) : null;
@@ -20430,7 +20999,7 @@ dom.askFloat.addEventListener("click", (e) => {
 		if (ref) clipToWorkspace(ref, {
 			para: selectedPara,
 			quote: state.selectedText,
-			cite: formatCfrCitation(ref.title, ref.label, selectedPara)
+			cite: formatRefCitation(ref, selectedPara)
 		});
 		dom.askFloat.hidden = true;
 		window.getSelection()?.removeAllRanges();
@@ -20999,6 +21568,15 @@ async function handleCfrLinkClick(e, root) {
 	if (!link || !root.contains(link)) return;
 	const isSplitChild = root === dom.splitPane;
 	const rootTitle = isSplitChild ? state.splitState?.title || state.currentTitle : state.currentTitle;
+	if (link.matches("a.xref-usc-local[href^=\"/usc/\"]")) {
+		const m = /^\/usc\/(\d+)\/(.+)$/.exec(link.getAttribute("href") || "");
+		if (m) {
+			e.preventDefault();
+			cancelHoverTimers();
+			window.location.hash = `#/usc/${m[1]}/section/${m[2]}`;
+			return;
+		}
+	}
 	if (link.matches("a.xref-external[data-cfr-title]")) {
 		e.preventDefault();
 		cancelHoverTimers();
@@ -21103,7 +21681,9 @@ var chatKbd = document.getElementById("chat-kbd");
 if (chatKbd) chatKbd.textContent = isMac ? "⌘J" : "Ctrl J";
 async function init() {
 	try {
-		state.installedTitles = await fetchInstalledTitles();
+		const [cfrTitles, uscTitles] = await Promise.all([fetchInstalledTitles(), fetchInstalledUscTitles().catch(() => [])]);
+		state.installedTitles = cfrTitles;
+		state.installedUscTitles = uscTitles;
 		state.noTitles = state.installedTitles.length === 0;
 		syncCorporaState();
 		if (state.installedTitles.length && !state.installedTitles.some((t) => t.title === state.currentTitle)) await switchTitle(state.installedTitles[0].title);

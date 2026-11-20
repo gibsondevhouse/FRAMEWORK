@@ -1,5 +1,5 @@
 import { state, TransferJob } from '../state';
-import { fetchInstalledTitles, getJSON } from '../api/client';
+import { fetchInstalledTitles, fetchInstalledUscTitles, getJSON } from '../api/client';
 import { pollJobs, registerTitleRefresher } from '../api/jobs';
 import { emit, on } from '../core/events';
 import { switchTitle } from '../components/sidebar';
@@ -201,7 +201,14 @@ export async function onDockAction(btn: HTMLButtonElement): Promise<void> {
 
 export async function refreshTitles(changed: number[] = []): Promise<void> {
   let list;
-  try { list = await fetchInstalledTitles(); } catch { return; }
+  try {
+    const [cfr, usc] = await Promise.all([
+      fetchInstalledTitles(),
+      fetchInstalledUscTitles().catch(() => state.installedUscTitles),
+    ]);
+    list = cfr;
+    state.installedUscTitles = usc;
+  } catch { return; }
   const hadNone = state.noTitles;
   state.installedTitles = list;
   state.noTitles = list.length === 0;

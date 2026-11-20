@@ -12,9 +12,10 @@ import { dom } from '../state_init';
 // --- Federal Framework Switcher (top bar) ---
 let switcherDeskFilter = 'all';
 
-function activeRouteKind(): 'cfr' | 'fr' | 'corpus' | 'platform' {
+function activeRouteKind(): 'cfr' | 'usc' | 'fr' | 'corpus' | 'platform' {
   const p = (state.activeRoute || '/').split('?')[0] || '/';
   if (p.startsWith('/news')) return 'fr';
+  if (/^\/usc\/\d+(?:\/|$)/.test(p)) return 'usc';
   if (p.startsWith('/corpus/')) {
     return state.activeCorpus?.tier === 'federal-register' ? 'fr' : 'corpus';
   }
@@ -27,6 +28,7 @@ export function searchPlaceholderFor(on: boolean): string {
   if (window.matchMedia('(max-width: 600px)').matches) return 'Search…';
   const kind = activeRouteKind();
   if (kind === 'cfr') return `Search ${state.currentTitle} CFR or jump to a section…`;
+  if (kind === 'usc' && state.currentUscTitle) return `Search ${state.currentUscTitle} U.S.C. or federal codes…`;
   if (kind === 'fr') return 'Search federal codes, § sections, or > commands…';
   return 'Search federal codes, § sections, or > commands…';
 }
@@ -89,7 +91,9 @@ function switcherGroupsHtml(query = '', desk = switcherDeskFilter): string {
             ? (kind === 'cfr' && c.title_num === state.currentTitle)
             : c.tier === 'federal-register'
               ? (kind === 'fr')
-              : (kind === 'corpus' && state.activeCorpus?.corpus_id === c.corpus_id);
+              : c.tier === 'federal-statute' && kind === 'usc'
+                ? (c.title_num === state.currentUscTitle)
+                : (kind === 'corpus' && state.activeCorpus?.corpus_id === c.corpus_id);
           const numText = c.tier === 'federal-reg' ? `${c.code} CFR` : c.code;
           const tag = c.partial ? 'Partial' : (c.status_label || (c.agencies?.[0] || ''));
           return `<button type="button" class="tm-item${isCurrent ? ' is-current' : ''}" role="menuitemradio" aria-checked="${isCurrent}" data-ref-tier="${meta.refTier}" ${c.tier === 'federal-reg' ? `data-title="${c.title_num}"` : `data-corpus-hash="${escapeHtml(corpusHashFor(c))}"`} tabindex="-1">
@@ -120,6 +124,17 @@ export function fillTitleSelect(): void {
       const frDate = state.navNewsStatus?.sources?.federal_register?.last_ok_at?.slice(0, 10) || '';
       dom.edition.textContent = frDate ? `FR ${frDate}` : 'Federal Register';
       dom.edition.title = 'Federal Register feed';
+    }
+  } else if (kind === 'usc' && state.currentUscTitle) {
+    const curUsc = state.installedUscTitles.find(u => u.title === state.currentUscTitle);
+    const name = curUsc?.title_name || state.activeCorpus?.name || `Title ${state.currentUscTitle}`;
+    if (numEl) numEl.textContent = `${state.currentUscTitle} U.S.C.`;
+    if (nameEl) nameEl.textContent = name;
+    dom.titleSelect.dataset.refTier = 'usc';
+    dom.titleSelect.title = `${state.currentUscTitle} U.S.C.: ${name} · Switch federal framework`;
+    if (dom.edition) {
+      dom.edition.textContent = curUsc?.release_point ? `Release ${curUsc.release_point}` : 'U.S. Code';
+      dom.edition.title = `${state.currentUscTitle} U.S.C. release point`;
     }
   } else if (kind === 'corpus' && state.activeCorpus) {
     const shortCode = state.activeCorpus.tier === 'federal-statute'

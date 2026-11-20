@@ -23,6 +23,8 @@ from fastapi.testclient import TestClient
 from app import config, library, store, usc_build, usc_client, usc_store
 from app.ingest import uslm
 from app.render import uslm_html
+from app import usc_citations
+from app.routers import usc as usc_router_mod
 from app.render.linkifier import make_linkifier
 from tests.base import HermeticTestCase
 
@@ -338,17 +340,63 @@ class StalenessAndQueueTests(UscTestCase):
             self.assertEqual(usc_build.maybe_queue_updates(now + timedelta(hours=7))["count"], 0)
 
 
+class CitationParsingTests(UscTestCase):
+    def test_cites_matches_title_and_section_exactly(self):
+        text = "Authority: 16 U.S.C. 1532(5)(A), 1533; 16 U.S.C. 15320; 42 U.S.C. 1532."
+        self.assertEqual(usc_citations._cites(text, 16, "1532"), ["(5)(A)"])
+        self.assertEqual(usc_citations._cites(text, 16, "1533"), [""])
+        self.assertEqual(usc_citations._cites(text, 16, "1534"), [])
+
+
 class RenderAndLinkTests(UscTestCase):
     def test_renderer_is_allowlisted(self):
         self.install()
         d = usc_store.get_section(4, "7")
         html = uslm_html.render_body(d["xml"])
-        self.assertIn('<div class="usc-level usc-subsection"><span class="usc-num">(b)</span>', html)
+        # Levels render as the CFR reader's flat paragraphs (marker, run-in heading, deterministic id).
+        self.assertIn('<p class="reg-p" id="p1">The flag, when carried in a procession—</p>', html)
+        self.assertIn('<p class="reg-p lvl-1" id="p2"><span class="pmark">(a)</span> should not be displayed', html)
+        self.assertIn('<p class="reg-p lvl-1" id="p3"><span class="pmark">(b)</span> <strong class="runin">Wind</strong> should be hoisted', html)
+        self.assertNotIn("usc-level", html)
+        self.assertIn('<div class="table-wrap"><table class="reg-table">', html)
         self.assertIn('<th colspan="2">Hours</th>', html)
         self.assertNotIn("onclick", html)
         self.assertNotIn("§ 7.", html)                                 # num/heading come from the payload
         self.assertIn('href="/usc/4/1"', html)                         # installed → local
         self.assertIn('href="https://www.law.cornell.edu/uscode/text/36/301"', html)   # not installed → Cornell
+
+    def test_nested_levels_flatten_to_cfr_paragraphs(self):
+        xml = ('<section><num>§ 9.</num><heading>H</heading><subsection><num>(a)</num><heading>In general.—</heading>'
+               '<chapeau>lead</chapeau><paragraph><num>(1)</num><content><p>one</p><p>more</p></content></paragraph>'
+               '<paragraph><num>(2)</num><subparagraph><num>(A)</num><content>deep</content></subparagraph></paragraph>'
+               '<continuation>after</continuation></subsection><subsection><num>(b)</num><content>bee'
+               '<quotedContent><subsection><num>(z)</num><content>quoted</content></subsection></quotedContent>'
+               '</content></subsection><sourceCredit>(Pub. L. 1.)</sourceCredit></section>')
+        html = uslm_html.render_body(xml)
+        self.assertIn('<p class="reg-p lvl-1" id="p1"><span class="pmark">(a)</span> <strong class="runin">In general.—</strong> lead</p>', html)
+        self.assertIn('<p class="reg-p lvl-2" id="p2"><span class="pmark">(1)</span> one</p>', html)
+        self.assertIn('<p class="reg-p lvl-2" id="p3">more</p>', html)
+        # A number with no text of its own folds into its first child, as eCFR writes "(5)(A)".
+        self.assertIn('<p class="reg-p lvl-2" id="p4"><span class="pmark">(2)(A)</span> deep</p>', html)
+        self.assertIn('<p class="reg-p lvl-1 reg-continuation" id="p5">after</p>', html)
+        # Quoted (amending) text is not flattened into this section's own paragraphs.
+        self.assertIn('<blockquote class="usc-quotedContent"><div class="usc-level usc-subsection">', html)
+        self.assertIn('<p class="usc-sourceCredit">(Pub. L. 1.)</p>', html)
+
+    def test_units_follow_top_level_numbers(self):
+        xml = ('<section><num>§ 9.</num><heading>H</heading><chapeau>For this section—</chapeau>'
+               '<paragraph><num>(1)</num><content>one</content></paragraph>'
+               '<paragraph><num>(2)</num><heading>Two.—</heading><subparagraph><num>(A)</num><content>deep</content></subparagraph></paragraph>'
+               '<paragraph><num>(1)</num><content>misnumbered duplicate</content></paragraph></section>')
+        units = uslm_html.render_units(xml)
+        self.assertEqual([u["key"] for u in units], ["1", "2", "1-2"])
+        self.assertEqual([u["label"] for u in units], ["(1)", "(2)", "(1)"])
+        self.assertEqual(units[0]["title"], "one")                     # not the lead-in sentence
+        self.assertEqual(units[1]["title"], "Two")                     # the run-in heading
+        self.assertIn("For this section—", units[0]["html"])           # lead-in joins the first unit
+        self.assertTrue(uslm_html.render_body(xml).startswith('<section class="reg-unit" id="u-1" data-unit="1">'))
+        # A section with no numbers is one unit.
+        self.assertEqual([u["key"] for u in uslm_html.render_units('<section><content><p>x</p></content></section>')], ["text"])
 
     def test_cfr_linkifier_points_to_local_copy_when_installed(self):
         lk = make_linkifier(lambda x: False, 29, installed_titles=lambda: [])
@@ -407,6 +455,33 @@ class ApiTests(UscTestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn("<title>4 U.S.C. 7</title>", page.text)
         self.assertIn('href="/usc/4/1"', page.text)
+        # Same stylesheet and markup as the in-app reader, not a design of its own.
+        self.assertIn('<link rel="stylesheet" href="/static/dist/app.css">', page.text)
+        self.assertIn('<h1 class="doc-title">§ 7 Position and manner of display</h1>', page.text)
+        self.assertIn('<article class="reg-body usc-body"><section class="reg-unit" id="u-a" data-unit="a"><p class="reg-p"', page.text)
+        self.assertIn('href="/#/usc/4/section/7"', page.text)
+        self.assertNotIn("Georgia", page.text)
+        self.assertIn('This section is repealed.', self.client.get("/usc/4/2").text)
+
+    def test_units_mode_and_cited_by(self):
+        self.install()
+        s = self.client.get("/api/usc/4/section/7").json()
+        self.assertEqual(s["mode"], "page")                            # short: one page
+        self.assertEqual([u["key"] for u in s["outline"]], ["a", "b"])
+        with mock.patch.object(usc_router_mod, "UNIT_MODE_MIN_CHARS", 10):
+            s = self.client.get("/api/usc/4/section/7", params={"unit": ""}).json()
+            self.assertEqual((s["mode"], s["unit"], s["unit_prev"], s["unit_next"]["key"]), ("units", "a", None, "b"))
+            self.assertIn('id="u-a"', s["html"])
+            self.assertNotIn('id="u-b"', s["html"])
+            s = self.client.get("/api/usc/4/section/7", params={"unit": "b"}).json()
+            self.assertEqual((s["unit"], s["unit_prev"]["key"], s["unit_next"]), ("b", "a", None))
+            self.assertEqual(self.client.get("/api/usc/4/section/7", params={"unit": "z"}).status_code, 404)
+            self.assertIn('id="u-b"', self.client.get("/api/usc/4/section/7").json()["html"])   # no unit → whole
+        c = self.client.get("/api/usc/4/citations/1").json()           # § 7 links to § 1
+        self.assertEqual([(x["title"], x["id"]) for x in c["usc"]], [(4, "7")])
+        self.assertEqual((c["cfr"], c["authority"], c["count"]), ([], [], 1))
+        self.assertEqual(self.client.get("/api/usc/4/citations/7").json()["count"], 0)   # no self-citation
+        self.assertEqual(self.client.get("/api/usc/4/citations/999").status_code, 404)
 
     def test_catalog_is_offline_and_marks_stale_from_the_cached_release(self):
         with mock.patch.object(usc_client, "client", side_effect=AssertionError("network")):

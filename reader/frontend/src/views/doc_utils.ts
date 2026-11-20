@@ -3,7 +3,8 @@ import {
   cleanInlineLabel, copyText, escapeHtml, icon, safeHttpUrl,
   setModalBackgroundInert, smoothScrollToTarget, trapFocusKeydown,
 } from '../dom';
-import { clipToWorkspace, WorkspaceSectionRef } from '../core/projects_store';
+import { clipToWorkspace, USC_TIER, WorkspaceSectionRef } from '../core/projects_store';
+import { paragraphPathFrom } from '../citations';
 import { emptyStateHtml } from '../components/ui';
 import { dom } from '../state_init';
 
@@ -267,39 +268,24 @@ export function enhanceDomAnchors(root: Element | null = dom.view): void {
 
 export function resolveParagraphPath(root: Element | null | undefined, paraEl: Element | null | undefined): string {
   if (!root || !paraEl) return '';
-  const pm = paraEl.querySelector('.pmark');
-  if (!pm) return '';
-  const firstTok = (pm.textContent || '').match(/\([a-zA-Z0-9]{1,4}\)/g) || [];
-  if (!firstTok.length) return '';
-  if (firstTok.length > 1) return firstTok.join('');
-  const lvlMatch = /\blvl-(\d+)\b/.exec(paraEl.className);
-  let targetLvl = lvlMatch ? Number(lvlMatch[1]) : 0;
-  if (targetLvl <= 1) return firstTok[0] || '';
-
   const paras = [...root.querySelectorAll('.reg-p')];
   const idx = paras.indexOf(paraEl);
-  if (idx < 0) return firstTok[0] || '';
-  const chain: string[] = firstTok[0] ? [firstTok[0]] : [];
-  for (let i = idx - 1; i >= 0 && targetLvl > 1; i--) {
-    const p = paras[i];
-    const lm = /\blvl-(\d+)\b/.exec(p.className);
-    const lvl = lm ? Number(lm[1]) : 0;
-    if (lvl > 0 && lvl < targetLvl) {
-      const pMark = p.querySelector('.pmark')?.textContent || '';
-      const toks = pMark.match(/\([a-zA-Z0-9]{1,4}\)/g);
-      if (toks && toks.length) {
-        chain.unshift(...toks);
-        targetLvl = lvl;
-      }
-    }
-  }
-  return chain.join('');
+  const levelOf = (el: Element): number => Number(/\blvl-(\d+)\b/.exec(el.className)?.[1] || 0);
+  const marksOf = (el: Element): string => el.querySelector('.pmark')?.textContent || '';
+  if (idx < 0) return paragraphPathFrom([{ lvl: 1, marks: marksOf(paraEl) }], 0);
+  return paragraphPathFrom(paras.map(p => ({ lvl: levelOf(p), marks: marksOf(p) })), idx);
 }
 
 export function formatCfrCitation(title: number | string, sectionLabelOrId: string, para = ''): string {
   const cleanLabel = String(sectionLabelOrId || '').trim();
   const numPart = cleanLabel.startsWith('§') ? cleanLabel : `§ ${cleanLabel}`;
   return `${title} C.F.R. ${numPart}${para || ''}`;
+}
+
+/** The citation for a workspace reference: "29 U.S.C. § 655(b)(1)" for a statute, else CFR form. */
+export function formatRefCitation(ref: WorkspaceSectionRef, para = ''): string {
+  if (ref.tier === USC_TIER) return `${ref.title} U.S.C. § ${ref.id}${para || ''}`;
+  return formatCfrCitation(ref.title, cleanInlineLabel(ref.label), para);
 }
 
 export function wrapIbrMentions(root: Element | null | undefined, ibrList: IbrMatch[]): void {
@@ -465,12 +451,17 @@ export function createParaToolsController({
   paraSelector = '.reg-body .reg-p[id]',
   isActive,
   getSectionRef,
+  formatCite = formatRefCitation,
+  citeTitle = 'Copy legal citation',
 }: {
   root: Element | null | undefined;
   bodySelector?: string;
   paraSelector?: string;
   isActive: () => boolean;
   getSectionRef: () => WorkspaceSectionRef | null;
+  /** The citation Cite copies and Clip records; CFR form unless a corpus passes its own. */
+  formatCite?: (ref: WorkspaceSectionRef, para: string) => string;
+  citeTitle?: string;
 }) {
   let bar: HTMLDivElement | null = null;
   let target: Element | null = null;
@@ -490,7 +481,7 @@ export function createParaToolsController({
       bar.className = 'para-tools';
       bar.setAttribute('aria-label', 'Paragraph actions');
       bar.innerHTML = `
-        <button type="button" class="para-tool-btn" data-para-act="copy" title="Copy legal CFR citation">${icon('link')} Cite</button>
+        <button type="button" class="para-tool-btn" data-para-act="copy" title="${escapeHtml(citeTitle)}">${icon('link')} Cite</button>
         <button type="button" class="para-tool-btn" data-para-act="clip" title="Clip clause to workspace">${icon('bookmark')} Clip</button>
       `;
     }
@@ -522,8 +513,7 @@ export function createParaToolsController({
     const ref = getSectionRef();
     if (!ref) return true;
     const para = resolveParagraphPath(root, target);
-    const label = cleanInlineLabel(ref.label);
-    const cite = formatCfrCitation(ref.title, label, para);
+    const cite = formatCite(ref, para);
     if (btn.dataset.paraAct === 'copy') {
       await copyText(cite, `Copied ${cite}`, 'Couldn’t copy citation');
     } else if (btn.dataset.paraAct === 'clip') {

@@ -567,6 +567,16 @@ async function handleCfrLinkClick(e: MouseEvent, root: HTMLElement): Promise<voi
   const isSplitChild = root === dom.splitPane;
   const rootTitle = isSplitChild ? (state.splitState?.title || state.currentTitle) : state.currentTitle;
 
+  if (link.matches('a.xref-usc-local[href^="/usc/"]')) {
+    const m = /^\/usc\/(\d+)\/(.+)$/.exec(link.getAttribute('href') || '');
+    if (m) {
+      e.preventDefault();
+      cancelHoverTimers();
+      window.location.hash = `#/usc/${m[1]}/section/${m[2]}`;
+      return;
+    }
+  }
+
   if (link.matches('a.xref-external[data-cfr-title]')) {
     e.preventDefault();
     cancelHoverTimers();

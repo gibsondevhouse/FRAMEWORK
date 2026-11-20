@@ -324,10 +324,13 @@ export function corpusIdForTitle(titleNum: number | string): string {
   return `us:cfr:${Number(titleNum) || 29}`;
 }
 
-export function corpusHashFor(corpus: Pick<CorpusSummary, 'tier' | 'title_num' | 'jurisdiction' | 'code' | 'corpus_id'>, subPath = '/'): string {
+export function corpusHashFor(corpus: Pick<CorpusSummary, 'tier' | 'title_num' | 'jurisdiction' | 'code' | 'corpus_id' | 'installed'>, subPath = '/'): string {
   const cleanSub = subPath.startsWith('/') ? subPath : `/${subPath}`;
   if (corpus.tier === 'federal-reg' && corpus.title_num) {
     return `#/title/${corpus.title_num}${cleanSub}`;
+  }
+  if (corpus.tier === 'federal-statute' && corpus.installed && corpus.title_num) {
+    return `#/usc/${corpus.title_num}${cleanSub}`;
   }
   const tierSeg = encodeURIComponent(corpus.tier);
   const jurSeg = encodeURIComponent(corpus.jurisdiction || 'US');
@@ -444,8 +447,29 @@ export function allSystemFrameworks(
     });
   }
 
-  // 2. U.S. Code (U.S.C.) — federal statutory framework linked to installed CFR titles (or core defaults)
-  const hasCustomUsc = [...byId.values()].some(c => c.tier === 'federal-statute');
+  // 2. U.S. Code (U.S.C.) — installed titles first, then federal statutory references linked to installed CFR titles
+  for (const u of state.installedUscTitles || []) {
+    const id = `us:usc:${u.title}-u.s.c.`;
+    if (byId.has(id)) continue;
+    byId.set(id, {
+      corpus_id: id,
+      tier: 'federal-statute',
+      jurisdiction: 'US',
+      jurisdiction_label: 'Federal',
+      code: `${u.title} U.S.C.`,
+      title_num: u.title,
+      name: u.title_name || `Title ${u.title}`,
+      desk: mapRawDeskToId('', u.title),
+      agencies: ['U.S. Congress'],
+      edition: u.release_point || null,
+      section_count: u.section_count || 0,
+      summary: `${u.section_count || 0} sections${u.positive_law ? ' · Positive law' : ''}`,
+      installed: true,
+      linked_titles: [],
+      status_label: 'Installed',
+    });
+  }
+  const hasCustomUsc = [...byId.values()].some(c => c.tier === 'federal-statute' && !c.installed);
   if (!hasCustomUsc) {
     const matchedTitles = [...installedSet].filter(n => KNOWN_TITLE_AUTHORITIES[n]);
     const uscSourceTitles = matchedTitles.length ? matchedTitles : [29, 40, 49];

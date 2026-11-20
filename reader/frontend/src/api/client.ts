@@ -13,6 +13,10 @@ import type {
   SectionGraphData,
   StorageSnapshot,
   TreeNode,
+  UscCitedBy,
+  UscSectionData,
+  UscTitleSummary,
+  UscTreeNodeData,
 } from '../state';
 
 // Centralized HTTP client, bounded LRU caches, and cache invalidation.
@@ -104,6 +108,29 @@ export async function tryGetJSON<T = unknown>(url: string, opts?: RequestInit): 
 
 export function fetchInstalledTitles(opts?: RequestInit): Promise<InstalledTitleMeta[]> {
   return getJSON<InstalledTitleMeta[]>('/api/titles', opts);
+}
+
+export async function fetchInstalledUscTitles(opts?: RequestInit): Promise<UscTitleSummary[]> {
+  const res = await tryGetJSON<{ titles?: UscTitleSummary[] }>('/api/usc/titles', opts);
+  return res?.titles || [];
+}
+
+export function fetchUscMeta(titleNum: number, opts?: RequestInit): Promise<UscTitleSummary | null> {
+  return tryGetJSON<UscTitleSummary>(`/api/usc/${titleNum}/meta`, opts);
+}
+
+export function fetchUscTree(titleNum: number, opts?: RequestInit): Promise<UscTreeNodeData | null> {
+  return tryGetJSON<UscTreeNodeData>(`/api/usc/${titleNum}/tree`, opts);
+}
+
+/** `unit`: null = the whole section; '' = the first unit of a long section; else that unit. */
+export function fetchUscSection(titleNum: number, sectionId: string, opts?: RequestInit, unit: string | null = null): Promise<UscSectionData> {
+  const qs = unit === null ? '' : `?unit=${encodeURIComponent(unit)}`;
+  return getJSON<UscSectionData>(`/api/usc/${titleNum}/section/${encodeURIComponent(sectionId)}${qs}`, opts);
+}
+
+export function fetchUscCitations(titleNum: number, sectionId: string, opts?: RequestInit): Promise<UscCitedBy | null> {
+  return tryGetJSON<UscCitedBy>(`/api/usc/${titleNum}/citations/${encodeURIComponent(sectionId)}`, opts);
 }
 
 export function fetchTitlesSnapshot(opts?: RequestInit): Promise<HomeSnapshot | null> {
