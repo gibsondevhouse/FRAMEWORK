@@ -1,4 +1,6 @@
 import { getJSON } from '../api/client';
+import { pollJobs } from '../api/jobs';
+import { state } from '../state';
 import { onView } from '../core/view_dispatch';
 import { escapeHtml, icon, showToast } from '../dom';
 import { flagHtml, tabLeadHtml } from '../components/page_shell';
@@ -39,6 +41,7 @@ interface Template { id: string; name: string; description?: string; builtin: bo
 interface PlanItem { source?: string; label: string; action?: string; change?: string; get_key_url?: string; estimate?: Estimate | null }
 interface Plan {
   summary: string; needs_confirm: boolean; applied?: boolean;
+  queued?: Array<{ id: number }>; removed?: PlanItem[]; skipped?: Array<PlanItem & { reason?: string }>;
   estimate?: { bytes_label?: string; time_label?: string };
   actions: PlanItem[]; changes: PlanItem[]; keeps: string[];
 }
@@ -49,7 +52,11 @@ interface DsState {
   draft: Selection | null;
   dirty: boolean;
   plan: Plan | null;
-  planFor: { kind: 'draft' } | { kind: 'template'; id: string; name: string } | null;
+  // The exact selection + removal flag the plan on screen describes; Apply sends this
+  // snapshot, never the live draft, so an edit after review can't slip through.
+  planFor: { selection: Selection; remove: boolean; templateName: string | null } | null;
+  planSeq: number;
+  templateName: string | null;
   removeUnselected: boolean;
   busy: boolean;
   open: Set<string>;
@@ -61,6 +68,7 @@ interface DsState {
 const ds: DsState = {
   data: null, templates: [], draft: null, dirty: false, plan: null, planFor: null,
   removeUnselected: false, busy: false, open: new Set(), search: {}, templateId: '', saving: false,
+  planSeq: 0, templateName: null,
 };
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -116,7 +124,8 @@ function templateBarHtml(): string {
     title: 'Start from a template, then tick your own boxes',
     subHtml: 'A template fills in the whole checklist below. Nothing downloads until you review the changes and apply them. Unticking only stops updates; your data stays until you choose to remove it.',
     actionsHtml: `<button type="button" class="btn" data-ds-act="export"${saved.length ? '' : ' disabled'}>Export my templates</button>
-      <label class="btn ds-import">Import<input type="file" accept="application/json,.json" data-ds-import hidden></label>`,
+      <button type="button" class="btn" data-ds-act="import">Import</button>
+      <input type="file" accept="application/json,.json" data-ds-import hidden tabindex="-1" aria-hidden="true">`,
     id: 'ds-templates',
   }) + `<div class="ds-tpl-row">
       <label class="ds-tpl-pick"><span class="set-name">Template</span>
@@ -144,6 +153,14 @@ function statusLine(s: SourceDecl): string {
   return `<p class="ds-status">${escapeHtml(bits.join(' · '))}${st.last_error ? ` <span class="ds-err">Last update failed: ${escapeHtml(st.last_error)}</span>` : ''}</p>`;
 }
 
+// Keys the in-app .env editor (env_modal.ts) can set; others get written guidance instead.
+const MODAL_KEYS = new Set(['dol_api_key', 'anthropic_api_key']);
+function addKeyHtml(env: string | null): string {
+  const k = (env || '').toLowerCase();
+  if (MODAL_KEYS.has(k)) return `<button type="button" class="btn btn-sm" data-open-env="${escapeHtml(k)}">Add key</button>`;
+  return env ? `<span class="ds-key-how">Add <code>${escapeHtml(env)}=…</code> to <code>reader/.env</code>, then restart.</span>` : '';
+}
+
 function keyHtml(s: SourceDecl): string {
   const parts: string[] = [];
   if (s.needs_key) {
@@ -151,15 +168,27 @@ function keyHtml(s: SourceDecl): string {
       ? `<p class="ds-key ok">${icon('key')}<span class="ds-key-text">${escapeHtml(s.key_label || 'Key')} is set.</span></p>`
       : `<p class="ds-key">${icon('key')}<span class="ds-key-text">Needs a free ${escapeHtml(s.key_label || 'key')}. Ticked boxes wait until it's added.</span>
           ${s.get_key_url ? `<a href="${escapeHtml(s.get_key_url)}" target="_blank" rel="noopener">Get a key</a>` : ''}
-          <button type="button" class="btn btn-sm" data-open-env="${escapeHtml((s.key_env || '').toLowerCase())}">Add key</button></p>`);
+          ${addKeyHtml(s.key_env)}</p>`);
   }
   const ok = s.optional_key;
   if (ok && !ok.key_present) {
     parts.push(`<p class="ds-key opt">${icon('key')}<span class="ds-key-text">Optional: ${escapeHtml(ok.key_label)}${ok.purpose ? `. ${escapeHtml(ok.purpose.replace(/\.+$/, ''))}` : ''}.</span>
       <a href="${escapeHtml(ok.get_key_url)}" target="_blank" rel="noopener">Get a key</a>
-      <button type="button" class="btn btn-sm" data-open-env="${escapeHtml(ok.key_env.toLowerCase())}">Add key</button></p>`);
+      ${addKeyHtml(ok.key_env)}</p>`);
   }
   return parts.join('');
+}
+
+const optHay = (o: FilterOption): string => `${o.label} ${o.desk || ''} ${o.value}`.toLowerCase();
+
+// The curated options plus any ticked value the registry doesn't list (a custom agency
+// slug from an older or imported selection), so everything being saved can be seen and unticked.
+function pickOptions(f: SourceFilter, value: ScopeValue | undefined): FilterOption[] {
+  const opts = (f.options || []).filter(o => !o.reserved);
+  const known = new Set(opts.map(o => String(o.value)));
+  const extra = (Array.isArray(value) ? value : []).filter(v => !known.has(String(v)))
+    .map(v => ({ value: v, label: String(v), description: 'Added outside this list' }));
+  return [...opts, ...extra];
 }
 
 function multiHtml(s: SourceDecl, f: SourceFilter, value: ScopeValue): string {
@@ -170,7 +199,7 @@ function multiHtml(s: SourceDecl, f: SourceFilter, value: ScopeValue): string {
   if (f.allow_all) modes.push(['all', 'All']);
   if (f.allow_installed) modes.push(['installed', 'The ones on this computer']);
   modes.push(['some', modes.length ? 'Only the ones I tick' : 'Pick']);
-  const opts = (f.options || []).filter(o => !o.reserved);
+  const opts = pickOptions(f, value);
   const q = (ds.search[key] || '').toLowerCase();
   const list = mode === 'some' ? `
       <div class="ds-pick-tools">
@@ -180,10 +209,10 @@ function multiHtml(s: SourceDecl, f: SourceFilter, value: ScopeValue): string {
         <span class="ds-count">${picked.size} of ${opts.length} ticked</span>
       </div>
       <ul class="ds-pick" role="list">${opts.map(o => {
-        const hay = `${o.label} ${o.desk || ''} ${o.value}`.toLowerCase();
+        const hay = optHay(o);
         const hidden = q && !hay.includes(q) ? ' hidden' : '';
         const sz = sizeLabel(o.estimate);
-        return `<li${hidden}><label class="ds-check" title="${escapeHtml(o.description || '')}">
+        return `<li data-hay="${escapeHtml(hay)}"${hidden}><label class="ds-check" title="${escapeHtml(o.description || '')}">
           <input type="checkbox" data-ds-opt="${escapeHtml(key)}" value="${escapeHtml(String(o.value))}"${picked.has(String(o.value)) ? ' checked' : ''}>
           <span class="ds-check-label">${escapeHtml(o.label)}</span>${sz ? `<span class="ds-size">${sz}</span>` : ''}</label></li>`;
       }).join('')}</ul>` : '';
@@ -247,7 +276,7 @@ function sourceCardHtml(s: SourceDecl): string {
 function reviewHtml(): string {
   const p = ds.plan;
   if (p) {
-    const title = ds.planFor?.kind === 'template' ? `Use “${ds.planFor.name}”` : 'Review your changes';
+    const title = ds.planFor?.templateName ? `Use “${ds.planFor.templateName}”` : 'Review your changes';
     const est = p.estimate?.bytes_label ? `<p class="ds-est">Download about ${escapeHtml(p.estimate.bytes_label)}, ${escapeHtml(p.estimate.time_label || '')}.</p>` : '';
     const list = (items: PlanItem[], cls: string) => items.length ? `<ul class="ds-plan-list ${cls}">${items.map(i =>
       `<li>${escapeHtml(i.label)}${sizeLabel(i.estimate) ? ` <span class="ds-size">${sizeLabel(i.estimate)}</span>` : ''}${i.get_key_url ? ` <a href="${escapeHtml(i.get_key_url)}" target="_blank" rel="noopener">Get a key</a>` : ''}</li>`).join('')}</ul>` : '';
@@ -261,10 +290,11 @@ function reviewHtml(): string {
         <label class="ds-check ds-remove"><input type="checkbox" data-ds-remove${ds.removeUnselected ? ' checked' : ''}> Also delete the data for anything I unticked</label>
         <div class="ds-review-acts">
           <button type="button" class="btn" data-ds-act="cancel-review">Back</button>
-          <button type="button" class="btn btn-accent" data-ds-act="apply"${ds.busy ? ' disabled' : ''}>${p.needs_confirm || ds.removeUnselected ? 'Yes, apply these changes' : 'Apply'}</button>
+          <button type="button" class="btn btn-accent" data-ds-act="apply"${ds.busy || !ds.planFor ? ' disabled' : ''}>${p.needs_confirm || ds.planFor?.remove ? 'Yes, apply these changes' : 'Apply'}</button>
         </div>
       </section>`;
   }
+  if (ds.busy && ds.dirty) return '<div class="ds-bar" role="status"><span>Preparing the review…</span></div>';
   return ds.dirty ? `<div class="ds-bar" role="region" aria-label="Unsaved changes">
       <span>You have changes that aren't applied yet.</span>
       <button type="button" class="btn" data-ds-act="discard">Discard</button>
@@ -304,54 +334,73 @@ function rerender(focusSel?: string): void {
 
 function markDirty(): void {
   ds.dirty = true;
+  dropPlan();
+}
+
+// Forget the plan on screen and make any preview still in flight stale.
+function dropPlan(): void {
   ds.plan = null;
   ds.planFor = null;
+  ds.planSeq++;
+  ds.busy = false;                           // a superseded preview no longer holds the page
 }
 
 // ---------- Actions ----------
 
 async function review(): Promise<void> {
+  if (!ds.draft) return;
+  dropPlan();
+  const seq = ds.planSeq;
+  const snapshot = { selection: clone(ds.draft), remove: ds.removeUnselected, templateName: ds.templateName };
   ds.busy = true;
+  rerender();
   try {
-    ds.plan = await getJSON<Plan>(`${SOURCES_URL}/selection/preview`, jsonPost({ selection: ds.draft, remove_unselected: ds.removeUnselected }));
-    ds.planFor = { kind: 'draft' };
+    const plan = await getJSON<Plan>(`${SOURCES_URL}/selection/preview`, jsonPost({ selection: snapshot.selection, remove_unselected: snapshot.remove }));
+    if (seq !== ds.planSeq) return;           // edited while this preview was running
+    ds.plan = plan;
+    ds.planFor = snapshot;
   } catch (err) {
+    if (seq !== ds.planSeq) return;
     showToast(err instanceof Error ? err.message : 'Could not prepare the changes', 5000);
+  } finally {
+    if (seq === ds.planSeq) ds.busy = false;
   }
-  ds.busy = false;
   rerender();
   document.getElementById('ds-review')?.scrollIntoView({ block: 'nearest' });
 }
 
-async function previewTemplate(): Promise<void> {
+// "Use this template" fills the checklist with the template, then reviews it like any edit,
+// so the boxes on screen, later edits, Save as template and Apply all work on one selection.
+function useTemplate(): void {
   const t = ds.templates.find(x => x.id === ds.templateId);
   if (!t) return;
-  ds.busy = true;
-  try {
-    ds.plan = await getJSON<Plan>(`${SOURCES_URL}/templates/${encodeURIComponent(t.id)}/preview`, jsonPost({ remove_unselected: ds.removeUnselected }));
-    ds.planFor = { kind: 'template', id: t.id, name: t.name };
-  } catch (err) {
-    showToast(err instanceof Error ? err.message : 'Could not prepare the template', 5000);
-  }
-  ds.busy = false;
-  rerender();
-  document.getElementById('ds-review')?.scrollIntoView({ block: 'nearest' });
+  ds.draft = clone(t.selection);
+  ds.templateName = t.name;
+  ds.dirty = true;
+  void review();
 }
 
 async function apply(): Promise<void> {
-  if (!ds.planFor) return;
+  const snap = ds.planFor;
+  if (!snap || ds.busy) return;
   ds.busy = true;
   rerender();
   try {
-    const body = { confirm: true, remove_unselected: ds.removeUnselected };
-    const res = ds.planFor.kind === 'template'
-      ? await getJSON<Plan>(`${SOURCES_URL}/templates/${encodeURIComponent(ds.planFor.id)}/apply`, jsonPost(body))
-      : await getJSON<Plan>(`${SOURCES_URL}/selection/apply`, jsonPost({ ...body, selection: ds.draft }));
-    showToast(res.applied === false ? 'Nothing was changed' : 'Data sources updated. Downloads run in the transfer dock.');
+    const res = await getJSON<Plan>(`${SOURCES_URL}/selection/apply`,
+      jsonPost({ selection: snap.selection, remove_unselected: snap.remove, confirm: true }));
+    const queued = res.queued || [];
+    for (const j of queued) state.jobsSeenActive.add(j.id);
+    const skipped = res.skipped || [];
+    if (res.applied === false) showToast('Nothing was changed');
+    else if (skipped.length) {
+      showToast(`Saved, but ${skipped.length} step${skipped.length === 1 ? ' was' : 's were'} skipped: ${
+        skipped.map(x => `${x.label} (${x.reason || 'skipped'})`).join('; ')}`, 9000);
+    } else showToast(queued.length ? 'Data sources updated. Downloads run in the transfer dock.' : 'Data sources updated.');
     ds.dirty = false;
-    ds.plan = null;
-    ds.planFor = null;
+    dropPlan();
     ds.removeUnselected = false;
+    ds.templateName = null;
+    if (queued.length) void pollJobs();
     await loadDataSources();
   } catch (err) {
     showToast(err instanceof Error ? err.message : 'Could not apply the changes', 5000);
@@ -446,10 +495,11 @@ onView('click', (e) => {
   if (act) {
     const a = act.dataset.dsAct;
     if (a === 'review') void review();
-    else if (a === 'use-template') void previewTemplate();
+    else if (a === 'use-template') useTemplate();
     else if (a === 'apply') void apply();
-    else if (a === 'cancel-review') { ds.plan = null; ds.planFor = null; rerender(); }
-    else if (a === 'discard') { ds.draft = clone(ds.data!.selection); ds.dirty = false; ds.plan = null; rerender(); }
+    else if (a === 'cancel-review') { dropPlan(); rerender(); }
+    else if (a === 'discard') { ds.draft = clone(ds.data!.selection); ds.dirty = false; ds.templateName = null; dropPlan(); rerender(); }
+    else if (a === 'import') document.querySelector<HTMLInputElement>('[data-ds-import]')?.click();
     else if (a === 'save-template') void saveTemplate();
     else if (a === 'delete-template') void deleteTemplate(act.dataset.id || '', act);
     else if (a === 'export') void exportTemplates();
@@ -468,8 +518,8 @@ onView('click', (e) => {
     const [s, f] = splitKey(key);
     if (!s || !f) return;
     const q = (ds.search[key] || '').toLowerCase();
-    const visible = (f.options || []).filter(o => !o.reserved && (!q || `${o.label} ${o.desk || ''} ${o.value}`.toLowerCase().includes(q)));
     const cur = choiceFor(s.id).scope[f.id];
+    const visible = pickOptions(f, cur).filter(o => !q || optHay(o).includes(q));
     const set = new Set((Array.isArray(cur) ? cur : []).map(String));
     for (const o of visible) {
       if (all.dataset.on === '1') set.add(String(o.value)); else set.delete(String(o.value));
@@ -486,18 +536,18 @@ onView('change', (e) => {
   const d = t.dataset;
   if (d.dsTemplate !== undefined && t instanceof HTMLSelectElement) {
     ds.templateId = t.value;
-    ds.plan = null;
     rerender('[data-ds-template]');
     return;
   }
   if (t instanceof HTMLInputElement && t.hasAttribute('data-ds-import')) {
     const file = t.files?.[0];
     if (file) void importTemplates(file);
+    t.value = '';
     return;
   }
   if (t instanceof HTMLInputElement && t.hasAttribute('data-ds-remove')) {
     ds.removeUnselected = t.checked;
-    if (ds.planFor?.kind === 'template') void previewTemplate(); else if (ds.planFor) void review();
+    void review();                           // drops the current plan at once, then re-previews
     return;
   }
   if (d.dsEnable) { choiceFor(d.dsEnable).enabled = (t as HTMLInputElement).checked; markDirty(); rerender(`[data-ds-enable="${d.dsEnable}"]`); return; }
@@ -539,6 +589,6 @@ onView('input', (e) => {
   const q = t.value.toLowerCase();
   const list = t.closest('.ds-filter')?.querySelector('.ds-pick');
   list?.querySelectorAll<HTMLLIElement>('li').forEach(li => {
-    li.hidden = Boolean(q) && !(li.textContent || '').toLowerCase().includes(q);
+    li.hidden = Boolean(q) && !(li.dataset.hay || '').includes(q);
   });
 });
