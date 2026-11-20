@@ -35,7 +35,9 @@ class Queue:
 
     # -- public --
     def submit(self, title: int, kind: str, target: dict | None, label: str) -> dict:
-        """kind: 'title' | 'part' | 'section' | 'update'. target: the part/section asked for."""
+        """kind: 'title' | 'part' | 'section' | 'update', or 'fr-build' | 'fr-update' for the
+        Federal Register corpus (title 0, see fr_build.FR_JOB_TITLE). target: the
+        part/section asked for (FR: {"titles", "years"})."""
         with self._op_lock, self._lock:
             for j in [*self._pending, *( [self._current] if self._current else [])]:
                 if j["title"] == title and j["kind"] == kind and j["target"] == target:
@@ -127,8 +129,8 @@ class Queue:
                     job.pop("cancelling", None)
                     self._recent.append(job)
                     self._current = None
-            if cancelled:
-                lib._remove_partial_files(job["title"])
+            if cancelled and job["kind"] not in ("fr-build", "fr-update"):
+                lib._remove_partial_files(job["title"])  # fr_build removes its own .tmp
 
     def _progress(self, job: dict):
         def report(phase: str, done=None, total=None) -> None:
@@ -200,6 +202,10 @@ def requested_scope(kind: str, target: dict | None) -> dict | None:
 
 
 def run_job(job: dict, report) -> None:
+    from .. import fr_build
+    if job["kind"] in fr_build.FR_JOB_KINDS:  # the Federal Register corpus shares this queue
+        fr_build.run_job(job, report)
+        return
     title = job["title"]
     inst = lib.installed(title)
     info = lib.ecfr_title(title)

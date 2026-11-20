@@ -15,7 +15,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 
-from .. import config, library, news_store, profiles, store
+from .. import config, fr_store, library, news_store, profiles, store
 from ..citations import graph
 from . import deps
 
@@ -114,14 +114,27 @@ async def search_global(
     title: str | None = None,
     part: str | None = Query(None, max_length=40),
     limit: int = Query(30, ge=1, le=100),
+    include: str | None = Query(None, pattern="^fr$"),
 ) -> dict:
-    """Search within a specific title, or across all installed titles if title='all' or omitted."""
+    """Search within a specific title, or across all installed titles if title='all' or omitted.
+    `include=fr` adds the Federal Register corpus as a separate `fr` block
+    ({installed, total, results}), leaving the CFR result shape untouched."""
     target_title: int | str = title if title else config.DEFAULT_TITLE
     if target_title != "all":
         if not str(target_title).isdigit() or int(target_title) not in config.installed_titles():
             raise HTTPException(404, f"CFR Title {target_title} is not installed on this server.")
         target_title = int(target_title)
-    return await asyncio.to_thread(store.search, q, part=part, limit=limit, title=target_title)
+    res = await asyncio.to_thread(store.search, q, part=part, limit=limit, title=target_title)
+    if include == "fr":
+        res["fr"] = await asyncio.to_thread(_search_fr, q, min(limit, 20))
+    return res
+
+
+def _search_fr(q: str, limit: int) -> dict:
+    with fr_store.read_con() as con:
+        if con is None:
+            return {"installed": False, "total": 0, "results": []}
+        return {"installed": True, **fr_store.search(con, q, limit=limit)}
 
 
 @title_router.get("/meta")

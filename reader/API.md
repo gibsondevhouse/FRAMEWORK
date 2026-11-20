@@ -290,6 +290,30 @@ section route (`1910.134`, `§ 1910.134`, `1910.134(c)`). `404` for an unknown s
 
 ---
 
+## Federal Register corpus
+
+A local copy of Federal Register documents that cite the corpus CFR titles, in `data/fr.sqlite3` (built with `python -m app.fr_build`, or `POST /api/fr/build`). Every response is `Cache-Control: no-store`. GETs never touch the network and return empty results (`installed: false`) before the corpus is built.
+
+### `GET /api/fr/status`
+`{installed, doc_count, body_count, titles, coverage[{title,start,end,fetched,chunks}], meta, due, default_titles, default_years}`.
+
+### `GET /api/fr/search`
+Params: `q`, `type` (`Rule`, `Proposed Rule`, `Notice`, `Presidential Document`), `agency` (FR slug), `title`, `part`, `since`, `until` (ISO dates), `limit` (≤100), `offset`. A document number (`2026-22306`) or an FR citation (`91 FR 69100`, matched inside each document's page range) is an exact hit (`exact: true`) first; otherwise FTS5 (bm25 title 3 / abstract 1.5 / action 1 / body 1) with `\x02`/`\x03` snippet sentinels, or newest first without `q`. Returns `{installed, total, results[{document_number, type, title, abstract, action, publication_date, effective_on, comments_close_on, citation, html_url, agencies, cfr_references, snippet}]}`.
+
+### `GET /api/fr/document/{document_number}`
+The full record: metadata, `agencies`, `cfr_references`, `docket_ids`, `regulation_id_numbers`, `cfr_links[{title, part, section, sources}]` (`reference` = the API's cfr_references, `text` = citations in title/abstract/action, `body` = citations in the fetched full text), `provenance{source, source_url, raw_sha256, fetched_at, first_seen_at, content_changed_at}` and `body` (`{format, sha256, byte_len, source_url, fetched_at}` or `null`; `?body=true` adds `content` and `text`). 404 when not in the corpus.
+
+### `POST /api/fr/document/{document_number}/body`
+Downloads the document's full text (`full_text_xml_url`, else `body_html_url`, federalregister.gov only), stores it with the SHA-256 of the bytes as served and indexes it. 404 not in corpus, 422 no full-text URL, 503 upstream failure.
+
+### `GET /api/fr/by-cfr/{title}/{part}` · `GET /api/fr/by-cfr/{title}/{part}/{section}`
+Documents linked to a CFR part, or to a section (its exact links plus part-level links of its part). `limit` ≤200, `offset`. 422 when the section isn't in the part.
+
+### `POST /api/fr/build` · `POST /api/fr/update`
+Queue a full corpus build (`{titles?, years?}`; titles default to `FR_CORPUS_TITLES` or the installed titles) or an incremental update on the library queue (jobs appear in `GET /api/library/jobs` with `title: 0`, `kind: fr-build | fr-update`).
+
+`GET /api/search?include=fr` adds the corpus to search as a separate `fr` block (`{installed, total, results}`); the CFR result shape is unchanged.
+
 ## Library (download from eCFR)
 
 ### `GET /api/library`

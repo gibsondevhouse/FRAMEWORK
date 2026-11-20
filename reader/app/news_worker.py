@@ -109,6 +109,11 @@ def _loop(stop_event: threading.Event | None = None) -> None:
                     sync_sources(todo)
                 except Exception as e:       # the thread must never die
                     build.log(f"News sync failed: {e}")
+        try:                                 # FR corpus: queue a refresh once the issue is out
+            from . import fr_build
+            fr_build.maybe_queue_update()
+        except Exception as e:
+            build.log(f"FR corpus schedule check failed: {e}")
         delay = CHECK_INTERVAL_SEC
 
 

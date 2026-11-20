@@ -3,7 +3,7 @@
 `HermeticTestCase` gives each test two guarantees, under both `pytest` and
 `python -m unittest discover tests`:
 
-1. **Env hygiene** — the six tracked `.env` keys are saved and *removed*
+1. **Env hygiene** — the tracked `.env` keys are saved and *removed*
    (`os.environ.pop`) before each test, then restored afterwards, so a
    populated `reader/.env` (real `DOL_API_KEY`, `ANTHROPIC_API_KEY`, …) can
    never leak into assertions. The keys are popped, never set to `""`:
@@ -28,6 +28,8 @@ TRACKED_KEYS = (
     "NEWS_AGENCIES",
     "NEWS_SYNC",
     "NEWS_RETENTION_DAYS",
+    "FR_CORPUS_TITLES",
+    "FR_CORPUS_YEARS",
 )
 
 
