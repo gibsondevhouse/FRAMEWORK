@@ -15,7 +15,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import config
+from .. import config, migrate
 
 SCHEMA_VERSION = 1
 WRITE_LOCK = threading.RLock()
@@ -42,11 +42,11 @@ def now_iso() -> str:
 
 def _connect() -> sqlite3.Connection:
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    migrate.ensure("sources", db_path())            # an existing store is migrated, never re-stamped
     con = sqlite3.connect(db_path(), timeout=5.0)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA busy_timeout=5000")
-    con.executescript(SCHEMA)
-    con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    migrate.init(con, "sources")                    # a new file gets the schema and its version
     return con
 
 

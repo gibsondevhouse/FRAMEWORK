@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from . import config, gov_http
+from . import config, gov_http, migrate
 
 BULK_JSON = "https://www.govinfo.gov/bulkdata/json/HMAN"
 NS = "{http://xml.house.gov/schemas/uslm/1.0}"
@@ -234,6 +234,7 @@ def build(force: bool = False, progress=None, keep_source: bool = False) -> dict
                 "note_count": str(n_notes), "amendment_count": str(len({u["amendment"] for u in units if u["amendment"]})),
             }
             con.executemany("INSERT INTO meta (key, value) VALUES (?,?)", list(meta.items()))
+            migrate.stamp(con, "constitution")
             con.commit()
         report("Installing")
         from .build import _replace_with_retry
@@ -339,6 +340,7 @@ def submit(kind: str = "constitution-build") -> dict:
 def _record(values: dict) -> None:
     if not exists():
         return
+    migrate.ensure("constitution", db_path())
     with closing(sqlite3.connect(db_path(), timeout=5.0)) as con:
         con.executemany("INSERT OR REPLACE INTO meta (key, value) VALUES (?,?)", list(values.items()))
         con.commit()

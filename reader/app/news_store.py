@@ -18,10 +18,13 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
-from . import config, store
+from . import config, migrate, store
 from .citations.parser import FR_RE as _FR_CITATION, SEC_NUM
 
 SCHEMA_VERSION = 4
+# `connect` upgrades versions 1-3 itself, up to this one. Anything later is a numbered
+# migration in app/migrate.py (DM-001), applied by `migrate.ensure`, which keeps the data.
+_RUNNER_FLOOR = 4
 
 SOURCES = ("federal_register", "federal_register_pi", "dol_osha")
 CATEGORIES = ("rules", "rulemaking", "notices", "public_inspection", "enforcement")
@@ -230,6 +233,15 @@ def retention_days() -> int:
         return 365
 
 
+def _writer(path: Path) -> sqlite3.Connection:
+    con = sqlite3.connect(path, timeout=5.0)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA foreign_keys=ON")
+    con.execute("PRAGMA busy_timeout=5000")
+    return con
+
+
 def connect(readonly: bool = False) -> sqlite3.Connection | None:
     path = db_path()
     if readonly:
@@ -255,11 +267,7 @@ def connect(readonly: bool = False) -> sqlite3.Connection | None:
             return None
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(path, timeout=5.0)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
-    con.execute("PRAGMA foreign_keys=ON")
-    con.execute("PRAGMA busy_timeout=5000")
+    con = _writer(path)
     version = con.execute("PRAGMA user_version").fetchone()[0]
     if version in (1, 2, 3):
         if version == 1:
@@ -287,9 +295,19 @@ def connect(readonly: bool = False) -> sqlite3.Connection | None:
         )
         con.execute(_DOL_DATASETS_DDL)
         con.execute(_FR_BODIES_DDL)
-        con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        con.execute(f"PRAGMA user_version = {_RUNNER_FLOOR}")
         con.commit()
-    elif version != SCHEMA_VERSION:
+        version = _RUNNER_FLOOR
+    if _RUNNER_FLOOR <= version < SCHEMA_VERSION:
+        con.close()
+        migrate.ensure("news", path)
+        con = _writer(path)
+        version = con.execute("PRAGMA user_version").fetchone()[0]
+        if version != SCHEMA_VERSION:      # never fall through to the drop below
+            con.close()
+            raise migrate.MigrationError(
+                f"news_store.SCHEMA_VERSION is {SCHEMA_VERSION} but app.migrate brought the store to {version}")
+    if version != SCHEMA_VERSION:
         if version:
             # The store is a cache of public data: on a schema mismatch, drop and let the
             # next sync refill it.

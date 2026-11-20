@@ -35,7 +35,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from . import config, gov_http
+from . import config, gov_http, migrate
 
 BULK_JSON = "https://www.govinfo.gov/bulkdata/json/PLAW"
 FIRST_CONGRESS = 113
@@ -206,9 +206,10 @@ def estimate(congresses, types: list[str]) -> dict:
 
 def _connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
+    migrate.ensure("plaw", path, backup=path == db_path())   # a staging file is rebuilt, not copied
     con = sqlite3.connect(path, timeout=5.0)
     con.row_factory = sqlite3.Row
-    con.executescript(SCHEMA)
+    migrate.init(con, "plaw")                                 # a new file gets the schema and its version
     return con
 
 

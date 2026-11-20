@@ -32,7 +32,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from . import config, gov_http
+from . import config, gov_http, migrate
 
 LIST_URL = "https://www.reginfo.gov/public/do/eAgendaXmlReport"
 FILE_URL = "https://www.reginfo.gov/public/do/XMLViewFileAction?f={name}"
@@ -180,9 +180,10 @@ def keep_entry(rec: dict, agencies: list[str] | None, stages: list[str] | None) 
 
 def _connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
+    migrate.ensure("agenda", path, backup=path == db_path())   # a staging file is rebuilt, not copied
     con = sqlite3.connect(path, timeout=5.0)
     con.row_factory = sqlite3.Row
-    con.executescript(SCHEMA)
+    migrate.init(con, "agenda")                                 # a new file gets the schema and its version
     return con
 
 
