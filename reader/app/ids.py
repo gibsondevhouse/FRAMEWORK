@@ -198,7 +198,6 @@ _UNRESERVED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 _HEX = "0123456789ABCDEF"
 _DASHES = dict.fromkeys(range(0x2010, 0x2016), "-")           # the Unicode hyphens and dashes
 _ROMAN = ((100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"))
-_ROMAN_VALUE = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
 
 
 def _check_text(text: str, what: str, max_len: int = MAX_KEY_LEN) -> str:
@@ -262,17 +261,11 @@ def _swap_dashes(text: str) -> str:
 
 
 def roman(value: str) -> int:
-    """'XIV' → 14. Raises IdError unless it is a canonical Roman numeral up to 399."""
-    s = (value or "").upper()
-    if not s or any(ch not in _ROMAN_VALUE for ch in s) or len(s) > 12:
-        raise IdError(f"not a Roman numeral: {value[:20]!r}")
-    total = 0
-    for i, ch in enumerate(s):
-        v = _ROMAN_VALUE[ch]
-        total += -v if i + 1 < len(s) and _ROMAN_VALUE[s[i + 1]] > v else v
-    if to_roman(total) != s:
-        raise IdError(f"not a Roman numeral: {value[:20]!r}")
-    return total
+    """'XIV' → 14. Raises IdError unless it is a correctly formed Roman numeral below 400."""
+    n = cite.roman_number(value) if isinstance(value, str) else None
+    if n is None:
+        raise IdError(f"not a Roman numeral: {str(value)[:20]!r}")
+    return n
 
 
 def to_roman(n: int) -> str:
@@ -831,7 +824,8 @@ def _cfr_tail(title: int, rest: str, free_text: bool) -> Ref | None:
 
 def from_span(span) -> Ref | None:
     """A `citations.parser.CitationSpan` → its address, or None for a kind with no address
-    (a web link) or a target this grammar refuses."""
+    (a web link; and for now a Statutes at Large page, an executive order and a docket, which
+    no store holds) or a target this grammar refuses."""
     try:
         if span.kind == "cfr_section":
             m = cite.CFR_SECTION_ID_RE.fullmatch(span.target)
@@ -843,15 +837,23 @@ def from_span(span) -> Ref | None:
         if span.kind == "fr":
             volume, _, page = span.target.partition("-FR-")
             return fr_page(volume, page)
+        if span.kind in ("public_law", "private_law"):
+            congress, _, number = span.target.partition("-")
+            return public_law(congress, number, private=span.kind == "private_law")
+        if span.kind == "constitution":
+            return constitution_unit(span.target, span.paragraph[2:] if span.paragraph else None)
+        if span.kind == "rin":
+            return agenda_rule(span.target)
     except IdError:
         return None
     return None
 
 
 def find_citations(text: str, default_title: int | None = None) -> list[Ref]:
-    """Every CFR, U.S.C. and Federal Register citation the one parser finds in running
-    text, as addresses, in order, without repeats. A bare "§ 1910.134" counts only when
-    `default_title` says which CFR title the text belongs to."""
+    """Every citation the one parser finds in running text that has an address (CFR, U.S.C.,
+    Federal Register, Public Laws, the Constitution, RINs), in the parser's order, without
+    repeats. A bare "§ 1910.134" counts only when `default_title` says which CFR title the
+    text belongs to."""
     if not isinstance(text, str):
         raise IdError("text is required")
     out: dict[str, Ref] = {}

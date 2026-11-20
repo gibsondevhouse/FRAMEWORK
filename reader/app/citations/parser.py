@@ -1,4 +1,5 @@
-"""Canonical grammar and typed span extraction for CFR, U.S.C., FR, Web URLs, and internal targets."""
+"""Canonical grammar and typed span extraction for CFR, U.S.C., FR, Web URLs, and internal targets,
+plus (DM-108) Public Laws, the Statutes at Large, the Constitution, executive orders, RINs and dockets."""
 from __future__ import annotations
 
 import re
@@ -162,6 +163,61 @@ RIN_CITE_RE = re.compile(
 # What a Constitution citation starts with when "U.S. Const." is left off ("amend. XIV").
 CONST_BARE_RE = re.compile(r"(?:pmbl|preamble|art|amend|amdt)", re.IGNORECASE)
 
+# --- Citation kinds added by DM-108 --------------------------------------------------------
+# Grammar only: `extract_reference_spans` returns typed spans for these, and nothing in the
+# reader links them yet. Like the block above, every quantifier is bounded and adjacent pieces
+# cannot match the same text, so each pattern runs in linear time (SEC-102); the tests hold
+# each one to a time budget on adversarial input. Lists are read with a second, anchored
+# pattern (`…_MORE_RE.match` at the end of the previous item) rather than a nested repeat.
+NEW_KIND_SCAN_LIMIT = 8_000_000     # characters of one text scanned for the kinds below
+_NOT_A_CITED_NUMBER = r"(?!\s{0,2}(?:Stat\b|U\.?\s?S\.?\s?C|C\.?\s?F\.?\s?R|F\.?\s?R\b|Fed\b))"
+_LIST_SEP = r"(?:\s{0,2},\s{0,2}(?:and\s{1,2})?|\s{1,2}and\s{1,2})"
+
+# "Public Laws 91-596 and 92-1", "Pub. L. 104-208, 110-175, and 114-185": the items after the
+# first, which PUBLIC_LAW_RE reads. An item is {Congress}-{number}; "10-18-74" is a date.
+PUBLIC_LAW_MORE_RE = re.compile(
+    rf"{_LIST_SEP}(\d{{2,3}})\s?{DASH}\s?(\d{{1,4}})\b(?!{DASH})" + _NOT_A_CITED_NUMBER, re.IGNORECASE)
+
+# The Statutes at Large: "84 Stat. 1590", "115 Stat 272". Later pages of the same law follow
+# as a list ("73 Stat. 520, 529, 530"); they are pin cites, read by STAT_MORE_RE.
+STAT_RE = re.compile(r"\b(\d{1,3})\s{0,2}Stat\.?\s{0,2}(\d{1,5})\b")
+STAT_MORE_RE = re.compile(rf"\s{{0,2}},\s{{0,2}}(\d{{1,5}})\b(?!{DASH}\d)" + _NOT_A_CITED_NUMBER)
+
+# "E.O. 12866", "Executive Order 14148", "Executive Order (E.O.) 14247", "EO 13563",
+# "E.O.s 12866 and 13563". Numbers after the first must have five digits, so the year in
+# "E.O. 12866, 1993" and the volume in "E.O. 12107, 44 FR 1055" are not read as orders.
+EXEC_ORDER_RE = re.compile(
+    r"\b(?:E\.\s?O\.s?|(?-i:EO)|Executive\s{1,2}Orders?)(?:\s{0,2}\(E\.\s?O\.\))?\s{0,2}(?:Nos?\.?\s{0,2})?(\d{4,5})\b",
+    re.IGNORECASE,
+)
+EXEC_ORDER_MORE_RE = re.compile(rf"{_LIST_SEP}(\d{{5}})\b" + _NOT_A_CITED_NUMBER, re.IGNORECASE)
+
+# The Constitution without "U.S. Const." in front: only an abbreviated amendment with a Roman
+# numeral ("amend. XIV, § 1", "Amdt. V"). Never "art." (treaties and compacts have articles)
+# and never an Arabic number ("Amdt. 25-72" is an FAA amendment number).
+CONST_AMENDMENT_RE = re.compile(
+    rf"\b(?i:amend|amdt)\.\s{{0,2}}([IVXLC]{{1,7}})\b(?!{DASH}\d|\.\d)"
+    r"(?:,?\s{0,2}(?:§|(?i:sec(?:tion|\.)?))\s{0,2}(\d{1,2})\b)?"
+    r"(?:,?\s{0,2}(?i:cl(?:ause|\.)?)\s{0,2}(\d{1,2})\b)?"
+)
+
+# A RIN after its label, where the dash is sometimes printed as a space ("RIN 7100 AG79").
+# RIN_RE above reads a bare one, which must have its dash.
+RIN_LABELED_RE = re.compile(rf"\bRINs?:?\s{{0,2}}(\d{{4}})\s?(?:{DASH}\s?)?([A-Z]{{2}}\d{{2}})(?![0-9A-Za-z])")
+
+# A regulations.gov docket id: agency, up to two sub-agency parts, a year and a number, as in
+# "OSHA-2020-0004", "EPA-HQ-OAR-2021-0317", "EPA-R09-OAR-2022-0131", "FDA-2019-N-5959". A
+# longer document id ("…-0317-0042") is read as its docket.
+DOCKET_RE = re.compile(
+    r"(?<![0-9A-Za-z-])([A-Z]{2,8}(?:-[A-Z][A-Z0-9]{0,7}){0,2}-(?:19|20)\d{2}-(?:[A-Z]-)?\d{4,5})(?![0-9A-Za-z])")
+# Any other docket number, which is only recognisable after its label: "Docket No. R-1234",
+# "Docket No. RM20-10-000", "Docket ID: 2020-0001". The id must contain a digit.
+DOCKET_LABELED_RE = re.compile(
+    r"\bDocket\s{1,2}(?:ID\s{1,2})?(?:Nos?\.?|Numbers?|ID)[:.]?\s{0,2}"
+    r"([A-Za-z0-9][A-Za-z0-9.]{0,15}(?:-[A-Za-z0-9.]{1,12}){0,5})",
+    re.IGNORECASE,
+)
+
 
 def expand_paragraph_list(expr: str) -> list[tuple[str, str]]:
     """Split '(h)(3)(i) and (ii)' into [('(h)(3)(i)', '(h)(3)(i)'), ('(ii)', '(h)(3)(ii)')]."""
@@ -182,7 +238,9 @@ def expand_paragraph_list(expr: str) -> list[tuple[str, str]]:
 
 @dataclass(frozen=True, slots=True)
 class CitationSpan:
-    kind: str  # "web" | "usc" | "fr" | "cfr_part" | "cfr_section"
+    # "web" | "usc" | "fr" | "cfr_part" | "cfr_section", and since DM-108 (recognised, not linked by the
+    # reader): "public_law" | "private_law" | "stat" | "constitution" | "executive_order" | "rin" | "docket"
+    kind: str
     raw: str
     title: int | None = None
     target: str = ""
@@ -190,6 +248,26 @@ class CitationSpan:
     url: str = ""
     start: int = 0
     end: int = 0
+
+
+_ROMAN_VALUE = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
+_ROMAN_PAIRS = ((100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"))
+
+
+def roman_number(text: str) -> int | None:
+    """'XIV' → 14. None unless it is a correctly formed Roman numeral below 400 ('IIII' is not)."""
+    s = (text or "").upper()
+    if not s or len(s) > 12 or any(ch not in _ROMAN_VALUE for ch in s):
+        return None
+    total = 0
+    for i, ch in enumerate(s):
+        v = _ROMAN_VALUE[ch]
+        total += -v if i + 1 < len(s) and _ROMAN_VALUE[s[i + 1]] > v else v
+    out, n = "", total
+    for v, r in _ROMAN_PAIRS:
+        while n >= v:
+            out, n = out + r, n - v
+    return total if out == s else None
 
 
 def clean_url_tail(raw_url: str) -> tuple[str, str]:
@@ -260,7 +338,9 @@ def parse_usc_targets(sec_expr: str) -> list[tuple[str, str, str]]:
 
 
 def extract_reference_spans(text: str, current_title: int = 29) -> list[CitationSpan]:
-    """Extract typed reference spans (Web URLs, U.S.C., FR, Cross-Title Parts/Sections) from plain text."""
+    """Extract typed reference spans from plain text: Web URLs, U.S.C., FR, cross-title CFR parts
+    and sections, then (DM-108) Public Laws, Statutes at Large, the Constitution, executive
+    orders, RINs and dockets. The new kinds come after the earlier ones, which are unchanged."""
     spans: list[CitationSpan] = []
     if not text:
         return spans
@@ -333,5 +413,107 @@ def extract_reference_spans(text: str, current_title: int = 29) -> list[Citation
                     title=current_title, target=raw_id, paragraph=para,
                     start=m.start(), end=m.end(),
                 ))
+
+    spans.extend(_new_kind_spans(text[:NEW_KIND_SCAN_LIMIT]))
+    return spans
+
+
+def _dash(text: str) -> str:
+    return re.sub(DASH, "-", text)
+
+
+def _constitution_target(word: str, number: str, section: str | None) -> str | None:
+    """'art.', 'I', '8' → 'art1-s8'; None for a number the Constitution does not have."""
+    is_article = word.lower().startswith("art")
+    n = int(number) if number.isdigit() else roman_number(number)
+    if n is None or not 1 <= n <= (7 if is_article else 27):
+        return None
+    return f"{'art' if is_article else 'amdt'}{n}" + (f"-s{int(section)}" if section and int(section) else "")
+
+
+def _new_kind_spans(text: str) -> list[CitationSpan]:
+    """Public Laws, Statutes at Large, the Constitution, executive orders, RINs, dockets."""
+    spans: list[CitationSpan] = []
+    low = text.lower()
+
+    if "pub" in low or "priv" in low or "p.l" in low or "pl " in low or "p. l" in low:
+        for m in PUBLIC_LAW_RE.finditer(text):
+            private = (m.group(1) or "").lower().startswith("priv")
+            kind, label = ("private_law", "Priv. L.") if private else ("public_law", "Pub. L.")
+            item, end = m, m.end()
+            for _ in range(12):                    # the first law, then any that share its prefix
+                congress, number = int(item.group(2 if item is m else 1)), int(item.group(3 if item is m else 2))
+                if congress and number:
+                    spans.append(CitationSpan(kind=kind, raw=f"{label} {congress}-{number}",
+                                              target=f"{congress}-{number}", start=m.start(), end=item.end()))
+                end = item.end()
+                item = PUBLIC_LAW_MORE_RE.match(text, end)
+                if item is None:
+                    break
+
+    if "stat" in low:
+        for m in STAT_RE.finditer(text):
+            volume, page = int(m.group(1)), int(m.group(2))
+            if not volume or not page:
+                continue
+            pins, end, last = [], m.end(), page
+            for _ in range(24):                    # later pages of the same law, in rising order
+                more = STAT_MORE_RE.match(text, end)
+                if more is None or int(more.group(1)) <= last:
+                    break
+                last, end = int(more.group(1)), more.end()
+                pins.append(str(last))
+            spans.append(CitationSpan(kind="stat", raw=f"{volume} Stat. {page}", target=f"{volume}-Stat-{page}",
+                                      paragraph=", ".join(pins), start=m.start(), end=end))
+
+    if "const" in low or "amend." in low or "amdt." in low:
+        taken: list[tuple[int, int]] = []
+        for m in CONST_RE.finditer(text):
+            target = "preamble" if m.group(1) else _constitution_target(m.group(2), m.group(3), m.group(4))
+            if target:
+                taken.append((m.start(), m.end()))
+                clause = f"cl{int(m.group(5))}" if m.group(5) and int(m.group(5)) else ""
+                spans.append(CitationSpan(kind="constitution", raw=_dash(m.group(0)), target=target,
+                                          paragraph=clause, start=m.start(), end=m.end()))
+        for m in CONST_AMENDMENT_RE.finditer(text):
+            if any(a <= m.start() < b for a, b in taken):
+                continue
+            target = _constitution_target("amend", m.group(1), m.group(2))
+            if target:
+                clause = f"cl{int(m.group(3))}" if m.group(3) and int(m.group(3)) else ""
+                spans.append(CitationSpan(kind="constitution", raw=m.group(0), target=target,
+                                          paragraph=clause, start=m.start(), end=m.end()))
+
+    if "e.o" in low or "e. o" in low or "eo " in low or "executive order" in low:
+        for m in EXEC_ORDER_RE.finditer(text):
+            number, end = m.group(1), m.end()
+            for _ in range(12):
+                spans.append(CitationSpan(kind="executive_order", raw=f"E.O. {int(number)}", target=str(int(number)),
+                                          start=m.start(), end=end))
+                more = EXEC_ORDER_MORE_RE.match(text, end)
+                if more is None:
+                    break
+                number, end = more.group(1), more.end()
+
+    seen: set[int] = set()
+    for pattern in (RIN_LABELED_RE, RIN_RE):
+        for m in pattern.finditer(text):
+            if m.start(1) in seen:
+                continue
+            seen.add(m.start(1))
+            rin = f"{m.group(1)}-{m.group(2)}"
+            spans.append(CitationSpan(kind="rin", raw=f"RIN {rin}", target=rin, start=m.start(), end=m.end()))
+
+    if "-19" in text or "-20" in text or "docket" in low:
+        seen = set()
+        for m in DOCKET_RE.finditer(text):
+            seen.add(m.start(1))
+            spans.append(CitationSpan(kind="docket", raw=m.group(1), target=m.group(1), start=m.start(1), end=m.end(1)))
+        for m in DOCKET_LABELED_RE.finditer(text):
+            docket = m.group(1).rstrip(".")
+            if m.start(1) in seen or not any(ch.isdigit() for ch in docket):
+                continue
+            spans.append(CitationSpan(kind="docket", raw=docket, target=docket.upper(),
+                                      start=m.start(1), end=m.start(1) + len(docket)))
 
     return spans
