@@ -81,6 +81,7 @@ export function isFrameworkRoute(path = state.activeRoute): boolean {
   if (/^\/corpus\/(?!state\/|county\/)/.test(p)) return true;
   if (/^\/usc\/\d+(?:\/|$)/.test(p)) return true;
   if (/^\/constitution(?:\/|$)/.test(p)) return true;
+  if (/^\/law\/[^/]+/.test(p)) return true;
   if (state.noTitles) return false;
   return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/)/.test(p);
 }
@@ -103,6 +104,7 @@ export function routeTarget(path = state.activeRoute): NavTarget {
   if (p.startsWith('/corpus/')) return 'corpus';
   if (/^\/usc\/\d+/.test(p)) return 'corpus';
   if (/^\/constitution(?:\/|$)/.test(p)) return 'corpus';
+  if (/^\/law\/[^/]+/.test(p)) return 'corpus';
   if (/^\/title\/\d+\/?$/.test(p)) return 'home';
   const rest = p.replace(/^\/title\/\d+/, '');
   if (rest.startsWith('/library')) return 'library';

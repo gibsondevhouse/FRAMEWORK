@@ -5,6 +5,7 @@ import { fmt } from '../usage';
 import { plural } from '../components/sidebar';
 import { SEP, fmtBytes, fmtSections, joinSep, statPill, StatPillState } from '../components/ui';
 import { kpiStripHtml, tabLeadHtml } from '../components/page_shell';
+import { isUscAppendix, uscCite, uscTitleLabel } from '../core/usc_label';
 
 // --- The U.S. Code side of the Library (#/library/usc, #/library/usc/{n}) ---
 // `GET /api/usc/catalog` lists all 54 titles offline (static names, desks and implementing
@@ -52,7 +53,7 @@ export interface UscTreeNode {
 export const uscLibHref = (title?: number | null): string => `#/library/usc${title ? `/${title}` : ''}`;
 export const uscSectionHref = (title: number, id: string): string => `#/usc/${title}/section/${encodeURIComponent(id)}`;
 export const uscNodeLibHref = (title: number, id: string): string => `#/usc/${title}/node/${encodeURIComponent(id)}`;
-export const uscCite = (title: number): string => `${title} U.S.C.`;
+export { uscCite };
 
 export function uscJobFor(title: number): TransferJob | undefined {
   const active = [state.jobs.current, ...state.jobs.queued].filter(Boolean) as TransferJob[];
@@ -117,7 +118,7 @@ export function uscStory(t: UscCatalogTitle, installedCfr: Set<number>): string 
     !inst && !t.reserved ? 'Installs the whole title' : '',
   ]);
   const acts = uscActions(t);
-  const hay = `${t.title} usc u.s.c. title ${t.name} ${t.desk} ${t.positive_law ? 'positive law' : ''} ${t.cfr.map(n => `${n} cfr`).join(' ')}`.toLowerCase();
+  const hay = `${isUscAppendix(t.title) ? `${uscCite(t.title)} appendix app.` : t.title} usc u.s.c. title ${t.name} ${t.desk} ${t.positive_law ? 'positive law' : ''} ${t.cfr.map(n => `${n} cfr`).join(' ')}`.toLowerCase();
   return `<article class="lib-story has-tier-bar${t.reserved ? ' is-dim' : ''}" data-ref-tier="usc" data-hay="${escapeHtml(hay)}">
     <div class="story-top"><span class="story-kicker">${kicker}</span>${uscStatusPill(t, !inst)}</div>
     <h3 class="story-name">${headline}</h3>
@@ -132,12 +133,16 @@ export function uscTitleList(cat: UscCatalog, installedCfr: Set<number>): string
   const desk = (name: string, ts: UscCatalogTitle[]) => `<section class="lib-desk" aria-label="${escapeHtml(name)}">
       <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(name)}</h3><span class="lib-desk-count">${plural(ts.length, 'title')}</span></header>
       <div class="lib-stories">${ts.map(t => uscStory(t, installedCfr)).join('')}</div></section>`;
+  const main = live.filter(t => !isUscAppendix(t.title));
+  const appendices = live.filter(t => isUscAppendix(t.title));
   const names = [...cat.desks];
-  for (const t of live) if (!names.includes(t.desk)) names.push(t.desk);
+  for (const t of main) if (!names.includes(t.desk)) names.push(t.desk);
   return names.map(n => {
-    const ts = live.filter(t => t.desk === n);
+    const ts = main.filter(t => t.desk === n);
     return ts.length ? desk(n, ts) : '';
-  }).join('') + (reserved.length ? desk('Reserved', reserved) : '');
+  }).join('')
+    + (appendices.length ? desk('Appendices', appendices) : '')
+    + (reserved.length ? desk('Reserved', reserved) : '');
 }
 
 export function uscStats(cat: UscCatalog | null) {
@@ -145,6 +150,8 @@ export function uscStats(cat: UscCatalog | null) {
   const inst = live.filter(t => t.installed);
   return {
     live,
+    /** Titles 1–54 only: the "of 53" counts leave the four appendix titles out. */
+    main: live.filter(t => !isUscAppendix(t.title)),
     inst,
     stale: inst.filter(t => t.installed!.stale),
     sections: inst.reduce((a, t) => a + (t.installed?.section_count || 0), 0),
@@ -180,7 +187,7 @@ export function uscTabHtml(cat: UscCatalog | null, filter: string, installedCfr:
       actionsHtml: `<button type="button" class="btn" data-act="usc-check">${icon('refresh')} Check for updates</button>${updateAll}`,
     })}
     ${kpiStripHtml([
-      { labelHtml: 'Installed', valueHtml: `${s.inst.length} <span class="pg-kpi-of">of ${s.live.length}</span>`, subHtml: s.bytes ? `${escapeHtml(fmtBytes(s.bytes))} on disk` : 'No titles yet' },
+      { labelHtml: 'Installed', valueHtml: `${s.inst.length} <span class="pg-kpi-of">of ${s.main.length}</span>`, subHtml: s.bytes ? `${escapeHtml(fmtBytes(s.bytes))} on disk` : 'No titles yet' },
       { labelHtml: 'Sections', valueHtml: escapeHtml(fmt(s.sections)), subHtml: s.sections ? `${escapeHtml(fmt(s.notes))} notes kept apart` : 'Install a title to read it' },
       { labelHtml: 'Positive law', valueHtml: `${s.inst.filter(t => t.positive_law).length} installed`, subHtml: `${s.live.filter(t => t.positive_law).length} titles are legal evidence of the law` },
       s.stale.length
@@ -237,7 +244,7 @@ export function uscDetailBodyHtml(t: UscCatalogTitle, tree: UscTreeNode | null, 
     return `${implemented}
       <div class="empty-state"><h2>${escapeHtml(`${uscCite(t.title)} isn’t installed`)}</h2>
         <p>Download the whole title from the Office of the Law Revision Counsel to see its chapters and read its sections offline.</p>
-        ${t.reserved || uscJobFor(t.title) ? '' : `<p><button type="button" class="btn btn-accent" data-act="usc-download" data-usc-title="${t.title}">${icon('download')} Download Title ${t.title}</button></p>`}
+        ${t.reserved || uscJobFor(t.title) ? '' : `<p><button type="button" class="btn btn-accent" data-act="usc-download" data-usc-title="${t.title}">${icon('download')} Download Title ${uscTitleLabel(t.title)}</button></p>`}
       </div>`;
   }
   return `${implemented}

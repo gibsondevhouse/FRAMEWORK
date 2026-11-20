@@ -1,5 +1,5 @@
 {
-  "sha256": "90770b3739b70284f9a6f3a16ff25b94ee82f06d65515e148e1ecd7b8052243f",
+  "sha256": "cdc1ed6481913ce81766a892caab24b5add624e28fa422162f11732ac18202be",
   "files": [
     "index.html",
     "src/api/client.ts",
@@ -32,7 +32,9 @@
     "src/core/events.ts",
     "src/core/library_meta.ts",
     "src/core/news_format.ts",
+    "src/core/plaw.ts",
     "src/core/projects_store.ts",
+    "src/core/usc_label.ts",
     "src/core/view_dispatch.ts",
     "src/data/home_content.ts",
     "src/dom.ts",
@@ -69,6 +71,7 @@
     "src/views/home.ts",
     "src/views/library.ts",
     "src/views/library_constitution.ts",
+    "src/views/library_plaw.ts",
     "src/views/library_usc.ts",
     "src/views/news.ts",
     "src/views/news_case.ts",
@@ -77,6 +80,7 @@
     "src/views/reader.ts",
     "src/views/reader_constitution.ts",
     "src/views/reader_part.ts",
+    "src/views/reader_plaw.ts",
     "src/views/reader_usc.ts",
     "src/views/ref_almanac.ts",
     "src/views/search.ts",

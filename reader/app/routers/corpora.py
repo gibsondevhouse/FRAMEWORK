@@ -80,11 +80,28 @@ def plaw_search(q: str = Query(..., min_length=1, max_length=200), limit: int = 
 
 
 @corpora_router.get("/api/plaw/law/{law_id}")
-def plaw_law(law_id: str, xml: bool = False) -> dict:
+def plaw_law(law_id: str, xml: bool = False, text: bool = True) -> dict:
+    """One law's metadata, U.S. Code links and provenance (`text=false` leaves out the plain
+    text, which the reader gets as HTML units from …/text instead)."""
     law = plaw.get_law(law_id, include_xml=xml)
     if law is None:
         raise HTTPException(404, "No such law in the local copy.")
+    if not text:
+        law.pop("text", None)
     return law
+
+
+@corpora_router.get("/api/plaw/law/{law_id}/text")
+def plaw_law_text(law_id: str, unit: str | None = Query(None, max_length=40)) -> dict:
+    """The law as reading units: `mode`, `outline`, and `html` for one unit (`?unit=`, '' = first)
+    of a long law, or for the whole law."""
+    try:
+        d = plaw.law_text(law_id, unit)
+    except KeyError:
+        raise HTTPException(404, "No such section in this law.")
+    if d is None:
+        raise HTTPException(404, "No such law in the local copy.")
+    return d
 
 
 @corpora_router.get("/api/plaw/usc/{title}/{section}")
@@ -102,6 +119,15 @@ def plaw_build(req: PlawBuild | None = None) -> dict:
 @corpora_router.post("/api/plaw/update")
 def plaw_update() -> dict:
     return {"job": plaw.submit("plaw-update")}
+
+
+@corpora_router.delete("/api/plaw")
+def plaw_remove() -> dict:
+    if library.queue.busy_with(plaw.JOB_KEY):
+        raise HTTPException(409, "Public Laws have a download in progress.")
+    if not plaw.remove():
+        raise HTTPException(404, "Public Laws aren't installed.")
+    return {"removed": "plaw"}
 
 
 # --- Unified Agenda ---------------------------------------------------------------

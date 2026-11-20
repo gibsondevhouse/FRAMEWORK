@@ -3,6 +3,7 @@ import {
   RefTier, state, TitleSnapshotRow,
 } from '../state';
 import { escapeHtml, lsGet, lsSet } from '../dom';
+import { uscCite } from '../core/usc_label';
 
 const ACTIVE_DESK_KEY = 'framework_desk_v1';
 
@@ -464,7 +465,7 @@ export function allSystemFrameworks(
       tier: 'federal-statute',
       jurisdiction: 'US',
       jurisdiction_label: 'Federal',
-      code: `${u.title} U.S.C.`,
+      code: uscCite(u.title),
       title_num: u.title,
       name: u.title_name || `Title ${u.title}`,
       desk: mapRawDeskToId('', u.title),

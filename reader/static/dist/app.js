@@ -5863,6 +5863,11 @@ async function queueBatch(url, body, emptyMsg) {
 	showToast(res.count ? `Queued ${plural(res.count, "title")}` : emptyMsg);
 	await pollJobs();
 }
+var isUscAppendix = (title) => title > 100;
+/** "29", or "5a" for the Title 5 Appendix (105). */
+var uscTitleLabel = (title) => isUscAppendix(title) ? `${title - 100}a` : String(title);
+/** "29 U.S.C.", or "5 U.S.C. App." for an appendix title. */
+var uscCite = (title) => isUscAppendix(title) ? `${title - 100} U.S.C. App.` : `${title} U.S.C.`;
 // src/components/corpora.ts
 var ACTIVE_DESK_KEY = "framework_desk_v1";
 var TIER_ORDER = [
@@ -6385,7 +6390,7 @@ function allSystemFrameworks(titles = state.installedTitles, snapshotRows = stat
 			tier: "federal-statute",
 			jurisdiction: "US",
 			jurisdiction_label: "Federal",
-			code: `${u.title} U.S.C.`,
+			code: uscCite(u.title),
 			title_num: u.title,
 			name: u.title_name || `Title ${u.title}`,
 			desk: mapRawDeskToId("", u.title),
@@ -6706,6 +6711,7 @@ function isFrameworkRoute(path = state.activeRoute) {
 	if (/^\/corpus\/(?!state\/|county\/)/.test(p)) return true;
 	if (/^\/usc\/\d+(?:\/|$)/.test(p)) return true;
 	if (/^\/constitution(?:\/|$)/.test(p)) return true;
+	if (/^\/law\/[^/]+/.test(p)) return true;
 	if (state.noTitles) return false;
 	return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/)/.test(p);
 }
@@ -6721,6 +6727,7 @@ function routeTarget(path = state.activeRoute) {
 	if (p.startsWith("/corpus/")) return "corpus";
 	if (/^\/usc\/\d+/.test(p)) return "corpus";
 	if (/^\/constitution(?:\/|$)/.test(p)) return "corpus";
+	if (/^\/law\/[^/]+/.test(p)) return "corpus";
 	if (/^\/title\/\d+\/?$/.test(p)) return "home";
 	const rest = p.replace(/^\/title\/\d+/, "");
 	if (rest.startsWith("/library")) return "library";
@@ -8603,6 +8610,7 @@ function activeRouteKind() {
 	if (p.startsWith("/news")) return "fr";
 	if (/^\/usc\/\d+(?:\/|$)/.test(p)) return "usc";
 	if (/^\/constitution(?:\/|$)/.test(p)) return "corpus";
+	if (/^\/law\/[^/]+/.test(p)) return "corpus";
 	if (p.startsWith("/corpus/")) return state.activeCorpus?.tier === "federal-register" ? "fr" : "corpus";
 	if (/^\/(?:title\/\d+(?:\/|$)|part\/|section\/)/.test(p)) return "cfr";
 	return "platform";
@@ -8693,13 +8701,13 @@ function fillTitleSelect() {
 	} else if (kind === "usc" && state.currentUscTitle) {
 		const curUsc = state.installedUscTitles.find((u) => u.title === state.currentUscTitle);
 		const name = curUsc?.title_name || state.activeCorpus?.name || `Title ${state.currentUscTitle}`;
-		if (numEl) numEl.textContent = `${state.currentUscTitle} U.S.C.`;
+		if (numEl) numEl.textContent = uscCite(state.currentUscTitle);
 		if (nameEl) nameEl.textContent = name;
 		dom.titleSelect.dataset.refTier = "usc";
-		dom.titleSelect.title = `${state.currentUscTitle} U.S.C.: ${name} · Switch federal framework`;
+		dom.titleSelect.title = `${uscCite(state.currentUscTitle)}: ${name} · Switch federal framework`;
 		if (dom.edition) {
 			dom.edition.textContent = curUsc?.release_point ? `Release ${curUsc.release_point}` : "U.S. Code";
-			dom.edition.title = `${state.currentUscTitle} U.S.C. release point`;
+			dom.edition.title = `${uscCite(state.currentUscTitle)} release point`;
 		}
 	} else if (kind === "corpus" && state.activeCorpus) {
 		const shortCode = state.activeCorpus.tier === "federal-statute" ? state.activeCorpus.code.split("§§")[0].trim() : state.activeCorpus.code;
@@ -10222,7 +10230,7 @@ function formatCfrCitation(title, sectionLabelOrId, para = "") {
 }
 /** The citation for a workspace reference: "29 U.S.C. § 655(b)(1)" for a statute, else CFR form. */
 function formatRefCitation(ref, para = "") {
-	if (ref.tier === "federal-statute") return `${ref.title} U.S.C. § ${ref.id}${para || ""}`;
+	if (ref.tier === "federal-statute") return `${uscCite(ref.title)} § ${ref.id}${para || ""}`;
 	if (ref.tier === "federal-constitution") return constCitation(ref.label);
 	return formatCfrCitation(ref.title, cleanInlineLabel(ref.label), para);
 }
@@ -12717,7 +12725,7 @@ function renderProjects(id) {
         <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(tMeta.tag)}</span>${SEP}${where}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ""}</span>
           <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || "").slice(0, 10)))}</span></div>
         <h3 class="story-name">${have ? `<a href="${href}">${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}</a>` : `${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}`}</h3>
-        ${have ? "" : `<p class="proj-missing">${isConst ? "The Constitution" : isUsc ? `${s.title} U.S.C.` : `Title ${s.title}`} isn’t installed. <a href="${libHref}">Download it</a> to read this section.</p>`}
+        ${have ? "" : `<p class="proj-missing">${isConst ? "The Constitution" : isUsc ? uscCite(s.title) : `Title ${s.title}`} isn’t installed. <a href="${libHref}">Download it</a> to read this section.</p>`}
         <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || "")}</textarea>
         <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
       </article>`;
@@ -12803,9 +12811,9 @@ on("projects:changed", ({ quiet }) => {
 var SOURCE_LINE = "GovInfo · House Rules and Manual (official GPO XML)";
 function constEdition(c) {
 	const cong = c?.meta?.congress;
-	return cong ? `House Manual, ${ordinal(Number(cong))} Congress` : "";
+	return cong ? `House Manual, ${ordinal$1(Number(cong))} Congress` : "";
 }
-function ordinal(n) {
+function ordinal$1(n) {
 	const s = [
 		"th",
 		"st",
@@ -14996,7 +15004,6 @@ var USC_JOB_BASE = 1e3;
 var uscLibHref = (title) => `#/library/usc${title ? `/${title}` : ""}`;
 var uscSectionHref = (title, id) => `#/usc/${title}/section/${encodeURIComponent(id)}`;
 var uscNodeLibHref = (title, id) => `#/usc/${title}/node/${encodeURIComponent(id)}`;
-var uscCite = (title) => `${title} U.S.C.`;
 function uscJobFor(title) {
 	return [state.jobs.current, ...state.jobs.queued].filter(Boolean).find((j) => j.title === USC_JOB_BASE + title);
 }
@@ -15065,7 +15072,7 @@ function uscStory(t, installedCfr) {
 		!inst && !t.reserved ? "Installs the whole title" : ""
 	]);
 	const acts = uscActions(t);
-	const hay = `${t.title} usc u.s.c. title ${t.name} ${t.desk} ${t.positive_law ? "positive law" : ""} ${t.cfr.map((n) => `${n} cfr`).join(" ")}`.toLowerCase();
+	const hay = `${isUscAppendix(t.title) ? `${uscCite(t.title)} appendix app.` : t.title} usc u.s.c. title ${t.name} ${t.desk} ${t.positive_law ? "positive law" : ""} ${t.cfr.map((n) => `${n} cfr`).join(" ")}`.toLowerCase();
 	return `<article class="lib-story has-tier-bar${t.reserved ? " is-dim" : ""}" data-ref-tier="usc" data-hay="${escapeHtml(hay)}">
     <div class="story-top"><span class="story-kicker">${kicker}</span>${uscStatusPill(t, !inst)}</div>
     <h3 class="story-name">${headline}</h3>
@@ -15079,18 +15086,22 @@ function uscTitleList(cat, installedCfr) {
 	const desk = (name, ts) => `<section class="lib-desk" aria-label="${escapeHtml(name)}">
       <header class="lib-desk-header"><h3 class="lib-desk-name">${escapeHtml(name)}</h3><span class="lib-desk-count">${plural(ts.length, "title")}</span></header>
       <div class="lib-stories">${ts.map((t) => uscStory(t, installedCfr)).join("")}</div></section>`;
+	const main = live.filter((t) => !isUscAppendix(t.title));
+	const appendices = live.filter((t) => isUscAppendix(t.title));
 	const names = [...cat.desks];
-	for (const t of live) if (!names.includes(t.desk)) names.push(t.desk);
+	for (const t of main) if (!names.includes(t.desk)) names.push(t.desk);
 	return names.map((n) => {
-		const ts = live.filter((t) => t.desk === n);
+		const ts = main.filter((t) => t.desk === n);
 		return ts.length ? desk(n, ts) : "";
-	}).join("") + (reserved.length ? desk("Reserved", reserved) : "");
+	}).join("") + (appendices.length ? desk("Appendices", appendices) : "") + (reserved.length ? desk("Reserved", reserved) : "");
 }
 function uscStats(cat) {
 	const live = (cat?.titles || []).filter((t) => !t.reserved);
 	const inst = live.filter((t) => t.installed);
 	return {
 		live,
+		/** Titles 1–54 only: the "of 53" counts leave the four appendix titles out. */
+		main: live.filter((t) => !isUscAppendix(t.title)),
 		inst,
 		stale: inst.filter((t) => t.installed.stale),
 		sections: inst.reduce((a, t) => a + (t.installed?.section_count || 0), 0),
@@ -15122,7 +15133,7 @@ function uscTabHtml(cat, filter, installedCfr) {
     ${kpiStripHtml([
 		{
 			labelHtml: "Installed",
-			valueHtml: `${s.inst.length} <span class="pg-kpi-of">of ${s.live.length}</span>`,
+			valueHtml: `${s.inst.length} <span class="pg-kpi-of">of ${s.main.length}</span>`,
 			subHtml: s.bytes ? `${escapeHtml(fmtBytes(s.bytes))} on disk` : "No titles yet"
 		},
 		{
@@ -15197,7 +15208,7 @@ function uscDetailBodyHtml(t, tree, installedCfr) {
 	if (!inst) return `${implemented}
       <div class="empty-state"><h2>${escapeHtml(`${uscCite(t.title)} isn’t installed`)}</h2>
         <p>Download the whole title from the Office of the Law Revision Counsel to see its chapters and read its sections offline.</p>
-        ${t.reserved || uscJobFor(t.title) ? "" : `<p><button type="button" class="btn btn-accent" data-act="usc-download" data-usc-title="${t.title}">${icon("download")} Download Title ${t.title}</button></p>`}
+        ${t.reserved || uscJobFor(t.title) ? "" : `<p><button type="button" class="btn btn-accent" data-act="usc-download" data-usc-title="${t.title}">${icon("download")} Download Title ${uscTitleLabel(t.title)}</button></p>`}
       </div>`;
 	return `${implemented}
     <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter chapters…" aria-label="Filter chapters" autocomplete="off" spellcheck="false">
@@ -15226,17 +15237,193 @@ function uscDetailActions(t, tree) {
 	const first = tree ? leafStats(tree).first : null;
 	return `<a class="btn btn-accent" href="#/usc/${t.title}/">${icon("book")} Open in reader</a>` + (first ? `<a class="btn" href="${uscSectionHref(t.title, first)}">First section</a>` : "") + (t.installed.stale ? `<button type="button" class="btn" data-act="usc-update" data-usc-title="${t.title}">Update</button>` : "") + `<button type="button" class="btn" data-act="usc-remove" data-usc-title="${t.title}">Remove</button>`;
 }
+var PLAW_LIB_HREF = "#/library/plaw";
+var plawLibHref = (congress) => `${PLAW_LIB_HREF}${congress ? `/${congress}` : ""}`;
+var lawHref = (id, view) => `#/law/${encodeURIComponent(id)}${view ? `/${encodeURIComponent(view)}` : ""}`;
+function ordinal(n) {
+	const s = [
+		"th",
+		"st",
+		"nd",
+		"rd"
+	];
+	const v = n % 100;
+	return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+/** The two calendar years a Congress sits: the 118th is 2023–2024. */
+var congressYears = (c) => `${1789 + (c - 1) * 2}–${1790 + (c - 1) * 2}`;
+/** "Pub. L. 118-5" (short, for lists and headings); private laws are "Priv. L.". */
+var lawShort = (l) => `${l.law_type === "private" ? "Priv." : "Pub."} L. ${l.congress}-${l.number}`;
+/** Bluebook form: "Pub. L. No. 118-5, 137 Stat. 50 (2023)". */
+function lawCitation(l) {
+	const year = (l.approved_date || "").slice(0, 4);
+	return `${l.law_type === "private" ? "Priv." : "Pub."} L. No. ${l.congress}-${l.number}` + (l.statute ? `, ${l.statute}` : "") + (year ? ` (${year})` : "");
+}
+function plawScope(st) {
+	try {
+		const s = JSON.parse(st?.meta?.scope || "null");
+		return s && Array.isArray(s.congresses) ? s : null;
+	} catch {
+		return null;
+	}
+}
+/** Law counts per Congress (public laws only), newest first. */
+function plawCounts(st) {
+	const m = /* @__PURE__ */ new Map();
+	for (const r of st?.congresses || []) if (r.law_type === "public") m.set(r.congress, (m.get(r.congress) || 0) + r.laws);
+	return m;
+}
+async function fetchPlawStatus() {
+	try {
+		return (await getJSON("/api/plaw?limit=1")).status;
+	} catch {
+		return null;
+	}
+}
+/** Every public law of one Congress (the API pages at 200). */
+async function fetchCongressLaws(congress, signal) {
+	const out = [];
+	for (let offset = 0; offset < 5e3; offset += 200) {
+		const d = await getJSON(`/api/plaw?congress=${congress}&type=public&limit=200&offset=${offset}`, { signal });
+		out.push(...d.results);
+		if (out.length >= d.total || !d.results.length) break;
+	}
+	return out;
+}
+var isPlawJob = (j) => Boolean(j && (j.title === 3e3 || String(j.kind || "").startsWith("plaw")));
+var plawJob = () => [state.jobs?.current, ...state.jobs?.queued || []].find(isPlawJob) || null;
+// src/views/library_plaw.ts
+var MB_PER_CONGRESS = 32;
+function jobLine() {
+	const j = plawJob();
+	return j ? statPill("busy", j.state === "running" ? j.phase || "Downloading" : "Queued") : "";
+}
+function plawTabCounts(st) {
+	if (!st?.installed) return {
+		countLabel: "Not installed",
+		sub: "Laws as Congress passed them"
+	};
+	const n = plawCounts(st).size;
+	return {
+		countLabel: `${fmt(st.law_count)} laws`,
+		sub: n ? `${n} ${n === 1 ? "Congress" : "Congresses"} · since the ${ordinal(Math.min(...plawCounts(st).keys()))}` : "No laws yet"
+	};
+}
+function congressTiles(st, selected) {
+	const counts = plawCounts(st);
+	const tiles = [];
+	for (let c = st.current_congress; c >= st.first_congress; c--) {
+		const n = counts.get(c);
+		const on = c === selected;
+		tiles.push(`<a class="plaw-cong${on ? " is-on" : ""}${n == null ? " is-missing" : ""}" href="${plawLibHref(c)}"${on ? " aria-current=\"page\"" : ""}>
+        <span class="plaw-cong-num">${ordinal(c)}</span>
+        <span class="plaw-cong-years">${congressYears(c)}</span>
+        <span class="plaw-cong-count">${n == null ? "Not downloaded" : `${fmt(n)} ${n === 1 ? "law" : "laws"}`}</span>
+      </a>`);
+	}
+	return `<nav class="plaw-congs" aria-label="Congresses">${tiles.join("")}</nav>`;
+}
+function lawRow(l) {
+	const hay = `${lawShort(l)} ${l.congress}-${l.number} ${l.title || ""} ${l.bill || ""} ${l.statute || ""}`.toLowerCase();
+	return `<a class="lib-row" href="${lawHref(l.id)}" data-hay="${escapeHtml(hay)}">
+      <span class="lib-main"><span class="lib-num">${escapeHtml(lawShort(l))}</span><span class="lib-name">${escapeHtml(l.title || "Untitled law")}</span></span>
+      <span class="lib-status">${escapeHtml([l.bill, l.approved_date ? shortDate(l.approved_date) : ""].filter(Boolean).join(" · "))}</span>
+    </a>`;
+}
+function plawTabHtml(st, congress, laws, filter) {
+	if (!st) return `<div class="empty-state"><h2>Public Laws didn’t load</h2><p>Reload the page to try again.</p></div>`;
+	const kicker = `<span class="ref-badge" data-ref-tier="usc">PUB. L. · SESSION LAWS</span><span>GovInfo bulk data · USLM XML · no key needed</span>`;
+	const job = jobLine();
+	const span = st.current_congress - st.first_congress + 1;
+	if (!st.installed) return `
+      ${tabLeadHtml({
+		refTier: "usc",
+		kickerHtml: kicker,
+		title: "Public Laws",
+		subHtml: `Each law as Congress passed it, with the places it changed in the U.S. Code. GovInfo publishes them in this format from the ${ordinal(st.first_congress)} Congress (2013) on. One Congress is about ${MB_PER_CONGRESS} MB.`,
+		actionsHtml: job || `<button type="button" class="btn btn-accent" data-act="plaw-download" data-congresses="${st.current_congress}">${icon("download")} Download the ${ordinal(st.current_congress)} Congress</button><button type="button" class="btn" data-act="plaw-download" data-congresses="all">Every Congress since 2013 (about ${span * MB_PER_CONGRESS} MB)</button>`
+	})}
+      <div class="plaw-explain">
+        <p><strong>What you get.</strong> Every public law: its title, the bill it came from, the date it was signed, its Statutes at Large page and the full text, read a section at a time.</p>
+        <p><strong>Why it helps.</strong> The U.S. Code shows the law as it stands today. A Public Law shows what Congress actually changed and when, and each U.S. Code section you open lists the laws that enacted or amended it.</p>
+      </div>`;
+	const counts = plawCounts(st);
+	const sel = plawSelected(st, congress);
+	const scope = plawScope(st);
+	const missing = !counts.has(sel);
+	const newest = st.meta.built_at ? shortDate(st.meta.built_at.slice(0, 10)) : "";
+	const lead = tabLeadHtml({
+		refTier: "usc",
+		kickerHtml: kicker,
+		title: "Public Laws",
+		subHtml: escapeHtml([
+			`${fmt(st.law_count)} laws`,
+			`${counts.size} ${counts.size === 1 ? "Congress" : "Congresses"}`,
+			scope?.follow ? "new Congresses added automatically" : "",
+			newest ? `updated ${newest}` : ""
+		].filter(Boolean).join(" · ")) + ". Open a law to read it a section at a time and see where it went in the U.S. Code.",
+		actionsHtml: job || `<button type="button" class="btn" data-act="plaw-update">${icon("refresh")} Check for new laws</button><button type="button" class="btn" data-act="plaw-remove">Remove</button>`
+	});
+	const kpis = kpiStripHtml([
+		{
+			labelHtml: "Laws",
+			valueHtml: escapeHtml(fmt(st.law_count)),
+			subHtml: "Public laws installed"
+		},
+		{
+			labelHtml: "Congresses",
+			valueHtml: `${counts.size} <span class="pg-kpi-of">of ${span}</span>`,
+			subHtml: `${ordinal(st.first_congress)} to ${ordinal(st.current_congress)}`
+		},
+		{
+			labelHtml: "U.S. Code links",
+			valueHtml: escapeHtml(fmt(st.usc_link_count)),
+			subHtml: "Places these laws changed or cite"
+		},
+		{
+			labelHtml: "Source",
+			valueHtml: "GovInfo",
+			subHtml: "Official GPO slip laws"
+		}
+	], {
+		label: "Public Laws at a glance",
+		refTier: "usc"
+	});
+	const body = missing ? `<div class="empty-state"><h2>The ${ordinal(sel)} Congress isn’t downloaded</h2>
+        <p>Add it to read its laws (about ${MB_PER_CONGRESS} MB). Public Laws rebuild with it included.</p>
+        ${job || `<p><button type="button" class="btn btn-accent" data-act="plaw-add" data-congress="${sel}">${icon("download")} Add the ${ordinal(sel)} Congress</button></p>`}</div>` : `<div class="lib-tools">
+        <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter laws by title, number or bill…" aria-label="Filter laws" autocomplete="off" spellcheck="false" value="${escapeHtml(filter)}">
+      </div>
+      <div class="lib-list" id="lib-list">${laws ? laws.length ? `<div class="lib-label">${escapeHtml(`${ordinal(sel)} Congress · ${congressYears(sel)} · ${laws.length} ${laws.length === 1 ? "law" : "laws"}`)}</div>${laws.map(lawRow).join("")}` : "<p class=\"lib-none\">No public laws yet in this Congress.</p>" : "<p class=\"lib-none\">Loading laws…</p>"}</div>
+      <div class="lib-none" id="lib-none" aria-live="polite" hidden>No law matches. Try words from its title, a number (“118-5”) or a bill (“H.R. 3746”).</div>`;
+	return `${lead}${kpis}${congressTiles(st, sel)}${body}`;
+}
+/** The congresses a rebuild should hold once `add` is included (the stored scope plus it). */
+function plawScopeWith(st, add) {
+	const have = /* @__PURE__ */ new Set([...plawScope(st)?.congresses || [], ...plawCounts(st).keys()]);
+	have.add(add);
+	return [...have].sort((a, b) => a - b);
+}
+/** The Congress the tab shows: the one asked for when it's in range, else the newest installed. */
+function plawSelected(st, congress) {
+	if (!st) return congress || 0;
+	if (congress && congress >= st.first_congress && congress <= st.current_congress) return congress;
+	const counts = plawCounts(st);
+	return counts.size ? Math.max(...counts.keys()) : st.current_congress;
+}
 // src/views/library.ts
 var LIB_TAB_ORDER = [
 	"overview",
 	"constitution",
 	"usc",
+	"plaw",
 	"cfr"
 ];
 var LIB_TAB_HREF = {
 	overview: "#/library",
 	constitution: CONST_LIB_HREF,
 	usc: "#/library/usc",
+	plaw: PLAW_LIB_HREF,
 	cfr: "#/library/cfr"
 };
 var lib = {
@@ -15244,6 +15431,9 @@ var lib = {
 	data: null,
 	usc: null,
 	constitution: null,
+	plaw: null,
+	plawCongress: null,
+	plawLaws: null,
 	uscTree: null,
 	filter: "",
 	sort: "desk",
@@ -15261,7 +15451,7 @@ state.jobsTimer = null;
 state.jobsSeenActive = /* @__PURE__ */ new Set();
 state.lastJobsKey = "";
 var removeTimers = /* @__PURE__ */ new WeakMap();
-var fetchUscCatalog = () => getJSON("/api/usc/catalog").catch(() => null);
+var fetchUscCatalog = () => getJSON("/api/usc/catalog?appendix=true").catch(() => null);
 var installedCfrSet = () => new Set((state.installedTitles || []).map((t) => t.title));
 async function fetchView(tab, title, part) {
 	if (tab === "usc" && title) {
@@ -15276,15 +15466,24 @@ async function fetchView(tab, title, part) {
 		return;
 	}
 	if (!title) {
-		const [data, cat, constitution] = await Promise.all([
+		const [data, cat, constitution, plaw] = await Promise.all([
 			getJSON("/api/library"),
 			fetchUscCatalog(),
-			fetchConstitution({ force: true })
+			fetchConstitution({ force: true }),
+			fetchPlawStatus()
 		]);
 		setJobs(data.jobs);
 		lib.data = data;
 		lib.usc = cat;
 		lib.constitution = constitution;
+		lib.plaw = plaw;
+		if (tab === "plaw" && plaw?.installed) {
+			const sel = plawSelected(plaw, lib.plawCongress);
+			if (plawCounts(plaw).has(sel) && lib.plawLaws?.congress !== sel) lib.plawLaws = {
+				congress: sel,
+				rows: await fetchCongressLaws(sel).catch(() => [])
+			};
+		}
 		return;
 	}
 	const url = part ? `/api/library/${title}/part/${encodeURIComponent(part)}` : `/api/library/${title}`;
@@ -15330,6 +15529,12 @@ async function loadLibrary(tab = "overview", title, part) {
 		});
 		document.getElementById("lib-retry")?.addEventListener("click", () => loadLibrary(tab, normTitle, normPart));
 	}
+}
+/** #/library/plaw[/{congress}]: the Public Laws tab, showing one Congress's laws. */
+function loadPlawTab(congress) {
+	if (lib.plawCongress !== congress) lib.filter = "";
+	lib.plawCongress = congress;
+	return loadLibrary("plaw", null, null);
 }
 async function refreshLibrary() {
 	if (!lib.view || !dom.view.querySelector(".lib")) return;
@@ -15592,10 +15797,18 @@ function libTabsHtml(d, cat, tab) {
 				abbr: "U.S.C.",
 				refTier: "usc",
 				href: LIB_TAB_HREF.usc,
-				countLabel: `${u.inst.length} of ${u.live.length || 53} titles`,
+				countLabel: `${u.inst.filter((t) => t.title < 100).length} of ${u.main.length || 53} titles`,
 				sub: releaseLine(cat),
 				alert: u.stale.length > 0,
 				alertTitle: "Behind the current release point"
+			},
+			{
+				id: "plaw",
+				label: "Public Laws",
+				abbr: "Pub. L.",
+				refTier: "usc",
+				href: LIB_TAB_HREF.plaw,
+				...plawTabCounts(lib.plaw)
 			},
 			{
 				id: "cfr",
@@ -15763,7 +15976,7 @@ function libFrontHtml(d, cat = lib.usc, tab = lib.view?.tab || "overview") {
 		actionsHtml: (due && !anyUpdating() ? `<button type="button" class="btn btn-sm" data-act="update-everything">${icon("download")} Update all</button>` : "") + `<a class="btn btn-sm" href="#/news">${icon("news")} Federal Register in the Newsroom</a>`,
 		tabsHtml: libTabsHtml(d, cat, tab)
 	})}
-    <div id="lib-tab-body" class="pg-tab-body" role="tabpanel" aria-labelledby="lib-tab-${tab}">${tab === "constitution" ? constTabHtml(lib.constitution, lib.filter) : tab === "usc" ? uscTabHtml(cat, lib.filter, installedCfrSet()) : tab === "cfr" ? cfrTabHtml(d) : overviewHtml(d, cat)}</div>
+    <div id="lib-tab-body" class="pg-tab-body" role="tabpanel" aria-labelledby="lib-tab-${tab}">${tab === "constitution" ? constTabHtml(lib.constitution, lib.filter) : tab === "usc" ? uscTabHtml(cat, lib.filter, installedCfrSet()) : tab === "plaw" ? plawTabHtml(lib.plaw, lib.plawCongress, lib.plawLaws && lib.plawLaws.congress === plawSelected(lib.plaw, lib.plawCongress) ? lib.plawLaws.rows : null, lib.filter) : tab === "cfr" ? cfrTabHtml(d) : overviewHtml(d, cat)}</div>
   </div>`;
 }
 function renderFront(fresh) {
@@ -15773,6 +15986,7 @@ function renderFront(fresh) {
 		overview: "",
 		constitution: "Constitution · ",
 		usc: "U.S. Code · ",
+		plaw: "Public Laws · ",
 		cfr: "CFR · "
 	}[tab];
 	document.title = `${tabTitle}Library · FRAMEWORK`;
@@ -15824,7 +16038,7 @@ function renderUscDetail(fresh) {
     ${pageMastheadHtml({
 		folioLeftHtml: `<a href="#/">Home</a>${SEP}<a href="#/library">Library</a>${SEP}<a href="${LIB_TAB_HREF.usc}">U.S. Code</a>`,
 		folioRightHtml: `<span>${escapeHtml(uscCite(title))}</span>${SEP}${uscStatusPill(t, true)}`,
-		title: `Title ${title} — ${t.name}`,
+		title: `Title ${uscTitleLabel(title)} — ${t.name}`,
 		subHtml: uscDetailSub(t),
 		actionsHtml: uscDetailActions(t, tree)
 	})}
@@ -16046,8 +16260,8 @@ onView("click", async (e) => {
 	const isUsc = btn.dataset.uscTitle !== void 0;
 	const title = parseInt((isUsc ? btn.dataset.uscTitle : btn.dataset.title) || "", 10);
 	const act = btn.dataset.act;
-	if (act === "remove" || act === "usc-remove" || act === "const-remove") {
-		const what = act === "usc-remove" ? `${title} U.S.C.` : act === "const-remove" ? "the Constitution" : `Title ${title}`;
+	if (act === "remove" || act === "usc-remove" || act === "const-remove" || act === "plaw-remove") {
+		const what = act === "usc-remove" ? uscCite(title) : act === "const-remove" ? "the Constitution" : act === "plaw-remove" ? "Public Laws" : `Title ${title}`;
 		if (!btn.classList.contains("is-armed")) {
 			btn.classList.add("is-armed");
 			btn.textContent = "Confirm remove";
@@ -16067,6 +16281,10 @@ onView("click", async (e) => {
 			} else if (act === "const-remove") {
 				await getJSON("/api/constitution", { method: "DELETE" });
 				showToast("Removed the Constitution");
+			} else if (act === "plaw-remove") {
+				await getJSON("/api/plaw", { method: "DELETE" });
+				lib.plawLaws = null;
+				showToast("Removed Public Laws");
 			} else {
 				await getJSON(`/api/library/${title}`, { method: "DELETE" });
 				invalidateTitleCaches([title]);
@@ -16113,6 +16331,19 @@ onView("click", async (e) => {
 				showToast("Everything installed is already current");
 				btn.disabled = false;
 			}
+			await pollJobs();
+			return;
+		}
+		if (act === "plaw-download" || act === "plaw-add" || act === "plaw-update") {
+			const all = btn.dataset.congresses === "all";
+			const congresses = act === "plaw-add" ? plawScopeWith(lib.plaw, parseInt(btn.dataset.congress || "0", 10)) : act === "plaw-download" && !all ? [parseInt(btn.dataset.congresses || "0", 10)] : null;
+			const res = act === "plaw-update" ? await getJSON("/api/plaw/update", { method: "POST" }) : await getJSON("/api/plaw/build", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(congresses ? { congresses } : {})
+			});
+			state.jobsSeenActive.add(res.job.id);
+			lib.plawLaws = null;
 			await pollJobs();
 			return;
 		}
@@ -19153,7 +19384,7 @@ function setUscActiveCorpus(titleNum, meta) {
 		tier: "federal-statute",
 		jurisdiction: "US",
 		jurisdiction_label: "Federal",
-		code: `${titleNum} U.S.C.`,
+		code: uscCite(titleNum),
 		title_num: titleNum,
 		name: meta?.title_name || `Title ${titleNum}`,
 		desk: "all",
@@ -19205,7 +19436,7 @@ function renderUscTitleStart(titleNum, meta, tree) {
 	dom.view.innerHTML = `<div class="ts-front">
     <header class="ts-masthead">
       <div class="ts-kicker">
-        <span class="ref-badge" data-ref-tier="usc">U.S.C. · TITLE ${titleNum}</span>
+        <span class="ref-badge" data-ref-tier="usc">U.S.C. · TITLE ${escapeHtml(uscTitleLabel(titleNum).toUpperCase())}${isUscAppendix(titleNum) ? " APPENDIX" : ""}</span>
         ${meta?.positive_law ? "<span class=\"ts-kicker-tag\">Positive law</span>" : ""}
         ${statPill("synced", "Installed")}
       </div>
@@ -19300,7 +19531,7 @@ function renderUscSection(titleNum, meta, d, full) {
 	const chapterLabel = chapter ? [chapter.l, chapter.d].filter(Boolean).join(" — ").trim() : "";
 	const chapterLink = chapter && chapterLabel ? chapter.id ? `<a href="${uscNodeHref(titleNum, chapter.id)}">${escapeHtml(chapterLabel)}</a>` : escapeHtml(chapterLabel) : "";
 	const label = (d.label || `§ ${d.id}`).replace(/\.\s*$/, "");
-	document.title = `${titleNum} U.S.C. ${label}${current ? " " + unitShort(current) : ""} · FRAMEWORK`;
+	document.title = `${uscCite(titleNum)} ${label}${current ? " " + unitShort(current) : ""} · FRAMEWORK`;
 	const toggle = d.mode !== "units" ? "" : full ? `<a class="btn" href="${uscSectionHref(titleNum, d.id)}">${icon("stack")} Read in parts</a>` : `<a class="btn" href="${uscUnitHref(titleNum, d.id, "full")}">${icon("expand")} See full section</a>`;
 	const unitBanner = current ? `<div class="unit-context"><span>${escapeHtml(current.label ? `Subdivision ${current.label}` : current.title || "")}</span><span class="sep" aria-hidden="true">·</span><span class="unit-pos">Unit ${unitIdx + 1} of ${outline.length}</span></div>` : "";
 	const notes = d.notes || [];
@@ -19337,6 +19568,7 @@ function renderUscSection(titleNum, meta, d, full) {
       ${notes.length ? `<button type="button" class="btn" id="usc-jump-notes">${icon("stack")} Notes (${notes.length})</button>` : ""}
       <button type="button" class="btn" id="usc-btn-cited" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("link")} <span>Cited by</span></button>
       <button type="button" class="btn" id="usc-btn-refs" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("list")} <span>Refs</span></button>
+      <button type="button" class="btn" id="usc-btn-laws" aria-haspopup="dialog" aria-expanded="false" hidden>${icon("stack")} <span>Enacted by</span></button>
       <div class="spacer"></div>
       <div class="doc-actions-util">
         <a class="btn" href="/usc/${titleNum}/${encodeURIComponent(d.id)}" target="_blank" rel="noopener" title="Open a printable standalone page">${icon("external")} Standalone</a>
@@ -19385,6 +19617,54 @@ async function fillUscCitedBy(titleNum, sectionId, seq, signal) {
 	if (span) span.textContent = `Cited by ${data.count}`;
 	btn.hidden = false;
 }
+var lawsCache = /* @__PURE__ */ new Map();
+async function fillUscLaws(titleNum, sectionId, seq, signal) {
+	const key = `${titleNum}|${sectionId}`;
+	let rows = lawsCache.get(key) || null;
+	if (!rows) try {
+		const d = await getJSON(`/api/plaw/usc/${titleNum}/${encodeURIComponent(sectionId)}`, { signal });
+		if (!d.installed) return;
+		rows = d.results;
+		lawsCache.set(key, rows);
+	} catch {
+		return;
+	}
+	if (!rows.length || seq !== state.routeSeq || state.currentUscSection?.id !== sectionId) return;
+	const btn = document.getElementById("usc-btn-laws");
+	if (!btn) return;
+	const span = btn.querySelector("span");
+	if (span) span.textContent = `Enacted by ${rows.length}`;
+	btn.hidden = false;
+}
+var LAW_KIND = {
+	codified: "placed it here",
+	note: "added a note here",
+	reference: "amends or cites it"
+};
+function openUscLaws(btn, rows) {
+	const html = rows.slice(0, 60).map((l) => {
+		const how = (l.kinds || "").split(",").map((k) => LAW_KIND[k]).filter(Boolean).join(", ");
+		return citedRow(lawHref(l.id), lawShort(l), [
+			l.title || "",
+			l.approved_date ? shortDate(l.approved_date) : "",
+			how
+		].filter(Boolean).join(" · "));
+	}).join("");
+	citePop.open(btn, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">${plural(rows.length, "Public Law")} touch this section</div>
+      <span class="peek-badge">ENACTED BY</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close Public Laws">${icon("close")}</button>
+    </div>
+    <div class="refs-ledger-wrap"><div class="refs-ledger-group" data-ref-tier="usc">${html}</div></div>
+    <p class="peek-text">From the Public Laws installed on this computer (GovInfo has them from the 113th Congress, 2013, on).</p>
+  `, {
+		interactive: true,
+		returnFocus: btn,
+		focusSelector: ".refs-ledger-link",
+		refTier: "usc"
+	});
+}
 function citedRow(href, code, sub) {
 	return `<div class="refs-ledger-row"><a class="refs-ledger-link" href="${href}"><span class="refs-ledger-code">${escapeHtml(code)}</span><span class="refs-ledger-sub">${escapeHtml(sub)}</span></a></div>`;
 }
@@ -19430,7 +19710,7 @@ function renderUscDrawerHtml(titleNum) {
       <h3 class="dr-label"><span>Framework Navigation</span></h3>
       <a class="dr-row${isStart ? " is-current" : ""}" href="${uscTitleHref(titleNum)}"${isStart ? " aria-current=\"page\"" : ""}>
         <span class="tier-pip" data-ref-tier="usc" aria-hidden="true"></span>
-        <span class="dr-name">Title ${titleNum} start page</span>
+        <span class="dr-name">Title ${uscTitleLabel(titleNum)} start page</span>
       </a>
       <a class="dr-row" href="${uscLibHref(titleNum)}">
         <span class="dr-name">Manage in Library</span>${icon("chevronRight")}
@@ -19481,6 +19761,7 @@ async function loadUscRoute(titleNum, opts = {}) {
 			renderUscSection(titleNum, meta, sec, full);
 			if (opts.para) highlightTarget(dom.view, opts.para);
 			fillUscCitedBy(titleNum, sec.id, seq, signal);
+			fillUscLaws(titleNum, sec.id, seq, signal);
 			if (drawerPanel) drawerPanel.innerHTML = renderUscDrawerHtml(titleNum);
 		} catch (err) {
 			if (err?.name === "AbortError" || seq !== state.routeSeq) return;
@@ -19517,6 +19798,12 @@ onView("click", async (e) => {
 	const refsBtn = t.closest("#usc-btn-refs");
 	if (refsBtn && state.currentUscSection) {
 		openRefsLedgerPopover(refsBtn, dom.view);
+		return;
+	}
+	const lawsBtn = t.closest("#usc-btn-laws");
+	if (lawsBtn && state.currentUscSection && state.currentUscTitle) {
+		const rows = lawsCache.get(`${state.currentUscTitle}|${state.currentUscSection.id}`);
+		if (rows) openUscLaws(lawsBtn, rows);
 		return;
 	}
 	const citedBtn = t.closest("#usc-btn-cited");
@@ -19563,7 +19850,7 @@ function bodyHtml(u) {
 	const cite = constCitation(u.label);
 	return splitClauses(u.text).map((c) => c.n == null ? `<p class="const-p">${escapeHtml(c.text)}</p>` : `<p class="const-p const-clause" id="cl${c.n}"><button type="button" class="const-cl" data-const-cite="${escapeHtml(`${cite}, cl. ${c.n}`)}" title="Copy ${escapeHtml(`${cite}, cl. ${c.n}`)}" aria-label="Clause ${c.n}: copy citation">${c.n}</button>${escapeHtml(c.text)}</p>`).join("");
 }
-function stepHtml(u, c) {
+function stepHtml$1(u, c) {
 	const byId = new Map(c.outline.map((o) => [o.id, o]));
 	const btn = (id, dir) => {
 		const o = id ? byId.get(id) : null;
@@ -19625,7 +19912,7 @@ function renderStart(c) {
 	enterView();
 }
 function renderUnit(u, c) {
-	setViewHead(stepHtml(u, c));
+	setViewHead(stepHtml$1(u, c));
 	const name = constUnitName(u);
 	const cite = constCitation(u.label);
 	const grp = groupLabel(u);
@@ -19778,6 +20065,185 @@ onView("input", (e) => {
 	close();
 	const none = document.getElementById("const-none");
 	if (none) none.hidden = shown > 0;
+});
+// src/views/reader_plaw.ts
+var LINK_GROUPS = [
+	{
+		kind: "codified",
+		label: "Placed in the U.S. Code at",
+		hint: "Its margin notes say these sections now hold its text."
+	},
+	{
+		kind: "note",
+		label: "Added as notes to",
+		hint: "Provisions printed as statutory notes under these sections."
+	},
+	{
+		kind: "reference",
+		label: "Amends or cites",
+		hint: "U.S. Code sections its text refers to, usually the ones it amends."
+	}
+];
+function setLawActiveCorpus(law) {
+	state.activeCorpusId = `us:plaw:${law.id}`;
+	state.activeCorpus = {
+		corpus_id: `us:plaw:${law.id}`,
+		tier: "federal-statute",
+		jurisdiction: "US",
+		jurisdiction_label: "Federal",
+		code: lawShort(law),
+		name: law.title || "Public Law",
+		desk: "all",
+		agencies: ["U.S. Congress"],
+		edition: law.statute || null,
+		installed: true,
+		status_label: "Installed"
+	};
+}
+function uscChip(l, installed) {
+	const label = `${uscCite(l.title)} § ${l.section}`;
+	return installed.has(l.title) ? `<a class="citation-chip" data-ref-tier="usc" href="#/usc/${l.title}/section/${encodeURIComponent(l.section)}">${escapeHtml(label)}</a>` : `<a class="citation-chip is-dim" data-ref-tier="uninstalled" href="#/library/usc/${l.title}" title="${escapeHtml(`${uscCite(l.title)} isn’t installed`)}">${escapeHtml(label)}</a>`;
+}
+function plawUscPanelHtml(links) {
+	if (!links.length) return "";
+	const installed = new Set((state.installedUscTitles || []).map((t) => t.title));
+	return `<section class="usc-notes plaw-usc" id="plaw-usc" aria-label="Where it went in the U.S. Code">
+      <h2 class="usc-notes-head">Where it went in the U.S. Code</h2>
+      ${LINK_GROUPS.map((g) => {
+		const ls = links.filter((l) => l.kind === g.kind);
+		if (!ls.length) return "";
+		const shown = ls.slice(0, 80);
+		return `<div class="plaw-usc-group">
+        <h3 class="plaw-usc-head">${escapeHtml(g.label)} <span class="usc-notes-count">${ls.length}</span></h3>
+        <p class="plaw-usc-hint">${escapeHtml(g.hint)}</p>
+        <div class="story-links">${shown.map((l) => uscChip(l, installed)).join("")}${ls.length > shown.length ? `<span class="plaw-usc-more">and ${ls.length - shown.length} more</span>` : ""}</div>
+      </div>`;
+	}).join("")}
+    </section>`;
+}
+var unitHref = (id, key) => lawHref(id, key);
+function stepHtml(law, t) {
+	const btn = (u, dir) => u ? docStepBtn("section", dir, unitHref(law.id, u.key), unitShort(u), unitName(u)) : "";
+	const left = btn(t.unit_prev, -1);
+	const right = btn(t.unit_next, 1);
+	if (!left && !right) return "";
+	return `<nav class="doc-step" aria-label="Previous and next">${left}<span class="spacer"></span>${right}</nav>`;
+}
+function renderLaw(law, t, full) {
+	const reading = t.mode === "units" && t.unit ? "units" : "scroll";
+	const outline = t.outline || [];
+	const idx = reading === "units" ? outline.findIndex((u) => u.key === t.unit) : -1;
+	const cur = idx >= 0 ? outline[idx] : null;
+	setViewHead(stepHtml(law, t) + railHtml({
+		id: law.id,
+		outline,
+		unit: t.unit || ""
+	}, reading, (key) => unitHref(law.id, key)));
+	const short = lawShort(law);
+	const cite = lawCitation(law);
+	document.title = `${short}${cur ? ` ${unitShort(cur)}` : ""} · FRAMEWORK`;
+	const sep = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
+	const toggle = t.mode !== "units" ? "" : full ? `<a class="btn" href="${lawHref(law.id)}">${icon("stack")} Read in parts</a>` : `<a class="btn" href="${lawHref(law.id, "full")}">${icon("expand")} See full law</a>`;
+	const banner = cur ? `<div class="unit-context"><span>${escapeHtml(cur.group_label || short)}</span>${sep}<span class="unit-pos">Section ${idx + 1} of ${outline.length}</span></div>` : "";
+	const head = cur && cur.key !== "preamble" && cur.label ? `<h2 class="plaw-sec-head">${escapeHtml(cur.label)}${cur.title ? ` <span class="plaw-sec-title">${escapeHtml(cur.title)}</span>` : ""}</h2>` : "";
+	const links = law.usc || [];
+	dom.view.innerHTML = `
+    <div class="doc-kicker" data-ref-tier="usc">
+      <a href="${plawLibHref(law.congress)}">Public Laws</a>${sep}<a href="${plawLibHref(law.congress)}">${ordinal(law.congress)} Congress (${congressYears(law.congress)})</a>
+      ${law.approved_date ? `${sep}<span>Signed ${escapeHtml(shortDate(law.approved_date))}</span>` : ""}
+      ${law.statute ? `${sep}<span>${escapeHtml(law.statute)}</span>` : ""}
+      ${law.bill ? `${sep}<span>${escapeHtml(law.bill)}</span>` : ""}
+    </div>
+    <h1 class="doc-title">${escapeHtml(short)} ${escapeHtml(law.title || "")}</h1>
+    <div class="doc-actions">
+      ${toggle}
+      <button type="button" class="btn" id="plaw-btn-cite" data-plaw-cite="${escapeHtml(cite)}" title="Copy ${escapeHtml(cite)}">${icon("link")} Cite</button>
+      ${links.length ? `<button type="button" class="btn" id="plaw-jump-usc">${icon("list")} U.S. Code (${links.length})</button>` : ""}
+      <div class="spacer"></div>
+      <div class="doc-actions-util">
+        <button type="button" class="btn" id="btn-copy-link" title="Copy direct link">${icon("link")} Copy link</button>
+        <div class="size-ctl" role="group" aria-label="Text size">
+          <button type="button" id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+          <button type="button" id="font-inc" title="Larger text" aria-label="Larger text">A+</button>
+        </div>
+      </div>
+    </div>
+    ${banner}
+    <div class="reg-body usc-body plaw-body" id="reg-body">${head}${t.html}</div>
+    ${plawUscPanelHtml(links)}
+    <p class="plaw-prov">Source: GovInfo, ${escapeHtml(law.provenance?.source_url?.split("#")[0] || "bulk data")} · SHA-256 ${escapeHtml((law.provenance?.sha256 || "").slice(0, 12))}…</p>`;
+	enhanceDomAnchors(dom.view);
+	enterView();
+	bindRail();
+	if (reading === "scroll") watchRail();
+}
+function renderPlawDrawerHtml(law, t) {
+	const outline = t?.outline || [];
+	const cur = t?.unit || null;
+	let lastGroup = null;
+	const rows = outline.slice(0, 400).map((u) => {
+		const groupHead = u.group_label && u.group_label !== lastGroup ? `<h3 class="dr-label"><span>${escapeHtml(u.group_label)}</span></h3>` : "";
+		lastGroup = u.group_label || lastGroup;
+		const active = cur === u.key;
+		const label = [u.label, u.title].filter(Boolean).join(" — ");
+		return `${groupHead}<a class="dr-row${active ? " is-current" : ""}" href="${unitHref(law.id, u.key)}"${active ? " aria-current=\"page\"" : ""} title="${escapeHtml(label)}">
+        <span class="tier-pip" data-ref-tier="usc" aria-hidden="true"></span><span class="dr-name">${escapeHtml(label || u.key)}</span></a>`;
+	}).join("");
+	return `<div class="dr-scroll">
+    <section class="dr-sec">
+      <h3 class="dr-label"><span>${escapeHtml(lawShort(law))}</span><span class="dr-count">${outline.length}</span></h3>
+      ${rows || "<p class=\"dr-note\">This law is one page.</p>"}
+    </section>
+    <div class="dr-foot">
+      <a class="dr-link" href="${plawLibHref(law.congress)}">${ordinal(law.congress)} Congress</a>
+      <a class="dr-link" href="#/">Back to Home</a>
+    </div>
+  </div>`;
+}
+async function loadLawRoute(id, view) {
+	const seq = state.routeSeq;
+	const signal = state.routeAbort?.signal;
+	state.currentSection = null;
+	state.currentUscSection = null;
+	state.currentConstUnit = null;
+	const full = view === "full";
+	const unitQ = full ? "" : `?unit=${encodeURIComponent(view || "")}`;
+	try {
+		const [law, text] = await Promise.all([getJSON(`/api/plaw/law/${encodeURIComponent(id)}?text=false`, { signal }), getJSON(`/api/plaw/law/${encodeURIComponent(id)}/text${unitQ}`, { signal })]);
+		if (seq !== state.routeSeq) return;
+		setLawActiveCorpus(law);
+		const drawer = document.getElementById("panel-corpus");
+		if (drawer) drawer.innerHTML = renderPlawDrawerHtml(law, text);
+		renderLaw(law, text, full);
+	} catch (err) {
+		if (err?.name === "AbortError" || seq !== state.routeSeq) return;
+		setViewHead("");
+		const msg = err instanceof Error ? err.message : String(err);
+		if (/isn't installed|No such law/i.test(msg)) {
+			document.title = "Public Law · FRAMEWORK";
+			dom.view.innerHTML = emptyStateHtml({
+				title: "This law isn’t in your library",
+				body: "Public Laws download by Congress from the Library’s Public Laws tab.",
+				actionsHtml: `<a class="btn btn-accent" href="#/library/plaw">${icon("download")} Open the Public Laws tab</a>`
+			});
+			return;
+		}
+		renderViewError(dom.view, "Couldn’t open this law", msg);
+	}
+}
+onView("click", async (e) => {
+	const t = e.target;
+	if (!t) return;
+	const cite = t.closest("#plaw-btn-cite");
+	if (cite) {
+		const text = cite.dataset.plawCite || "";
+		await copyText(text, `Copied ${text}`, "Couldn’t copy the citation");
+		return;
+	}
+	if (t.closest("#plaw-jump-usc")) document.getElementById("plaw-usc")?.scrollIntoView({
+		behavior: "smooth",
+		block: "start"
+	});
 });
 // src/views/search.ts
 state.searchState = null;
@@ -20258,7 +20724,7 @@ async function handleRoute() {
 	} catch {}
 	state.routeAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
 	syncNavToRoute(path);
-	if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus|usc|constitution)(\/|$)/.test(path)) {
+	if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus|usc|constitution|law)(\/|$)/.test(path)) {
 		emit("route:changed", { path });
 		await renderWelcome();
 		return;
@@ -20308,6 +20774,22 @@ async function handleRoute() {
 		return;
 	}
 	state.currentConstUnit = null;
+	const lawMatch = /^\/law\/([^/]+)(?:\/([^/]+))?\/?$/.exec(path);
+	if (lawMatch) {
+		hideMainTabs();
+		clearTreeSelection();
+		const dec = (s) => {
+			try {
+				return decodeURIComponent(s);
+			} catch {
+				return s;
+			}
+		};
+		await loadLawRoute(dec(lawMatch[1]), lawMatch[2] ? dec(lawMatch[2]) : null);
+		applyNav();
+		emit("route:changed", { path });
+		return;
+	}
 	let checkPath = path;
 	let titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
 	const corpusMatch = !titleMatch ? parseCorpusPath(path) : null;
@@ -20416,12 +20898,14 @@ async function handleRoute() {
 		const legacy = /^\/library\/(\d+)((?:\/part\/.+)?)\/?$/.exec(checkPath);
 		const usc = /^\/library\/usc(?:\/(\d+))?\/?$/.exec(checkPath);
 		const constTab = /^\/library\/constitution\/?$/.test(checkPath);
+		const plawTab = /^\/library\/plaw(?:\/(\d+))?\/?$/.exec(checkPath);
 		const cfr = /^\/library\/cfr(?:\/(\d+)(?:\/part\/(.+))?)?\/?$/.exec(checkPath);
 		if (legacy) {
 			history.replaceState(null, "", `#/library/cfr/${legacy[1]}${legacy[2]}`);
 			const m = /^\/part\/(.+)$/.exec(legacy[2]);
 			await loadLibrary("cfr", parseInt(legacy[1], 10), m ? decode(m[1]) : null);
 		} else if (constTab) await loadLibrary("constitution", null, null);
+		else if (plawTab) await loadPlawTab(plawTab[1] ? parseInt(plawTab[1], 10) : null);
 		else if (usc) await loadLibrary("usc", usc[1] ? parseInt(usc[1], 10) : null, null);
 		else if (cfr) await loadLibrary("cfr", cfr[1] ? parseInt(cfr[1], 10) : null, cfr[2] ? decode(cfr[2]) : null);
 		else if (/^\/library\/?$/.test(checkPath)) await loadLibrary("overview", null, null);
