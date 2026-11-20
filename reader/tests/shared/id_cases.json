@@ -1,0 +1,1839 @@
+{
+ "about": "Shared cases for the canonical id scheme reg://federal/{corpus}/{collection}/{unit}[#paragraph] (DM-101, SEC-101). The Python module (reader/app/ids.py) and its future TypeScript twin must both pass every case. valid: an address and everything derived from it. citations: a citation string and the address it resolves to. store_keys: a store row's own key and its address. invalid_ids: strings the id parser must refuse. hostile: inputs the resolver must refuse, whatever their type. generated: prefix + fill x count + suffix, which must be refused quickly. destinations: what the safe-destination check accepts and rejects.",
+ "version": 1,
+ "valid": [
+  {
+   "address": "reg://federal/cfr/29/1910.134",
+   "id": "reg://federal/cfr/29/1910.134",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "section",
+   "key": "1910.134",
+   "paragraph": "",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "1910.134"
+    }
+   },
+   "route": "#/title/29/section/1910.134",
+   "citation": "29 CFR 1910.134",
+   "url": "https://www.ecfr.gov/current/title-29/section-1910.134"
+  },
+  {
+   "address": "reg://federal/cfr/29/1910.134#(a)(1)(ii)",
+   "id": "reg://federal/cfr/29/1910.134",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "section",
+   "key": "1910.134",
+   "paragraph": "(a)(1)(ii)",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "1910.134"
+    }
+   },
+   "route": "#/title/29/section/1910.134?p=(a)(1)(ii)",
+   "citation": "29 CFR 1910.134(a)(1)(ii)",
+   "url": "https://www.ecfr.gov/current/title-29/section-1910.134"
+  },
+  {
+   "address": "reg://federal/cfr/29/2584.8477(e)-1#(b)",
+   "id": "reg://federal/cfr/29/2584.8477(e)-1",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "section",
+   "key": "2584.8477(e)-1",
+   "paragraph": "(b)",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "2584.8477(e)-1"
+    }
+   },
+   "route": "#/title/29/section/2584.8477(e)-1?p=(b)",
+   "citation": "29 CFR 2584.8477(e)-1(b)",
+   "url": "https://www.ecfr.gov/current/title-29/section-2584.8477(e)-1",
+   "note": "parentheses belong to the section id when a -suffix follows"
+  },
+  {
+   "address": "reg://federal/cfr/29/2520.104-2%20-%202520.104-3",
+   "id": "reg://federal/cfr/29/2520.104-2%20-%202520.104-3",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "section",
+   "key": "2520.104-2 - 2520.104-3",
+   "paragraph": "",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "2520.104-2 - 2520.104-3"
+    }
+   },
+   "route": "#/title/29/section/2520.104-2%20-%202520.104-3",
+   "citation": "29 CFR 2520.104-2 - 2520.104-3",
+   "url": "https://www.ecfr.gov/current/title-29",
+   "citation_round_trip": false,
+   "note": "a reserved range is one stored row; its citation string names two sections"
+  },
+  {
+   "address": "reg://federal/cfr/41/60-1.1",
+   "id": "reg://federal/cfr/41/60-1.1",
+   "corpus": "cfr",
+   "collection": "41",
+   "kind": "section",
+   "key": "60-1.1",
+   "paragraph": "",
+   "store": {
+    "database": "title-41.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "60-1.1"
+    }
+   },
+   "route": "#/title/41/section/60-1.1",
+   "citation": "41 CFR 60-1.1",
+   "url": "https://www.ecfr.gov/current/title-41/section-60-1.1"
+  },
+  {
+   "address": "reg://federal/cfr/29/part:1910",
+   "id": "reg://federal/cfr/29/part:1910",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "part",
+   "key": "1910",
+   "paragraph": "",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "part": "1910"
+    },
+    "many": true
+   },
+   "route": "#/title/29/part/1910",
+   "citation": "29 CFR part 1910",
+   "url": "https://www.ecfr.gov/current/title-29/part-1910"
+  },
+  {
+   "address": "reg://federal/cfr/29/part:1912a",
+   "id": "reg://federal/cfr/29/part:1912a",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "part",
+   "key": "1912a",
+   "paragraph": "",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "part": "1912a"
+    },
+    "many": true
+   },
+   "route": "#/title/29/part/1912a",
+   "citation": "29 CFR part 1912a",
+   "url": "https://www.ecfr.gov/current/title-29/part-1912a"
+  },
+  {
+   "address": "reg://federal/cfr/29/appendix:Appendix%20A%20to%20Part%201910",
+   "id": "reg://federal/cfr/29/appendix:Appendix%20A%20to%20Part%201910",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "appendix",
+   "key": "Appendix A to Part 1910",
+   "paragraph": "",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "Appendix A to Part 1910"
+    }
+   },
+   "route": "#/title/29/section/Appendix%20A%20to%20Part%201910",
+   "citation": "29 CFR Appendix A to Part 1910",
+   "url": "https://www.ecfr.gov/current/title-29"
+  },
+  {
+   "address": "reg://federal/cfr/14/appendix:91%3ASpecial%20Federal%20Aviation%20Regulation%20No.%2050-2",
+   "id": "reg://federal/cfr/14/appendix:91%3ASpecial%20Federal%20Aviation%20Regulation%20No.%2050-2",
+   "corpus": "cfr",
+   "collection": "14",
+   "kind": "appendix",
+   "key": "91:Special Federal Aviation Regulation No. 50-2",
+   "paragraph": "",
+   "store": {
+    "database": "title-14.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "91:Special Federal Aviation Regulation No. 50-2"
+    }
+   },
+   "route": "#/title/14/section/91%3ASpecial%20Federal%20Aviation%20Regulation%20No.%2050-2",
+   "citation": "14 CFR part 91, Special Federal Aviation Regulation No. 50-2",
+   "url": "https://www.ecfr.gov/current/title-14/part-91",
+   "note": "a part-qualified appendix id, {part}:{name}"
+  },
+  {
+   "address": "reg://federal/cfr/29/appendix:1605%3AAppendix%20A%20to%20%C2%A7%C2%A7%201605.2%20and%201605.3",
+   "id": "reg://federal/cfr/29/appendix:1605%3AAppendix%20A%20to%20%C2%A7%C2%A7%201605.2%20and%201605.3",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "appendix",
+   "key": "1605:Appendix A to \u00a7\u00a7 1605.2 and 1605.3",
+   "paragraph": "",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "1605:Appendix A to \u00a7\u00a7 1605.2 and 1605.3"
+    }
+   },
+   "route": "#/title/29/section/1605%3AAppendix%20A%20to%20%C2%A7%C2%A7%201605.2%20and%201605.3",
+   "citation": "29 CFR part 1605, Appendix A to \u00a7\u00a7 1605.2 and 1605.3",
+   "url": "https://www.ecfr.gov/current/title-29/part-1605"
+  },
+  {
+   "address": "reg://federal/cfr/29/appendix:javascript%3Aalert(1)",
+   "id": "reg://federal/cfr/29/appendix:javascript%3Aalert(1)",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "appendix",
+   "key": "javascript:alert(1)",
+   "paragraph": "",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "javascript:alert(1)"
+    }
+   },
+   "route": "#/title/29/section/javascript%3Aalert(1)",
+   "citation": "29 CFR javascript:alert(1)",
+   "url": "https://www.ecfr.gov/current/title-29",
+   "note": "edge: an appendix name is free text, so it is inert once encoded; the route stays an app route"
+  },
+  {
+   "address": "reg://federal/cfr/29/appendix:%2F%2Fevil.example%2Fx",
+   "id": "reg://federal/cfr/29/appendix:%2F%2Fevil.example%2Fx",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "appendix",
+   "key": "//evil.example/x",
+   "paragraph": "",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "//evil.example/x"
+    }
+   },
+   "route": "#/title/29/section/%2F%2Fevil.example%2Fx",
+   "citation": "29 CFR //evil.example/x",
+   "url": "https://www.ecfr.gov/current/title-29",
+   "citation_round_trip": false,
+   "note": "edge: slashes in a name are escaped, so a name can never add a path part or a host"
+  },
+  {
+   "address": "reg://federal/cfr/29/appendix:A%27)%3B%20DROP%20TABLE%20sections%3B--",
+   "id": "reg://federal/cfr/29/appendix:A%27)%3B%20DROP%20TABLE%20sections%3B--",
+   "corpus": "cfr",
+   "collection": "29",
+   "kind": "appendix",
+   "key": "A'); DROP TABLE sections;--",
+   "paragraph": "",
+   "store": {
+    "database": "title-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "A'); DROP TABLE sections;--"
+    }
+   },
+   "route": "#/title/29/section/A%27)%3B%20DROP%20TABLE%20sections%3B--",
+   "citation": "29 CFR A'); DROP TABLE sections;--",
+   "url": "https://www.ecfr.gov/current/title-29",
+   "note": "edge: the store key is a bound value, never SQL text"
+  },
+  {
+   "address": "reg://federal/usc/29/655",
+   "id": "reg://federal/usc/29/655",
+   "corpus": "usc",
+   "collection": "29",
+   "kind": "section",
+   "key": "655",
+   "paragraph": "",
+   "store": {
+    "database": "usc-29.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "655"
+    }
+   },
+   "route": "#/usc/29/section/655",
+   "citation": "29 U.S.C. \u00a7 655",
+   "url": "https://www.govinfo.gov/link/uscode/29/655?link-type=html"
+  },
+  {
+   "address": "reg://federal/usc/42/2000e-2#(a)",
+   "id": "reg://federal/usc/42/2000e-2",
+   "corpus": "usc",
+   "collection": "42",
+   "kind": "section",
+   "key": "2000e-2",
+   "paragraph": "(a)",
+   "store": {
+    "database": "usc-42.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "2000e\u20132"
+    }
+   },
+   "route": "#/usc/42/section/2000e%E2%80%932?p=(a)",
+   "citation": "42 U.S.C. \u00a7 2000e-2(a)",
+   "url": "https://www.govinfo.gov/link/uscode/42/2000e-2?link-type=html",
+   "note": "the store keeps the OLRC's en dash; the address and the citation use a hyphen"
+  },
+  {
+   "address": "reg://federal/usc/2/60e-3...60e-14",
+   "id": "reg://federal/usc/2/60e-3...60e-14",
+   "corpus": "usc",
+   "collection": "2",
+   "kind": "section",
+   "key": "60e-3...60e-14",
+   "paragraph": "",
+   "store": {
+    "database": "usc-2.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "60e\u20133...60e\u201314"
+    }
+   },
+   "route": "#/usc/2/section/60e%E2%80%933...60e%E2%80%9314",
+   "citation": "2 U.S.C. \u00a7\u00a7 60e-3 to 60e-14",
+   "url": null,
+   "note": "a run of omitted sections stored as one row"
+  },
+  {
+   "address": "reg://federal/usc/38/1167~2",
+   "id": "reg://federal/usc/38/1167~2",
+   "corpus": "usc",
+   "collection": "38",
+   "kind": "section",
+   "key": "1167~2",
+   "paragraph": "",
+   "store": {
+    "database": "usc-38.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "1167~2"
+    }
+   },
+   "route": "#/usc/38/section/1167~2",
+   "citation": "38 U.S.C. \u00a7 1167 (duplicate 2)",
+   "url": null,
+   "note": "the second of two sections published under one number"
+  },
+  {
+   "address": "reg://federal/usc/28a/App-rule1",
+   "id": "reg://federal/usc/28a/App-rule1",
+   "corpus": "usc",
+   "collection": "28a",
+   "kind": "section",
+   "key": "App-rule1",
+   "paragraph": "",
+   "store": {
+    "database": "usc-128.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "App-rule1"
+    }
+   },
+   "route": "#/usc/128/section/App-rule1",
+   "citation": "28 U.S.C. App. App-rule1",
+   "url": null,
+   "note": "an appendix title: the stores and routes use 100 + N"
+  },
+  {
+   "address": "reg://federal/usc/28a/pl95-521-s1",
+   "id": "reg://federal/usc/28a/pl95-521-s1",
+   "corpus": "usc",
+   "collection": "28a",
+   "kind": "section",
+   "key": "pl95-521-s1",
+   "paragraph": "",
+   "store": {
+    "database": "usc-128.sqlite3",
+    "table": "sections",
+    "where": {
+     "id": "pl95-521-s1"
+    }
+   },
+   "route": "#/usc/128/section/pl95-521-s1",
+   "citation": "28 U.S.C. App. pl95-521-s1",
+   "url": null
+  },
+  {
+   "address": "reg://federal/fr/doc/2026-20001",
+   "id": "reg://federal/fr/doc/2026-20001",
+   "corpus": "fr",
+   "collection": "doc",
+   "kind": "document",
+   "key": "2026-20001",
+   "paragraph": "",
+   "store": {
+    "database": "fr.sqlite3",
+    "table": "documents",
+    "where": {
+     "document_number": "2026-20001"
+    }
+   },
+   "route": "#/news/fr/2026-20001",
+   "citation": "FR Doc. 2026-20001",
+   "url": "https://www.federalregister.gov/d/2026-20001"
+  },
+  {
+   "address": "reg://federal/fr/doc/C1-2021-26268",
+   "id": "reg://federal/fr/doc/C1-2021-26268",
+   "corpus": "fr",
+   "collection": "doc",
+   "kind": "document",
+   "key": "C1-2021-26268",
+   "paragraph": "",
+   "store": {
+    "database": "fr.sqlite3",
+    "table": "documents",
+    "where": {
+     "document_number": "C1-2021-26268"
+    }
+   },
+   "route": "#/news/fr/C1-2021-26268",
+   "citation": "FR Doc. C1-2021-26268",
+   "url": "https://www.federalregister.gov/d/C1-2021-26268"
+  },
+  {
+   "address": "reg://federal/fr/91/60123",
+   "id": "reg://federal/fr/91/60123",
+   "corpus": "fr",
+   "collection": "91",
+   "kind": "page",
+   "key": "60123",
+   "paragraph": "",
+   "store": {
+    "database": "fr.sqlite3",
+    "table": "documents",
+    "where": {
+     "volume": 91
+    },
+    "page_within": [
+     "start_page",
+     "end_page",
+     60123
+    ]
+   },
+   "route": null,
+   "citation": "91 FR 60123",
+   "url": "https://www.federalregister.gov/citation/91-FR-60123",
+   "note": "a page citation is an address for the citation; the document that holds the page is found in the store"
+  },
+  {
+   "address": "reg://federal/constitution/us/art1-s8#cl3",
+   "id": "reg://federal/constitution/us/art1-s8",
+   "corpus": "constitution",
+   "collection": "us",
+   "kind": "unit",
+   "key": "art1-s8",
+   "paragraph": "cl3",
+   "store": {
+    "database": "constitution.sqlite3",
+    "table": "units",
+    "where": {
+     "id": "art1-s8"
+    }
+   },
+   "route": "#/constitution/art1-s8",
+   "citation": "U.S. Const. art. I, \u00a7 8, cl. 3",
+   "url": null
+  },
+  {
+   "address": "reg://federal/constitution/us/amdt14-s1",
+   "id": "reg://federal/constitution/us/amdt14-s1",
+   "corpus": "constitution",
+   "collection": "us",
+   "kind": "unit",
+   "key": "amdt14-s1",
+   "paragraph": "",
+   "store": {
+    "database": "constitution.sqlite3",
+    "table": "units",
+    "where": {
+     "id": "amdt14-s1"
+    }
+   },
+   "route": "#/constitution/amdt14-s1",
+   "citation": "U.S. Const. amend. XIV, \u00a7 1",
+   "url": null
+  },
+  {
+   "address": "reg://federal/constitution/us/art5",
+   "id": "reg://federal/constitution/us/art5",
+   "corpus": "constitution",
+   "collection": "us",
+   "kind": "unit",
+   "key": "art5",
+   "paragraph": "",
+   "store": {
+    "database": "constitution.sqlite3",
+    "table": "units",
+    "where": {
+     "id": "art5"
+    }
+   },
+   "route": "#/constitution/art5",
+   "citation": "U.S. Const. art. V",
+   "url": null
+  },
+  {
+   "address": "reg://federal/constitution/us/amdt1",
+   "id": "reg://federal/constitution/us/amdt1",
+   "corpus": "constitution",
+   "collection": "us",
+   "kind": "unit",
+   "key": "amdt1",
+   "paragraph": "",
+   "store": {
+    "database": "constitution.sqlite3",
+    "table": "units",
+    "where": {
+     "id": "amdt1"
+    }
+   },
+   "route": "#/constitution/amdt1",
+   "citation": "U.S. Const. amend. I",
+   "url": null
+  },
+  {
+   "address": "reg://federal/constitution/us/preamble",
+   "id": "reg://federal/constitution/us/preamble",
+   "corpus": "constitution",
+   "collection": "us",
+   "kind": "unit",
+   "key": "preamble",
+   "paragraph": "",
+   "store": {
+    "database": "constitution.sqlite3",
+    "table": "units",
+    "where": {
+     "id": "preamble"
+    }
+   },
+   "route": "#/constitution/preamble",
+   "citation": "U.S. Const. pmbl.",
+   "url": null
+  },
+  {
+   "address": "reg://federal/constitution/us/amdt14",
+   "id": "reg://federal/constitution/us/amdt14",
+   "corpus": "constitution",
+   "collection": "us",
+   "kind": "group",
+   "key": "amdt14",
+   "paragraph": "",
+   "store": {
+    "database": "constitution.sqlite3",
+    "table": "units",
+    "where": {
+     "amendment": 14
+    },
+    "many": true
+   },
+   "route": "#/constitution/amdt14-s1",
+   "citation": "U.S. Const. amend. XIV",
+   "url": null,
+   "note": "a whole amendment that has numbered sections: several rows, and the route opens the first"
+  },
+  {
+   "address": "reg://federal/constitution/us/art1",
+   "id": "reg://federal/constitution/us/art1",
+   "corpus": "constitution",
+   "collection": "us",
+   "kind": "group",
+   "key": "art1",
+   "paragraph": "",
+   "store": {
+    "database": "constitution.sqlite3",
+    "table": "units",
+    "where": {
+     "article": 1
+    },
+    "many": true
+   },
+   "route": "#/constitution/art1-s1",
+   "citation": "U.S. Const. art. I",
+   "url": null
+  },
+  {
+   "address": "reg://federal/plaw/91/596",
+   "id": "reg://federal/plaw/91/596",
+   "corpus": "plaw",
+   "collection": "91",
+   "kind": "law",
+   "key": "596",
+   "paragraph": "",
+   "store": {
+    "database": "plaw.sqlite3",
+    "table": "laws",
+    "where": {
+     "id": "91-596"
+    }
+   },
+   "route": "#/law/91-596",
+   "citation": "Pub. L. 91-596",
+   "url": "https://www.govinfo.gov/link/plaw/91/public/596?link-type=details"
+  },
+  {
+   "address": "reg://federal/plaw/113/pvt-1",
+   "id": "reg://federal/plaw/113/pvt-1",
+   "corpus": "plaw",
+   "collection": "113",
+   "kind": "law",
+   "key": "pvt-1",
+   "paragraph": "",
+   "store": {
+    "database": "plaw.sqlite3",
+    "table": "laws",
+    "where": {
+     "id": "113-pvt-1"
+    }
+   },
+   "route": "#/law/113-pvt-1",
+   "citation": "Priv. L. 113-1",
+   "url": null
+  },
+  {
+   "address": "reg://federal/agenda/rin/1218-AD39",
+   "id": "reg://federal/agenda/rin/1218-AD39",
+   "corpus": "agenda",
+   "collection": "rin",
+   "kind": "rule",
+   "key": "1218-AD39",
+   "paragraph": "",
+   "store": {
+    "database": "agenda.sqlite3",
+    "table": "entries",
+    "where": {
+     "rin": "1218-AD39"
+    },
+    "newest_by": "edition"
+   },
+   "route": "#/news/agenda/1218-AD39",
+   "citation": "RIN 1218-AD39",
+   "url": null,
+   "note": "without an edition: the newest entry for the RIN"
+  },
+  {
+   "address": "reg://federal/agenda/202510/1218-AD39",
+   "id": "reg://federal/agenda/202510/1218-AD39",
+   "corpus": "agenda",
+   "collection": "202510",
+   "kind": "rule",
+   "key": "1218-AD39",
+   "paragraph": "",
+   "store": {
+    "database": "agenda.sqlite3",
+    "table": "entries",
+    "where": {
+     "rin": "1218-AD39",
+     "edition": "202510"
+    }
+   },
+   "route": "#/news/agenda/1218-AD39?edition=202510",
+   "citation": "RIN 1218-AD39 (Fall 2025 Unified Agenda)",
+   "url": "https://www.reginfo.gov/public/do/eAgendaViewRule?pubId=202510&RIN=1218-AD39"
+  },
+  {
+   "address": "reg://federal/agenda/201200/0648-AA00",
+   "id": "reg://federal/agenda/201200/0648-AA00",
+   "corpus": "agenda",
+   "collection": "201200",
+   "kind": "rule",
+   "key": "0648-AA00",
+   "paragraph": "",
+   "store": {
+    "database": "agenda.sqlite3",
+    "table": "entries",
+    "where": {
+     "rin": "0648-AA00",
+     "edition": "201200"
+    }
+   },
+   "route": "#/news/agenda/0648-AA00?edition=201200",
+   "citation": "RIN 0648-AA00 (2012 Unified Agenda)",
+   "url": "https://www.reginfo.gov/public/do/eAgendaViewRule?pubId=201200&RIN=0648-AA00"
+  },
+  {
+   "address": "reg://federal/agenda/202407/1218-AD39",
+   "id": "reg://federal/agenda/202407/1218-AD39",
+   "corpus": "agenda",
+   "collection": "202407",
+   "kind": "rule",
+   "key": "1218-AD39",
+   "paragraph": "",
+   "store": {
+    "database": "agenda.sqlite3",
+    "table": "entries",
+    "where": {
+     "rin": "1218-AD39",
+     "edition": "202407"
+    }
+   },
+   "route": "#/news/agenda/1218-AD39?edition=202407",
+   "citation": "RIN 1218-AD39 (2024-07 Unified Agenda)",
+   "url": "https://www.reginfo.gov/public/do/eAgendaViewRule?pubId=202407&RIN=1218-AD39"
+  }
+ ],
+ "citations": [
+  {
+   "text": "29 CFR 1910.134(a)(1)",
+   "address": "reg://federal/cfr/29/1910.134#(a)(1)"
+  },
+  {
+   "text": "29 C.F.R. \u00a7 1910.134",
+   "address": "reg://federal/cfr/29/1910.134"
+  },
+  {
+   "text": "29 CFR \u00a71910.1200(f)(1)",
+   "address": "reg://federal/cfr/29/1910.1200#(f)(1)"
+  },
+  {
+   "text": "29 CFR\u00a01910.134",
+   "address": "reg://federal/cfr/29/1910.134"
+  },
+  {
+   "text": "  29 CFR 1910.134.  ",
+   "address": "reg://federal/cfr/29/1910.134"
+  },
+  {
+   "text": "29 cfr part 1910",
+   "address": "reg://federal/cfr/29/part:1910"
+  },
+  {
+   "text": "40 CFR Part 261",
+   "address": "reg://federal/cfr/40/part:261"
+  },
+  {
+   "text": "26 CFR 1.401(a)(4)-1(b)(2)",
+   "address": "reg://federal/cfr/26/1.401(a)(4)-1#(b)(2)"
+  },
+  {
+   "text": "29 CFR Appendix A to Part 1910",
+   "address": "reg://federal/cfr/29/appendix:Appendix%20A%20to%20Part%201910"
+  },
+  {
+   "text": "14 CFR part 91, SFAR No. 97",
+   "address": "reg://federal/cfr/14/appendix:91%3ASFAR%20No.%2097"
+  },
+  {
+   "text": "\u00a7 1910.134(a)",
+   "address": "reg://federal/cfr/29/1910.134#(a)",
+   "default_title": 29
+  },
+  {
+   "text": "1910.1200(f)",
+   "address": "reg://federal/cfr/29/1910.1200#(f)",
+   "default_title": 29
+  },
+  {
+   "text": "section 261.3",
+   "address": "reg://federal/cfr/40/261.3",
+   "default_title": 40
+  },
+  {
+   "text": "part 1910",
+   "address": "reg://federal/cfr/29/part:1910",
+   "default_title": 29
+  },
+  {
+   "text": "29 U.S.C. 655",
+   "address": "reg://federal/usc/29/655"
+  },
+  {
+   "text": "29 U.S.C. \u00a7 655(b)(1)",
+   "address": "reg://federal/usc/29/655#(b)(1)"
+  },
+  {
+   "text": "42 U.S.C. 2000e-2(a)",
+   "address": "reg://federal/usc/42/2000e-2#(a)"
+  },
+  {
+   "text": "42 U.S.C. \u00a7 2000e\u20132",
+   "address": "reg://federal/usc/42/2000e-2"
+  },
+  {
+   "text": "42 USC 2000e-2",
+   "address": "reg://federal/usc/42/2000e-2"
+  },
+  {
+   "text": "29 U.S.C.A. 655",
+   "address": "reg://federal/usc/29/655"
+  },
+  {
+   "text": "2 U.S.C. \u00a7\u00a7 60e-3 to 60e-14",
+   "address": "reg://federal/usc/2/60e-3...60e-14"
+  },
+  {
+   "text": "5 U.S.C. App. \u00a7 3",
+   "address": "reg://federal/usc/5a/3"
+  },
+  {
+   "text": "91 FR 60123",
+   "address": "reg://federal/fr/91/60123"
+  },
+  {
+   "text": "91 Fed. Reg. 60123",
+   "address": "reg://federal/fr/91/60123"
+  },
+  {
+   "text": "FR Doc. 2026-20001",
+   "address": "reg://federal/fr/doc/2026-20001"
+  },
+  {
+   "text": "FR Doc. No. E9-12345",
+   "address": "reg://federal/fr/doc/E9-12345"
+  },
+  {
+   "text": "2026-20001",
+   "address": "reg://federal/fr/doc/2026-20001"
+  },
+  {
+   "text": "U.S. Const. art. I, \u00a7 8, cl. 3",
+   "address": "reg://federal/constitution/us/art1-s8#cl3"
+  },
+  {
+   "text": "US Constitution Article I Section 8 Clause 3",
+   "address": "reg://federal/constitution/us/art1-s8#cl3"
+  },
+  {
+   "text": "U.S. Const. amend. XIV, \u00a7 1",
+   "address": "reg://federal/constitution/us/amdt14-s1"
+  },
+  {
+   "text": "U.S. Const. amend. XIV",
+   "address": "reg://federal/constitution/us/amdt14"
+  },
+  {
+   "text": "amend. XIV",
+   "address": "reg://federal/constitution/us/amdt14"
+  },
+  {
+   "text": "U.S. Const. amdt. 1",
+   "address": "reg://federal/constitution/us/amdt1"
+  },
+  {
+   "text": "U.S. Const. art. 5",
+   "address": "reg://federal/constitution/us/art5"
+  },
+  {
+   "text": "U.S. Const. pmbl.",
+   "address": "reg://federal/constitution/us/preamble"
+  },
+  {
+   "text": "Pub. L. 91-596",
+   "address": "reg://federal/plaw/91/596"
+  },
+  {
+   "text": "Public Law 91\u2013596",
+   "address": "reg://federal/plaw/91/596"
+  },
+  {
+   "text": "Pub. L. No. 118-5",
+   "address": "reg://federal/plaw/118/5"
+  },
+  {
+   "text": "P.L. 104-4",
+   "address": "reg://federal/plaw/104/4"
+  },
+  {
+   "text": "Priv. L. 113-1",
+   "address": "reg://federal/plaw/113/pvt-1"
+  },
+  {
+   "text": "Private Law 113\u20131",
+   "address": "reg://federal/plaw/113/pvt-1"
+  },
+  {
+   "text": "RIN 1218-AD39",
+   "address": "reg://federal/agenda/rin/1218-AD39"
+  },
+  {
+   "text": "1218-AD39",
+   "address": "reg://federal/agenda/rin/1218-AD39"
+  },
+  {
+   "text": "rin 1218-ad39",
+   "address": "reg://federal/agenda/rin/1218-AD39"
+  },
+  {
+   "text": "RIN: 1218\u2013AD39",
+   "address": "reg://federal/agenda/rin/1218-AD39"
+  },
+  {
+   "text": "RIN 1218-AD39 (Spring 2025 Unified Agenda)",
+   "address": "reg://federal/agenda/202504/1218-AD39"
+  },
+  {
+   "text": "  reg://federal/cfr/29/1910.134#(a)  ",
+   "address": "reg://federal/cfr/29/1910.134#(a)"
+  }
+ ],
+ "store_keys": [
+  {
+   "corpus": "cfr",
+   "collection": 29,
+   "key": "1910.134",
+   "kind": "section",
+   "paragraph": "",
+   "address": "reg://federal/cfr/29/1910.134"
+  },
+  {
+   "corpus": "cfr",
+   "collection": 29,
+   "key": "1910.134",
+   "kind": null,
+   "paragraph": "(a)(1)",
+   "address": "reg://federal/cfr/29/1910.134#(a)(1)"
+  },
+  {
+   "corpus": "cfr",
+   "collection": 29,
+   "key": "Appendix A to Part 1910",
+   "kind": "appendix",
+   "paragraph": "",
+   "address": "reg://federal/cfr/29/appendix:Appendix%20A%20to%20Part%201910"
+  },
+  {
+   "corpus": "cfr",
+   "collection": 14,
+   "key": "91:SFAR No. 97",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/cfr/14/appendix:91%3ASFAR%20No.%2097"
+  },
+  {
+   "corpus": "cfr",
+   "collection": 29,
+   "key": "1910",
+   "kind": "part",
+   "paragraph": "",
+   "address": "reg://federal/cfr/29/part:1910"
+  },
+  {
+   "corpus": "usc",
+   "collection": 42,
+   "key": "2000e\u20132",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/usc/42/2000e-2"
+  },
+  {
+   "corpus": "usc",
+   "collection": 2,
+   "key": "60e\u20133...60e\u201314",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/usc/2/60e-3...60e-14"
+  },
+  {
+   "corpus": "usc",
+   "collection": 38,
+   "key": "1167~2",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/usc/38/1167~2"
+  },
+  {
+   "corpus": "usc",
+   "collection": 128,
+   "key": "App-rule1",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/usc/28a/App-rule1"
+  },
+  {
+   "corpus": "usc",
+   "collection": "5a",
+   "key": "reorgPlan-1939-I",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/usc/5a/reorgPlan-1939-I"
+  },
+  {
+   "corpus": "usc",
+   "collection": 42,
+   "key": "2000e-2",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/usc/42/2000e%E2%80%932"
+  },
+  {
+   "corpus": "fr",
+   "collection": null,
+   "key": "2026-20001",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/fr/doc/2026-20001"
+  },
+  {
+   "corpus": "fr",
+   "collection": 91,
+   "key": "60123",
+   "kind": "page",
+   "paragraph": "",
+   "address": "reg://federal/fr/91/60123"
+  },
+  {
+   "corpus": "constitution",
+   "collection": null,
+   "key": "amdt14-s1",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/constitution/us/amdt14-s1"
+  },
+  {
+   "corpus": "constitution",
+   "collection": null,
+   "key": "art1-s8",
+   "kind": null,
+   "paragraph": "cl3",
+   "address": "reg://federal/constitution/us/art1-s8#cl3"
+  },
+  {
+   "corpus": "plaw",
+   "collection": null,
+   "key": "113-1",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/plaw/113/1"
+  },
+  {
+   "corpus": "plaw",
+   "collection": null,
+   "key": "113-pvt-3",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/plaw/113/pvt-3"
+  },
+  {
+   "corpus": "agenda",
+   "collection": null,
+   "key": "1218-AD39",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/agenda/rin/1218-AD39"
+  },
+  {
+   "corpus": "agenda",
+   "collection": "202510",
+   "key": "1218-AD39",
+   "kind": null,
+   "paragraph": "",
+   "address": "reg://federal/agenda/202510/1218-AD39"
+  }
+ ],
+ "invalid_ids": [
+  {
+   "input": "",
+   "why": "empty"
+  },
+  {
+   "input": "reg://federal/",
+   "why": "no corpus"
+  },
+  {
+   "input": "reg://federal/cfr/29",
+   "why": "no unit"
+  },
+  {
+   "input": "reg://federal/cfr/29/",
+   "why": "empty unit"
+  },
+  {
+   "input": "reg://federal/cfr//1910.134",
+   "why": "empty collection"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134/",
+   "why": "a fourth path part"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134/extra",
+   "why": "a fourth path part"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134 ",
+   "why": "trailing space"
+  },
+  {
+   "input": " reg://federal/cfr/29/1910.134",
+   "why": "leading space"
+  },
+  {
+   "input": "REG://federal/cfr/29/1910.134",
+   "why": "upper-case scheme"
+  },
+  {
+   "input": "reg://Federal/cfr/29/1910.134",
+   "why": "upper-case authority"
+  },
+  {
+   "input": "reg://federal/CFR/29/1910.134",
+   "why": "upper-case corpus"
+  },
+  {
+   "input": "reg:/federal/cfr/29/1910.134",
+   "why": "one slash"
+  },
+  {
+   "input": "reg://state/cfr/29/1910.134",
+   "why": "not federal"
+  },
+  {
+   "input": "reg://federal/ucc/1/2-201",
+   "why": "unknown corpus"
+  },
+  {
+   "input": "reg://federal/cfr/0/1.1",
+   "why": "title 0"
+  },
+  {
+   "input": "reg://federal/cfr/51/1.1",
+   "why": "title 51"
+  },
+  {
+   "input": "reg://federal/cfr/029/1910.134",
+   "why": "leading zero"
+  },
+  {
+   "input": "reg://federal/cfr/29/part:",
+   "why": "empty part"
+  },
+  {
+   "input": "reg://federal/cfr/29/part:19%2010",
+   "why": "a part is a number"
+  },
+  {
+   "input": "reg://federal/cfr/29/section:1910.134",
+   "why": "unknown kind word"
+  },
+  {
+   "input": "reg://federal/cfr/29/part:1910#(a)",
+   "why": "a part takes no paragraph"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:Appendix%20A#(a)",
+   "why": "an appendix takes no paragraph"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134#",
+   "why": "empty paragraph"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134#a.1",
+   "why": "paragraph without parentheses"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134#(a",
+   "why": "unclosed paragraph"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134#()",
+   "why": "empty paragraph token"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134#(a)#(b)",
+   "why": "two paragraphs"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134#(abcdefghi)",
+   "why": "token too long"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134#(a)(a)(a)(a)(a)(a)(a)(a)(a)(a)(a)",
+   "why": "more than ten tokens"
+  },
+  {
+   "input": "reg://federal/cfr/29/abc.1",
+   "why": "a section id starts with a digit"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134?x=1",
+   "why": "a query string"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:Appendix A",
+   "why": "raw space"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:Appendix%20A%20",
+   "why": "trailing space"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:%41ppendix",
+   "why": "an escape for a character that needs none"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:Appendix%2fA",
+   "why": "lower-case hex"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:Appendix%2",
+   "why": "truncated escape"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:%ZZ",
+   "why": "not hex"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:%C0%AF",
+   "why": "overlong UTF-8"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:%ED%A0%80",
+   "why": "a surrogate"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:%FF",
+   "why": "not UTF-8"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:%00",
+   "why": "NUL"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:A%0D%0AB",
+   "why": "CR LF"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:A%09B",
+   "why": "tab"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:A%E2%80%AEB",
+   "why": "right-to-left override"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:A%E2%80%8BB",
+   "why": "zero-width space"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:A%C2%A0B",
+   "why": "no-break space"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:A%EF%BB%BFB",
+   "why": "byte-order mark"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:e%CC%81",
+   "why": "not NFC"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:..",
+   "why": "no letter or digit"
+  },
+  {
+   "input": "reg://federal/cfr/29/appendix:%2F",
+   "why": "no letter or digit"
+  },
+  {
+   "input": "reg://federal/usc/0/1",
+   "why": "title 0"
+  },
+  {
+   "input": "reg://federal/usc/55/1",
+   "why": "title 55"
+  },
+  {
+   "input": "reg://federal/usc/5A/3",
+   "why": "upper-case title"
+  },
+  {
+   "input": "reg://federal/usc/6a/1",
+   "why": "no such appendix title"
+  },
+  {
+   "input": "reg://federal/usc/105/3",
+   "why": "the store's number is not the collection"
+  },
+  {
+   "input": "reg://federal/usc/42/2000e%2D2",
+   "why": "an escape for a character that needs none"
+  },
+  {
+   "input": "reg://federal/usc/42/2000e-2.",
+   "why": "ends in a period"
+  },
+  {
+   "input": "reg://federal/usc/42/-1",
+   "why": "starts with a dash"
+  },
+  {
+   "input": "reg://federal/usc/42/2000e_2",
+   "why": "underscore"
+  },
+  {
+   "input": "reg://federal/usc/42/part:1",
+   "why": "a kind word outside the CFR"
+  },
+  {
+   "input": "reg://federal/fr/doc/-2026",
+   "why": "starts with a dash"
+  },
+  {
+   "input": "reg://federal/fr/doc/2026-20001.",
+   "why": "ends in a period"
+  },
+  {
+   "input": "reg://federal/fr/DOC/2026-20001",
+   "why": "upper-case collection"
+  },
+  {
+   "input": "reg://federal/fr/0/1",
+   "why": "volume 0"
+  },
+  {
+   "input": "reg://federal/fr/1000/1",
+   "why": "volume 1000"
+  },
+  {
+   "input": "reg://federal/fr/91/060123",
+   "why": "leading zero"
+  },
+  {
+   "input": "reg://federal/fr/91/1234567",
+   "why": "page too long"
+  },
+  {
+   "input": "reg://federal/fr/91/60123#(a)",
+   "why": "a page takes no paragraph"
+  },
+  {
+   "input": "reg://federal/fr/page/60123",
+   "why": "unknown collection"
+  },
+  {
+   "input": "reg://federal/constitution/us/art8",
+   "why": "eight articles"
+  },
+  {
+   "input": "reg://federal/constitution/us/art0",
+   "why": "article 0"
+  },
+  {
+   "input": "reg://federal/constitution/us/art1-s11",
+   "why": "Article I has ten sections"
+  },
+  {
+   "input": "reg://federal/constitution/us/art5-s1",
+   "why": "Article V has no sections"
+  },
+  {
+   "input": "reg://federal/constitution/us/amdt28",
+   "why": "28 amendments"
+  },
+  {
+   "input": "reg://federal/constitution/us/amdt14-s6",
+   "why": "five sections"
+  },
+  {
+   "input": "reg://federal/constitution/us/amdt1-s1",
+   "why": "the First Amendment has no sections"
+  },
+  {
+   "input": "reg://federal/constitution/us/amdt014-s1",
+   "why": "leading zero"
+  },
+  {
+   "input": "reg://federal/constitution/us/Art1-s8",
+   "why": "upper case"
+  },
+  {
+   "input": "reg://federal/constitution/us/art1-s8#cl0",
+   "why": "clause 0"
+  },
+  {
+   "input": "reg://federal/constitution/us/art1-s8#cl100",
+   "why": "clause 100"
+  },
+  {
+   "input": "reg://federal/constitution/us/art1-s8#(a)",
+   "why": "a clause is cl{n}"
+  },
+  {
+   "input": "reg://federal/constitution/us/art1#cl1",
+   "why": "a clause needs a section"
+  },
+  {
+   "input": "reg://federal/constitution/us/preamble#cl1",
+   "why": "the preamble has no clauses"
+  },
+  {
+   "input": "reg://federal/constitution/usa/art1-s8",
+   "why": "unknown collection"
+  },
+  {
+   "input": "reg://federal/constitution/art1/s8",
+   "why": "unknown collection"
+  },
+  {
+   "input": "reg://federal/plaw/0/1",
+   "why": "Congress 0"
+  },
+  {
+   "input": "reg://federal/plaw/113/0",
+   "why": "law 0"
+  },
+  {
+   "input": "reg://federal/plaw/113/01",
+   "why": "leading zero"
+  },
+  {
+   "input": "reg://federal/plaw/113/pvt1",
+   "why": "private laws are pvt-{n}"
+  },
+  {
+   "input": "reg://federal/plaw/113/10000",
+   "why": "law number too long"
+  },
+  {
+   "input": "reg://federal/plaw/1000/1",
+   "why": "Congress 1000"
+  },
+  {
+   "input": "reg://federal/plaw/113/1#s2",
+   "why": "a law takes no paragraph"
+  },
+  {
+   "input": "reg://federal/agenda/rin/1218-ad39",
+   "why": "lower-case RIN"
+  },
+  {
+   "input": "reg://federal/agenda/rin/1218AD39",
+   "why": "no dash"
+  },
+  {
+   "input": "reg://federal/agenda/RIN/1218-AD39",
+   "why": "upper-case collection"
+  },
+  {
+   "input": "reg://federal/agenda/202513/1218-AD39",
+   "why": "month 13"
+  },
+  {
+   "input": "reg://federal/agenda/2025/1218-AD39",
+   "why": "an edition is YYYYMM"
+  },
+  {
+   "input": "reg://federal/agenda/latest/1218-AD39",
+   "why": "unknown collection"
+  }
+ ],
+ "hostile": [
+  {
+   "input": null,
+   "why": "not text"
+  },
+  {
+   "input": 42,
+   "why": "not text"
+  },
+  {
+   "input": true,
+   "why": "not text"
+  },
+  {
+   "input": [],
+   "why": "not text"
+  },
+  {
+   "input": {},
+   "why": "not text"
+  },
+  {
+   "input": "",
+   "why": "empty"
+  },
+  {
+   "input": "     ",
+   "why": "only spaces"
+  },
+  {
+   "input": "javascript:alert(1)",
+   "why": "a script scheme"
+  },
+  {
+   "input": "JaVaScRiPt:alert(1)",
+   "why": "a script scheme"
+  },
+  {
+   "input": "data:text/html,<script>alert(1)</script>",
+   "why": "a data scheme"
+  },
+  {
+   "input": "file:///etc/passwd",
+   "why": "a file scheme"
+  },
+  {
+   "input": "vbscript:msgbox(1)",
+   "why": "a script scheme"
+  },
+  {
+   "input": "https://evil.example/",
+   "why": "a web address"
+  },
+  {
+   "input": "//evil.example/x",
+   "why": "a scheme-relative address"
+  },
+  {
+   "input": "\\\\evil.example\\share",
+   "why": "a UNC path"
+  },
+  {
+   "input": "../../etc/passwd",
+   "why": "path traversal"
+  },
+  {
+   "input": "#/title/29/section/1910.134",
+   "why": "a route is not a citation"
+  },
+  {
+   "input": "reg://evil.example/cfr/29/1910.134",
+   "why": "another authority"
+  },
+  {
+   "input": "reg://federal@evil.example/cfr/29/1910.134",
+   "why": "userinfo"
+  },
+  {
+   "input": "reg://federal:443/cfr/29/1910.134",
+   "why": "a port"
+  },
+  {
+   "input": "reg://federal.evil.example/cfr/29/1910.134",
+   "why": "another authority"
+  },
+  {
+   "input": "https://evil.example/reg://federal/cfr/29/1910.134",
+   "why": "an id inside a web address"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134?next=https://evil.example",
+   "why": "a query string"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134#<script>alert(1)</script>",
+   "why": "markup in the paragraph"
+  },
+  {
+   "input": "reg://federal/cfr/29/../../../etc/passwd",
+   "why": "path traversal"
+  },
+  {
+   "input": "reg://federal/cfr/29/..",
+   "why": "dot segments"
+  },
+  {
+   "input": "reg://federal/cfr/29/%2e%2e%2f%2e%2e",
+   "why": "escaped dot segments"
+  },
+  {
+   "input": "reg://federal/cfr/29/..%2F..%2Fetc",
+   "why": "escaped traversal"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134%00",
+   "why": "NUL"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134%0d%0aSet-Cookie:x",
+   "why": "header injection"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910\u2024134",
+   "why": "a look-alike dot"
+  },
+  {
+   "input": "\uff52eg://federal/cfr/29/1910.134",
+   "why": "a full-width letter"
+  },
+  {
+   "input": "reg://federal/cfr/29/1910.134\u202e",
+   "why": "right-to-left override"
+  },
+  {
+   "input": "29 CFR 1910.134\u0000",
+   "why": "NUL"
+  },
+  {
+   "input": "29 CFR 1910.134\nSet-Cookie: x",
+   "why": "a line break"
+  },
+  {
+   "input": "29 CFR 1910.134\r\n\r\n<html>",
+   "why": "a line break"
+  },
+  {
+   "input": "29 CFR 1910\u200b.134",
+   "why": "zero-width space"
+  },
+  {
+   "input": "29 CFR 1910.134\u202e",
+   "why": "right-to-left override"
+  },
+  {
+   "input": "\ufeff29 CFR 1910.134",
+   "why": "byte-order mark"
+  },
+  {
+   "input": "29 CFR 1910.134'; DROP TABLE sections;--",
+   "why": "SQL after a section"
+  },
+  {
+   "input": "29 CFR 1910.134 OR 1=1",
+   "why": "SQL after a section"
+  },
+  {
+   "input": "29 CFR <script>alert(1)</script>",
+   "why": "markup"
+  },
+  {
+   "input": "29 CFR Appendix <img src=x onerror=alert(1)>",
+   "why": "markup in a name"
+  },
+  {
+   "input": "29 CFR Appendix \"onmouseover=\"alert(1)",
+   "why": "a quote in a name"
+  },
+  {
+   "input": "29 CFR Appendix A`whoami`",
+   "why": "a backtick in a name"
+  },
+  {
+   "input": "29 CFR ${jndi:ldap://evil.example/a}",
+   "why": "a template"
+  },
+  {
+   "input": "{{7*7}}",
+   "why": "a template"
+  },
+  {
+   "input": "%s%s%s%n",
+   "why": "format directives"
+  },
+  {
+   "input": "29 CFR 1910.134(a)(",
+   "why": "an unclosed paragraph"
+  },
+  {
+   "input": "29 CFR 1910.134(a)-(c)",
+   "why": "a paragraph range"
+  },
+  {
+   "input": "29 CFR parts 1910 and 1926",
+   "why": "more than one part"
+  },
+  {
+   "input": "29 U.S.C. 653, 655, and 657",
+   "why": "more than one section"
+  },
+  {
+   "input": "0 CFR 1.1",
+   "why": "title 0"
+  },
+  {
+   "input": "51 CFR 1.1",
+   "why": "title 51"
+  },
+  {
+   "input": "99999999999999999999 CFR 1.1",
+   "why": "an enormous title"
+  },
+  {
+   "input": "55 U.S.C. 1",
+   "why": "title 55"
+  },
+  {
+   "input": "6 U.S.C. App. 1",
+   "why": "no such appendix title"
+  },
+  {
+   "input": "0 FR 1",
+   "why": "volume 0"
+  },
+  {
+   "input": "91 FR 0",
+   "why": "page 0"
+  },
+  {
+   "input": "999 FR 9999999",
+   "why": "page too long"
+  },
+  {
+   "input": "U.S. Const. art. VIII",
+   "why": "eight articles"
+  },
+  {
+   "input": "U.S. Const. amend. XXVIII",
+   "why": "28 amendments"
+  },
+  {
+   "input": "U.S. Const. amend. IIII",
+   "why": "not a Roman numeral"
+  },
+  {
+   "input": "U.S. Const. art. 0",
+   "why": "article 0"
+  },
+  {
+   "input": "U.S. Const. amend. XIV, \u00a7 9",
+   "why": "five sections"
+  },
+  {
+   "input": "U.S. Const. art. I, cl. 3",
+   "why": "a clause needs a section"
+  },
+  {
+   "input": "Pub. L. 0-1",
+   "why": "Congress 0"
+  },
+  {
+   "input": "Pub. L. 91-0",
+   "why": "law 0"
+  },
+  {
+   "input": "Pub. L. 1000-1",
+   "why": "Congress 1000"
+  },
+  {
+   "input": "RIN 1218-AD3",
+   "why": "a short RIN"
+  },
+  {
+   "input": "RIN 1218-AD39; rm -rf /",
+   "why": "a command after a RIN"
+  },
+  {
+   "input": "FR Doc. ../../x",
+   "why": "path traversal in a document number"
+  }
+ ],
+ "generated": [
+  {
+   "prefix": "reg://federal/cfr/29/appendix:",
+   "fill": "A",
+   "count": 600,
+   "suffix": "",
+   "why": "an id over 512 characters"
+  },
+  {
+   "prefix": "reg://federal/cfr/29/1910.134#",
+   "fill": "(a)",
+   "count": 400,
+   "suffix": "",
+   "why": "an endless paragraph"
+  },
+  {
+   "prefix": "29 CFR Appendix ",
+   "fill": "A",
+   "count": 500,
+   "suffix": "",
+   "why": "a citation over 400 characters"
+  },
+  {
+   "prefix": "29 CFR 1910.134",
+   "fill": "(a)",
+   "count": 100000,
+   "suffix": "",
+   "why": "a very long paragraph chain"
+  },
+  {
+   "prefix": "29 U.S.C. ",
+   "fill": "9",
+   "count": 100000,
+   "suffix": "",
+   "why": "a very long number"
+  },
+  {
+   "prefix": "U.S. Const. art. ",
+   "fill": "I",
+   "count": 100000,
+   "suffix": "",
+   "why": "a very long numeral"
+  },
+  {
+   "prefix": "Pub. L. ",
+   "fill": "1-",
+   "count": 100000,
+   "suffix": "1",
+   "why": "a very long dash chain"
+  },
+  {
+   "prefix": "",
+   "fill": " ",
+   "count": 1000000,
+   "suffix": "29 CFR 1910.134",
+   "why": "a megabyte of leading spaces"
+  },
+  {
+   "prefix": "29 CFR 1910.",
+   "fill": "1(a)-",
+   "count": 50000,
+   "suffix": "1",
+   "why": "a nested section-id suffix chain"
+  }
+ ],
+ "destinations": {
+  "safe": [
+   "#/title/29/section/1910.134?p=(a)(1)",
+   "#/usc/42/section/2000e%E2%80%932",
+   "#/news/agenda/1218-AD39?edition=202510",
+   "https://www.ecfr.gov/current/title-29/section-1910.134",
+   "https://www.govinfo.gov/link/plaw/91/public/596?link-type=details",
+   "https://www.federalregister.gov/d/2026-20001",
+   "https://www.reginfo.gov/public/do/eAgendaViewRule?pubId=202510&RIN=1218-AD39"
+  ],
+  "unsafe": [
+   null,
+   42,
+   "",
+   "javascript:alert(1)",
+   "#javascript:alert(1)",
+   "#",
+   "data:text/html,x",
+   "file:///etc/passwd",
+   "https://evil.example/",
+   "https://www.ecfr.gov.evil.example/x",
+   "https://www.ecfr.gov@evil.example/x",
+   "https://www.ecfr.gov:8443/x",
+   "http://www.ecfr.gov/current/title-29",
+   "//www.ecfr.gov/x",
+   "HTTPS://www.ecfr.gov/x",
+   "https://www.ecfr.gov",
+   "https://ecfr.gov/current/title-29",
+   "https://www.law.cornell.edu/uscode/text/29/655",
+   "#/title/29/section/<script>",
+   "#/title/29/section/\"onmouseover=",
+   "#/title/29/section/a'b",
+   "#/title/29/section/a b",
+   "#/title/29/section/1910.134\n",
+   "https://www.ecfr.gov/current/title-29\n",
+   "https://www.ecfr.gov/current/title-29#x",
+   "https://www.ecfr.gov/\\evil.example"
+  ]
+ }
+}

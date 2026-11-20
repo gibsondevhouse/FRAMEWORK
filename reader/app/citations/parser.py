@@ -77,6 +77,92 @@ PARA_SELF_RE = re.compile(
 )
 
 
+# --- Whole-citation forms for the canonical-ID resolver (app.ids, DM-101) ------------------
+# Additive: nothing above changes and the reader links nothing new. `app.ids` applies these
+# with `fullmatch` to one short, length-capped string. Every quantifier is bounded and no two
+# adjacent pieces can match the same text, so matching time is linear in the input.
+DASH = r"[-\u2010-\u2015]"   # hyphen-minus plus the Unicode hyphens and dashes the sources print
+
+# A complete eCFR section identifier, including the forms the prose patterns stop short of:
+# "2584.8477(e)-1", "1.401(a)(4)-1", "60-1.1", "240.10b-5", "100.30-100.32". Parentheses
+# belong to the identifier only when a "-suffix" follows; otherwise they are a paragraph.
+CFR_SECTION_ID_RE = re.compile(
+    r"\d{1,5}(?:-\d{1,4})?[A-Za-z]?\.\d[0-9A-Za-z]{0,11}"
+    r"(?:(?:\([0-9A-Za-z]{1,4}\)){1,4}(?=-)|[-.][0-9A-Za-z]{1,12}){0,6}"
+)
+# "5 U.S.C. App. § 3", "28 U.S.C. App. App-rule1": an appendix title (5a, 11a, 18a, 28a).
+USC_APPENDIX_RE = re.compile(
+    r"\b(\d{1,2})\s?U\.?\s?S\.?\s?C\.?\s{0,2}App(?:endix|\.)?\s{0,2}(?:§{1,2}\s{0,2})?"
+    r"([0-9A-Za-z][0-9A-Za-z.~-]{0,79})((?:\([0-9A-Za-z]{1,8}\)){0,10})",
+    re.IGNORECASE,
+)
+# "91 FR 60123", "91 Fed. Reg. 60123" (FR_RE above stays the reader's pattern).
+FR_CITE_RE = re.compile(r"\b(\d{1,3})\s{0,2}(?:FR|F\.\s?R\.|Fed\.?\s{0,2}Reg\.?)\s{0,2}(\d{1,6})\b", re.IGNORECASE)
+# "FR Doc. 2026-20001", "FR Doc. No. E9-12345".
+FR_DOC_RE = re.compile(
+    r"\bFR\s{0,2}Doc(?:ument)?\.?\s{0,2}(?:No\.?\s{0,2})?([A-Za-z0-9](?:[A-Za-z0-9._-]{0,38}[A-Za-z0-9])?)",
+    re.IGNORECASE,
+)
+# "Pub. L. 91-596", "Public Law 91–596", "Pub. L. No. 118-5", "P.L. 104-4", "Priv. L. 113-1".
+# Groups: 1 = Pub… / Priv… (None for the "P.L." form), 2 = Congress, 3 = law number.
+PUBLIC_LAW_RE = re.compile(
+    rf"\b(?:(Pub(?:lic)?|Priv(?:ate)?)\.?\s{{0,2}}L(?:aws?)?\.?|(?-i:P\.?\s?L\.?))\s{{0,2}}(?:Nos?\.?\s{{0,2}})?"
+    rf"(\d{{1,3}})\s?{DASH}\s?(\d{{1,4}})\b",
+    re.IGNORECASE,
+)
+# "U.S. Const. art. I, § 8, cl. 3", "U.S. Const. amend. XIV, § 1", "U.S. Const. pmbl.".
+# Groups: 1 = preamble, 2 = art… / amend… / amdt…, 3 = its number (Roman or Arabic),
+# 4 = section, 5 = clause.
+CONST_RE = re.compile(
+    r"\bU\.?\s?S\.?\s{0,2}Const(?:itution|\.)?,?\s{0,2}"
+    r"(?:(pmbl\.?|preamble)"
+    r"|(art(?:icle|\.)?|amend(?:ment|\.)?|amdt\.?)\s{0,2}([IVXLC]{1,7}|\d{1,2})\b"
+    r"(?:,?\s{0,2}(?:§|sec(?:tion|\.)?)\s{0,2}(\d{1,2})\b)?"
+    r"(?:,?\s{0,2}cl(?:ause|\.)?\s{0,2}(\d{1,2})\b)?)",
+    re.IGNORECASE,
+)
+# A Regulation Identifier Number: four digits (the agency), two letters, two digits.
+RIN_RE = re.compile(rf"(?<![0-9A-Za-z])(\d{{4}})\s?{DASH}\s?([A-Z]{{2}}\d{{2}})(?![0-9A-Za-z])")
+
+# The same forms as one whole string, the way a person types a citation into a box. Applied
+# with `fullmatch`; `app.ids` checks every captured piece again before it builds an id.
+SECTION_MARK_RE = re.compile(r"(?:§{1,2}|sections?|sec\.?)\s{0,2}", re.IGNORECASE)
+# "29 CFR …": group 2 is what follows (a section, "part 1910", or an appendix name).
+CFR_CITE_RE = re.compile(r"(\d{1,2})\s?C\.?\s?F\.?\s?R\.?\s{0,2}(.{1,300})", re.IGNORECASE | re.DOTALL)
+# "part 1910", or "part 91, Special Federal Aviation Regulation No. 50-2" (a part's appendix).
+CFR_PART_CITE_RE = re.compile(
+    r"parts?\s{1,2}(\d{1,5}(?:-\d{1,4})?[A-Za-z]?)(?:,\s{0,2}(\S.{0,239}))?", re.IGNORECASE | re.DOTALL)
+# An appendix named in a citation: starts with a letter, is not "part …" or "section …", and
+# holds only the punctuation eCFR's appendix names use (no markup, quotes or backslashes).
+CFR_APPENDIX_NAME_RE = re.compile(
+    r"(?!(?:parts?|subparts?|sections?|sec\.?)\b)[^\W\d_][\w .,:;()\[\]/§&'\u2010-\u2015-]{0,239}",
+    re.IGNORECASE,
+)
+# "42 U.S.C. § 2000e-2(a)", one section. Groups: title, section, paragraph, and the n of
+# "(duplicate n)" for a second section published under the same number.
+USC_CITE_RE = re.compile(
+    r"(\d{1,2})\s?U\.?\s?S\.?\s?C\.?(?:A\.?)?\s{0,2}(?:§{1,2}\s{0,2}|sections?\s{1,2}|sec\.?\s{0,2})?"
+    r"([0-9][0-9A-Za-z.~\u2010-\u2015-]{0,79}?)((?:\([0-9A-Za-z]{1,8}\)){0,10})(?:\s\(duplicate\s([1-9][0-9]?)\))?",
+    re.IGNORECASE,
+)
+# "2 U.S.C. §§ 44 to 46": a run of sections the OLRC publishes as one unit.
+USC_RANGE_CITE_RE = re.compile(
+    r"(\d{1,2})\s?U\.?\s?S\.?\s?C\.?\s{0,2}§§\s{0,2}([0-9][0-9A-Za-z\u2010-\u2015-]{0,39})\sto\s"
+    r"([0-9][0-9A-Za-z\u2010-\u2015-]{0,39})",
+    re.IGNORECASE,
+)
+# A Federal Register document number on its own: "2026-20001", "E9-12345", "C1-2021-26268".
+FR_DOC_NUMBER_RE = re.compile(r"(?:[A-Z][0-9]-)?[0-9]{4}-[0-9]{4,6}|[A-Z][0-9]-[0-9]{3,6}")
+# "RIN 1218-AD39", optionally "(Fall 2025 Unified Agenda)" or "(2024-07 Unified Agenda)".
+RIN_CITE_RE = re.compile(
+    rf"(?:RIN:?\s{{0,2}})?([0-9]{{4}}\s?{DASH}\s?[A-Z]{{2}}[0-9]{{2}})"
+    r"(?:\s\((?:(Spring|Fall)\s)?([12][0-9]{3})(?:-(0[0-9]|1[0-2]))?\sUnified\sAgenda\))?",
+    re.IGNORECASE,
+)
+# What a Constitution citation starts with when "U.S. Const." is left off ("amend. XIV").
+CONST_BARE_RE = re.compile(r"(?:pmbl|preamble|art|amend|amdt)", re.IGNORECASE)
+
+
 def expand_paragraph_list(expr: str) -> list[tuple[str, str]]:
     """Split '(h)(3)(i) and (ii)' into [('(h)(3)(i)', '(h)(3)(i)'), ('(ii)', '(h)(3)(ii)')]."""
     out: list[tuple[str, str]] = []
