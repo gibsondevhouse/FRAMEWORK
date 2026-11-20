@@ -181,6 +181,34 @@ class DolFetchTests(FetchTestCase):
         viol_req = fake.requests_for(VIOL_PATH)[0]
         self.assertIn("hazsub5", viol_req.url.params.get("fields"))
 
+    def test_accident_detail_is_kept_per_injured_person(self):          # FT-28
+        fake = FakeAPI(extra_routes={
+            "/v4/get/OSHA/accident_injury/json": {"data": [
+                {"summary_nr": 555, "rel_insp_nr": 307000001, "degree_of_inj": "1",
+                 "fall_distance": "20", "fall_ht": "25", "fat_cause": "4"},
+                {"summary_nr": 555, "rel_insp_nr": 307000001, "degree_of_inj": "2",
+                 "fall_distance": "0", "fall_ht": None, "fat_cause": "0"},
+            ]},
+            "/v4/get/OSHA/accident/json": {"data": [
+                {"summary_nr": 555, "event_date": "2026-07-30T00:00:00", "event_desc": "Fell from scaffold",
+                 "event_keyword": "SCAFFOLD,FALL", "fatality": "X", "abstract_text": ""},
+            ]},
+            "/v4/get/OSHA/accident_abstract/json": {"data": [
+                {"summary_nr": 555, "line_nr": 1, "abstract_text": "An employee fell from a scaffold."},
+            ]},
+        })
+        with fake.patch_client(), news.client() as c:
+            case = news.fetch_inspection_case(c, "k", 307000001)
+        [acc] = case["accidents"]
+        self.assertEqual(acc["abstract"], "An employee fell from a scaffold.")
+        self.assertEqual(acc["injuries"], [
+            {"degree_code": "1", "degree": "Fatality", "fall_distance_ft": 20, "fall_height_ft": 25,
+             "fatality_cause_code": "4"},
+            {"degree_code": "2", "degree": "Hospitalized injury", "fall_distance_ft": None,
+             "fall_height_ft": None, "fatality_cause_code": None},
+        ])
+        self.assertIsNone(news.accident_injury({"degree_of_inj": "7"})["degree"])
+
 
 class WorkerSyncTests(FetchTestCase):
     def test_pi_only_sync_touches_only_pi(self):

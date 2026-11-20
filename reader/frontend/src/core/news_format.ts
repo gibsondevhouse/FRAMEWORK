@@ -108,3 +108,25 @@ export function linkifyNewsText(text: string | null | undefined): string {
     return `<a class="citation-link" href="${newsSectionHref(29, id)}">${m}</a>`;
   });
 }
+
+/** One injured person on an accident report (FT-28), as `news.accident_injury` shapes it. */
+export interface AccidentInjury {
+  degree?: string | null;
+  degree_code?: string | null;
+  fall_distance_ft?: number | null;
+  fall_height_ft?: number | null;
+  fatality_cause_code?: string | null;
+}
+
+/** "Fatality · fell 20 ft from a height of 25 ft · DOL cause code 4", leaving out what DOL left blank. */
+export function accidentInjuryLine(inj: AccidentInjury): string {
+  const fall = [
+    inj.fall_distance_ft ? `fell ${inj.fall_distance_ft} ft` : '',
+    inj.fall_height_ft ? `${inj.fall_distance_ft ? 'from' : 'fall from'} a height of ${inj.fall_height_ft} ft` : '',
+  ].filter(Boolean).join(' ');
+  return [
+    inj.degree || (inj.degree_code ? `Injury degree code ${inj.degree_code}` : 'Injury'),
+    fall,
+    inj.fatality_cause_code ? `DOL cause code ${inj.fatality_cause_code}` : '',
+  ].filter(Boolean).join(' · ');
+}

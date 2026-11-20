@@ -21,6 +21,7 @@ import {
   newsPartHref,
   newsSectionHref,
   stateName,
+  accidentInjuryLine,
 } from '../src/core/news_format';
 import { dockModel, fmtEta } from '../src/components/transfer_dock';
 import { normalizeCfrTarget, targetHashFor } from '../src/components/cfr_resolver';
@@ -417,4 +418,12 @@ test('openItemFromHash names the non-CFR unit on screen for Claude (TL-09)', () 
   assert.equal(openItemFromHash('#/news'), null);
   assert.equal(openItemFromHash('#/law/%E0%A4%A'), null);
   assert.equal(openItemFromHash('#/law/' + 'x'.repeat(300)), null);
+});
+
+test('Accident injury lines name the degree and the fall, skipping blanks (FT-28)', () => {
+  assert.equal(accidentInjuryLine({ degree: 'Fatality', degree_code: '1', fall_distance_ft: 20, fall_height_ft: 25, fatality_cause_code: '4' }),
+    'Fatality · fell 20 ft from a height of 25 ft · DOL cause code 4');
+  assert.equal(accidentInjuryLine({ degree: 'Hospitalized injury', fall_height_ft: 12 }), 'Hospitalized injury · fall from a height of 12 ft');
+  assert.equal(accidentInjuryLine({ degree: null, degree_code: '9' }), 'Injury degree code 9');
+  assert.equal(accidentInjuryLine({}), 'Injury');
 });

@@ -5765,6 +5765,15 @@ function linkifyNewsText(text) {
 		return `<a class="citation-link" href="${newsSectionHref(29, a || b)}">${m}</a>`;
 	});
 }
+/** "Fatality · fell 20 ft from a height of 25 ft · DOL cause code 4", leaving out what DOL left blank. */
+function accidentInjuryLine(inj) {
+	const fall = [inj.fall_distance_ft ? `fell ${inj.fall_distance_ft} ft` : "", inj.fall_height_ft ? `${inj.fall_distance_ft ? "from" : "fall from"} a height of ${inj.fall_height_ft} ft` : ""].filter(Boolean).join(" ");
+	return [
+		inj.degree || (inj.degree_code ? `Injury degree code ${inj.degree_code}` : "Injury"),
+		fall,
+		inj.fatality_cause_code ? `DOL cause code ${inj.fatality_cause_code}` : ""
+	].filter(Boolean).join(" · ");
+}
 // src/api/jobs.ts
 var titleRefresher = null;
 function registerTitleRefresher(fn) {
@@ -16777,6 +16786,7 @@ function renderInspectionCase(data, { enter = true, enriching = false, enrichErr
 		ac.event_desc
 	].filter(Boolean).join(" · "))}</div>
               ${ac.abstract ? `<p>${escapeHtml(ac.abstract)}</p>` : ""}
+              ${ac.injuries?.length ? `<ul class="ins-injuries" aria-label="People injured">${ac.injuries.map((inj) => `<li>${escapeHtml(accidentInjuryLine(inj))}</li>`).join("")}</ul>` : ""}
               ${ac.keywords ? `<div class="ins-keywords">${escapeHtml(ac.keywords)}</div>` : ""}
             </div>`).join("")}
         </section>` : ""}

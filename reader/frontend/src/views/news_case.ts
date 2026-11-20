@@ -1,6 +1,6 @@
 import { state } from '../state';
 import { getJSON } from '../api/client';
-import { fmtMoney, linkifyNewsText, newsSectionHref, titleInstalled } from '../core/news_format';
+import { AccidentInjury, accidentInjuryLine, fmtMoney, linkifyNewsText, newsSectionHref, titleInstalled } from '../core/news_format';
 import { clipCaseToWorkspace } from '../core/projects_store';
 import { updateChatContext } from '../components/chat';
 import { clearTreeSelection, plural } from '../components/sidebar';
@@ -105,7 +105,7 @@ export interface InspectionCaseData {
   };
   violations?: InspectionViolation[];
   gdc?: Array<{ citation_id?: string; text: string }>;
-  accidents?: Array<{ event_date?: string; fatality?: boolean; event_desc?: string; abstract?: string; keywords?: string }>;
+  accidents?: Array<{ event_date?: string; fatality?: boolean; event_desc?: string; abstract?: string; keywords?: string; injuries?: AccidentInjury[] }>;
   events?: Array<{ date?: string; event_label?: string; citation_id?: string; penalty?: number | null }>;
   related?: RelatedInspection[];
 }
@@ -435,6 +435,7 @@ export function renderInspectionCase(
             <div class="ins-narrative">
               <div class="ins-narrative-kicker">${escapeHtml([ac.event_date && fmtDate(ac.event_date), ac.fatality ? 'Fatality' : '', ac.event_desc].filter(Boolean).join(' · '))}</div>
               ${ac.abstract ? `<p>${escapeHtml(ac.abstract)}</p>` : ''}
+              ${ac.injuries?.length ? `<ul class="ins-injuries" aria-label="People injured">${ac.injuries.map(inj => `<li>${escapeHtml(accidentInjuryLine(inj))}</li>`).join('')}</ul>` : ''}
               ${ac.keywords ? `<div class="ins-keywords">${escapeHtml(ac.keywords)}</div>` : ''}
             </div>`).join('')}
         </section>` : ''}
