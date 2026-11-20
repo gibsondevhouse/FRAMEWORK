@@ -481,7 +481,8 @@ def search(q: str, limit: int = 20) -> dict:
             "snippet(entries_fts, 3, char(2), char(3), ' … ', 24) AS snippet FROM entries_fts f "
             "JOIN entries e ON e.rin = f.rin AND e.edition = f.edition WHERE entries_fts MATCH ? "
             "ORDER BY f.edition DESC, bm25(entries_fts, 0, 0, 3.0, 1.0) LIMIT ?", (fq, limit)).fetchall()
-    return {"installed": True, "total": len(rows), "results": [dict(r) for r in rows]}
+        total = con.execute("SELECT count(*) FROM entries_fts WHERE entries_fts MATCH ?", (fq,)).fetchone()[0]
+    return {"installed": True, "total": total, "results": [dict(r) for r in rows]}
 
 
 def remove() -> bool:

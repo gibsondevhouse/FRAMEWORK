@@ -239,7 +239,7 @@ export async function handleRoute(): Promise<void> {
     hideMainTabs();
     const q = params.get('q') || '';
     dom.search.value = q;
-    await loadSearchPage(q, params.get('scope'));
+    await loadSearchPage(q, params.get('scope'), params.get('in'));
   } else {
     hideMainTabs();
     renderNotFound();

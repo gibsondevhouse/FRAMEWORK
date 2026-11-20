@@ -15,7 +15,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 
-from .. import config, fr_store, library, news_store, profiles, store, usc_store
+from .. import agenda, config, constitution, fr_store, library, news_store, plaw, profiles, store, usc_store
 from ..citations import graph
 from . import deps
 
@@ -108,18 +108,21 @@ def list_profiles() -> dict:
     return {"profiles": profiles.PROFILES, "title_names": profiles.TITLE_NAMES}
 
 
+_INCLUDE = "fr|usc|constitution|plaw|agenda"
+
+
 @search_router.get("/api/search")
 async def search_global(
     q: str = Query(..., max_length=200),
     title: str | None = None,
     part: str | None = Query(None, max_length=40),
     limit: int = Query(30, ge=1, le=100),
-    include: str | None = Query(None, pattern="^(fr|usc)(,(fr|usc))?$"),
+    include: str | None = Query(None, pattern=f"^({_INCLUDE})(,({_INCLUDE}))*$"),
 ) -> dict:
     """Search within a specific title, or across all installed titles if title='all' or omitted.
-    `include=fr`, `include=usc` or `include=fr,usc` add the Federal Register corpus and the
-    installed U.S. Code titles as separate `fr` / `usc` blocks ({installed, total, results}),
-    leaving the CFR result shape untouched."""
+    `include` is a comma-separated list of `fr`, `usc`, `constitution`, `plaw` and `agenda`;
+    each adds that corpus as its own block ({installed, total, results}), leaving the CFR
+    result shape untouched."""
     target_title: int | str = title if title else config.DEFAULT_TITLE
     if target_title != "all":
         if not str(target_title).isdigit() or int(target_title) not in config.installed_titles():
@@ -131,6 +134,12 @@ async def search_global(
         res["fr"] = await asyncio.to_thread(_search_fr, q, min(limit, 20))
     if "usc" in extra:
         res["usc"] = await asyncio.to_thread(usc_store.search, q, None, min(limit, 20))
+    if "constitution" in extra:
+        res["constitution"] = await asyncio.to_thread(constitution.search, q, min(limit, 20))
+    if "plaw" in extra:
+        res["plaw"] = await asyncio.to_thread(plaw.search, q, min(limit, 20))
+    if "agenda" in extra:
+        res["agenda"] = await asyncio.to_thread(agenda.search, q, min(limit, 20))
     return res
 
 

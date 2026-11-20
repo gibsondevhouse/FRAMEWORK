@@ -347,7 +347,7 @@ Queue one title (`{title}`) or every installed title that is behind the current 
 ### `GET /usc/{title}/{section_id}`
 A standalone HTML page for one section: the href of local U.S.C. citation links (inside the app a click opens the in-app reader at `#/usc/{title}/section/{id}` instead) and a printable fallback. It links the app's own stylesheet, so it looks like the reader.
 
-`GET /api/search?include=usc` (or `include=fr,usc`) adds a `usc` block (`{installed, total, results}`).
+`GET /api/search?include=usc` (or `include=fr,usc`) adds a `usc` block (`{installed, total, results}`). `include` takes any comma-separated mix of `fr`, `usc`, `constitution`, `plaw` and `agenda`; each adds its own block of the same shape, capped at 20 results, with `total` the full match count. The search page requests all five.
 
 ## U.S. Constitution
 

@@ -1,5 +1,5 @@
 {
-  "sha256": "26040723ae51d5bffe5298b007d90beb40c9022ec524c1d3ddd84aa63112d5ea",
+  "sha256": "494e20996a7162b91e790d398666fd4b11fe542a79d2e9c52879a33962763bf8",
   "files": [
     "index.html",
     "src/api/client.ts",
@@ -35,6 +35,7 @@
     "src/core/news_format.ts",
     "src/core/plaw.ts",
     "src/core/projects_store.ts",
+    "src/core/search_frameworks.ts",
     "src/core/usc_label.ts",
     "src/core/view_dispatch.ts",
     "src/data/home_content.ts",

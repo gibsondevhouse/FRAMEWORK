@@ -360,3 +360,40 @@ test('Unified Agenda CFR and legal-authority strings become reader links', () =>
   assert.deepEqual(parseAgendaUsc('42 USC 7401 et seq'), { title: 42, section: '7401' });
   assert.equal(parseAgendaUsc('Pub. L. 117-58'), null);
 });
+
+import { frameworkGroups, parseFrameworkFilter } from '../src/core/search_frameworks';
+
+test('cross-framework search blocks become one row shape, installed frameworks only', () => {
+  const groups = frameworkGroups({
+    query: 'silica', title: 'all', total: 3, results: [], ms: 1,
+    usc: { installed: true, total: 40, results: [
+      { id: '655', heading: 'Standards', status: null, usc_title: 29, snippet: 'a \x02silica\x03 rule' },
+      { id: '101', heading: 'Rules', status: 'repealed', usc_title: 105, snippet: '' },
+    ] },
+    fr: { installed: true, total: 1, results: [
+      { document_number: '2026-00001', type: 'Rule', title: 'Silica', abstract: 'An abstract.', publication_date: '2026-01-05', citation: '91 FR 100', snippet: '' },
+    ] },
+    constitution: { installed: false, total: 0, results: [] },
+    plaw: { installed: true, total: 1, results: [
+      { id: '114-2', congress: 114, law_type: 'public', number: 2, statute: '129 Stat. 5', title: 'Second law', approved_date: '2015-02-01', snippet: null },
+    ] },
+    agenda: { installed: true, total: 3, results: [
+      { rin: '1218-AD39', edition: '202510', title: 'Heat', stage: 'Final Rule Stage', parent_acronym: 'DOL', snippet: '' },
+      { rin: '1218-AD39', edition: '202504', title: 'Heat', stage: 'Proposed Rule Stage', parent_acronym: 'DOL', snippet: '' },
+    ] },
+  });
+  assert.deepEqual(groups.map(g => g.key), ['usc', 'plaw', 'fr', 'agenda']);
+  const [usc, plaw, fr, agenda] = groups;
+  assert.equal(usc.total, 40);
+  assert.deepEqual([usc.rows[0].href, usc.rows[0].num], ['#/usc/29/section/655', '29 U.S.C. § 655']);
+  assert.deepEqual([usc.rows[1].num, usc.rows[1].meta], ['5 U.S.C. App. § 101', 'repealed']);
+  assert.deepEqual([plaw.rows[0].href, plaw.rows[0].num], ['#/law/114-2', 'Pub. L. 114-2']);
+  assert.deepEqual([fr.rows[0].href, fr.rows[0].num, fr.rows[0].snippet], ['#/news/fr/2026-00001', '91 FR 100', 'An abstract.']);
+  assert.equal(agenda.rows.length, 1);                       // one row per rule: its newest edition
+  assert.equal(agenda.total, 2);
+  assert.equal(agenda.rows[0].href, '#/news/agenda/1218-AD39?edition=202510');
+  assert.equal(agenda.rows[0].meta, 'DOL · Final rule · Fall 2025');
+  assert.equal(parseFrameworkFilter('usc'), 'usc');
+  assert.equal(parseFrameworkFilter('state'), 'all');
+  assert.equal(parseFrameworkFilter(null), 'all');
+});
