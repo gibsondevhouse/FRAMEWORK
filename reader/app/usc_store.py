@@ -193,7 +193,9 @@ def title_summary(title: int) -> dict | None:
     return {
         "title": int(title),
         "name": m.get("title_name", ""),
+        "title_name": m.get("title_name", ""),        # the name the reader pages read (FT-27)
         "release_point": m.get("release_point"),
+        "current_through": m.get("current_through") or None,
         "built_at": m.get("built_at"),
         "section_count": int(m.get("section_count") or 0),
         "note_count": int(m.get("note_count") or 0),

@@ -430,6 +430,10 @@ class ApiTests(UscTestCase):
         self.install()
         t = self.client.get("/api/usc/titles").json()["titles"]
         self.assertEqual([(x["title"], x["release_point"], x["section_count"]) for x in t], [(4, "119-142", 4)])
+        meta = self.client.get("/api/usc/4/meta").json()       # what the title page shows (FT-27)
+        self.assertEqual(meta["current_through"], "November 10, 2026")
+        self.assertEqual(meta["title_name"], meta["name"])
+        self.assertTrue(meta["title_name"])
         # FT-26: notes on the title itself and on a chapter, by the chapter's tree path
         title_notes = self.client.get("/api/usc/4/notes").json()["notes"]
         self.assertEqual([n["topic"] for n in title_notes], ["enacting"])
