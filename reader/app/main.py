@@ -62,6 +62,12 @@ class RevalidatedStaticFiles(StaticFiles):
 
 app = FastAPI(title="FRAMEWORK: CFR Reader & Assistant", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=2048)
+# Every response carries the browser security headers (content security policy, nosniff, no
+# framing, referrer policy); the guard below adds them to its own refusals.
+app.add_middleware(security.SecurityHeadersMiddleware)
+# The standalone U.S.C. page (/usc/{t}/{s}) is the one server-rendered page with a <style>
+# block of its own; the policy allows exactly that block, by hash.
+security.allow_inline_style(usc_routes._PAGE_CSS)
 # Added last so it runs first: a foreign Host or a cross-origin call is refused before any
 # route, the static mount or compression sees it (see app/security.py).
 app.add_middleware(security.LocalTrustMiddleware)

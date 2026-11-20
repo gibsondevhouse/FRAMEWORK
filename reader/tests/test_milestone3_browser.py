@@ -29,7 +29,7 @@ from app import agenda, constitution, fr_store, gov_http, news_store, news_worke
 from app.library import client as lib_client
 from app.main import app
 import fake_titles
-from tests.base import HermeticTestCase, TRACKED_KEYS
+from tests.base import HermeticTestCase, TRACKED_KEYS, watch_policy_violations
 from tests.test_new_corpora import FakeGov, plaw_xml, zip_of
 from tests.test_usc_corpus import FakeOLRC
 from tests.test_fr_corpus import HAZCOM
@@ -141,6 +141,7 @@ class Milestone3BrowserTests(HermeticTestCase):
         super().setUp()
         self.context = self.browser.new_context(viewport={"width": 1280, "height": 800})
         self.addCleanup(self.context.close)
+        watch_policy_violations(self, self.context)
         self.external: list[str] = []
 
         def router(route):

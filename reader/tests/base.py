@@ -47,6 +47,15 @@ from app import security  # noqa: E402
 security.EXTRA_ALLOWED_HOSTS.add("testserver")
 
 
+def watch_policy_violations(case: unittest.TestCase, context) -> list[str]:
+    """Browser suites: fail `case` at teardown if any page in the Playwright `context` logged a
+    content-security-policy violation (app/security.py, SEC-003). Returns the live list."""
+    seen: list[str] = []
+    context.on("console", lambda msg: seen.append(msg.text) if "Content Security Policy" in msg.text else None)
+    case.addCleanup(lambda: case.assertEqual(seen, [], "a page broke the content security policy"))
+    return seen
+
+
 class HermeticTestCase(unittest.TestCase):
     """Base class for all suites: env pop-and-restore + no real network."""
 
