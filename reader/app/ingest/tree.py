@@ -206,13 +206,14 @@ def _write_json_atomic(path: Path, payload: str) -> None:
 def renest(title: int, log=None) -> int:
     """Apply `nest_loose_sections` to an installed title without downloading: rewrite its
     tree JSON and the breadcrumbs in its database. Returns the number of breadcrumbs changed."""
-    from .. import store
+    from .. import migrate, store
 
     log = log or (lambda msg: None)
     tree_file = config.tree_path(title)
     db_file = config.db_path(title)
     if not tree_file.exists() or not db_file.exists():
         raise ValueError(f"Title {title} is not installed")
+    migrate.ensure("cfr", db_file)
     tree = nest_loose_sections(json.loads(tree_file.read_text(encoding="utf-8")))
     store.begin_swap(title)
     try:

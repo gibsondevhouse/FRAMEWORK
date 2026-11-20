@@ -1,0 +1,101 @@
+{
+ "_note": "Frozen history, not a snapshot to re-record: the schema each store kind had before schema migrations existed (DM-001) and the PRAGMA user_version such stores carry on disk. tests/test_migrate.py builds a store from each entry, migrates it, and compares it with a fresh build. Add an entry for a new store kind; never edit an existing one.",
+ "cfr": {
+  "version": 0,
+  "sql": [
+   "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)",
+   "CREATE TABLE sections (\n    id TEXT PRIMARY KEY,\n    kind TEXT NOT NULL,           -- 'section' or 'appendix'\n    ord INTEGER NOT NULL,         -- reading order across the whole title\n    part TEXT,\n    label TEXT NOT NULL,          -- e.g. '§ 541.100'\n    title TEXT NOT NULL,          -- e.g. 'General rule for executive employees.'\n    reserved INTEGER NOT NULL,\n    path TEXT NOT NULL,           -- JSON breadcrumb of ancestors\n    ecfr_path TEXT,\n    xml TEXT NOT NULL,\n    text TEXT NOT NULL\n)",
+   "CREATE INDEX sections_ord ON sections(ord)",
+   "CREATE INDEX sections_part ON sections(part)",
+   "CREATE TABLE front_matter (key TEXT PRIMARY KEY, xml TEXT NOT NULL)",
+   "CREATE VIRTUAL TABLE sections_fts USING fts5(\n    id UNINDEXED, label, title, text, tokenize = 'porter unicode61'\n)"
+  ]
+ },
+ "usc": {
+  "version": 0,
+  "sql": [
+   "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)",
+   "CREATE TABLE sections (\n    id TEXT PRIMARY KEY,\n    identifier TEXT,\n    kind TEXT NOT NULL,\n    ord INTEGER NOT NULL,\n    chapter TEXT,\n    label TEXT NOT NULL,\n    heading TEXT NOT NULL,\n    path TEXT NOT NULL,\n    status TEXT,\n    xml TEXT NOT NULL,\n    text TEXT NOT NULL,\n    source_credit TEXT\n)",
+   "CREATE INDEX sections_ord ON sections(ord)",
+   "CREATE INDEX sections_chapter ON sections(chapter)",
+   "CREATE TABLE notes (\n    id INTEGER PRIMARY KEY,\n    owner TEXT NOT NULL,\n    owner_kind TEXT NOT NULL,\n    ord INTEGER NOT NULL,\n    category TEXT NOT NULL,\n    topic TEXT,\n    heading TEXT,\n    xml TEXT NOT NULL,\n    text TEXT NOT NULL\n)",
+   "CREATE INDEX notes_owner ON notes(owner, ord)",
+   "CREATE VIRTUAL TABLE sections_fts USING fts5(\n    id UNINDEXED, label, heading, text, tokenize = 'porter unicode61'\n)",
+   "CREATE VIRTUAL TABLE notes_fts USING fts5(\n    owner UNINDEXED, heading, text, tokenize = 'porter unicode61'\n)"
+  ]
+ },
+ "fr": {
+  "version": 1,
+  "sql": [
+   "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)",
+   "CREATE TABLE documents (\n    document_number TEXT PRIMARY KEY,\n    type TEXT,\n    title TEXT NOT NULL,\n    abstract TEXT,\n    action TEXT,\n    dates TEXT,\n    agencies_json TEXT NOT NULL DEFAULT '[]',\n    agency_slugs TEXT NOT NULL DEFAULT '',      -- ' slug-a slug-b ' for exact-word filtering\n    publication_date TEXT,\n    effective_on TEXT,\n    comments_close_on TEXT,\n    signing_date TEXT,\n    cfr_references_json TEXT NOT NULL DEFAULT '[]',\n    docket_ids_json TEXT NOT NULL DEFAULT '[]',\n    rins_json TEXT NOT NULL DEFAULT '[]',\n    citation TEXT,                              -- '91 FR 69092'\n    volume INTEGER,\n    start_page INTEGER,\n    end_page INTEGER,\n    page_length INTEGER,\n    html_url TEXT,\n    pdf_url TEXT,\n    full_text_xml_url TEXT,\n    body_html_url TEXT,\n    raw_text_url TEXT,\n    raw_json TEXT NOT NULL,\n    raw_sha256 TEXT NOT NULL,\n    source_url TEXT NOT NULL,\n    fetched_at TEXT NOT NULL,\n    first_seen_at TEXT NOT NULL,\n    content_changed_at TEXT NOT NULL\n)",
+   "CREATE INDEX documents_pub ON documents(publication_date)",
+   "CREATE INDEX documents_type ON documents(type)",
+   "CREATE INDEX documents_page ON documents(volume, start_page)",
+   "CREATE TABLE document_bodies (\n    document_number TEXT PRIMARY KEY REFERENCES documents(document_number) ON DELETE CASCADE,\n    format TEXT NOT NULL,                       -- 'xml' | 'html'\n    content TEXT NOT NULL,                      -- as served (xml) or sanitized (html)\n    text TEXT NOT NULL,\n    sha256 TEXT NOT NULL,                       -- of the bytes as served\n    byte_len INTEGER NOT NULL,\n    source_url TEXT NOT NULL,\n    fetched_at TEXT NOT NULL\n)",
+   "CREATE TABLE document_cfr (\n    document_number TEXT NOT NULL REFERENCES documents(document_number) ON DELETE CASCADE,\n    title INTEGER NOT NULL,\n    part TEXT NOT NULL,\n    section TEXT NOT NULL DEFAULT '',\n    source TEXT NOT NULL,                       -- 'reference' | 'text' | 'body'\n    PRIMARY KEY (document_number, title, part, section, source)\n)",
+   "CREATE INDEX document_cfr_lookup ON document_cfr(title, part, section)",
+   "CREATE TABLE coverage (\n    title INTEGER NOT NULL,\n    start TEXT NOT NULL,\n    end TEXT NOT NULL,\n    doc_count INTEGER NOT NULL,\n    fetched_at TEXT NOT NULL,\n    PRIMARY KEY (title, start, end)\n)",
+   "CREATE TABLE build_chunks (    -- (title, month) chunks a build has finished\n    title INTEGER NOT NULL,\n    start TEXT NOT NULL,\n    end TEXT NOT NULL,\n    docs INTEGER NOT NULL,\n    done_at TEXT NOT NULL,\n    PRIMARY KEY (title, start, end)\n)",
+   "CREATE VIRTUAL TABLE documents_fts USING fts5(\n    title, abstract, action, body, tokenize = 'porter unicode61'\n)"
+  ]
+ },
+ "news": {
+  "version": 4,
+  "sql": [
+   "CREATE TABLE articles (\n    guid TEXT PRIMARY KEY,           -- \"fr:2026-17726\" (published or PI), \"dol-insp:306953084\"\n    source TEXT NOT NULL,            -- federal_register | federal_register_pi | dol_osha\n    agency TEXT NOT NULL,\n    category TEXT NOT NULL,          -- rules | rulemaking | notices | public_inspection | enforcement\n    doc_type TEXT,\n    title TEXT NOT NULL,\n    link TEXT NOT NULL,\n    pdf_url TEXT,\n    citation TEXT,                   -- \"91 FR 55744\"\n    action TEXT,                     -- \"Final rule.\"\n    effective_on TEXT,               -- YYYY-MM-DD\n    comments_close_on TEXT,          -- YYYY-MM-DD (proposed rules)\n    scheduled_on TEXT,               -- YYYY-MM-DD (PI: when it will publish)\n    published_at TEXT NOT NULL,      -- YYYY-MM-DD, always (sort key)\n    description TEXT NOT NULL DEFAULT '',\n    docket_ids TEXT NOT NULL DEFAULT '[]',\n    company TEXT, city TEXT, state TEXT, naics TEXT,\n    penalty_usd REAL,\n    violation_types TEXT NOT NULL DEFAULT '[]',   -- JSON array, e.g. [\"S\",\"W\"]\n    general_duty INTEGER NOT NULL DEFAULT 0,      -- count of 5(a)(1) citations\n    unmapped_standards INTEGER NOT NULL DEFAULT 0,-- cited standards with no CFR mapping (state plans)\n    cfr_parts TEXT NOT NULL DEFAULT '[]',         -- JSON [{\"title\":29,\"part\":\"42\"}]\n    sections TEXT NOT NULL DEFAULT '[]',          -- JSON [\"1910.1030\"]\n    takeaways TEXT NOT NULL DEFAULT '[]',         -- JSON [{\"key\",\"label\",\"text\"}]\n    fetched_at TEXT NOT NULL                      -- ISO timestamp of the last upsert\n)",
+   "CREATE INDEX idx_articles_pub   ON articles(published_at DESC)",
+   "CREATE INDEX idx_articles_cat   ON articles(category, published_at DESC)",
+   "CREATE INDEX idx_articles_state ON articles(state)",
+   "CREATE TABLE article_citations (\n    article_guid TEXT NOT NULL REFERENCES articles(guid) ON DELETE CASCADE,\n    title_num INTEGER NOT NULL,\n    part_id TEXT NOT NULL,\n    section_id TEXT NOT NULL DEFAULT '',          -- '' = part-level reference\n    PRIMARY KEY (article_guid, title_num, part_id, section_id)\n)",
+   "CREATE INDEX idx_citations_sec  ON article_citations(title_num, section_id)",
+   "CREATE INDEX idx_citations_part ON article_citations(title_num, part_id)",
+   "CREATE VIRTUAL TABLE articles_fts USING fts5(\n    title, description, company,\n    tokenize = 'porter unicode61'\n)",
+   "CREATE TABLE sync_status (\n    source TEXT PRIMARY KEY,         -- federal_register | federal_register_pi | dol_osha\n    last_ok_at TEXT,\n    last_count INTEGER,\n    last_error TEXT,                 -- short, user-facing; NULL after a success\n    last_error_at TEXT,\n    fail_count INTEGER NOT NULL DEFAULT 0   -- consecutive failures; drives backoff; 0 after a success\n)",
+   "CREATE TABLE enforcement_cases (\n    activity_nr INTEGER PRIMARY KEY,\n    details_json TEXT NOT NULL DEFAULT '{}',\n    violations_json TEXT NOT NULL DEFAULT '[]',\n    events_json TEXT NOT NULL DEFAULT '[]',\n    gdc_json TEXT NOT NULL DEFAULT '[]',\n    accidents_json TEXT NOT NULL DEFAULT '[]',\n    related_json TEXT NOT NULL DEFAULT '[]',\n    enrich_ver INTEGER NOT NULL DEFAULT 0,\n    enriched_mod_date TEXT,\n    enriched_at TEXT,\n    fetched_at TEXT NOT NULL\n)",
+   "CREATE VIRTUAL TABLE enforcement_narratives_fts USING fts5(\n    activity_nr UNINDEXED,\n    kind UNINDEXED,\n    ref_id UNINDEXED,\n    body_text,\n    tokenize = 'porter unicode61'\n)",
+   "CREATE TABLE dol_datasets (\n    slug TEXT PRIMARY KEY,\n    agency TEXT NOT NULL DEFAULT '',\n    dataset TEXT NOT NULL DEFAULT '',\n    title TEXT NOT NULL DEFAULT '',\n    frequency TEXT,\n    probe_status TEXT NOT NULL DEFAULT 'unprobed',\n    fields_json TEXT NOT NULL DEFAULT '[]',\n    cfr_title INTEGER,\n    cfr_parts_json TEXT NOT NULL DEFAULT '[]',\n    raw_json TEXT NOT NULL DEFAULT '{}',\n    discovered_at TEXT NOT NULL\n)",
+   "CREATE TABLE fr_bodies (\n    document_number TEXT PRIMARY KEY,\n    body_html TEXT NOT NULL,\n    fetched_at TEXT NOT NULL\n)"
+  ]
+ },
+ "constitution": {
+  "version": 0,
+  "sql": [
+   "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)",
+   "CREATE TABLE units (\n    id TEXT PRIMARY KEY, ord INTEGER NOT NULL, kind TEXT NOT NULL, article INTEGER, amendment INTEGER,\n    section INTEGER, label TEXT NOT NULL, text TEXT NOT NULL, note_count INTEGER NOT NULL DEFAULT 0\n)",
+   "CREATE TABLE notes (id INTEGER PRIMARY KEY, unit_id TEXT NOT NULL, ord INTEGER NOT NULL, text TEXT NOT NULL)",
+   "CREATE VIRTUAL TABLE units_fts USING fts5(id UNINDEXED, label, text, tokenize='porter unicode61')",
+   "CREATE VIRTUAL TABLE notes_fts USING fts5(unit_id UNINDEXED, text, tokenize='porter unicode61')"
+  ]
+ },
+ "plaw": {
+  "version": 0,
+  "sql": [
+   "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)",
+   "CREATE TABLE laws (\n    id TEXT PRIMARY KEY, congress INTEGER NOT NULL, law_type TEXT NOT NULL, number INTEGER NOT NULL,\n    citation TEXT, statute TEXT, title TEXT, approved_date TEXT, bill TEXT, text TEXT NOT NULL,\n    xml_z BLOB NOT NULL, sha256 TEXT NOT NULL, byte_len INTEGER NOT NULL, source_url TEXT NOT NULL,\n    fetched_at TEXT NOT NULL\n)",
+   "CREATE INDEX laws_by_congress ON laws (congress, law_type, number)",
+   "CREATE TABLE law_usc (\n    law_id TEXT NOT NULL, title INTEGER NOT NULL, section TEXT NOT NULL, kind TEXT NOT NULL,\n    PRIMARY KEY (law_id, title, section, kind)\n)",
+   "CREATE INDEX law_usc_by_section ON law_usc (title, section)",
+   "CREATE TABLE build_chunks (congress INTEGER, law_type TEXT, laws INTEGER, zip_sha256 TEXT,\n    source_url TEXT, done_at TEXT, PRIMARY KEY (congress, law_type))",
+   "CREATE VIRTUAL TABLE laws_fts USING fts5(id UNINDEXED, title, text, tokenize='porter unicode61')"
+  ]
+ },
+ "agenda": {
+  "version": 0,
+  "sql": [
+   "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)",
+   "CREATE TABLE entries (\n    rin TEXT NOT NULL, edition TEXT NOT NULL, agency_code TEXT, agency TEXT, agency_acronym TEXT,\n    parent_code TEXT, parent TEXT, parent_acronym TEXT, title TEXT NOT NULL, abstract TEXT, stage TEXT,\n    priority TEXT, major TEXT, rin_status TEXT, rplan TEXT, cfr_json TEXT, authority_json TEXT,\n    timetable_json TEXT, related_json TEXT, further_info_url TEXT, comment_url TEXT,\n    PRIMARY KEY (rin, edition)\n)",
+   "CREATE INDEX entries_by_edition ON entries (edition, parent_code, stage)",
+   "CREATE TABLE editions (edition TEXT PRIMARY KEY, title TEXT, entries INTEGER, sha256 TEXT,\n    byte_len INTEGER, source_url TEXT, run_date TEXT, fetched_at TEXT)",
+   "CREATE TABLE build_chunks (edition TEXT PRIMARY KEY, done_at TEXT)",
+   "CREATE VIRTUAL TABLE entries_fts USING fts5(rin UNINDEXED, edition UNINDEXED, title, abstract,\n    tokenize='porter unicode61')"
+  ]
+ },
+ "sources": {
+  "version": 1,
+  "sql": [
+   "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)",
+   "CREATE TABLE templates (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    description TEXT NOT NULL DEFAULT '',\n    selection TEXT NOT NULL,\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)"
+  ]
+ }
+}

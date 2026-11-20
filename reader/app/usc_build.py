@@ -27,7 +27,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import config, usc_client, usc_store
+from . import config, migrate, usc_client, usc_store
 from .ingest import uslm
 
 USC_JOB_BASE = 1000                     # library-queue key = 1000 + title (CFR titles are 1-50)
@@ -190,6 +190,7 @@ def build(
                 "publication": info.get("publication") or "",
             }
             con.executemany("INSERT INTO meta VALUES (?,?)", meta.items())
+            migrate.stamp(con, "usc")
             con.commit()
 
         tree_tmp.write_text(json.dumps(tree, separators=(",", ":")), encoding="utf-8")

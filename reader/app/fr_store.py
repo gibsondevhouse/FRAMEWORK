@@ -42,7 +42,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from . import config, fr_client, store
+from . import config, fr_client, migrate, store
 from .citations.parser import FR_RE as _FR_CITATION
 
 SCHEMA_VERSION = 1
@@ -150,8 +150,9 @@ def now_iso() -> str:
 
 
 def init_schema(con: sqlite3.Connection) -> None:
-    con.executescript(SCHEMA)
-    con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    """Create the schema in a new database. An existing store is brought up to date by
+    `migrate.ensure` before it is opened (see `connect`); it is never re-stamped here."""
+    migrate.init(con, "fr")
 
 
 def connect(readonly: bool = False, path: Path | None = None) -> sqlite3.Connection | None:
@@ -176,6 +177,7 @@ def connect(readonly: bool = False, path: Path | None = None) -> sqlite3.Connect
                 con.close()
             return None
     p.parent.mkdir(parents=True, exist_ok=True)
+    migrate.ensure("fr", p, backup=p == db_path())      # a staging file is rebuilt, not copied
     con = sqlite3.connect(p, timeout=10.0)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA busy_timeout=10000")

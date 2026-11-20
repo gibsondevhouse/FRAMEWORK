@@ -23,7 +23,7 @@ from urllib.parse import quote
 
 import httpx
 
-from . import config
+from . import config, migrate
 from .ingest import (LEAF_TYPES, count_leaves, disambiguate_leaf_ids,  # noqa: F401
                      ecfr_path, front_matter_xml, leaf_paths, merge_scope,
                      nest_loose_sections, normalize_scope, prune_tree,
@@ -433,6 +433,7 @@ def build(
             con.executemany("INSERT INTO meta VALUES (?,?)", meta_rows)
             from .citations import graph
             graph.persist_title_index(con, title)
+            migrate.stamp(con, "cfr")
             con.commit()
     except Exception:
         tmp_db.unlink(missing_ok=True)
