@@ -30,12 +30,38 @@ DOWNLOAD_PAGES = (f"{BASE}/download.html", f"{BASE}/download/download.shtml")
 RELEASE_TTL_SEC = 30 * 60
 MAX_XML_BYTES = 1_500_000_000          # Title 42 is ~200 MB of XML; guard against zip bombs
 
-# Positive titles 1-54 (53 is reserved). Appendix titles ("5a", "11a", …) are not ingested yet.
+# Titles 1-54 (53 is reserved), plus the appendix titles ("5a", "11a", "18a", "28a", "50a"),
+# which are keyed internally as 100 + N (105, 111, 118, 128, 150) so every store, file name
+# (`usc-111.sqlite3`) and queue key stays an int; `title_label(111)` is "11a". Title 50a was
+# eliminated (its zip is an empty shell), so it counts as reserved.
 TITLE_RANGE = range(1, 55)
-RESERVED = {53}
+APPENDIX_BASE = 100
+APPENDIX = {105: "5a", 111: "11a", 118: "18a", 128: "28a", 150: "50a"}
+ALL_TITLES = list(TITLE_RANGE) + sorted(APPENDIX)
+RESERVED = {53, 150}
+
+
+def title_label(title: int) -> str:
+    """'5', or '5a' for an appendix title (105)."""
+    return APPENDIX.get(int(title), str(int(title)))
+
+
+def title_code(label: str | int) -> int:
+    """'11a' / '11A' → 111; '11' → 11. Raises ValueError for anything else."""
+    s = str(label).strip().lower().lstrip("0")
+    if s.endswith("a") and s[:-1].isdigit() and APPENDIX_BASE + int(s[:-1]) in APPENDIX:
+        return APPENDIX_BASE + int(s[:-1])
+    if s.isdigit():
+        return int(s)
+    raise ValueError(f"not a U.S. Code title: {label!r}")
+
+
+def title_name_prefix(title: int) -> str:
+    n = int(title)
+    return f"Title {n - APPENDIX_BASE} Appendix" if n in APPENDIX else f"Title {n}"
 
 _XML_LINK_RE = re.compile(
-    r'download/releasepoints/us/pl/(\d+)/([0-9A-Za-z]+)/xml_usc(\d{2})(a?)@(\d+-[0-9A-Za-z]+)\.zip'
+    r'download/releasepoints/us/pl/(\d+)/([0-9A-Za-z]+)/xml_usc(\d{2})([aA]?)@(\d+-[0-9A-Za-z]+)\.zip'
 )
 _CURRENT_THROUGH_RE = re.compile(r"current through Public Law\s+([0-9]+-[0-9A-Za-z]+)\s*\(([^)]+)\)", re.I)
 
@@ -57,10 +83,12 @@ def parse_release_page(html: str, page_url: str) -> dict | None:
     release = congress = law = None
     for m in _XML_LINK_RE.finditer(html):
         cong, lw, num, appx, rp = m.groups()
-        if appx:
+        code = APPENDIX_BASE + int(num) if appx else int(num)
+        if appx and code not in APPENDIX:
             continue
-        release, congress, law = rp, int(cong), lw
-        titles[int(num)] = f"{BASE}/{m.group(0)}"
+        if not appx:
+            release, congress, law = rp, int(cong), lw
+        titles[code] = f"{BASE}/{m.group(0)}"
     if not titles or release is None:
         return None
     through = _CURRENT_THROUGH_RE.search(re.sub(r"<[^>]+>", " ", html))
@@ -121,8 +149,10 @@ def zip_url(release: dict, title: int) -> str:
     known = release.get("titles", {}).get(str(title))
     if known:
         return known
+    t = int(title)
+    stem = f"{t - APPENDIX_BASE:02d}a" if t in APPENDIX else f"{t:02d}"
     return (f"{BASE}/download/releasepoints/us/pl/{release['congress']}/{release['law']}/"
-            f"xml_usc{int(title):02d}@{release['release_point']}.zip")
+            f"xml_usc{stem}@{release['release_point']}.zip")
 
 
 def download(c: httpx.Client, url: str, dest: Path, on_bytes=None) -> str:

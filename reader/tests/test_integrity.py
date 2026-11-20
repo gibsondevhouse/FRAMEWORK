@@ -326,7 +326,7 @@ class CliAndApiTests(IntegrityCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.headers["cache-control"], "no-store")
         body = r.json()
-        self.assertEqual({i["corpus"] for i in body["items"]}, {"cfr", "fr", "usc"})
+        self.assertEqual({i["corpus"] for i in body["items"]}, {"cfr", "fr", "usc", "constitution", "plaw", "agenda"})
         self.assertFalse(body["online"])
         self.assertEqual(client.get("/api/integrity", params={"corpus": "x"}).status_code, 422)
         self.assertEqual(client.get("/api/integrity", params={"corpus": "fr", "title": 29}).status_code, 422)

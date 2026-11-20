@@ -36,10 +36,30 @@ _forced: set[str] = set()                    # sources a manual refresh asked fo
 _forced_lock = threading.Lock()
 
 
+# news source -> its entry in the source registry (`app/sources`)
+REGISTRY_SOURCE = {"federal_register": "news", "federal_register_pi": "news", "dol_osha": "dol_enforcement"}
+
+
+def _feed_scope() -> tuple[list[str] | None, list[int]]:
+    """(agency slugs or None = every agency, CFR titles also followed) from the registry."""
+    from .sources import selection
+    return selection.news_agencies(), selection.news_follow_titles()
+
+
 def enabled_sources() -> list[str]:
-    fr_doc = ["federal_register"] if (config.news_agencies() or config.installed_titles()) else []
-    fr_pi = ["federal_register_pi"] if config.news_agencies() else []
-    return fr_doc + fr_pi + (["dol_osha"] if config.dol_api_key() else [])
+    """Sources the registry has switched on (and that can run: DOL needs its key). A
+    switched-off source keeps its stored items; it just stops syncing."""
+    from .sources import selection
+    out: list[str] = []
+    if selection.enabled("news"):
+        agencies, follow = _feed_scope()
+        if agencies is None or agencies or follow:
+            out.append("federal_register")
+        if selection.news_public_inspection() and (agencies is None or agencies):
+            out.append("federal_register_pi")
+    if selection.enabled("dol_enforcement") and config.dol_api_key():
+        out.append("dol_osha")
+    return out
 
 
 def start() -> None:
@@ -72,7 +92,9 @@ def is_syncing() -> bool:
 def due_sources(now: datetime | None = None) -> list[str]:
     now = now or datetime.now(timezone.utc)
     rows = news_store.sync_rows()
-    return [s for s in enabled_sources() if sched.is_due(s, rows.get(s, {}), now)]
+    from .sources import selection
+    return [s for s in enabled_sources()
+            if selection.schedule(REGISTRY_SOURCE[s]) != "manual" and sched.is_due(s, rows.get(s, {}), now)]
 
 
 def request_sync(force: bool) -> list[str]:
@@ -119,6 +141,16 @@ def _loop(stop_event: threading.Event | None = None) -> None:
             usc_build.maybe_queue_updates()
         except Exception as e:
             build.log(f"U.S. Code release check failed: {e}")
+        try:                                 # Constitution / Public Laws / Unified Agenda, when installed and due
+            from .sources import schedule as corpus_schedule
+            corpus_schedule.maybe_queue_corpus_updates()
+        except Exception as e:
+            build.log(f"Corpus refresh check failed: {e}")
+        try:                                 # CFR: edition check on the registry's schedule (default: manual)
+            from .library import jobs
+            jobs.maybe_queue_cfr_updates()
+        except Exception as e:
+            build.log(f"CFR edition check failed: {e}")
         delay = CHECK_INTERVAL_SEC
 
 
@@ -129,19 +161,22 @@ def sync_sources(sources: list[str], now: datetime | None = None) -> dict[str, i
     today_et = now.astimezone(sched.ET).date()
     rows = news_store.sync_rows()
     results: dict[str, int | str] = {}
-    agencies = config.news_agencies()
-    installed = config.installed_titles()
+    agencies, follow = _feed_scope()
     with news.client() as c:
         for s in sources:
             last_ok = rows.get(s, {}).get("last_ok_at")
             if s == "federal_register":
-                if not agencies and not installed:
+                if agencies is not None and not agencies and not follow:
                     results[s] = "No news agencies configured"
                     continue
                 since = sched.fr_since(last_ok, now, news_store.retention_days())
 
-                def _fetch_fr(ags=agencies, titles=installed, sc=since):
+                def _fetch_fr(ags=agencies, titles=follow, sc=since):
                     by_guid: dict[str, dict] = {}
+                    if ags is None:              # every agency: one feed, titles add nothing
+                        for it in news.fetch_federal_register_documents(c, None, sc):
+                            by_guid.setdefault(it["guid"], it)
+                        return list(by_guid.values())
                     for ag in ags:
                         for it in news.fetch_federal_register_documents(c, ag, sc):
                             by_guid.setdefault(it["guid"], it)
@@ -154,13 +189,13 @@ def sync_sources(sources: list[str], now: datetime | None = None) -> dict[str, i
 
                 fetch = _fetch_fr
             elif s == "federal_register_pi":
-                if not agencies:
+                if agencies is not None and not agencies:
                     results[s] = "No news agencies configured"
                     continue
 
                 def _fetch_pi(ags=agencies):
                     by_guid: dict[str, dict] = {}
-                    for ag in ags:
+                    for ag in (ags if ags is not None else [None]):
                         for it in news.fetch_public_inspection(c, ag):
                             by_guid.setdefault(it["guid"], it)
                     return list(by_guid.values())
