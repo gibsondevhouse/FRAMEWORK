@@ -337,3 +337,26 @@ test('U.S. Code appendix titles are keyed 100 + N', () => {
   assert.equal(uscCite(128), '28 U.S.C. App.');
   assert.equal(uscCite(29), '29 U.S.C.');
 });
+
+import { agendaDate, editionLabel, parseAgendaCfr, parseAgendaUsc, stageKey, stageShort } from '../src/core/agenda';
+
+test('Unified Agenda editions, dates and stages read plainly', () => {
+  assert.equal(editionLabel('202510'), 'Fall 2025');
+  assert.equal(editionLabel('202504'), 'Spring 2025');
+  assert.equal(editionLabel('201200'), '2012');
+  assert.equal(agendaDate('10/00/2025'), 'Oct 2025');
+  assert.equal(agendaDate('03/15/2026'), 'Mar 15, 2026');
+  assert.equal(agendaDate('To Be Determined'), 'To Be Determined');
+  assert.equal(stageShort('Final Rule Stage'), 'Final rule');
+  assert.equal(stageKey('Long-Term Actions'), 'long_term');
+  assert.equal(stageShort('Something new'), 'Something new');
+});
+
+test('Unified Agenda CFR and legal-authority strings become reader links', () => {
+  assert.deepEqual(parseAgendaCfr('29 CFR 1910'), { title: 29, part: '1910', section: null });
+  assert.deepEqual(parseAgendaCfr('40 CFR 261.3'), { title: 40, part: '261', section: '261.3' });
+  assert.equal(parseAgendaCfr('Not Yet Determined'), null);
+  assert.deepEqual(parseAgendaUsc('29 U.S.C. 655'), { title: 29, section: '655' });
+  assert.deepEqual(parseAgendaUsc('42 USC 7401 et seq'), { title: 42, section: '7401' });
+  assert.equal(parseAgendaUsc('Pub. L. 117-58'), null);
+});

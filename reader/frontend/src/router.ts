@@ -15,6 +15,7 @@ import { loadHelp } from './views/help';
 import { loadLibrary, loadPlawTab } from './views/library';
 import { loadInspection, loadNews } from './views/news';
 import { loadFrDocument } from './views/news_fr';
+import { loadAgendaRule, loadAgendaTab } from './views/news_agenda';
 import { renderProjects } from './views/projects';
 import { loadSection } from './views/reader';
 import { loadPart, loadPartFull } from './views/reader_part';
@@ -212,7 +213,11 @@ export async function handleRoute(): Promise<void> {
     renderProjects(id ? decodeURIComponent(id) : null);
   } else if (!titleMatch && (checkPath === '/news' || checkPath === '/news/')) {
     hideMainTabs();
-    await loadNews(params);
+    if (params?.get('cat') === 'agenda') await loadAgendaTab(params);
+    else await loadNews(params);
+  } else if (!titleMatch && /^\/news\/agenda\/[0-9A-Za-z-]{4,20}\/?$/.test(checkPath)) {
+    hideMainTabs();
+    await loadAgendaRule(decodeURIComponent(checkPath.split('/')[3]).toUpperCase(), params);
   } else if (!titleMatch && /^\/news\/inspection\/\d+\/?$/.test(checkPath)) {
     hideMainTabs();
     const actNr = parseInt(checkPath.split('/')[3], 10);

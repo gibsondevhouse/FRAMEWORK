@@ -407,6 +407,31 @@ class AgendaTests(CorpusTestCase):
         self.assertEqual(c.get("/api/agenda/rin/1218-ad39").json()["title"], "Heat Injury and Illness Prevention")
         self.assertEqual(c.get("/api/agenda/rin/9999-ZZ99").status_code, 404)
 
+    def test_newsroom_filters_facets_and_remove(self):
+        c = TestClient(app)
+        self.assertEqual(c.get("/api/agenda/facets").json()["agencies"], [])
+        with self.fake.patch():
+            agenda.build(years=2, today=date(2026, 11, 20))
+        f = c.get("/api/agenda/facets").json()
+        self.assertEqual(f["edition"], "202510")
+        self.assertEqual([(a["code"], a["acronym"], a["entries"]) for a in f["agencies"]], [("1200", "DOL", 2), ("2000", "DOL", 1)])
+        self.assertEqual([(s["key"], s["entries"]) for s in f["stages"]], [("proposed", 1), ("final", 1), ("long_term", 1)])
+        self.assertEqual(c.get("/api/agenda/facets", params={"edition": "202504"}).json()["stages"], [
+            {"key": "proposed", "label": "Proposed Rule Stage", "entries": 1}])
+        # The list filters by agency, stage and words (or a RIN), and names each row's agencies.
+        rows = c.get("/api/agenda", params={"agency": "1200"}).json()["results"]
+        self.assertEqual([r["rin"] for r in rows], ["1218-AD00", "1218-AD39"])
+        self.assertEqual((rows[0]["parent_code"], rows[0]["agency_code"]), ("1200", "1218"))
+        self.assertEqual(c.get("/api/agenda", params={"agency": "1200", "stage": "final"}).json()["total"], 1)
+        self.assertEqual([r["rin"] for r in c.get("/api/agenda", params={"q": "heat stress"}).json()["results"]], ["1218-AD39"])
+        self.assertEqual([r["rin"] for r in c.get("/api/agenda", params={"q": "2060-av00"}).json()["results"]], ["2060-AV00"])
+        self.assertEqual(c.get("/api/agenda", params={"q": "silica", "stage": "final"}).json()["total"], 0)
+        with mock.patch.object(library.queue, "busy_with", lambda key: key == agenda.JOB_KEY):
+            self.assertEqual(c.delete("/api/agenda").status_code, 409)
+        self.assertEqual(c.delete("/api/agenda").json(), {"removed": "agenda"})
+        self.assertFalse(c.get("/api/agenda").json()["installed"])
+        self.assertEqual(c.delete("/api/agenda").status_code, 404)
+
 
 class RegistryWiringTests(CorpusTestCase):
     def setUp(self):

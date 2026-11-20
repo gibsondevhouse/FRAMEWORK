@@ -374,25 +374,60 @@ def _row(r: sqlite3.Row) -> dict:
     return d
 
 
+_RIN_RE = re.compile(r"\s*\d{4}-[A-Z]{2}\d{2}\s*", re.I)
+
+
+def _filters(ed: str, agency: str | None, stage: str | None, q: str | None) -> tuple[str, list]:
+    where, args = ["edition = ?"], [ed]
+    if agency:
+        where.append("(parent_code = ? OR agency_code = ?)")
+        args += [agency, agency]
+    if stage:
+        where.append("stage = ?")
+        args.append(STAGES.get(stage, stage))
+    if q and _RIN_RE.fullmatch(q):
+        where.append("rin = ?")
+        args.append(q.strip().upper())
+    elif q:
+        from .store import fts_query
+        fq = fts_query(q)
+        if fq:
+            where.append("rin IN (SELECT rin FROM entries_fts WHERE entries_fts MATCH ? AND edition = ?)")
+            args += [fq, ed]
+    return " AND ".join(where), args
+
+
 def list_entries(edition: str | None = None, agency: str | None = None, stage: str | None = None,
-                 limit: int = 50, offset: int = 0) -> dict:
+                 limit: int = 50, offset: int = 0, q: str | None = None) -> dict:
+    """One edition's entries (default the newest), filtered by agency (parent or sub-agency
+    code), stage (a `STAGES` key or label) and `q` (a RIN, else FTS over title and abstract)."""
     with read_con() as con:
         if con is None:
             return {"installed": False, "total": 0, "results": []}
         ed = edition or (con.execute("SELECT max(edition) FROM editions").fetchone()[0])
-        where, args = ["edition = ?"], [ed]
-        if agency:
-            where.append("(parent_code = ? OR agency_code = ?)")
-            args += [agency, agency]
-        if stage:
-            where.append("stage = ?")
-            args.append(STAGES.get(stage, stage))
-        w = " AND ".join(where)
+        w, args = _filters(ed, agency, stage, q)
         total = con.execute(f"SELECT count(*) FROM entries WHERE {w}", args).fetchone()[0]
         rows = con.execute(
-            f"SELECT rin, edition, agency, agency_acronym, parent, parent_acronym, title, stage, priority, major "
-            f"FROM entries WHERE {w} ORDER BY parent_code, rin LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
+            f"SELECT rin, edition, agency_code, agency, agency_acronym, parent_code, parent, parent_acronym, "
+            f"title, stage, priority, major, rin_status FROM entries WHERE {w} ORDER BY parent_code, rin LIMIT ? OFFSET ?",
+            [*args, limit, offset]).fetchall()
     return {"installed": True, "edition": ed, "total": total, "results": [dict(r) for r in rows]}
+
+
+def facets(edition: str | None = None) -> dict:
+    """What one edition holds, for the Newsroom's filters: entries per parent agency (most
+    first) and per stage (in `STAGES` order, with its key)."""
+    with read_con() as con:
+        if con is None:
+            return {"installed": False, "edition": None, "agencies": [], "stages": []}
+        ed = edition or (con.execute("SELECT max(edition) FROM editions").fetchone()[0])
+        agencies = [dict(r) for r in con.execute(
+            "SELECT parent_code AS code, max(parent_acronym) AS acronym, max(parent) AS name, count(*) AS entries "
+            "FROM entries WHERE edition = ? AND parent_code IS NOT NULL AND parent_code != '' "
+            "GROUP BY parent_code ORDER BY entries DESC, code", (ed,))]
+        by_stage = dict(con.execute("SELECT stage, count(*) FROM entries WHERE edition = ? GROUP BY stage", (ed,)).fetchall())
+    stages = [{"key": k, "label": v, "entries": by_stage.get(v, 0)} for k, v in STAGES.items() if by_stage.get(v)]
+    return {"installed": True, "edition": ed, "agencies": agencies, "stages": stages}
 
 
 def fr_documents_for(rin: str, fr_citations: list[str]) -> list[dict]:
@@ -434,7 +469,7 @@ def search(q: str, limit: int = 20) -> dict:
     with read_con() as con:
         if con is None:
             return {"installed": False, "total": 0, "results": []}
-        if re.fullmatch(r"\s*\d{4}-[A-Z]{2}\d{2}\s*", q, re.I):
+        if _RIN_RE.fullmatch(q):
             rows = con.execute("SELECT rin, edition, title, stage, parent_acronym FROM entries WHERE rin = ? "
                                "ORDER BY edition DESC LIMIT 1", (q.strip().upper(),)).fetchall()
             return {"installed": True, "total": len(rows), "results": [{**dict(r), "exact": True} for r in rows]}

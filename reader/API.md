@@ -376,10 +376,12 @@ A standalone HTML page for one section: the href of local U.S.C. citation links 
 
 `data/agenda.sqlite3`, from reginfo.gov's XML editions (`XMLViewFileAction?f=REGINFO_RIN_DATA_{YYYYMM}.xml`, listed on `eAgendaXmlReport`; no key). `python -m app.agenda [--years 2] [--agencies 2000,1200] [--stages final,proposed] [--force] | --update | --status`. One row per (RIN, edition); agency contact names, phones and e-mails are not stored. Builds are resumable per edition; `update()` adds newer editions.
 
-- `GET /api/agenda?edition=YYYYMM&agency=NNNN&stage=final&limit=&offset=` → `{installed, edition (default newest), total, results[{rin, edition, agency, agency_acronym, parent, parent_acronym, title, stage, priority, major}], status}`
+- `GET /api/agenda?edition=YYYYMM&agency=NNNN&stage=final&q=&limit=&offset=` → `{installed, edition (default newest), total, results[{rin, edition, agency_code, agency, agency_acronym, parent_code, parent, parent_acronym, title, stage, priority, major, rin_status}], status}`; `agency` matches the parent or sub-agency code, `stage` a key (`prerule`, `proposed`, `final`, `long_term`, `completed`) or its label, `q` a RIN (`1218-ad39`) or words (FTS over title and abstract)
+- `GET /api/agenda/facets?edition=` → `{installed, edition, agencies[{code, acronym, name, entries}] (most first), stages[{key, label, entries}] (in stage order, empty stages left out)}` for the Newsroom's filters
 - `GET /api/agenda/rin/{rin}?edition=` → the entry (`abstract`, `cfr[]`, `authority[]`, `timetable[{action, date, fr_citation}]`, `related[]`, `history[{edition, stage, rin_status}]`) plus `fr_documents[]` — Federal Register corpus documents whose `regulation_id_numbers` include the RIN or whose citation matches a timetable FR citation
 - `GET /api/agenda/search?q=` → a RIN (`1218-AD39`) is an exact hit; else FTS over title and abstract
 - `POST /api/agenda/build` `{years, agencies?, stages?}` · `POST /api/agenda/update` → `{job}` (queue key 4000)
+- `DELETE /api/agenda` → `{removed: "agenda"}`; 409 while an Agenda job is queued or running, 404 when not installed
 
 `GET /api/integrity` (and `python -m app.integrity --corpus constitution|plaw|agenda`) covers the three: database `quick_check`, counts vs meta, completeness (7 articles and 27 amendments), every law file re-hashed against its SHA-256, congress/type and edition coverage, recorded provenance, and (online) whether GovInfo / reginfo.gov has something newer.
 
