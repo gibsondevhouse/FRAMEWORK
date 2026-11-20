@@ -44,10 +44,11 @@ def list_titles() -> dict:
 
 
 @usc_router.get("/catalog")
-def title_catalog() -> dict:
+def title_catalog(appendix: bool = False) -> dict:
     """All 54 titles for the Library: static facts, install state, bytes, staleness against
-    the release point this server last saw. Local only."""
-    return usc_build.catalog()
+    the release point this server last saw. Local only. `appendix=true` adds the appendix
+    titles (5a, 11a, 18a, 28a, 50a as 105, 111, 118, 128, 150, with `label`)."""
+    return usc_build.catalog(include_appendix=appendix)
 
 
 @usc_router.get("/release")
@@ -59,7 +60,10 @@ def current_release(refresh: bool = False) -> dict:
         raise HTTPException(503, f"The OLRC didn't answer: {exc}")
     st = usc_build.status(release)
     return {"release_point": release["release_point"], "current_through": release.get("current_through"),
-            "available_titles": sorted(int(k) for k in release.get("titles", {})),
+            "available_titles": sorted(int(k) for k in release.get("titles", {})
+                                       if int(k) not in usc_client.APPENDIX),
+            "available_appendix_titles": sorted(int(k) for k in release.get("titles", {})
+                                                if int(k) in usc_client.APPENDIX),
             "titles": st["titles"]}
 
 

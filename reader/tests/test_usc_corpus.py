@@ -412,7 +412,10 @@ class ApiTests(UscTestCase):
         with mock.patch.object(usc_client, "client", side_effect=AssertionError("network")):
             c = self.client.get("/api/usc/catalog").json()
         self.assertIsNone(c["release"])
-        self.assertEqual(len(c["titles"]), 59)                 # 54 titles + 5 appendix titles
+        self.assertEqual(len(c["titles"]), 54)
+        appx = self.client.get("/api/usc/catalog", params={"appendix": "true"}).json()["titles"]
+        self.assertEqual(len(appx), 59)                         # + 5a, 11a, 18a, 28a, 50a
+        self.assertEqual(appx[-1]["label"], "50a")
         self.assertIn("Labor, Health & Safety", c["desks"])
         t29 = c["titles"][28]
         self.assertEqual((t29["title"], t29["name"], t29["desk"], t29["cfr"], t29["installed"]),
@@ -447,7 +450,8 @@ class ApiTests(UscTestCase):
         with FakeOLRC(rp="119-142").patch():
             r = self.client.get("/api/usc/release").json()
         self.assertEqual(r["release_point"], "119-142")
-        self.assertEqual(r["available_titles"], [1, 4, 105])
+        self.assertEqual(r["available_titles"], [1, 4])
+        self.assertEqual(r["available_appendix_titles"], [105])
         self.assertTrue(r["titles"][0]["stale"])
         usc_client.clear_cache()
         with FakeOLRC(page_status=500).patch():

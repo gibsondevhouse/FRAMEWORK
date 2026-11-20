@@ -297,7 +297,7 @@ def title_bytes(title: int) -> int:
     return size
 
 
-def catalog() -> dict:
+def catalog(include_appendix: bool = False) -> dict:
     """Every title 1-54 with its static facts, install summary, bytes on disk and, when this
     process has already asked the OLRC, whether it is behind the current release point.
     Never touches the network: `GET /api/usc/release?refresh=true` is the explicit check."""
@@ -306,11 +306,12 @@ def catalog() -> dict:
     current = release["release_point"] if release else None
     installed = set(usc_store.installed_titles())
     rows = []
-    for n in usc_client.ALL_TITLES:
+    for n in (usc_client.ALL_TITLES if include_appendix else usc_client.TITLE_RANGE):
         s = static["titles"].get(str(n), {})
         inst = usc_store.title_summary(n) if n in installed else None
         row = {
             "title": n,
+            "label": usc_client.title_label(n),
             "name": s.get("name") or (inst or {}).get("name") or f"Title {n}",
             "reserved": n in usc_client.RESERVED or bool(s.get("reserved")),
             "positive_law": bool(inst["positive_law"]) if inst else bool(s.get("positive_law")),
