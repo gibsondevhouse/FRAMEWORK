@@ -476,13 +476,29 @@ def search(q: str, limit: int = 20) -> dict:
         fq = fts_query(q)
         if not fq:
             return {"installed": True, "total": 0, "results": []}
-        rows = con.execute(
-            "SELECT f.rin, f.edition, e.title, e.stage, e.parent_acronym, "
-            "snippet(entries_fts, 3, char(2), char(3), ' … ', 24) AS snippet FROM entries_fts f "
-            "JOIN entries e ON e.rin = f.rin AND e.edition = f.edition WHERE entries_fts MATCH ? "
-            "ORDER BY f.edition DESC, bm25(entries_fts, 0, 0, 3.0, 1.0) LIMIT ?", (fq, limit)).fetchall()
-        total = con.execute("SELECT count(*) FROM entries_fts WHERE entries_fts MATCH ?", (fq,)).fetchone()[0]
-    return {"installed": True, "total": total, "results": [dict(r) for r in rows]}
+        # One result per rule: a RIN matches once per edition, so keep its newest matching
+        # entry and count distinct RINs, before the limit is applied.
+        newest: dict[str, tuple] = {}
+        for rid, rin, edition, score in con.execute(
+                "SELECT rowid, rin, edition, bm25(entries_fts, 0, 0, 3.0, 1.0) FROM entries_fts "
+                "WHERE entries_fts MATCH ?", (fq,)):
+            if rin not in newest or edition > newest[rin][1]:
+                newest[rin] = (rid, edition, score)
+        top = sorted(newest.items(), key=lambda kv: kv[1][2])                 # best match first…
+        top = sorted(top, key=lambda kv: kv[1][1], reverse=True)[:limit]      # …within the newest edition
+        marks = ",".join("?" * len(top))
+        snippets = dict(con.execute(
+            "SELECT rowid, snippet(entries_fts, 3, char(2), char(3), ' … ', 24) FROM entries_fts "
+            f"WHERE entries_fts MATCH ? AND rowid IN ({marks})", (fq, *(v[0] for _, v in top))).fetchall())
+        results = []
+        for rin, (rid, edition, _score) in top:
+            e = con.execute("SELECT title, stage, parent_acronym FROM entries WHERE rin = ? AND edition = ?",
+                            (rin, edition)).fetchone()
+            results.append({"rin": rin, "edition": edition, "title": e["title"] if e else None,
+                            "stage": e["stage"] if e else None,
+                            "parent_acronym": e["parent_acronym"] if e else None,
+                            "snippet": snippets.get(rid, "")})
+    return {"installed": True, "total": len(newest), "results": results}
 
 
 def remove() -> bool:

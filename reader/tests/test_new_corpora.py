@@ -404,6 +404,11 @@ class AgendaTests(CorpusTestCase):
         with self.fake.patch():
             up = agenda.update()
         self.assertEqual(up["new_editions"], ["202604"])
+        # Search lists a rule once (its newest matching edition) and counts rules, not editions.
+        hits = agenda.search("heat stress")
+        self.assertEqual([(r["rin"], r["edition"]) for r in hits["results"]], [("1218-AD39", "202604")])
+        self.assertEqual(hits["total"], 1)
+        self.assertIn("\x02", hits["results"][0]["snippet"])
 
     def test_api(self):
         c = TestClient(app)

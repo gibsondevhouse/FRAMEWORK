@@ -379,7 +379,6 @@ test('cross-framework search blocks become one row shape, installed frameworks o
     ] },
     agenda: { installed: true, total: 3, results: [
       { rin: '1218-AD39', edition: '202510', title: 'Heat', stage: 'Final Rule Stage', parent_acronym: 'DOL', snippet: '' },
-      { rin: '1218-AD39', edition: '202504', title: 'Heat', stage: 'Proposed Rule Stage', parent_acronym: 'DOL', snippet: '' },
     ] },
   });
   assert.deepEqual(groups.map(g => g.key), ['usc', 'plaw', 'fr', 'agenda']);
@@ -389,8 +388,7 @@ test('cross-framework search blocks become one row shape, installed frameworks o
   assert.deepEqual([usc.rows[1].num, usc.rows[1].meta], ['5 U.S.C. App. § 101', 'repealed']);
   assert.deepEqual([plaw.rows[0].href, plaw.rows[0].num], ['#/law/114-2', 'Pub. L. 114-2']);
   assert.deepEqual([fr.rows[0].href, fr.rows[0].num, fr.rows[0].snippet], ['#/news/fr/2026-00001', '91 FR 100', 'An abstract.']);
-  assert.equal(agenda.rows.length, 1);                       // one row per rule: its newest edition
-  assert.equal(agenda.total, 2);
+  assert.equal(agenda.total, 3);                             // the API's distinct-rule count, unchanged
   assert.equal(agenda.rows[0].href, '#/news/agenda/1218-AD39?edition=202510');
   assert.equal(agenda.rows[0].meta, 'DOL · Final rule · Fall 2025');
   assert.equal(parseFrameworkFilter('usc'), 'usc');

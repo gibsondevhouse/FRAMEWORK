@@ -107,21 +107,14 @@ export function frameworkGroups(data: SearchResponse): FrameworkGroup[] {
 
   const a = data.agenda;
   if (a?.installed) {
-    // The same rule appears once per edition, newest first: keep its newest entry.
-    const seen = new Set<string>();
-    const rows: FrameworkRow[] = [];
-    for (const r of a.results) {
-      if (seen.has(r.rin)) continue;
-      seen.add(r.rin);
-      rows.push({
-        href: agendaHref(r.rin, r.edition),
-        num: `RIN ${r.rin}`,
-        name: r.title || '',
-        meta: [r.parent_acronym, stageShort(r.stage), editionLabel(r.edition)].filter(Boolean).join(' · '),
-        snippet: r.snippet || '',
-      });
-    }
-    add('agenda', 'fr', a.total - (a.results.length - rows.length), rows);
+    // The API returns one row per rule (its newest matching edition) and counts distinct RINs.
+    add('agenda', 'fr', a.total, a.results.map(r => ({
+      href: agendaHref(r.rin, r.edition),
+      num: `RIN ${r.rin}`,
+      name: r.title || '',
+      meta: [r.parent_acronym, stageShort(r.stage), editionLabel(r.edition)].filter(Boolean).join(' · '),
+      snippet: r.snippet || '',
+    })));
   }
   return out;
 }

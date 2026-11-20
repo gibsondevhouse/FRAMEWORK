@@ -20858,26 +20858,17 @@ function frameworkGroups(data) {
 		snippet: r.snippet || r.abstract || ""
 	})));
 	const a = data.agenda;
-	if (a?.installed) {
-		const seen = /* @__PURE__ */ new Set();
-		const rows = [];
-		for (const r of a.results) {
-			if (seen.has(r.rin)) continue;
-			seen.add(r.rin);
-			rows.push({
-				href: agendaHref(r.rin, r.edition),
-				num: `RIN ${r.rin}`,
-				name: r.title || "",
-				meta: [
-					r.parent_acronym,
-					stageShort(r.stage),
-					editionLabel(r.edition)
-				].filter(Boolean).join(" · "),
-				snippet: r.snippet || ""
-			});
-		}
-		add("agenda", "fr", a.total - (a.results.length - rows.length), rows);
-	}
+	if (a?.installed) add("agenda", "fr", a.total, a.results.map((r) => ({
+		href: agendaHref(r.rin, r.edition),
+		num: `RIN ${r.rin}`,
+		name: r.title || "",
+		meta: [
+			r.parent_acronym,
+			stageShort(r.stage),
+			editionLabel(r.edition)
+		].filter(Boolean).join(" · "),
+		snippet: r.snippet || ""
+	})));
 	return out;
 }
 // src/views/search.ts
