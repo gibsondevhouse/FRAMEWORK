@@ -1,5 +1,5 @@
 {
-  "sha256": "b35f9cc3001626c207c97325f29bd09a7e9040c28d257b80b0f3eaa612f39ff8",
+  "sha256": "cdf0bdc54352ddd6a74777d40b4e0fb3347fbef11d509de6f5cabd545c6c6886",
   "files": [
     "index.html",
     "src/api/client.ts",
@@ -10,6 +10,7 @@
     "src/components/corpora.ts",
     "src/components/env_modal.ts",
     "src/components/news_activity.ts",
+    "src/components/page_shell.ts",
     "src/components/palette.ts",
     "src/components/part_toc.ts",
     "src/components/peek.ts",
@@ -50,6 +51,7 @@
     "src/styles/03_layout.css",
     "src/styles/04_sidebar.css",
     "src/styles/05_home_overview_lib.css",
+    "src/styles/05a_page_system.css",
     "src/styles/06_panels_proj.css",
     "src/styles/07_reader.css",
     "src/styles/08_chat.css",
@@ -63,6 +65,7 @@
     "src/views/help.ts",
     "src/views/home.ts",
     "src/views/library.ts",
+    "src/views/library_usc.ts",
     "src/views/news.ts",
     "src/views/news_case.ts",
     "src/views/news_fr.ts",

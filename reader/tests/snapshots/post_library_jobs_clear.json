@@ -1,4 +1,53 @@
 {
-  "cancelled": [],
-  "count": 0
+  "cancelled": [
+    {
+      "done": null,
+      "error": null,
+      "finished_at": "«int»",
+      "id": 1,
+      "kind": "usc-title",
+      "label": "U.S. Code Title 29",
+      "phase": "Cancelled",
+      "queued_at": "«int»",
+      "state": "cancelled",
+      "target": {
+        "usc_title": 29
+      },
+      "title": 1029,
+      "total": null
+    },
+    {
+      "done": null,
+      "error": null,
+      "finished_at": "«int»",
+      "id": 2,
+      "kind": "usc-title",
+      "label": "U.S. Code Title 42",
+      "phase": "Cancelled",
+      "queued_at": "«int»",
+      "state": "cancelled",
+      "target": {
+        "usc_title": 42
+      },
+      "title": 1042,
+      "total": null
+    },
+    {
+      "done": null,
+      "error": null,
+      "finished_at": "«int»",
+      "id": 3,
+      "kind": "usc-title",
+      "label": "U.S. Code Title 49",
+      "phase": "Cancelled",
+      "queued_at": "«int»",
+      "state": "cancelled",
+      "target": {
+        "usc_title": 49
+      },
+      "title": 1049,
+      "total": null
+    }
+  ],
+  "count": 3
 }

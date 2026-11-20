@@ -294,7 +294,7 @@ class Milestone3BrowserTests(HermeticTestCase):
         self.assertIn("1910.120", page.locator("#view").inner_text())
 
         # 2. Library page (#lib-filter) preserves exact DOM element and focus across keystrokes
-        page.goto(f"{self.base_url}/#/library", wait_until="networkidle")
+        page.goto(f"{self.base_url}/#/library/cfr", wait_until="networkidle")
         page.wait_for_selector("#lib-filter", timeout=10000)
         page.evaluate("() => { window.__libBefore = document.getElementById('lib-filter'); }")
         page.locator("#lib-filter").focus()

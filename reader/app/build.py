@@ -444,10 +444,10 @@ def build(
     report("Installing")
     tmp_tree = target_tree.with_suffix(".json.tmp")
     tmp_tree.write_text(json.dumps(tree, separators=(",", ":")), encoding="utf-8")
-    # Without a job's swap hook (CLI and direct calls), still close this process's read
-    # connections before each replace: Windows refuses to replace a file that is open.
     release = before_install
     if release is None:
+        # No server-side swap coordinator (CLI or tests): still close this process's cached
+        # read handles first, because Windows refuses to replace a file that is open.
         from . import store
 
         def release() -> None:
@@ -465,7 +465,7 @@ def build(
                 legacy_tmp = legacy.with_suffix(legacy.suffix + ".tmp")
                 try:
                     shutil.copy2(src, legacy_tmp)
-                    _replace_with_retry(legacy_tmp, legacy, release)
+                    _replace_with_retry(legacy_tmp, legacy, before_install)
                 except OSError:
                     legacy_tmp.unlink(missing_ok=True)
 

@@ -321,6 +321,9 @@ Installed U.S. Code titles, built from the OLRC's USLM XML (`python -m app.usc_b
 ### `GET /api/usc/titles`
 Installed titles, local only: `{titles[{title, name, release_point, built_at, section_count, note_count, positive_law, xml_sha256, zip_sha256, source_url}]}`.
 
+### `GET /api/usc/catalog`
+All 54 U.S. Code titles for the Library, offline (never calls the OLRC): `{release: {release_point, current_through} | null, desks, titles[{title, name, reserved, positive_law, desk, cfr, installed: {release_point, built_at, section_count, note_count, bytes, stale} | null}]}`. Names, desks and implementing CFR titles (`cfr`) come from `app/usc_titles.json`; `release` and `stale` reflect the last release the server fetched (`null` until `GET /api/usc/release` has run).
+
 ### `GET /api/usc/release`
 Asks the OLRC for the current release point (cached 30 min; `?refresh=true` bypasses): `{release_point, current_through, available_titles, titles[… + stale]}`. 503 when the OLRC doesn't answer.
 
@@ -373,7 +376,7 @@ All 50 titles with install state and editorial fields, the topic desks, the comp
 For a partial install `whole` is false and `parts` / `sections` count what was selected. `bytes` is the database on disk. `size_mb` (eCFR's full-text size) and `sections` are estimates measured from the 2026-11-12 edition and kept in `app/title_blurbs.json`; a suite's are the sums of its titles'.
 
 ### `GET /api/library/storage`
-What the reader keeps on disk: `{"titles": [{"title", "bytes"}], "legacy_bytes", "temp_files", "temp_bytes", "total_bytes"}`. A title's bytes are its database plus contents tree; `legacy_bytes` is Title 29's legacy copy (`title29.sqlite3`, `tree.json`); temp files are what an interrupted build left behind (any name containing `.tmp`).
+What the reader keeps on disk: `{"titles": [{"title", "bytes"}], "legacy_bytes", "usc": [{"title", "bytes"}], "temp_files", "temp_bytes", "total_bytes"}`. `usc` lists installed U.S. Code titles (database plus tree) and counts toward `total_bytes`. A title's bytes are its database plus contents tree; `legacy_bytes` is Title 29's legacy copy (`title29.sqlite3`, `tree.json`); temp files are what an interrupted build left behind (any name containing `.tmp`).
 
 ### `POST /api/library/storage/prune`
 Delete the leftover temporary files. Returns `{"removed", "freed_bytes"}`. `409` while a download is queued or running.
@@ -406,7 +409,7 @@ Queue a download. Body:
 Returns the queued job. Downloading more of an installed title merges the scopes and rebuilds at the latest edition; a request that is already installed at the current edition is a no-op.
 
 ### `POST /api/library/batch-download`
-Queue whole-title downloads for a suite or a list of titles: `{"suite": "ehs"}` or `{"titles": [12, 15]}`. Reserved titles and titles already installed whole at the latest edition are skipped; a whole title on an older edition gets an update job; a partial install is completed. Returns `{"queued": [jobs], "skipped": [{"title", "reason"}], "count"}`. `404` for an unknown suite, `400` for an empty request or a title outside 1–50.
+Queue whole-title downloads for a suite or a list of titles: `{"suite": "ehs"}` or `{"titles": [12, 15]}`. Reserved titles and titles already installed whole at the latest edition are skipped; a whole title on an older edition gets an update job; a partial install is completed. A suite with `usc_titles` also queues those U.S. Code titles (missing ones installed, ones behind the cached release updated; skipped entries carry `code: "usc"`). Returns `{"queued": [jobs], "skipped": [{"title", "reason"}], "count"}`. `404` for an unknown suite, `400` for an empty request or a title outside 1–50.
 
 ### `POST /api/library/update-all`
 Queue an update for every installed title (whole or partial, keeping its scope) whose edition is older than eCFR's latest. Returns `{"queued": [jobs], "count"}`; `count` is 0 when everything is current.

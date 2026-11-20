@@ -73,7 +73,8 @@ def _is_temp(name: str) -> bool:
 
 
 def storage() -> dict:
-    """Bytes per installed title (database + contents tree), Title 29's legacy copies, and
+    """Bytes per installed CFR title (database + contents tree), per installed U.S. Code title
+    (`usc`), Title 29's legacy copies, and
     leftover temporary files from builds that didn't finish."""
     titles = []
     for n in config.installed_titles():
@@ -89,14 +90,17 @@ def storage() -> dict:
         f = config.DATA_DIR / name
         if f.exists() and f not in (config.db_path(29), config.tree_path(29)):
             legacy += f.stat().st_size
+    from .. import usc_build, usc_store
+    usc = [{"title": n, "bytes": usc_build.title_bytes(n)} for n in usc_store.installed_titles()]
     temp = [f for f in config.DATA_DIR.glob("*") if f.is_file() and _is_temp(f.name)] if config.DATA_DIR.exists() else []
     temp_bytes = sum(f.stat().st_size for f in temp)
     return {
         "titles": titles,
+        "usc": usc,
         "legacy_bytes": legacy,
         "temp_files": len(temp),
         "temp_bytes": temp_bytes,
-        "total_bytes": sum(t["bytes"] for t in titles) + legacy + temp_bytes,
+        "total_bytes": sum(t["bytes"] for t in titles) + sum(t["bytes"] for t in usc) + legacy + temp_bytes,
     }
 
 
