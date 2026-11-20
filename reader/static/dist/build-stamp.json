@@ -1,5 +1,5 @@
 {
-  "sha256": "5972cf1fc4976e1444a37837212f61822f28bd8067d88f61af261d3659632a06",
+  "sha256": "9a9792a61769f8668b53b96789eab544152ef62f73a5e378828d8322a90a1caa",
   "files": [
     "index.html",
     "src/api/client.ts",
@@ -32,6 +32,7 @@
     "src/core/constitution.ts",
     "src/core/constitution_text.ts",
     "src/core/events.ts",
+    "src/core/integrity.ts",
     "src/core/library_meta.ts",
     "src/core/news_format.ts",
     "src/core/plaw.ts",
@@ -72,6 +73,7 @@
     "src/views/doc_utils.ts",
     "src/views/help.ts",
     "src/views/home.ts",
+    "src/views/integrity.ts",
     "src/views/library.ts",
     "src/views/library_constitution.ts",
     "src/views/library_plaw.ts",

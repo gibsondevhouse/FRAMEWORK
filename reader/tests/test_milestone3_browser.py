@@ -344,6 +344,40 @@ class Milestone3BrowserTests(HermeticTestCase):
         page.evaluate("() => fetch('/api/sources/selection', {method: 'DELETE'})")
         self.assertEqual(page._page_errors, [])
         self.assertEqual(self.external, [])
+    def test_settings_integrity_tab_and_incomplete_title_notice(self):    # FT-07, FT-08
+        page = self._new_page()
+
+        def titles(route):                                    # Title 40's download "missed" two sections
+            res = route.fetch()
+            body = res.json()
+            for row in body:
+                if row["title"] == 40:
+                    row.update(missing_sections=2, missing_sample=["261.4", "261.5"])
+            route.fulfill(response=res, json=body)
+
+        page.route("**/api/titles", titles)
+        page.goto(f"{self.base_url}/#/settings/integrity", wait_until="networkidle")
+        page.wait_for_selector("#set-tab-integrity[aria-selected='true']", timeout=10000)
+        page.wait_for_selector(".int-card:has-text('Code of Federal Regulations')", timeout=10000)
+        cfr = page.text_content(".int-card[aria-label='Code of Federal Regulations']")   # OK stores start folded
+        self.assertIn("title 29", cfr)
+        self.assertIn("Edition", cfr)                                   # provenance rows
+        self.assertIn("Unified Agenda", page.inner_text(".int-absent"))  # not installed: one line, no card
+        self.assertEqual(page.locator("#set-tab-body .stat-pill").count(), 0)   # statPill stays sync-only
+        self.assertIn("stayed offline", page.inner_text(".int-lead"))
+        page.click("[data-int-act='offline']")
+        page.wait_for_selector(".int-sum", timeout=10000)
+
+        page.goto(f"{self.base_url}/#/title/40/", wait_until="networkidle")
+        page.wait_for_selector(".ts-incomplete", timeout=10000)
+        note = page.inner_text(".ts-incomplete")
+        self.assertIn("2 sections", note)
+        self.assertIn("§\u00a0261.4", note)
+        page.goto(f"{self.base_url}/#/title/29/", wait_until="networkidle")
+        page.wait_for_selector(".home-hero", timeout=10000)
+        self.assertEqual(page.locator(".ts-incomplete").count(), 0)
+        self.assertEqual(page._page_errors, [])
+
     def test_settings_data_sources_template_sticky_bar_and_import(self):
         page = self._new_page()
         page.goto(f"{self.base_url}/#/settings/sources", wait_until="networkidle")

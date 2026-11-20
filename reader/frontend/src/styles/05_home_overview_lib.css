@@ -11,6 +11,14 @@
 .ts-folio .doc-kicker { margin: 0; font-size: 11px; }
 .ts-folio-right { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ts-folio-meta .sep, .ts-folio .sep { margin: 0 6px; color: var(--fg-4); }
+/* FT-08: a title whose download had sections with no text says so under its headline. */
+.ts-incomplete {
+  display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--warn) 40%, var(--line)); border-radius: var(--r-12);
+  font-size: 13px; color: var(--fg-2);
+}
+.ts-incomplete .icon { flex: none; color: var(--warn); margin-top: 2px; }
+.ts-incomplete a { color: var(--accent); }
 .ts-title-row {
   display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap;
   padding: 14px 0 16px;

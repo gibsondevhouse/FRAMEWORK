@@ -91,6 +91,9 @@ export interface InstalledTitleMeta {
   section_count?: number;
   partial?: boolean;
   ai_configured?: boolean;
+  /** Sections eCFR's table of contents listed that had no text in the download (FT-08); null = not recorded. */
+  missing_sections?: number | null;
+  missing_sample?: string[];
 }
 
 export interface TitleSnapshotRow extends InstalledTitleMeta {

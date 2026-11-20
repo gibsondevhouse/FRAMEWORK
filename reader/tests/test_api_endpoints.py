@@ -34,6 +34,30 @@ class TestApiEndpoints(HermeticTestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()["title"], 29)
         self.assertEqual(res.json()["edition"], "2026-01-02")
+        self.assertEqual((res.json()["missing_sections"], res.json()["missing_sample"]), (0, []))
+
+    def test_missing_sections_are_reported(self):                     # FT-08
+        from unittest import mock
+        from app import store
+        real = store.safe_meta
+
+        def meta(t):
+            m, bad = real(t)
+            if t != 40:
+                return m, bad
+            return {**m, "missing_leaves": "3", "missing_sample": '["261.4", "261.5", "261.6"]'}, bad
+
+        def older(t):
+            m, bad = real(t)
+            return {k: v for k, v in m.items() if k not in ("missing_leaves", "missing_sample")}, bad
+
+        with mock.patch.object(store, "safe_meta", meta):
+            rows = {t["title"]: t for t in self.client.get("/api/titles").json()}
+            self.assertEqual((rows[40]["missing_sections"], rows[40]["missing_sample"]), (3, ["261.4", "261.5", "261.6"]))
+            self.assertEqual(rows[29]["missing_sections"], 0)
+            self.assertEqual(self.client.get("/api/40/meta").json()["missing_sections"], 3)
+        with mock.patch.object(store, "safe_meta", older):              # built before it was recorded
+            self.assertIsNone(self.client.get("/api/29/meta").json()["missing_sections"])
 
     def test_legacy_aliases_are_title_29(self):
         self.assertEqual(self.client.get("/api/meta").json()["title"], 29)

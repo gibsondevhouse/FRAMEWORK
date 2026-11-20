@@ -7,7 +7,7 @@ import { renderCorpusStaging, renderNotFound } from './components/title_switcher
 import { hideMainTabs } from './components/reader_tabs';
 import { setViewHead } from './components/view_head';
 import { applyNav, renderCorpusDrawer, syncNavToRoute } from './nav';
-import { renderDataSourcesPage, renderSettingsPage } from './panels/settings_panel';
+import { renderDataSourcesPage, renderIntegrityPage, renderSettingsPage } from './panels/settings_panel';
 import { dom } from './state_init';
 import { renderHome } from './views/core';
 import { renderHomeScreen } from './views/home';
@@ -235,6 +235,9 @@ export async function handleRoute(): Promise<void> {
   } else if (!titleMatch && /^\/settings\/sources\/?$/.test(checkPath)) {
     hideMainTabs();
     await renderDataSourcesPage({ enter: true });
+  } else if (!titleMatch && /^\/settings\/integrity\/?$/.test(checkPath)) {
+    hideMainTabs();
+    await renderIntegrityPage({ enter: true });
   } else if (checkPath.startsWith('/search')) {
     hideMainTabs();
     const q = params.get('q') || '';

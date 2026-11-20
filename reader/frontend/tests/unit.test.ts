@@ -442,3 +442,40 @@ test('Accident injury lines name the degree and the fall, skipping blanks (FT-28
   assert.equal(accidentInjuryLine({ degree: null, degree_code: '9' }), 'Injury degree code 9');
   assert.equal(accidentInjuryLine({}), 'Injury');
 });
+
+import { groupIntegrity, incompleteTitleNotice, provenanceRows, shortHash, statusWord, worstStatus } from '../src/core/integrity';
+
+test('The integrity report groups by framework and store, worst status first (FT-07)', () => {
+  const report = {
+    status: 'WARN' as const, summary: { OK: 2, WARN: 1, INFO: 1 },
+    items: [
+      { corpus: 'cfr', target: 'title 29', check: 'database', status: 'OK' as const, detail: 'ok' },
+      { corpus: 'cfr', target: 'title 29', check: 'missing_leaves', status: 'WARN' as const, detail: '2 leaves' },
+      { corpus: 'cfr', target: 'title 29', check: 'provenance', status: 'INFO' as const, detail: '…',
+        provenance: { edition: '2026-11-12', xml_sha256: 'a'.repeat(64), fetched_at: 'unknown' } },
+      { corpus: 'usc', target: 'title 4', check: 'database', status: 'OK' as const, detail: 'ok' },
+      { corpus: 'plaw', target: 'corpus', check: 'installed', status: 'INFO' as const, detail: 'Public Laws not installed' },
+    ],
+  };
+  const groups = groupIntegrity(report);
+  assert.deepEqual(groups.map(g => [g.corpus, g.status, g.installed]), [['usc', 'OK', true], ['plaw', 'INFO', false], ['cfr', 'WARN', true]]);
+  assert.equal(groups[2].label, 'Code of Federal Regulations');
+  const t29 = groups[2].targets[0];
+  assert.deepEqual(t29.checks.map(c => c.check), ['database', 'missing_leaves']);
+  assert.deepEqual(provenanceRows(t29.provenance).map(r => r.label), ['Edition', 'Fetched', 'Source SHA-256']);
+  assert.equal(shortHash('a'.repeat(64)), 'aaaaaaaaaaaa…');
+  assert.equal(shortHash('unknown'), 'unknown');
+  assert.equal(worstStatus(['INFO', 'OK', 'FAIL', 'WARN']), 'FAIL');
+  assert.equal(worstStatus(['INFO']), 'INFO');
+  assert.equal(statusWord('WARN'), 'Check');
+  assert.deepEqual(groupIntegrity(null), []);
+});
+
+test('An incomplete CFR title says how many sections are missing (FT-08)', () => {
+  assert.equal(incompleteTitleNotice({ missing_sections: 0 }), '');
+  assert.equal(incompleteTitleNotice({ missing_sections: null }), '');
+  assert.equal(incompleteTitleNotice(null), '');
+  assert.equal(incompleteTitleNotice({ missing_sections: 1, missing_sample: ['1910.999'] }),
+    '1 section listed in eCFR’s table of contents had no text in this download (for example §\u00a01910.999), so it isn’t in this copy.');
+  assert.match(incompleteTitleNotice({ missing_sections: 12, missing_sample: ['1', '2', '3', '4'] }), /^12 sections .*\(for example §\u00a01, §\u00a02, §\u00a03\), so they aren’t/);
+});
