@@ -340,5 +340,48 @@ class Milestone3BrowserTests(HermeticTestCase):
         self.assertEqual(self.external, [])
 
 
+    def test_settings_data_sources_template_sticky_bar_and_import(self):
+        page = self._new_page()
+        page.goto(f"{self.base_url}/#/settings/sources", wait_until="networkidle")
+        page.wait_for_selector("#ds-root", timeout=10000)
+
+        # Import is a real, focusable button (the file input itself stays hidden).
+        imp = page.locator("[data-ds-act='import']")
+        self.assertEqual(imp.evaluate("el => el.tagName"), "BUTTON")
+
+        # An unapplied edit keeps the bar on screen while scrolled to the top of the page.
+        page.locator("[data-ds-enable='news']").click()
+        page.wait_for_selector(".ds-bar [data-ds-act='review']", timeout=5000)
+        page.evaluate("() => { document.querySelector('#main').scrollTop = 0; }")
+        in_view = page.evaluate("""() => {
+            const r = document.querySelector('.ds-bar').getBoundingClientRect();
+            return r.top >= 0 && r.bottom <= window.innerHeight;
+        }""")
+        self.assertTrue(in_view)
+        page.locator(".ds-bar [data-ds-act='discard']").click()
+
+        # Using a template fills the checklist itself, then reviews it under the template's name.
+        options = page.eval_on_selector_all("[data-ds-template] option", "els => els.map(e => [e.value, e.textContent])")
+        minimal = next(v for v, label in options if label.startswith("Minimal"))
+        page.select_option("[data-ds-template]", minimal)
+        page.locator("[data-ds-act='use-template']").click()
+        page.wait_for_selector("#ds-review", timeout=10000)
+        self.assertIn("Minimal", page.locator("#ds-review .ds-title").inner_text())
+        tpl = page.evaluate(f"""async () => {{
+            const r = await fetch('/api/sources/templates/{minimal}');
+            return r.ok ? r.json() : null;
+        }}""")
+        self.assertTrue(tpl)
+        checked = 0
+        for sid, choice in tpl["selection"]["sources"].items():
+            sw = page.locator(f"[data-ds-enable='{sid}']")
+            if sw.count():
+                self.assertEqual(sw.is_checked(), bool(choice["enabled"]), sid)
+                checked += 1
+        self.assertGreater(checked, 0)
+        self.assertEqual(page._page_errors, [])
+        self.assertEqual(self.external, [])
+
+
 if __name__ == "__main__":
     unittest.main()

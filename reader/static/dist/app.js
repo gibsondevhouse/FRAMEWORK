@@ -10516,7 +10516,9 @@ var ds = {
 	open: /* @__PURE__ */ new Set(),
 	search: {},
 	templateId: "",
-	saving: false
+	saving: false,
+	planSeq: 0,
+	templateName: null
 };
 var clone = (v) => JSON.parse(JSON.stringify(v));
 var SOURCES_URL = "/api/sources";
@@ -10564,7 +10566,8 @@ function templateBarHtml() {
 		title: "Start from a template, then tick your own boxes",
 		subHtml: "A template fills in the whole checklist below. Nothing downloads until you review the changes and apply them. Unticking only stops updates; your data stays until you choose to remove it.",
 		actionsHtml: `<button type="button" class="btn" data-ds-act="export"${ds.templates.filter((t) => !t.builtin).length ? "" : " disabled"}>Export my templates</button>
-      <label class="btn ds-import">Import<input type="file" accept="application/json,.json" data-ds-import hidden></label>`,
+      <button type="button" class="btn" data-ds-act="import">Import</button>
+      <input type="file" accept="application/json,.json" data-ds-import hidden tabindex="-1" aria-hidden="true">`,
 		id: "ds-templates"
 	}) + `<div class="ds-tpl-row">
       <label class="ds-tpl-pick"><span class="set-name">Template</span>
@@ -10590,16 +10593,33 @@ function statusLine(s) {
 	if (st.jobs?.length) bits.push("download in progress");
 	return `<p class="ds-status">${escapeHtml(bits.join(" · "))}${st.last_error ? ` <span class="ds-err">Last update failed: ${escapeHtml(st.last_error)}</span>` : ""}</p>`;
 }
+var MODAL_KEYS = /* @__PURE__ */ new Set(["dol_api_key", "anthropic_api_key"]);
+function addKeyHtml(env) {
+	const k = (env || "").toLowerCase();
+	if (MODAL_KEYS.has(k)) return `<button type="button" class="btn btn-sm" data-open-env="${escapeHtml(k)}">Add key</button>`;
+	return env ? `<span class="ds-key-how">Add <code>${escapeHtml(env)}=…</code> to <code>reader/.env</code>, then restart.</span>` : "";
+}
 function keyHtml(s) {
 	const parts = [];
 	if (s.needs_key) parts.push(s.key_present ? `<p class="ds-key ok">${icon("key")}<span class="ds-key-text">${escapeHtml(s.key_label || "Key")} is set.</span></p>` : `<p class="ds-key">${icon("key")}<span class="ds-key-text">Needs a free ${escapeHtml(s.key_label || "key")}. Ticked boxes wait until it's added.</span>
           ${s.get_key_url ? `<a href="${escapeHtml(s.get_key_url)}" target="_blank" rel="noopener">Get a key</a>` : ""}
-          <button type="button" class="btn btn-sm" data-open-env="${escapeHtml((s.key_env || "").toLowerCase())}">Add key</button></p>`);
+          ${addKeyHtml(s.key_env)}</p>`);
 	const ok = s.optional_key;
 	if (ok && !ok.key_present) parts.push(`<p class="ds-key opt">${icon("key")}<span class="ds-key-text">Optional: ${escapeHtml(ok.key_label)}${ok.purpose ? `. ${escapeHtml(ok.purpose.replace(/\.+$/, ""))}` : ""}.</span>
       <a href="${escapeHtml(ok.get_key_url)}" target="_blank" rel="noopener">Get a key</a>
-      <button type="button" class="btn btn-sm" data-open-env="${escapeHtml(ok.key_env.toLowerCase())}">Add key</button></p>`);
+      ${addKeyHtml(ok.key_env)}</p>`);
 	return parts.join("");
+}
+var optHay = (o) => `${o.label} ${o.desk || ""} ${o.value}`.toLowerCase();
+function pickOptions(f, value) {
+	const opts = (f.options || []).filter((o) => !o.reserved);
+	const known = new Set(opts.map((o) => String(o.value)));
+	const extra = (Array.isArray(value) ? value : []).filter((v) => !known.has(String(v))).map((v) => ({
+		value: v,
+		label: String(v),
+		description: "Added outside this list"
+	}));
+	return [...opts, ...extra];
 }
 function multiHtml(s, f, value) {
 	const key = `${s.id}.${f.id}`;
@@ -10609,7 +10629,7 @@ function multiHtml(s, f, value) {
 	if (f.allow_all) modes.push(["all", "All"]);
 	if (f.allow_installed) modes.push(["installed", "The ones on this computer"]);
 	modes.push(["some", modes.length ? "Only the ones I tick" : "Pick"]);
-	const opts = (f.options || []).filter((o) => !o.reserved);
+	const opts = pickOptions(f, value);
 	const q = (ds.search[key] || "").toLowerCase();
 	const list = mode === "some" ? `
       <div class="ds-pick-tools">
@@ -10619,10 +10639,10 @@ function multiHtml(s, f, value) {
         <span class="ds-count">${picked.size} of ${opts.length} ticked</span>
       </div>
       <ul class="ds-pick" role="list">${opts.map((o) => {
-		const hay = `${o.label} ${o.desk || ""} ${o.value}`.toLowerCase();
+		const hay = optHay(o);
 		const hidden = q && !hay.includes(q) ? " hidden" : "";
 		const sz = sizeLabel(o.estimate);
-		return `<li${hidden}><label class="ds-check" title="${escapeHtml(o.description || "")}">
+		return `<li data-hay="${escapeHtml(hay)}"${hidden}><label class="ds-check" title="${escapeHtml(o.description || "")}">
           <input type="checkbox" data-ds-opt="${escapeHtml(key)}" value="${escapeHtml(String(o.value))}"${picked.has(String(o.value)) ? " checked" : ""}>
           <span class="ds-check-label">${escapeHtml(o.label)}</span>${sz ? `<span class="ds-size">${sz}</span>` : ""}</label></li>`;
 	}).join("")}</ul>` : "";
@@ -10674,7 +10694,7 @@ function sourceCardHtml(s) {
 function reviewHtml() {
 	const p = ds.plan;
 	if (p) {
-		const title = ds.planFor?.kind === "template" ? `Use “${ds.planFor.name}”` : "Review your changes";
+		const title = ds.planFor?.templateName ? `Use “${ds.planFor.templateName}”` : "Review your changes";
 		const est = p.estimate?.bytes_label ? `<p class="ds-est">Download about ${escapeHtml(p.estimate.bytes_label)}, ${escapeHtml(p.estimate.time_label || "")}.</p>` : "";
 		const list = (items, cls) => items.length ? `<ul class="ds-plan-list ${cls}">${items.map((i) => `<li>${escapeHtml(i.label)}${sizeLabel(i.estimate) ? ` <span class="ds-size">${sizeLabel(i.estimate)}</span>` : ""}${i.get_key_url ? ` <a href="${escapeHtml(i.get_key_url)}" target="_blank" rel="noopener">Get a key</a>` : ""}</li>`).join("")}</ul>` : "";
 		return `<section class="ds-review" id="ds-review" role="region" aria-label="${escapeHtml(title)}">
@@ -10687,10 +10707,11 @@ function reviewHtml() {
         <label class="ds-check ds-remove"><input type="checkbox" data-ds-remove${ds.removeUnselected ? " checked" : ""}> Also delete the data for anything I unticked</label>
         <div class="ds-review-acts">
           <button type="button" class="btn" data-ds-act="cancel-review">Back</button>
-          <button type="button" class="btn btn-accent" data-ds-act="apply"${ds.busy ? " disabled" : ""}>${p.needs_confirm || ds.removeUnselected ? "Yes, apply these changes" : "Apply"}</button>
+          <button type="button" class="btn btn-accent" data-ds-act="apply"${ds.busy || !ds.planFor ? " disabled" : ""}>${p.needs_confirm || ds.planFor?.remove ? "Yes, apply these changes" : "Apply"}</button>
         </div>
       </section>`;
 	}
+	if (ds.busy && ds.dirty) return "<div class=\"ds-bar\" role=\"status\"><span>Preparing the review…</span></div>";
 	return ds.dirty ? `<div class="ds-bar" role="region" aria-label="Unsaved changes">
       <span>You have changes that aren't applied yet.</span>
       <button type="button" class="btn" data-ds-act="discard">Discard</button>
@@ -10729,59 +10750,72 @@ function rerender(focusSel) {
 }
 function markDirty() {
 	ds.dirty = true;
+	dropPlan();
+}
+function dropPlan() {
 	ds.plan = null;
 	ds.planFor = null;
+	ds.planSeq++;
+	ds.busy = false;
 }
 async function review() {
+	if (!ds.draft) return;
+	dropPlan();
+	const seq = ds.planSeq;
+	const snapshot = {
+		selection: clone(ds.draft),
+		remove: ds.removeUnselected,
+		templateName: ds.templateName
+	};
 	ds.busy = true;
+	rerender();
 	try {
-		ds.plan = await getJSON(`${SOURCES_URL}/selection/preview`, jsonPost({
-			selection: ds.draft,
-			remove_unselected: ds.removeUnselected
+		const plan = await getJSON(`${SOURCES_URL}/selection/preview`, jsonPost({
+			selection: snapshot.selection,
+			remove_unselected: snapshot.remove
 		}));
-		ds.planFor = { kind: "draft" };
+		if (seq !== ds.planSeq) return;
+		ds.plan = plan;
+		ds.planFor = snapshot;
 	} catch (err) {
+		if (seq !== ds.planSeq) return;
 		showToast(err instanceof Error ? err.message : "Could not prepare the changes", 5e3);
+	} finally {
+		if (seq === ds.planSeq) ds.busy = false;
 	}
-	ds.busy = false;
 	rerender();
 	document.getElementById("ds-review")?.scrollIntoView({ block: "nearest" });
 }
-async function previewTemplate() {
+function useTemplate() {
 	const t = ds.templates.find((x) => x.id === ds.templateId);
 	if (!t) return;
-	ds.busy = true;
-	try {
-		ds.plan = await getJSON(`${SOURCES_URL}/templates/${encodeURIComponent(t.id)}/preview`, jsonPost({ remove_unselected: ds.removeUnselected }));
-		ds.planFor = {
-			kind: "template",
-			id: t.id,
-			name: t.name
-		};
-	} catch (err) {
-		showToast(err instanceof Error ? err.message : "Could not prepare the template", 5e3);
-	}
-	ds.busy = false;
-	rerender();
-	document.getElementById("ds-review")?.scrollIntoView({ block: "nearest" });
+	ds.draft = clone(t.selection);
+	ds.templateName = t.name;
+	ds.dirty = true;
+	review();
 }
 async function apply() {
-	if (!ds.planFor) return;
+	const snap = ds.planFor;
+	if (!snap || ds.busy) return;
 	ds.busy = true;
 	rerender();
 	try {
-		const body = {
-			confirm: true,
-			remove_unselected: ds.removeUnselected
-		};
-		showToast((ds.planFor.kind === "template" ? await getJSON(`${SOURCES_URL}/templates/${encodeURIComponent(ds.planFor.id)}/apply`, jsonPost(body)) : await getJSON(`${SOURCES_URL}/selection/apply`, jsonPost({
-			...body,
-			selection: ds.draft
-		}))).applied === false ? "Nothing was changed" : "Data sources updated. Downloads run in the transfer dock.");
+		const res = await getJSON(`${SOURCES_URL}/selection/apply`, jsonPost({
+			selection: snap.selection,
+			remove_unselected: snap.remove,
+			confirm: true
+		}));
+		const queued = res.queued || [];
+		for (const j of queued) state.jobsSeenActive.add(j.id);
+		const skipped = res.skipped || [];
+		if (res.applied === false) showToast("Nothing was changed");
+		else if (skipped.length) showToast(`Saved, but ${skipped.length} step${skipped.length === 1 ? " was" : "s were"} skipped: ${skipped.map((x) => `${x.label} (${x.reason || "skipped"})`).join("; ")}`, 9e3);
+		else showToast(queued.length ? "Data sources updated. Downloads run in the transfer dock." : "Data sources updated.");
 		ds.dirty = false;
-		ds.plan = null;
-		ds.planFor = null;
+		dropPlan();
 		ds.removeUnselected = false;
+		ds.templateName = null;
+		if (queued.length) pollJobs();
 		await loadDataSources();
 	} catch (err) {
 		showToast(err instanceof Error ? err.message : "Could not apply the changes", 5e3);
@@ -10867,18 +10901,19 @@ onView("click", (e) => {
 	if (act) {
 		const a = act.dataset.dsAct;
 		if (a === "review") review();
-		else if (a === "use-template") previewTemplate();
+		else if (a === "use-template") useTemplate();
 		else if (a === "apply") apply();
 		else if (a === "cancel-review") {
-			ds.plan = null;
-			ds.planFor = null;
+			dropPlan();
 			rerender();
 		} else if (a === "discard") {
 			ds.draft = clone(ds.data.selection);
 			ds.dirty = false;
-			ds.plan = null;
+			ds.templateName = null;
+			dropPlan();
 			rerender();
-		} else if (a === "save-template") saveTemplate();
+		} else if (a === "import") document.querySelector("[data-ds-import]")?.click();
+		else if (a === "save-template") saveTemplate();
 		else if (a === "delete-template") deleteTemplate(act.dataset.id || "", act);
 		else if (a === "export") exportTemplates();
 		return;
@@ -10897,8 +10932,8 @@ onView("click", (e) => {
 		const [s, f] = splitKey(key);
 		if (!s || !f) return;
 		const q = (ds.search[key] || "").toLowerCase();
-		const visible = (f.options || []).filter((o) => !o.reserved && (!q || `${o.label} ${o.desk || ""} ${o.value}`.toLowerCase().includes(q)));
 		const cur = choiceFor(s.id).scope[f.id];
+		const visible = pickOptions(f, cur).filter((o) => !q || optHay(o).includes(q));
 		const set = new Set((Array.isArray(cur) ? cur : []).map(String));
 		for (const o of visible) if (all.dataset.on === "1") set.add(String(o.value));
 		else set.delete(String(o.value));
@@ -10913,19 +10948,18 @@ onView("change", (e) => {
 	const d = t.dataset;
 	if (d.dsTemplate !== void 0 && t instanceof HTMLSelectElement) {
 		ds.templateId = t.value;
-		ds.plan = null;
 		rerender("[data-ds-template]");
 		return;
 	}
 	if (t instanceof HTMLInputElement && t.hasAttribute("data-ds-import")) {
 		const file = t.files?.[0];
 		if (file) importTemplates(file);
+		t.value = "";
 		return;
 	}
 	if (t instanceof HTMLInputElement && t.hasAttribute("data-ds-remove")) {
 		ds.removeUnselected = t.checked;
-		if (ds.planFor?.kind === "template") previewTemplate();
-		else if (ds.planFor) review();
+		review();
 		return;
 	}
 	if (d.dsEnable) {
@@ -10969,7 +11003,7 @@ onView("input", (e) => {
 	ds.search[t.dataset.dsSearch] = t.value;
 	const q = t.value.toLowerCase();
 	(t.closest(".ds-filter")?.querySelector(".ds-pick"))?.querySelectorAll("li").forEach((li) => {
-		li.hidden = Boolean(q) && !(li.textContent || "").toLowerCase().includes(q);
+		li.hidden = Boolean(q) && !(li.dataset.hay || "").includes(q);
 	});
 });
 // src/panels/settings_panel.ts
