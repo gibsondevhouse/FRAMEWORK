@@ -9,10 +9,10 @@ and the precedence tests): fixed-prefix routers (/api/titles, /api/settings,
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config, library, news_store, news_worker, security, store
@@ -54,14 +54,24 @@ class RevalidatedStaticFiles(StaticFiles):
     header browsers guess a freshness lifetime and keep serving an old app.js/styles.css after
     an update, which pairs new markup with stale code."""
 
-    def file_response(self, *args, **kwargs):
-        response = super().file_response(*args, **kwargs)
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        if str(full_path).lower().endswith(".html") and status_code == 200:
+            # A page: its bytes and its content security policy come from one read.
+            response = security.page_response(scope, Path(full_path))
+        else:
+            response = super().file_response(full_path, stat_result, scope, status_code)
         response.headers["Cache-Control"] = "no-cache"
         return response
 
 
 app = FastAPI(title="FRAMEWORK: CFR Reader & Assistant", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=2048)
+# Every response carries the browser security headers (content security policy, nosniff, no
+# framing, referrer policy); the guard below adds them to its own refusals.
+app.add_middleware(security.SecurityHeadersMiddleware)
+# The standalone U.S.C. page (/usc/{t}/{s}) is the one server-rendered page with a <style>
+# block of its own; the policy allows exactly that block, by hash.
+security.allow_inline_style(usc_routes._PAGE_CSS)
 # Added last so it runs first: a foreign Host or a cross-origin call is refused before any
 # route, the static mount or compression sees it (see app/security.py).
 app.add_middleware(security.LocalTrustMiddleware)
@@ -69,8 +79,9 @@ app.mount("/static", RevalidatedStaticFiles(directory=config.STATIC_DIR), name="
 
 
 @app.get("/", include_in_schema=False)
-def index() -> FileResponse:
-    return FileResponse(config.STATIC_DIR / "dist" / "index.html", headers=NO_STORE)
+def index(request: Request) -> Response:
+    # One read gives both the page and the policy that allows its inline script.
+    return security.page_response(request.scope, config.STATIC_DIR / "dist" / "index.html", NO_STORE)
 
 
 @app.get("/healthz", include_in_schema=False)

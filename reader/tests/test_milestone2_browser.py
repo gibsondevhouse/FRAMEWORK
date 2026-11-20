@@ -26,7 +26,7 @@ from app import build, config, library, news_store, news_worker, store
 from app.library import client as lib_client
 from app.main import app
 import fake_titles
-from tests.base import HermeticTestCase, TRACKED_KEYS
+from tests.base import HermeticTestCase, TRACKED_KEYS, watch_policy_violations
 
 REQUIRE_BROWSER = os.environ.get("REQUIRE_BROWSER") == "1"
 _TITLE_IN_URL = re.compile(r"title-(\d+)\.(?:json|xml)")
@@ -135,6 +135,7 @@ class Milestone2BrowserTests(HermeticTestCase):
         super().setUp()
         self.context = self.browser.new_context(viewport={"width": 1280, "height": 800})
         self.addCleanup(self.context.close)
+        watch_policy_violations(self, self.context)
         self.external: list[str] = []
 
         def router(route):
