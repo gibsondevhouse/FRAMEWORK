@@ -11,9 +11,11 @@
    `NEWS_AGENCIES` is *absent*, so `NEWS_AGENCIES=""` would break it.
 
 2. **Dual-transport network guard** — both `httpx.HTTPTransport.handle_request`
-   (sync) and `httpx.AsyncHTTPTransport.handle_async_request` (async, covering
-   `AsyncAnthropic` in `chat.py`) raise on any real network access. Tests that
-   need HTTP use `httpx.MockTransport` / ASGI transports, which are untouched.
+   (sync) and `httpx.AsyncHTTPTransport.handle_async_request` (async) raise on
+   any real network access, and so do the same two in `httpx2` when it is
+   installed (newer `AsyncAnthropic` clients, used by `chat.py`, are built on
+   it). Tests that need HTTP use `MockTransport` / ASGI transports, which are
+   untouched.
 
 Importing this module also registers Starlette's `testserver` host with the local trust
 guard (`app/security.py`), which otherwise answers only loopback names; `SERVER_ALLOWED_HOSTS`
@@ -82,13 +84,26 @@ class HermeticTestCase(unittest.TestCase):
         self.addCleanup(gov_sleep.stop)
         gov_http.reset_pacing()
 
-        sync_guard = mock.patch.object(
-            httpx.HTTPTransport, "handle_request",
-            side_effect=AssertionError("a test attempted real network access (sync)"))
-        async_guard = mock.patch.object(
-            httpx.AsyncHTTPTransport, "handle_async_request",
-            side_effect=AssertionError("a test attempted real network access (async)"))
-        sync_guard.start()
-        self.addCleanup(sync_guard.stop)
-        async_guard.start()
-        self.addCleanup(async_guard.stop)
+        for lib in _http_libraries():
+            sync_guard = mock.patch.object(
+                lib.HTTPTransport, "handle_request",
+                side_effect=AssertionError("a test attempted real network access (sync)"))
+            async_guard = mock.patch.object(
+                lib.AsyncHTTPTransport, "handle_async_request",
+                side_effect=AssertionError("a test attempted real network access (async)"))
+            sync_guard.start()
+            self.addCleanup(sync_guard.stop)
+            async_guard.start()
+            self.addCleanup(async_guard.stop)
+
+
+def _http_libraries() -> list:
+    """`httpx` (the app's own clients) and, when installed, `httpx2`: newer releases of the
+    Anthropic client are built on it, and a guard on `httpx` alone would let `chat.py` through."""
+    libs = [httpx]
+    try:
+        import httpx2
+        libs.append(httpx2)
+    except ImportError:
+        pass
+    return libs
