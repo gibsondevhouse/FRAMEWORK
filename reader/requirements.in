@@ -1,0 +1,16 @@
+# Runtime dependencies for the FRAMEWORK Regulatory Workstation: the version ranges we accept.
+# Do not install from this file. Install from requirements.txt, the hashed lock compiled from it.
+# After changing a line here, recompile all three locks (run in reader/, uv 0.11 or newer) and
+# commit every file that changed:
+#
+#   uv pip compile requirements.in --universal --generate-hashes --python-version 3.10 --output-file requirements.txt
+#   uv pip compile requirements-dev.in --universal --generate-hashes --python-version 3.11 --output-file requirements-dev.txt
+#   uv pip compile requirements-audit.in --universal --generate-hashes --python-version 3.11 --output-file requirements-audit.txt
+#
+# Add --upgrade to move every pin to the newest version the ranges allow.
+fastapi>=0.162.5,<1
+uvicorn[standard]>=0.54.0,<1
+httpx>=0.28.1,<1
+anthropic>=2.8.0,<3
+python-dotenv>=1.2.4,<2
+tzdata>=2026.6

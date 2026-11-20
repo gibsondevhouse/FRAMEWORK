@@ -1,0 +1,13 @@
+# Development and test dependencies, on top of the runtime ones.
+# Do not install from this file. Install from requirements-dev.txt, the hashed lock compiled from it
+# (the commands are at the top of requirements.in). This lock is for Python 3.11 and newer, not
+# 3.10 like the runtime lock: Pillow 13 does not support Python 3.10.
+#
+# Browser tests additionally need a one-time
+#   python -m playwright install chromium     (~150 MB download)
+-r requirements.in
+# Keep every runtime package at the version the runtime lock has.
+-c requirements.txt
+pytest
+playwright==1.65.2
+Pillow==13.0.0

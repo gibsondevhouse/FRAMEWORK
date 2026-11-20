@@ -1,0 +1,30 @@
+# Automated update pull requests, once a week, for everything that is pinned:
+# the hashed Python locks, the frontend lock, and the commit-pinned GitHub Actions.
+version: 2
+updates:
+  # reader/requirements*.in -> requirements*.txt, compiled with `uv pip compile --universal
+  # --generate-hashes`. The "uv" ecosystem recompiles each .txt from the .in of the same name.
+  - package-ecosystem: "uv"
+    directory: "/reader"
+    schedule:
+      interval: "weekly"
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: "npm"
+    directory: "/reader/frontend"
+    schedule:
+      interval: "weekly"
+    groups:
+      frontend:
+        patterns: ["*"]
+
+  # Keeps the commit SHAs in .github/workflows/ and their version comments current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]

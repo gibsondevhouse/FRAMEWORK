@@ -107,6 +107,8 @@ python -m venv .venv
 
 *(On macOS, you can also just double-click `Start FRAMEWORK.command` in the repo root to handle setup and launch automatically.)*
 
+`reader/requirements.txt` is a locked list: every package at one exact version, with checksums that `pip` verifies as it installs. The ranges it is compiled from are in `reader/requirements.in`.
+
 ### 3. Configure the assistant (optional)
 
 ```bash
