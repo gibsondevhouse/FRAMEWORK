@@ -164,7 +164,17 @@ export function uscSectionRef(title: number, sec: { id: string; label?: string; 
   };
 }
 
+export const CONST_TIER = 'federal-constitution';
+
+/** A unit of the Constitution as a workspace reference (title 0, tier `federal-constitution`). */
+export function constSectionRef(unit: { id: string; label: string; heading?: string }): WorkspaceSectionRef {
+  return { title: 0, id: unit.id, label: unit.label, heading: unit.heading || '', tier: CONST_TIER, jurisdiction: 'US' };
+}
+
 export function currentSectionRef(): WorkspaceSectionRef | null {
+  if (!state.currentSection && !state.currentUscSection && state.currentConstUnit) {
+    return constSectionRef(state.currentConstUnit);
+  }
   if (!state.currentSection && state.currentUscSection && state.currentUscTitle) {
     return uscSectionRef(state.currentUscTitle, state.currentUscSection);
   }

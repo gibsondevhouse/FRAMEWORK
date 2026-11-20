@@ -156,6 +156,7 @@
 [data-ref-tier="cross"] { --tier-hue: var(--ref-cross); }
 [data-ref-tier="uninstalled"] { --tier-hue: var(--ref-uninstalled); }
 [data-ref-tier="usc"] { --tier-hue: var(--ref-usc); }
+[data-ref-tier="const"] { --tier-hue: var(--ref-const); }
 [data-ref-tier="fr"] { --tier-hue: var(--ref-fr); }
 [data-ref-tier="ibr"] { --tier-hue: var(--ref-ibr); }
 [data-ref-tier="state"] { --tier-hue: var(--ref-state); }

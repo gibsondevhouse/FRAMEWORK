@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
-from .. import agenda, constitution, plaw
+from .. import agenda, constitution, library, plaw
 
 
 def _no_store(response: Response) -> None:
@@ -44,6 +44,21 @@ def constitution_unit(unit_id: str) -> dict:
 @corpora_router.post("/api/constitution/build")
 def constitution_build() -> dict:
     return {"job": constitution.submit()}
+
+
+@corpora_router.post("/api/constitution/update")
+def constitution_update() -> dict:
+    """Rebuild only if GovInfo lists a newer House Manual (a download when nothing is installed)."""
+    return {"job": constitution.submit("constitution-update")}
+
+
+@corpora_router.delete("/api/constitution")
+def constitution_remove() -> dict:
+    if library.queue.busy_with(constitution.JOB_KEY):
+        raise HTTPException(409, "The Constitution has a download in progress.")
+    if not constitution.remove():
+        raise HTTPException(404, "The Constitution isn't installed.")
+    return {"removed": "constitution"}
 
 
 # --- Public Laws ----------------------------------------------------------------

@@ -79,6 +79,8 @@
   "GET /api/constitution/search",
   "GET /api/constitution/unit/{unit_id}",
   "POST /api/constitution/build",
+  "POST /api/constitution/update",
+  "DELETE /api/constitution",
   "GET /api/plaw",
   "GET /api/plaw/search",
   "GET /api/plaw/law/{law_id}",

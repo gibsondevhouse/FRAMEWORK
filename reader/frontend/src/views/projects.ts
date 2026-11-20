@@ -6,7 +6,7 @@ import {
   createProject, addTabGroupToWorkspace, updateProject, projectHue, projDot, secKey,
   projectsWith, togglePin, currentSectionRef, clipToWorkspace, downloadJson, exportProjects,
   WorkspaceRecord,
-  USC_TIER,
+  USC_TIER, CONST_TIER,
 } from '../core/projects_store';
 import { updateChatContext } from '../components/chat';
 import { clearTreeSelection } from '../components/sidebar';
@@ -18,6 +18,7 @@ import { timeAgo } from '../usage';
 import { SEP, emptyStateHtml, fmtDate, joinSep, shortDate } from '../components/ui';
 import { refTierForCorpus, TIER_META, TIER_ORDER } from '../components/corpora';
 import { buildTabGroupSnapshot, formatTabLabel, restoreTabGroup } from '../components/reader_tabs';
+import { CONST_LIB_HREF, constCached, constHref } from '../core/constitution';
 
 export {
   PROJECTS_KEY, PROJECT_HUES, validProject, loadProjects, saveProjects, nowIso,
@@ -206,8 +207,9 @@ function renderWorkspaceTabGroupsHtml(p: WorkspaceRecord): string {
 }
 
 export function titlesOf(p: WorkspaceRecord): string {
-  const ts = [...new Set(p.sections.map(s => s.title))].sort((a, b) => a - b);
-  return ts.length ? `${ts.length === 1 ? 'Title' : 'Titles'} ${ts.join(', ')}` : '';
+  const ts = [...new Set(p.sections.filter(s => s.tier !== CONST_TIER).map(s => s.title))].sort((a, b) => a - b);
+  const titles = ts.length ? `${ts.length === 1 ? 'Title' : 'Titles'} ${ts.join(', ')}` : '';
+  return p.sections.some(s => s.tier === CONST_TIER) ? [titles, 'Constitution'].filter(Boolean).join(', ') : titles;
 }
 
 export function renderProjects(id: string | null): void {
@@ -264,6 +266,7 @@ export function renderProjects(id: string | null): void {
   document.title = `${p.name} · Workspaces · FRAMEWORK`;
   const installed = new Set(state.installedTitles.map(t => t.title));
   const installedUsc = new Set((state.installedUscTitles || []).map(t => t.title));
+  const constInstalled = constCached()?.installed !== false;
   const groupedHtml = TIER_ORDER.map(tier => {
     const tierSecs = p.sections.filter(s => (s.tier || 'federal-reg') === tier);
     if (!tierSecs.length) return '';
@@ -271,15 +274,18 @@ export function renderProjects(id: string | null): void {
     const rTier = tMeta.refTier;
     const rows = tierSecs.map(s => {
       const isUsc = s.tier === USC_TIER;
-      const href = isUsc ? `#/usc/${s.title}/section/${encodeURIComponent(s.id)}` : `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
-      const have = isUsc ? installedUsc.has(s.title) : installed.has(s.title);
-      const libHref = isUsc ? `#/library/usc/${s.title}` : `#/library/${s.title}`;
+      const isConst = s.tier === CONST_TIER;
+      const href = isConst ? constHref(s.id)
+        : isUsc ? `#/usc/${s.title}/section/${encodeURIComponent(s.id)}` : `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
+      const have = isConst ? constInstalled : isUsc ? installedUsc.has(s.title) : installed.has(s.title);
+      const libHref = isConst ? CONST_LIB_HREF : isUsc ? `#/library/usc/${s.title}` : `#/library/${s.title}`;
+      const where = isConst ? 'U.S. Constitution' : `Title ${s.title}`;
       return `<article class="proj-item has-tier-bar" data-ref-tier="${rTier}">
-        <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(tMeta.tag)}</span>${SEP}Title ${s.title}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ''}</span>
+        <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(tMeta.tag)}</span>${SEP}${where}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ''}</span>
           <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || '').slice(0, 10)))}</span></div>
         <h3 class="story-name">${have ? `<a href="${href}">${escapeHtml(s.label || '§ ' + s.id)} ${escapeHtml(s.heading || '')}</a>`
           : `${escapeHtml(s.label || '§ ' + s.id)} ${escapeHtml(s.heading || '')}`}</h3>
-        ${have ? '' : `<p class="proj-missing">${isUsc ? `${s.title} U.S.C.` : `Title ${s.title}`} isn’t installed. <a href="${libHref}">Download it</a> to read this section.</p>`}
+        ${have ? '' : `<p class="proj-missing">${isConst ? 'The Constitution' : isUsc ? `${s.title} U.S.C.` : `Title ${s.title}`} isn’t installed. <a href="${libHref}">Download it</a> to read this section.</p>`}
         <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || '')}</textarea>
         <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
       </article>`;

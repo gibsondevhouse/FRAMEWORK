@@ -277,3 +277,40 @@ test('paragraphPathFrom walks folded markers without repeating siblings', () => 
   assert.equal(paragraphPathFrom(paras, 8), '(b)(2)(B)');
   assert.equal(paragraphPathFrom(paras, 9), '');
 });
+
+import { constCitation, constGroups, splitClauses, toRoman } from '../src/core/constitution_text';
+
+test('constCitation writes the Bluebook form of a Constitution unit', () => {
+  assert.equal(constCitation('Art. I, § 8'), 'U.S. Const. art. I, § 8');
+  assert.equal(constCitation('Art. V'), 'U.S. Const. art. V');
+  assert.equal(constCitation('Amdt. XIV, § 1'), 'U.S. Const. amend. XIV, § 1');
+  assert.equal(constCitation('Amdt. I'), 'U.S. Const. amend. I');
+  assert.equal(constCitation('Preamble'), 'U.S. Const. pmbl.');
+  assert.equal(toRoman(27), 'XXVII');
+});
+
+test('splitClauses splits numbered clauses and leaves plain text whole', () => {
+  const two = splitClauses('1 The House shall be chosen every second Year. 2 No Person shall be a Representative under 25.');
+  assert.deepEqual(two.map(c => c.n), [1, 2]);
+  assert.equal(two[1].text, 'No Person shall be a Representative under 25.');
+  assert.deepEqual(splitClauses('Congress shall make no law respecting religion.'), [{ n: null, text: 'Congress shall make no law respecting religion.' }]);
+  // A "1" that never reaches a "2" is not a numbered list.
+  assert.equal(splitClauses('1 Year after the ratification of this article.')[0].n, null);
+  // A number inside a sentence (no closing punctuation before it) does not split.
+  assert.equal(splitClauses('1 Each State shall have 2 Senators. 2 The Senate shall choose.').length, 2);
+});
+
+test('constGroups orders the Preamble, articles and amendments', () => {
+  const u = (id: string, kind: 'preamble' | 'section' | 'article' | 'amendment', article: number | null, amendment: number | null, section: number | null, label: string) =>
+    ({ id, kind, article, amendment, section, label, chars: 1, note_count: 0 });
+  const g = constGroups([
+    u('preamble', 'preamble', null, null, null, 'Preamble'),
+    u('art1-s1', 'section', 1, null, 1, 'Art. I, § 1'),
+    u('art1-s2', 'section', 1, null, 2, 'Art. I, § 2'),
+    u('art5', 'article', 5, null, null, 'Art. V'),
+    u('amdt14-s1', 'amendment', null, 14, 1, 'Amdt. XIV, § 1'),
+  ]);
+  assert.equal(g.preamble?.label, 'Preamble');
+  assert.deepEqual(g.articles.map(a => [a.label, a.units.length]), [['Article I', 2], ['Article V', 1]]);
+  assert.equal(g.amendments[0].name, 'Citizenship, due process and equal protection');
+});

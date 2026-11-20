@@ -888,8 +888,8 @@ class BehaviorTests(BrowserCase):
 
     def test_library_tabs_usc_catalog_and_legacy_links(self):
         page = self.open_page("/library", "#lib-tabs")
-        # Overview is the default tab: three tabs, installed shelf and bundles with statutes.
-        self.assertEqual(page.locator("#lib-tabs [data-lib-tab]").count(), 3)
+        # Overview is the default tab: four tabs (Overview, Constitution, U.S. Code, CFR), installed shelf and bundles with statutes.
+        self.assertEqual(page.locator("#lib-tabs [data-lib-tab]").count(), 4)
         self.assertEqual(page.get_attribute("#lib-tab-overview", "aria-selected"), "true")
         self.assertGreaterEqual(page.locator(".lib-bundle .citation-chip[data-ref-tier='uninstalled'], .lib-bundle .citation-chip[data-ref-tier='usc']").count(), 1)
         self.assertIn("Federal Register", page.inner_text(".pg-head-acts"))

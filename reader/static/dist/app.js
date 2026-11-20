@@ -16,6 +16,7 @@ var state = {
 	currentUscTitle: null,
 	currentUscSection: null,
 	currentUscNode: null,
+	currentConstUnit: null,
 	uscTrees: /* @__PURE__ */ new Map(),
 	homeSnapshot: void 0,
 	noTitles: false,
@@ -5563,7 +5564,20 @@ function uscSectionRef(title, sec) {
 		jurisdiction: "US"
 	};
 }
+var CONST_TIER = "federal-constitution";
+/** A unit of the Constitution as a workspace reference (title 0, tier `federal-constitution`). */
+function constSectionRef(unit) {
+	return {
+		title: 0,
+		id: unit.id,
+		label: unit.label,
+		heading: unit.heading || "",
+		tier: CONST_TIER,
+		jurisdiction: "US"
+	};
+}
 function currentSectionRef() {
+	if (!state.currentSection && !state.currentUscSection && state.currentConstUnit) return constSectionRef(state.currentConstUnit);
 	if (!state.currentSection && state.currentUscSection && state.currentUscTitle) return uscSectionRef(state.currentUscTitle, state.currentUscSection);
 	if (!state.currentSection) return null;
 	return {
@@ -5852,6 +5866,7 @@ async function queueBatch(url, body, emptyMsg) {
 // src/components/corpora.ts
 var ACTIVE_DESK_KEY = "framework_desk_v1";
 var TIER_ORDER = [
+	"federal-constitution",
 	"federal-statute",
 	"federal-reg",
 	"federal-register",
@@ -5863,6 +5878,13 @@ var SYSTEM_TIERS = [
 	"federal-register"
 ];
 var TIER_META = {
+	"federal-constitution": {
+		label: "U.S. Constitution",
+		short: "Const.",
+		refTier: "const",
+		tag: "CONSTITUTION",
+		subtitle: "The supreme law"
+	},
 	"federal-statute": {
 		label: "U.S. Code (U.S.C.)",
 		short: "U.S.C.",
@@ -6683,6 +6705,7 @@ function isFrameworkRoute(path = state.activeRoute) {
 	const p = (path || "/").split("?")[0] || "/";
 	if (/^\/corpus\/(?!state\/|county\/)/.test(p)) return true;
 	if (/^\/usc\/\d+(?:\/|$)/.test(p)) return true;
+	if (/^\/constitution(?:\/|$)/.test(p)) return true;
 	if (state.noTitles) return false;
 	return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/)/.test(p);
 }
@@ -6697,6 +6720,7 @@ function routeTarget(path = state.activeRoute) {
 	if (p === "/") return "overview";
 	if (p.startsWith("/corpus/")) return "corpus";
 	if (/^\/usc\/\d+/.test(p)) return "corpus";
+	if (/^\/constitution(?:\/|$)/.test(p)) return "corpus";
 	if (/^\/title\/\d+\/?$/.test(p)) return "home";
 	const rest = p.replace(/^\/title\/\d+/, "");
 	if (rest.startsWith("/library")) return "library";
@@ -6765,7 +6789,11 @@ function applyNav() {
 	updateSidebarFrameworkHighlight();
 }
 function panelMeta(panel) {
-	if (panel === "corpus" && state.activeCorpus) return TIER_META[state.activeCorpus.tier]?.short || state.activeCorpus.jurisdiction_label || "";
+	if (panel === "corpus" && state.activeCorpus) {
+		const meta = TIER_META[state.activeCorpus.tier];
+		if (state.activeCorpus.tier === "federal-constitution") return meta?.subtitle || "";
+		return meta?.short || state.activeCorpus.jurisdiction_label || "";
+	}
 	if (panel === "reader") {
 		if (state.noTitles) return "No titles installed";
 		return state.installedTitles.find((t) => t.title === state.currentTitle)?.name || state.metaInfo.name || `Title ${state.currentTitle}`;
@@ -7002,6 +7030,11 @@ function renderSidebarFrameworks() {
     </a>`;
 	};
 	const parts = [];
+	parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Constitution</div><a class="ar-fw-row" href="#/constitution/" data-ref-tier="const" data-fw-id="us:constitution" title="U.S. Const. — Constitution of the United States">
+      <span class="ar-fw-bar" aria-hidden="true"></span>
+      <span class="ar-fw-name">U.S. Constitution</span>
+      <span class="ar-fw-code">Const.</span>
+    </a></div>`);
 	if (usc.length) {
 		const installedUsc = usc.filter((c) => c.installed);
 		const shownUsc = installedUsc.length ? [...installedUsc, ...usc.filter((c) => !c.installed)].slice(0, Math.max(3, installedUsc.length)) : usc.slice(0, 3);
@@ -7126,7 +7159,7 @@ if (HAS_DOC) document.addEventListener("keydown", (e) => {
 		toggleDrawer();
 		return;
 	}
-	if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d" && state.currentSection && routeTarget() === "reader") {
+	if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d" && (state.currentSection && routeTarget() === "reader" || (state.currentUscSection || state.currentConstUnit) && routeTarget() === "corpus")) {
 		e.preventDefault();
 		emit("pin:open");
 		return;
@@ -8569,6 +8602,7 @@ function activeRouteKind() {
 	const p = (state.activeRoute || "/").split("?")[0] || "/";
 	if (p.startsWith("/news")) return "fr";
 	if (/^\/usc\/\d+(?:\/|$)/.test(p)) return "usc";
+	if (/^\/constitution(?:\/|$)/.test(p)) return "corpus";
 	if (p.startsWith("/corpus/")) return state.activeCorpus?.tier === "federal-register" ? "fr" : "corpus";
 	if (/^\/(?:title\/\d+(?:\/|$)|part\/|section\/)/.test(p)) return "cfr";
 	return "platform";
@@ -9774,6 +9808,170 @@ async function loadStorage() {
 on("titles:refreshed", ({ hadNone, list }) => {
 	if (hadNone && list.length) refreshModelsConfig();
 });
+// src/core/constitution_text.ts
+var ARTICLE_NAMES = {
+	1: "The Legislative Branch",
+	2: "The Executive Branch",
+	3: "The Judicial Branch",
+	4: "The States",
+	5: "Amending the Constitution",
+	6: "Debts, Supremacy and Oaths",
+	7: "Ratification"
+};
+var SECTION_NAMES = {
+	"art1-s1": "Legislative powers vested in Congress",
+	"art1-s2": "The House of Representatives",
+	"art1-s3": "The Senate",
+	"art1-s4": "Elections and meetings of Congress",
+	"art1-s5": "Rules and proceedings of each House",
+	"art1-s6": "Pay, privileges and limits on other offices",
+	"art1-s7": "How bills become law",
+	"art1-s8": "Powers of Congress",
+	"art1-s9": "Limits on Congress",
+	"art1-s10": "Limits on the States",
+	"art2-s1": "The President and Vice President",
+	"art2-s2": "Powers of the President",
+	"art2-s3": "Duties of the President",
+	"art2-s4": "Impeachment",
+	"art3-s1": "The federal courts",
+	"art3-s2": "Judicial power and jurisdiction",
+	"art3-s3": "Treason",
+	"art4-s1": "Full faith and credit",
+	"art4-s2": "Privileges and immunities; extradition",
+	"art4-s3": "New States and federal property",
+	"art4-s4": "A republican form of government"
+};
+var AMENDMENT_NAMES = {
+	1: "Freedom of religion, speech, press, assembly and petition",
+	2: "Right to keep and bear arms",
+	3: "Quartering of soldiers",
+	4: "Searches and seizures",
+	5: "Grand jury, double jeopardy, self-incrimination, due process, takings",
+	6: "Rights in criminal prosecutions",
+	7: "Jury trial in civil cases",
+	8: "Bail, fines and punishments",
+	9: "Rights kept by the people",
+	10: "Powers reserved to the States and the people",
+	11: "Suits against States",
+	12: "Electing the President and Vice President",
+	13: "Abolition of slavery",
+	14: "Citizenship, due process and equal protection",
+	15: "Voting rights regardless of race",
+	16: "Income tax",
+	17: "Direct election of Senators",
+	18: "Prohibition of alcohol",
+	19: "Women’s right to vote",
+	20: "Terms of office and succession",
+	21: "Repeal of Prohibition",
+	22: "Two-term limit for the President",
+	23: "Presidential electors for the District of Columbia",
+	24: "No poll tax in federal elections",
+	25: "Presidential disability and succession",
+	26: "Voting age of eighteen",
+	27: "Changes to Congress’s pay"
+};
+function toRoman(n) {
+	let out = "";
+	for (const [v, r] of [
+		[100, "C"],
+		[90, "XC"],
+		[50, "L"],
+		[40, "XL"],
+		[10, "X"],
+		[9, "IX"],
+		[5, "V"],
+		[4, "IV"],
+		[1, "I"]
+	]) while (n >= v) {
+		out += r;
+		n -= v;
+	}
+	return out;
+}
+var articleName = (n) => ARTICLE_NAMES[n] || "";
+var amendmentName = (n) => AMENDMENT_NAMES[n] || "";
+/** A plain-English heading for a unit: "Powers of Congress", "Citizenship, due process…". */
+function constUnitName(u) {
+	if (u.kind === "preamble") return "Purposes of the Constitution";
+	if (SECTION_NAMES[u.id]) return SECTION_NAMES[u.id];
+	if (u.amendment) return amendmentName(u.amendment);
+	if (u.article) return articleName(u.article);
+	return "";
+}
+/** Bluebook form: "U.S. Const. art. I, § 8", "U.S. Const. amend. XIV, § 1", "U.S. Const. pmbl.". */
+function constCitation(label) {
+	const l = (label || "").trim();
+	if (/^preamble$/i.test(l)) return "U.S. Const. pmbl.";
+	return `U.S. Const. ${l.replace(/^Art\.\s*/i, "art. ").replace(/^Amdt\.\s*/i, "amend. ")}`;
+}
+/** The outline grouped the way the document reads: Preamble, Articles I–VII, Amendments I–XXVII. */
+function constGroups(outline) {
+	let preamble = null;
+	const articles = /* @__PURE__ */ new Map();
+	const amendments = /* @__PURE__ */ new Map();
+	for (const u of outline) if (u.kind === "preamble") preamble = {
+		key: "preamble",
+		label: "Preamble",
+		name: constUnitName(u),
+		units: [u]
+	};
+	else if (u.amendment) {
+		const g = amendments.get(u.amendment) || {
+			key: `amdt${u.amendment}`,
+			label: `Amendment ${toRoman(u.amendment)}`,
+			name: amendmentName(u.amendment),
+			units: []
+		};
+		g.units.push(u);
+		amendments.set(u.amendment, g);
+	} else if (u.article) {
+		const g = articles.get(u.article) || {
+			key: `art${u.article}`,
+			label: `Article ${toRoman(u.article)}`,
+			name: articleName(u.article),
+			units: []
+		};
+		g.units.push(u);
+		articles.set(u.article, g);
+	}
+	return {
+		preamble,
+		articles: [...articles.values()],
+		amendments: [...amendments.values()]
+	};
+}
+/** Split "1 The House … Year. 2 No Person …" into numbered clauses; one block when it isn't numbered. */
+function splitClauses(text) {
+	const t = (text || "").trim();
+	const first = /^\[?1\]?\s+(?=\S)/.exec(t);
+	if (!first) return [{
+		n: null,
+		text: t
+	}];
+	const out = [];
+	let rest = t.slice(first[0].length);
+	let n = 1;
+	for (;;) {
+		const next = new RegExp(`(?<=[.;:])\\s+\\[?${n + 1}\\]?\\s+(?=[A-Z“"])`).exec(rest);
+		if (!next) {
+			out.push({
+				n,
+				text: rest.trim()
+			});
+			break;
+		}
+		out.push({
+			n,
+			text: rest.slice(0, next.index).trim()
+		});
+		rest = rest.slice(next.index + next[0].length);
+		n += 1;
+	}
+	return out.length > 1 ? out : [{
+		n: null,
+		text: out[0]?.text || t
+	}];
+}
 // src/views/doc_utils.ts
 var figModal = typeof document !== "undefined" ? document.getElementById("figure-modal") : null;
 var figReturnFocus = null;
@@ -10025,6 +10223,7 @@ function formatCfrCitation(title, sectionLabelOrId, para = "") {
 /** The citation for a workspace reference: "29 U.S.C. § 655(b)(1)" for a statute, else CFR form. */
 function formatRefCitation(ref, para = "") {
 	if (ref.tier === "federal-statute") return `${ref.title} U.S.C. § ${ref.id}${para || ""}`;
+	if (ref.tier === "federal-constitution") return constCitation(ref.label);
 	return formatCfrCitation(ref.title, cleanInlineLabel(ref.label), para);
 }
 function wrapIbrMentions(root, ibrList) {
@@ -12224,6 +12423,31 @@ dom.sidebar.addEventListener("click", async (e) => {
 		}
 	}
 });
+var CONST_START_HREF = "#/constitution/";
+var CONST_LIB_HREF = "#/library/constitution";
+var constHref = (id) => `#/constitution/${encodeURIComponent(id)}`;
+var cache = null;
+var TTL_MS = 6e4;
+var constCached = () => cache?.data || null;
+/** `GET /api/constitution` (status + outline), cached for a minute; `force` refetches. */
+async function fetchConstitution({ force = false } = {}) {
+	if (!force && cache && Date.now() - cache.at < TTL_MS) return cache.data;
+	try {
+		const data = await getJSON("/api/constitution");
+		cache = {
+			at: Date.now(),
+			data
+		};
+		return data;
+	} catch {
+		return cache?.data || null;
+	}
+}
+var isConstJob = (j) => Boolean(j && (j.title === 2e3 || String(j.kind || "").startsWith("constitution")));
+var constJob = () => [state.jobs?.current, ...state.jobs?.queued || []].find(isConstJob) || null;
+on("jobs:finished", () => {
+	cache = null;
+});
 // src/views/projects.ts
 var armedTimers = /* @__PURE__ */ new WeakMap();
 var projectRouteId$1 = () => {
@@ -12410,8 +12634,9 @@ function renderWorkspaceTabGroupsHtml(p) {
     </div>`;
 }
 function titlesOf(p) {
-	const ts = [...new Set(p.sections.map((s) => s.title))].sort((a, b) => a - b);
-	return ts.length ? `${ts.length === 1 ? "Title" : "Titles"} ${ts.join(", ")}` : "";
+	const ts = [...new Set(p.sections.filter((s) => s.tier !== CONST_TIER).map((s) => s.title))].sort((a, b) => a - b);
+	const titles = ts.length ? `${ts.length === 1 ? "Title" : "Titles"} ${ts.join(", ")}` : "";
+	return p.sections.some((s) => s.tier === "federal-constitution") ? [titles, "Constitution"].filter(Boolean).join(", ") : titles;
 }
 function renderProjects(id) {
 	state.currentSection = null;
@@ -12475,6 +12700,7 @@ function renderProjects(id) {
 	document.title = `${p.name} · Workspaces · FRAMEWORK`;
 	const installed = new Set(state.installedTitles.map((t) => t.title));
 	const installedUsc = new Set((state.installedUscTitles || []).map((t) => t.title));
+	const constInstalled = constCached()?.installed !== false;
 	const groupedHtml = TIER_ORDER.map((tier) => {
 		const tierSecs = p.sections.filter((s) => (s.tier || "federal-reg") === tier);
 		if (!tierSecs.length) return "";
@@ -12482,14 +12708,16 @@ function renderProjects(id) {
 		const rTier = tMeta.refTier;
 		const rows = tierSecs.map((s) => {
 			const isUsc = s.tier === USC_TIER;
-			const href = isUsc ? `#/usc/${s.title}/section/${encodeURIComponent(s.id)}` : `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
-			const have = isUsc ? installedUsc.has(s.title) : installed.has(s.title);
-			const libHref = isUsc ? `#/library/usc/${s.title}` : `#/library/${s.title}`;
+			const isConst = s.tier === CONST_TIER;
+			const href = isConst ? constHref(s.id) : isUsc ? `#/usc/${s.title}/section/${encodeURIComponent(s.id)}` : `#/title/${s.title}/section/${encodeURIComponent(s.id)}`;
+			const have = isConst ? constInstalled : isUsc ? installedUsc.has(s.title) : installed.has(s.title);
+			const libHref = isConst ? CONST_LIB_HREF : isUsc ? `#/library/usc/${s.title}` : `#/library/${s.title}`;
+			const where = isConst ? "U.S. Constitution" : `Title ${s.title}`;
 			return `<article class="proj-item has-tier-bar" data-ref-tier="${rTier}">
-        <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(tMeta.tag)}</span>${SEP}Title ${s.title}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ""}</span>
+        <div class="story-top"><span class="story-kicker"><span class="ref-badge">${escapeHtml(tMeta.tag)}</span>${SEP}${where}${s.part ? `${SEP}Part ${escapeHtml(s.part)}` : ""}</span>
           <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || "").slice(0, 10)))}</span></div>
         <h3 class="story-name">${have ? `<a href="${href}">${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}</a>` : `${escapeHtml(s.label || "§ " + s.id)} ${escapeHtml(s.heading || "")}`}</h3>
-        ${have ? "" : `<p class="proj-missing">${isUsc ? `${s.title} U.S.C.` : `Title ${s.title}`} isn’t installed. <a href="${libHref}">Download it</a> to read this section.</p>`}
+        ${have ? "" : `<p class="proj-missing">${isConst ? "The Constitution" : isUsc ? `${s.title} U.S.C.` : `Title ${s.title}`} isn’t installed. <a href="${libHref}">Download it</a> to read this section.</p>`}
         <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || "")}</textarea>
         <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
       </article>`;
@@ -12571,6 +12799,133 @@ onView("keydown", (e) => {
 on("projects:changed", ({ quiet }) => {
 	if (!quiet && routeTarget() === "projects") renderProjects(projectRouteId$1());
 });
+// src/views/library_constitution.ts
+var SOURCE_LINE = "GovInfo · House Rules and Manual (official GPO XML)";
+function constEdition(c) {
+	const cong = c?.meta?.congress;
+	return cong ? `House Manual, ${ordinal(Number(cong))} Congress` : "";
+}
+function ordinal(n) {
+	const s = [
+		"th",
+		"st",
+		"nd",
+		"rd"
+	];
+	const v = n % 100;
+	return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+function constStatusPill(c) {
+	const j = constJob();
+	if (j) return statPill("busy", j.state === "running" ? j.phase || "Working…" : "Queued");
+	return c?.installed ? statPill("synced", "Installed") : statPill("uninstalled", "Not installed");
+}
+/** The switchboard tab's count and sub line. */
+function constTabCounts(c) {
+	if (!c?.installed) return {
+		countLabel: "Not installed",
+		sub: "Articles, amendments and annotations"
+	};
+	return {
+		countLabel: `${new Set(c.outline.filter((u) => u.amendment).map((u) => u.amendment)).size} amendments`,
+		sub: constEdition(c) || "Installed"
+	};
+}
+function rowHtml(u) {
+	const name = constUnitName(u);
+	const status = u.note_count ? `${u.note_count} ${u.note_count === 1 ? "annotation" : "annotations"}` : "";
+	const hay = `${u.label} ${name} ${u.amendment ? `amendment ${u.amendment} ${toRoman(u.amendment)}` : ""} ${u.article ? `article ${u.article}` : ""}`;
+	return `<a class="lib-row" href="${constHref(u.id)}" data-hay="${escapeHtml(hay.toLowerCase())}">
+      <span class="lib-main"><span class="lib-num">${escapeHtml(u.label)}</span><span class="lib-name">${escapeHtml(name)}</span></span>
+      <span class="lib-status">${escapeHtml(status)}</span>
+    </a>`;
+}
+function constContentsHtml(c) {
+	const g = constGroups(c.outline);
+	const parts = [];
+	if (g.preamble) parts.push(`<div class="lib-label">Preamble</div>${g.preamble.units.map(rowHtml).join("")}`);
+	for (const a of g.articles) parts.push(`<div class="lib-label">${escapeHtml(`${a.label} · ${a.name}`)}</div>${a.units.map(rowHtml).join("")}`);
+	if (g.amendments.length) parts.push(`<div class="lib-label">Amendments</div>${g.amendments.flatMap((a) => a.units).map(rowHtml).join("")}`);
+	return parts.join("");
+}
+/** What the Constitution holds, shown before it is installed (names only, no download needed). */
+function previewHtml() {
+	return `<div class="const-preview" aria-label="What the Constitution contains">
+      <section><h3 class="const-pv-head">The seven articles</h3><ul class="const-pv-list">${[
+		1,
+		2,
+		3,
+		4,
+		5,
+		6,
+		7
+	].map((n) => `<li><span class="const-pv-num">Article ${toRoman(n)}</span><span class="const-pv-name">${escapeHtml(articleName(n))}</span></li>`).join("")}</ul></section>
+      <section><h3 class="const-pv-head">The 27 amendments</h3><ul class="const-pv-list is-cols">${Array.from({ length: 27 }, (_, i) => i + 1).map((n) => `<li><span class="const-pv-num">${toRoman(n)}</span><span class="const-pv-name">${escapeHtml(amendmentName(n))}</span></li>`).join("")}</ul></section>
+    </div>`;
+}
+function constTabHtml(c, filter) {
+	const job = constJob();
+	if (!c) return `<div class="empty-state"><h2>The Constitution’s status didn’t load</h2><p>Reload the page to try again.</p></div>`;
+	const kicker = `<span class="ref-badge" data-ref-tier="const">CONST. · THE SUPREME LAW</span><span>${escapeHtml(SOURCE_LINE)}</span>`;
+	if (!c.installed) return `
+      ${tabLeadHtml({
+		refTier: "const",
+		kickerHtml: kicker,
+		title: "The Constitution of the United States",
+		subHtml: "The full text of the Preamble, the seven articles and all 27 amendments, with the House Parliamentarian’s annotations kept apart from the text. It is a small download (well under 1 MB) and needs no key.",
+		actionsHtml: job ? constStatusPill(c) : `<button type="button" class="btn btn-accent" data-act="const-download">${icon("download")} Download the Constitution</button>`
+	})}
+      ${previewHtml()}`;
+	const g = constGroups(c.outline);
+	const latest = Math.max(0, ...c.outline.map((u) => u.amendment || 0));
+	const sections = c.outline.filter((u) => u.kind === "section" || u.kind === "article").length;
+	const built = c.meta.built_at ? shortDate(c.meta.built_at.slice(0, 10)) : "";
+	const checked = c.meta.checked_at ? shortDate(c.meta.checked_at.slice(0, 10)) : "";
+	const bytes = Number(c.meta.xml_bytes || 0);
+	const actions = job ? constStatusPill(c) : `<a class="btn btn-accent" href="${CONST_START_HREF}">${icon("book")} Open in reader</a><button type="button" class="btn" data-act="const-update">${icon("refresh")} Check for a new edition</button><button type="button" class="btn" data-act="const-remove">Remove</button>`;
+	return `
+    ${tabLeadHtml({
+		refTier: "const",
+		kickerHtml: kicker,
+		title: "The Constitution of the United States",
+		subHtml: escapeHtml([
+			constEdition(c) || "Installed",
+			built ? `installed ${built}` : "",
+			checked ? `checked for updates ${checked}` : ""
+		].filter(Boolean).join(" · ")) + ".<br>Annotations are the House Parliamentarian’s notes, shown below the text and never mixed into it.",
+		actionsHtml: actions
+	})}
+    ${kpiStripHtml([
+		{
+			labelHtml: "Articles",
+			valueHtml: String(g.articles.length),
+			subHtml: `${sections} sections`
+		},
+		{
+			labelHtml: "Amendments",
+			valueHtml: String(g.amendments.length),
+			subHtml: latest ? `Latest: ${escapeHtml(amendmentName(latest))}` : ""
+		},
+		{
+			labelHtml: "Annotations",
+			valueHtml: escapeHtml(fmt(c.note_count)),
+			subHtml: "Parliamentarian’s notes"
+		},
+		{
+			labelHtml: "Edition",
+			valueHtml: escapeHtml(c.meta.edition || "—"),
+			subHtml: bytes ? `${escapeHtml(fmtBytes(bytes))} of source XML` : "GovInfo bulk data"
+		}
+	], {
+		label: "The Constitution at a glance",
+		refTier: "const"
+	})}
+    <div class="lib-tools">
+      <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter articles, amendments or topics…" aria-label="Filter the Constitution" autocomplete="off" spellcheck="false" value="${escapeHtml(filter)}">
+    </div>
+    <div class="lib-list" id="lib-list">${constContentsHtml(c)}</div>
+    <div class="lib-none" id="lib-none" aria-live="polite" hidden>Nothing matches. Try a topic (“speech”, “taxes”) or a number (“14”).</div>`;
+}
 // src/views/home.ts
 var HOME_NEWS_CACHE = "newsCache:v1:all";
 var HOME_STATUS_CACHE = "newsCache:v1:status";
@@ -12820,9 +13175,7 @@ function systemsStripHtml(allFrameworks, titles, status, attention, articles) {
 	};
 	const amendedSorted = libTitles.filter((t) => !t.reserved && t.amended).sort((a, b) => String(b.amended || "").localeCompare(String(a.amended || "")));
 	const latestEdition = week.newest || titles.reduce((m, t) => t.edition && t.edition > m ? t.edition : m, "") || state.metaInfo.edition || "";
-	return `
-    <section class="hm-systems" id="hm-systems" aria-label="Recent changes across federal frameworks">
-      <div class="hm-sys-grid">${SYSTEM_TIERS.map((tier) => {
+	const cards = SYSTEM_TIERS.map((tier) => {
 		const meta = TIER_META[tier];
 		const list = allFrameworks.filter((c) => c.tier === tier);
 		const isSelected = activeTier === tier;
@@ -12907,8 +13260,31 @@ function systemsStripHtml(allFrameworks, titles, status, attention, articles) {
         <div class="hm-sys-sub">${escapeHtml(detail)}</div>
         <div class="hm-sys-meta">${escapeHtml(footer)}</div>
       </button>`;
-	}).join("")}</div>
+	}).join("");
+	return `
+    <section class="hm-systems" id="hm-systems" aria-label="Recent changes across federal frameworks">
+      <div class="hm-sys-grid">${constSysCardHtml()}${cards}</div>
     </section>`;
+}
+/** The Constitution beside the three codes: a link into the reader (or its Library tab before install). */
+function constSysCardHtml(c = constCached()) {
+	const job = constJob();
+	const installed = Boolean(c?.installed);
+	const amend = installed ? new Set(c.outline.filter((u) => u.amendment).map((u) => u.amendment)).size : 0;
+	const statusHtml = job ? statPill("busy", job.state === "running" ? "Downloading" : "Queued", { bare: true }) : installed ? statPill("synced", "Installed", { bare: true }) : `<span class="hm-sys-note">${c ? "Not installed" : "Checking…"}</span>`;
+	const headline = installed ? `${amend} amendments · ${constGroups(c.outline).articles.length} articles` : "The supreme law";
+	const detail = installed ? `Preamble, articles and amendments with ${c.note_count.toLocaleString()} Parliamentarian’s annotations` : "Download the full text, with the House Parliamentarian’s annotations kept apart";
+	const footer = installed ? constEdition(c) || "Installed" : "GovInfo · no key needed";
+	return `
+      <a class="hm-sys-card" id="hm-sys-const" href="${installed ? CONST_START_HREF : CONST_LIB_HREF}" data-ref-tier="const">
+        <div class="hm-sys-top">
+          <span class="hm-sys-kicker">Constitution</span>
+          ${statusHtml}
+        </div>
+        <div class="hm-sys-val">${escapeHtml(headline)}</div>
+        <div class="hm-sys-sub">${escapeHtml(detail)}</div>
+        <div class="hm-sys-meta">${escapeHtml(footer)}</div>
+      </a>`;
 }
 function updatesBannerHtml(attention, titles) {
 	const checkedAt = state.navLibData?.checked_at;
@@ -14106,10 +14482,16 @@ async function hydrateHome(seq) {
 		updateRailBadge();
 		patchHomeDynamicBands(state.homeSnapshot?.titles || installedFallbackList(), cachedNewsStatus());
 	}).catch(() => {});
+	const constPromise = fetchConstitution().then((c) => {
+		if (seq !== state.routeSeq) return;
+		const card = document.getElementById("hm-sys-const");
+		if (card) card.outerHTML = constSysCardHtml(c);
+	}).catch(() => {});
 	await Promise.allSettled([
 		titlesPromise,
 		newsPromise,
-		libPromise
+		libPromise,
+		constPromise
 	]);
 }
 function renderHomeScreen({ enter = true } = {}) {
@@ -14847,11 +15229,13 @@ function uscDetailActions(t, tree) {
 // src/views/library.ts
 var LIB_TAB_ORDER = [
 	"overview",
+	"constitution",
 	"usc",
 	"cfr"
 ];
 var LIB_TAB_HREF = {
 	overview: "#/library",
+	constitution: CONST_LIB_HREF,
 	usc: "#/library/usc",
 	cfr: "#/library/cfr"
 };
@@ -14859,6 +15243,7 @@ var lib = {
 	view: null,
 	data: null,
 	usc: null,
+	constitution: null,
 	uscTree: null,
 	filter: "",
 	sort: "desk",
@@ -14891,10 +15276,15 @@ async function fetchView(tab, title, part) {
 		return;
 	}
 	if (!title) {
-		const [data, cat] = await Promise.all([getJSON("/api/library"), fetchUscCatalog()]);
+		const [data, cat, constitution] = await Promise.all([
+			getJSON("/api/library"),
+			fetchUscCatalog(),
+			fetchConstitution({ force: true })
+		]);
 		setJobs(data.jobs);
 		lib.data = data;
 		lib.usc = cat;
+		lib.constitution = constitution;
 		return;
 	}
 	const url = part ? `/api/library/${title}/part/${encodeURIComponent(part)}` : `/api/library/${title}`;
@@ -15189,6 +15579,14 @@ function libTabsHtml(d, cat, tab) {
 				alert: due > 0
 			},
 			{
+				id: "constitution",
+				label: "U.S. Constitution",
+				abbr: "Const.",
+				refTier: "const",
+				href: LIB_TAB_HREF.constitution,
+				...constTabCounts(lib.constitution)
+			},
+			{
 				id: "usc",
 				label: "United States Code",
 				abbr: "U.S.C.",
@@ -15365,13 +15763,19 @@ function libFrontHtml(d, cat = lib.usc, tab = lib.view?.tab || "overview") {
 		actionsHtml: (due && !anyUpdating() ? `<button type="button" class="btn btn-sm" data-act="update-everything">${icon("download")} Update all</button>` : "") + `<a class="btn btn-sm" href="#/news">${icon("news")} Federal Register in the Newsroom</a>`,
 		tabsHtml: libTabsHtml(d, cat, tab)
 	})}
-    <div id="lib-tab-body" class="pg-tab-body" role="tabpanel" aria-labelledby="lib-tab-${tab}">${tab === "usc" ? uscTabHtml(cat, lib.filter, installedCfrSet()) : tab === "cfr" ? cfrTabHtml(d) : overviewHtml(d, cat)}</div>
+    <div id="lib-tab-body" class="pg-tab-body" role="tabpanel" aria-labelledby="lib-tab-${tab}">${tab === "constitution" ? constTabHtml(lib.constitution, lib.filter) : tab === "usc" ? uscTabHtml(cat, lib.filter, installedCfrSet()) : tab === "cfr" ? cfrTabHtml(d) : overviewHtml(d, cat)}</div>
   </div>`;
 }
 function renderFront(fresh) {
 	const d = lib.data;
 	const tab = lib.view?.tab || "overview";
-	document.title = `${tab === "usc" ? "U.S. Code · " : tab === "cfr" ? "CFR · " : ""}Library · FRAMEWORK`;
+	const tabTitle = {
+		overview: "",
+		constitution: "Constitution · ",
+		usc: "U.S. Code · ",
+		cfr: "CFR · "
+	}[tab];
+	document.title = `${tabTitle}Library · FRAMEWORK`;
 	const scrollTop = dom.main.scrollTop;
 	const keepTabFocus = lib.focusTab || Boolean(document.activeElement?.closest("#lib-tabs"));
 	const html = libFrontHtml(d, lib.usc, tab);
@@ -15642,8 +16046,8 @@ onView("click", async (e) => {
 	const isUsc = btn.dataset.uscTitle !== void 0;
 	const title = parseInt((isUsc ? btn.dataset.uscTitle : btn.dataset.title) || "", 10);
 	const act = btn.dataset.act;
-	if (act === "remove" || act === "usc-remove") {
-		const what = act === "usc-remove" ? `${title} U.S.C.` : `Title ${title}`;
+	if (act === "remove" || act === "usc-remove" || act === "const-remove") {
+		const what = act === "usc-remove" ? `${title} U.S.C.` : act === "const-remove" ? "the Constitution" : `Title ${title}`;
 		if (!btn.classList.contains("is-armed")) {
 			btn.classList.add("is-armed");
 			btn.textContent = "Confirm remove";
@@ -15660,6 +16064,9 @@ onView("click", async (e) => {
 			if (act === "usc-remove") {
 				await getJSON(`/api/usc/${title}`, { method: "DELETE" });
 				showToast(`Removed ${what}`);
+			} else if (act === "const-remove") {
+				await getJSON("/api/constitution", { method: "DELETE" });
+				showToast("Removed the Constitution");
 			} else {
 				await getJSON(`/api/library/${title}`, { method: "DELETE" });
 				invalidateTitleCaches([title]);
@@ -15706,6 +16113,12 @@ onView("click", async (e) => {
 				showToast("Everything installed is already current");
 				btn.disabled = false;
 			}
+			await pollJobs();
+			return;
+		}
+		if (act === "const-download" || act === "const-update") {
+			const res = await getJSON(`/api/constitution/${act === "const-update" ? "update" : "build"}`, { method: "POST" });
+			state.jobsSeenActive.add(res.job.id);
 			await pollJobs();
 			return;
 		}
@@ -19128,6 +19541,244 @@ onView("input", (e) => {
 	}
 	if (none) none.hidden = shown > 0;
 });
+// src/views/reader_constitution.ts
+function setConstActiveCorpus(c) {
+	state.activeCorpusId = "us:constitution";
+	state.activeCorpus = {
+		corpus_id: "us:constitution",
+		tier: "federal-constitution",
+		jurisdiction: "US",
+		jurisdiction_label: "Federal",
+		code: "U.S. Const.",
+		name: "Constitution of the United States",
+		desk: "all",
+		agencies: [],
+		edition: c.meta.edition || null,
+		section_count: c.unit_count,
+		installed: true,
+		status_label: "Installed"
+	};
+}
+function bodyHtml(u) {
+	const cite = constCitation(u.label);
+	return splitClauses(u.text).map((c) => c.n == null ? `<p class="const-p">${escapeHtml(c.text)}</p>` : `<p class="const-p const-clause" id="cl${c.n}"><button type="button" class="const-cl" data-const-cite="${escapeHtml(`${cite}, cl. ${c.n}`)}" title="Copy ${escapeHtml(`${cite}, cl. ${c.n}`)}" aria-label="Clause ${c.n}: copy citation">${c.n}</button>${escapeHtml(c.text)}</p>`).join("");
+}
+function stepHtml(u, c) {
+	const byId = new Map(c.outline.map((o) => [o.id, o]));
+	const btn = (id, dir) => {
+		const o = id ? byId.get(id) : null;
+		return o ? docStepBtn("section", dir, constHref(o.id), o.label, constUnitName(o)) : "";
+	};
+	const left = btn(u.prev, -1);
+	const right = btn(u.next, 1);
+	if (!left && !right) return "";
+	return `<nav class="doc-step" aria-label="Previous and next">${left}<span class="spacer"></span>${right}</nav>`;
+}
+function groupLabel(u) {
+	if (u.amendment) return {
+		text: `Amendment ${toRoman(u.amendment)}`,
+		href: CONST_START_HREF
+	};
+	if (u.article) return {
+		text: `Article ${toRoman(u.article)} · ${articleName(u.article)}`,
+		href: CONST_START_HREF
+	};
+	return {
+		text: "Preamble",
+		href: CONST_START_HREF
+	};
+}
+function renderStart(c) {
+	setViewHead("");
+	document.title = "U.S. Constitution · FRAMEWORK";
+	const g = constGroups(c.outline);
+	const first = c.outline[0];
+	dom.view.innerHTML = `<div class="ts-front const-front">
+    <header class="ts-masthead">
+      <div class="ts-kicker">
+        <span class="ref-badge" data-ref-tier="const">CONST. · U.S. CONSTITUTION</span>
+        ${statPill("synced", "Installed")}
+      </div>
+      <h1 class="ts-title">The Constitution of the United States</h1>
+      <p class="ts-sub">${escapeHtml([
+		constEdition(c),
+		`${g.articles.length} articles`,
+		`${g.amendments.length} amendments`,
+		`${c.note_count.toLocaleString()} annotations`
+	].filter(Boolean).join(" · "))}</p>
+      <div class="ts-actions">
+        ${first ? `<a class="btn btn-accent" href="${constHref(first.id)}">${icon("book")}<span>Start reading</span></a>` : ""}
+        <a class="btn" href="${CONST_LIB_HREF}">${icon("grid")}<span>Constitution in Library</span></a>
+      </div>
+    </header>
+    <section class="ts-section" aria-label="Contents">
+      <div class="ts-sec-head">
+        <h2 class="ts-sec-title">Articles &amp; Amendments</h2>
+        <input class="lib-filter" id="const-filter" type="search" placeholder="Filter articles, amendments or topics…" aria-label="Filter the Constitution" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="lib-list" id="const-list">${constContentsHtml(c)}</div>
+      <div class="lib-none" id="const-none" aria-live="polite" hidden>Nothing matches. Try a topic (“speech”, “taxes”) or a number (“14”).</div>
+    </section>
+  </div>`;
+	const amend = [...dom.view.querySelectorAll("#const-list .lib-label")].find((el) => el.textContent === "Amendments");
+	if (amend) amend.id = "const-amendments";
+	enterView();
+}
+function renderUnit(u, c) {
+	setViewHead(stepHtml(u, c));
+	const name = constUnitName(u);
+	const cite = constCitation(u.label);
+	const grp = groupLabel(u);
+	document.title = `${cite} · FRAMEWORK`;
+	const sep = "<span class=\"sep\" aria-hidden=\"true\">·</span>";
+	const notes = u.notes || [];
+	const notesHtml = notes.length ? `<section class="usc-notes const-notes" id="const-notes" aria-label="Annotations">
+      <h2 class="usc-notes-head">Annotations <span class="usc-notes-count">${notes.length}</span></h2>
+      <p class="const-notes-src">Notes by the Parliamentarian of the House, from the House Rules and Manual. They explain how the text has been read; they are not part of it.</p>
+      ${notes.map((n) => `<div class="usc-note-card"><p>${escapeHtml(n)}</p></div>`).join("")}
+    </section>` : "";
+	dom.view.innerHTML = `
+    <div class="doc-kicker" data-ref-tier="const">
+      <a href="${CONST_START_HREF}">U.S. Constitution</a>${sep}<a href="${grp.href}">${escapeHtml(grp.text)}</a>
+      ${c.meta.edition ? `${sep}<span>${escapeHtml(constEdition(c))}</span>` : ""}
+    </div>
+    <h1 class="doc-title">${escapeHtml(u.label)}${name ? ` ${escapeHtml(name)}` : ""}</h1>
+    <div class="doc-actions">
+      ${pinButtonHtml(constSectionRef(u))}
+      <button type="button" class="btn" id="const-btn-cite" data-const-cite="${escapeHtml(cite)}" title="Copy ${escapeHtml(cite)}">${icon("link")} Cite</button>
+      ${notes.length ? `<button type="button" class="btn" id="const-jump-notes">${icon("stack")} Annotations (${notes.length})</button>` : ""}
+      <a class="btn" href="${CONST_START_HREF}">${icon("list")} Contents</a>
+      <div class="spacer"></div>
+      <div class="doc-actions-util">
+        <button type="button" class="btn" id="btn-copy-link" title="Copy direct link">${icon("link")} Copy link</button>
+        <div class="size-ctl" role="group" aria-label="Text size">
+          <button type="button" id="font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+          <button type="button" id="font-inc" title="Larger text" aria-label="Larger text">A+</button>
+        </div>
+      </div>
+    </div>
+    <div class="reg-body const-body" id="reg-body">${bodyHtml(u)}</div>
+    ${notesHtml}`;
+	enterView();
+}
+function renderConstDrawerHtml(c) {
+	const cur = state.currentConstUnit?.id || null;
+	const g = constGroups(c?.outline || []);
+	const row = (href, label, name, active) => `<a class="dr-row${active ? " is-current" : ""}" href="${href}"${active ? " aria-current=\"page\"" : ""} title="${escapeHtml(`${label}${name ? ` · ${name}` : ""}`)}">
+      <span class="tier-pip" data-ref-tier="const" aria-hidden="true"></span>
+      <span class="dr-name">${escapeHtml(label)}${name ? ` — ${escapeHtml(name)}` : ""}</span>
+    </a>`;
+	const arts = g.articles.map((a) => {
+		const active = Boolean(cur && a.units.some((u) => u.id === cur));
+		return row(constHref(a.units[0].id), a.label, a.name, active);
+	}).join("");
+	const amds = g.amendments.map((a) => {
+		const active = Boolean(cur && a.units.some((u) => u.id === cur));
+		return row(constHref(a.units[0].id), a.label.replace("Amendment", "Amdt."), a.name, active);
+	}).join("");
+	return `<div class="dr-scroll">
+    <section class="dr-sec">
+      <h3 class="dr-label"><span>Framework Navigation</span></h3>
+      ${row(CONST_START_HREF, "Contents", "", !cur)}
+      ${g.preamble ? row(constHref("preamble"), "Preamble", "", cur === "preamble") : ""}
+      <a class="dr-row" href="${CONST_LIB_HREF}"><span class="dr-name">Manage in Library</span>${icon("chevronRight")}</a>
+    </section>
+    <section class="dr-sec">
+      <h3 class="dr-label"><span>Articles</span><span class="dr-count">${g.articles.length}</span></h3>
+      ${arts || "<p class=\"dr-note\">Loading contents…</p>"}
+    </section>
+    <section class="dr-sec">
+      <h3 class="dr-label"><span>Amendments</span><span class="dr-count">${g.amendments.length}</span></h3>
+      ${amds}
+    </section>
+    <div class="dr-foot">
+      <a class="dr-link" href="${CONST_LIB_HREF}">Constitution in Library</a>
+      <a class="dr-link" href="#/">Back to Home</a>
+    </div>
+  </div>`;
+}
+async function loadConstitutionRoute(unitId) {
+	const seq = state.routeSeq;
+	const signal = state.routeAbort?.signal;
+	state.currentSection = null;
+	state.currentUscSection = null;
+	state.currentConstUnit = null;
+	const c = await fetchConstitution();
+	if (seq !== state.routeSeq) return;
+	if (!c?.installed) {
+		setViewHead("");
+		document.title = "U.S. Constitution · FRAMEWORK";
+		dom.view.innerHTML = emptyStateHtml({
+			title: "The Constitution isn’t installed",
+			body: "Download it from the Constitution tab in the Library (it takes a few seconds), then come back here.",
+			actionsHtml: `<a class="btn btn-accent" href="${CONST_LIB_HREF}">${icon("download")} Open the Constitution tab</a>`
+		});
+		return;
+	}
+	setConstActiveCorpus(c);
+	const drawer = document.getElementById("panel-corpus");
+	if (!unitId) {
+		if (drawer) drawer.innerHTML = renderConstDrawerHtml(c);
+		renderStart(c);
+		return;
+	}
+	try {
+		const u = await getJSON(`/api/constitution/unit/${encodeURIComponent(unitId)}`, { signal });
+		if (seq !== state.routeSeq) return;
+		state.currentConstUnit = u;
+		if (drawer) drawer.innerHTML = renderConstDrawerHtml(c);
+		renderUnit(u, c);
+	} catch (err) {
+		if (err?.name === "AbortError" || seq !== state.routeSeq) return;
+		setViewHead("");
+		if (drawer) drawer.innerHTML = renderConstDrawerHtml(c);
+		renderViewError(dom.view, "Not found", `The Constitution has no part called “${unitId}”.`);
+	}
+}
+onView("click", async (e) => {
+	const t = e.target;
+	if (!t) return;
+	const citeBtn = t.closest("[data-const-cite]");
+	if (citeBtn && state.currentConstUnit) {
+		const cite = citeBtn.dataset.constCite || "";
+		await copyText(cite, `Copied ${cite}`, "Couldn’t copy the citation");
+		return;
+	}
+	if (t.closest("#const-jump-notes")) document.getElementById("const-notes")?.scrollIntoView({
+		behavior: "smooth",
+		block: "start"
+	});
+});
+onView("input", (e) => {
+	const inp = e.target?.closest("#const-filter");
+	if (!inp) return;
+	const list = document.getElementById("const-list");
+	if (!list) return;
+	const words = inp.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+	let shown = 0;
+	let label = null;
+	let labelHas = false;
+	const close = () => {
+		if (label) label.hidden = !labelHas;
+	};
+	for (const el of list.children) {
+		if (el.classList.contains("lib-label")) {
+			close();
+			label = el;
+			labelHas = false;
+			continue;
+		}
+		const ok = words.every((w) => (el.dataset.hay || "").includes(w));
+		el.hidden = !ok;
+		if (ok) {
+			shown++;
+			labelHas = true;
+		}
+	}
+	close();
+	const none = document.getElementById("const-none");
+	if (none) none.hidden = shown > 0;
+});
 // src/views/search.ts
 state.searchState = null;
 function renderResultRow(r, showTitleInPart) {
@@ -19607,7 +20258,7 @@ async function handleRoute() {
 	} catch {}
 	state.routeAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
 	syncNavToRoute(path);
-	if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus|usc)(\/|$)/.test(path)) {
+	if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus|usc|constitution)(\/|$)/.test(path)) {
 		emit("route:changed", { path });
 		await renderWelcome();
 		return;
@@ -19641,6 +20292,22 @@ async function handleRoute() {
 	state.currentUscTitle = null;
 	state.currentUscNode = null;
 	state.currentUscSection = null;
+	const constMatch = /^\/constitution(?:\/([^/]*))?\/?$/.exec(path);
+	if (constMatch) {
+		hideMainTabs();
+		clearTreeSelection();
+		let unitId = null;
+		try {
+			unitId = constMatch[1] ? decodeURIComponent(constMatch[1]) : null;
+		} catch {
+			unitId = constMatch[1] || null;
+		}
+		await loadConstitutionRoute(unitId);
+		applyNav();
+		emit("route:changed", { path });
+		return;
+	}
+	state.currentConstUnit = null;
 	let checkPath = path;
 	let titleMatch = path.match(/^\/title\/(\d+)(\/.*)?$/);
 	const corpusMatch = !titleMatch ? parseCorpusPath(path) : null;
@@ -19748,12 +20415,14 @@ async function handleRoute() {
 		hideMainTabs();
 		const legacy = /^\/library\/(\d+)((?:\/part\/.+)?)\/?$/.exec(checkPath);
 		const usc = /^\/library\/usc(?:\/(\d+))?\/?$/.exec(checkPath);
+		const constTab = /^\/library\/constitution\/?$/.test(checkPath);
 		const cfr = /^\/library\/cfr(?:\/(\d+)(?:\/part\/(.+))?)?\/?$/.exec(checkPath);
 		if (legacy) {
 			history.replaceState(null, "", `#/library/cfr/${legacy[1]}${legacy[2]}`);
 			const m = /^\/part\/(.+)$/.exec(legacy[2]);
 			await loadLibrary("cfr", parseInt(legacy[1], 10), m ? decode(m[1]) : null);
-		} else if (usc) await loadLibrary("usc", usc[1] ? parseInt(usc[1], 10) : null, null);
+		} else if (constTab) await loadLibrary("constitution", null, null);
+		else if (usc) await loadLibrary("usc", usc[1] ? parseInt(usc[1], 10) : null, null);
 		else if (cfr) await loadLibrary("cfr", cfr[1] ? parseInt(cfr[1], 10) : null, cfr[2] ? decode(cfr[2]) : null);
 		else if (/^\/library\/?$/.test(checkPath)) await loadLibrary("overview", null, null);
 		else renderNotFound();

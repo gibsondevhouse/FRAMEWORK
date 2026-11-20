@@ -23,11 +23,12 @@ try:
 except ImportError:
     HAVE_PLAYWRIGHT = False
 
-from app import news_store, news_worker, store
+from app import constitution, gov_http, news_store, news_worker, store
 from app.library import client as lib_client
 from app.main import app
 import fake_titles
 from tests.base import HermeticTestCase, TRACKED_KEYS
+from tests.test_new_corpora import FakeGov
 
 REQUIRE_BROWSER = os.environ.get("REQUIRE_BROWSER") == "1"
 
@@ -339,6 +340,59 @@ class Milestone3BrowserTests(HermeticTestCase):
         self.assertEqual(page._page_errors, [])
         self.assertEqual(self.external, [])
 
+
+    def test_constitution_library_tab_reader_and_home(self):
+        """The Constitution: Library tab (download), the reader with clauses and annotations, Pin, Home's card."""
+        constitution.remove()
+        self.addCleanup(constitution.remove)
+        page = self._new_page()
+
+        # Not installed: the tab explains it and offers one Download button; Home's card says so.
+        page.goto(f"{self.base_url}/#/library/constitution", wait_until="networkidle")
+        page.wait_for_selector("#lib-tab-constitution[aria-selected='true']", timeout=10000)
+        self.assertIn("Not installed", page.locator("#lib-tab-constitution").inner_text())
+        self.assertIn("Women’s right to vote", page.locator(".const-preview").inner_text())
+
+        # Download runs through the job queue against a fake GovInfo, then the contents appear.
+        with FakeGov().patch(), mock.patch.object(gov_http, "_sleep", lambda s: None), \
+                mock.patch.object(constitution, "log", lambda msg: None):
+            page.locator("[data-act='const-download']").click()
+            page.wait_for_selector("#lib-list a.lib-row[href='#/constitution/art1-s2']", timeout=15000)
+        self.assertIn("2 amendments", page.locator("#lib-tab-constitution").inner_text())
+        page.locator("#lib-filter").fill("due process")
+        page.wait_for_function("() => document.querySelector(\"#lib-list a[href='#/constitution/art1-s2']\").hidden", timeout=3000)
+        self.assertTrue(page.locator("#lib-list a[href='#/constitution/amdt14-s1']").is_visible())
+
+        # The reader: numbered clauses that copy their citation, annotations below, prev/next.
+        page.goto(f"{self.base_url}/#/constitution/art1-s2", wait_until="networkidle")
+        page.wait_for_selector(".const-body #cl2", timeout=10000)
+        self.assertEqual(page.locator("h1.doc-title").inner_text().strip(), "Art. I, § 2 The House of Representatives")
+        self.assertEqual(page.locator("#cl2 .const-cl").get_attribute("data-const-cite"), "U.S. Const. art. I, § 2, cl. 2")
+        self.assertEqual(page.locator("#const-btn-cite").get_attribute("data-const-cite"), "U.S. Const. art. I, § 2")
+        self.assertIn("This clause requires election by the people.", page.locator("#const-notes").inner_text())
+        self.assertNotIn("requires election", page.locator(".const-body").inner_text())
+        self.assertEqual(page.locator("#view-head [data-step='section-prev']").get_attribute("href"), "#/constitution/art1-s1")
+        self.assertIn("Amdt. XIV — Citizenship", page.locator("#panel-corpus").inner_text())
+        self.assertTrue(page.evaluate("() => document.documentElement.classList.contains('in-framework')"))
+
+        # Pin saves it to a workspace that links back to the reader.
+        page.locator("#btn-pin").click()
+        page.wait_for_selector("#pin-pop:not([hidden])", timeout=3000)
+        page.locator("#pin-pop .pin-new input").fill("Constitutional basis")
+        page.locator("#pin-pop .pin-new input").press("Enter")
+        page.wait_for_function("() => (localStorage.getItem('framework_projects_v1') || '').includes('art1-s2')", timeout=3000)
+        pins = page.evaluate("() => JSON.parse(localStorage.getItem('framework_projects_v1'))[0].sections")
+        self.assertEqual(pins[0]["tier"], "federal-constitution")
+        page.goto(f"{self.base_url}/#/projects", wait_until="networkidle")
+        page.locator(".proj-card a").first.click()
+        page.wait_for_selector(".proj-item a[href='#/constitution/art1-s2']", timeout=5000)
+
+        # Home: the Constitution sits beside the three codes and opens the reader.
+        page.goto(f"{self.base_url}/#/", wait_until="networkidle")
+        page.wait_for_selector("#hm-sys-const[href='#/constitution/']", timeout=10000)
+        self.assertIn("Installed", page.locator("#hm-sys-const").inner_text())
+        self.assertEqual(page._page_errors, [])
+        self.assertEqual(self.external, [])
 
 if __name__ == "__main__":
     unittest.main()
