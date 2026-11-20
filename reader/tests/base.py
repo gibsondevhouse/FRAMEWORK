@@ -14,6 +14,10 @@
    (sync) and `httpx.AsyncHTTPTransport.handle_async_request` (async, covering
    `AsyncAnthropic` in `chat.py`) raise on any real network access. Tests that
    need HTTP use `httpx.MockTransport` / ASGI transports, which are untouched.
+
+Importing this module also registers Starlette's `testserver` host with the local trust
+guard (`app/security.py`), which otherwise answers only loopback names; `SERVER_ALLOWED_HOSTS`
+is a tracked key, so a developer's own value never reaches a test.
 """
 import os
 import unittest
@@ -33,7 +37,14 @@ TRACKED_KEYS = (
     "FR_MIN_INTERVAL",
     "GOVINFO_API_KEY",
     "GOV_MIN_INTERVAL",
+    "SERVER_ALLOWED_HOSTS",
 )
+
+# Starlette's TestClient sends `Host: testserver`. The local trust guard (app/security.py)
+# only answers loopback names, so the suites register that one name here, in-process.
+from app import security  # noqa: E402
+
+security.EXTRA_ALLOWED_HOSTS.add("testserver")
 
 
 class HermeticTestCase(unittest.TestCase):
