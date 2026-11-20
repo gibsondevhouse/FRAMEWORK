@@ -580,6 +580,29 @@ def _dol_get_optional(c: httpx.Client, key: str, dataset: str, params: dict) -> 
         return []
 
 
+# OSHA IMIS `accident_injury.degree_of_inj` (DOL data dictionary). Other values stay unnamed.
+DEGREE_OF_INJURY = {"1": "Fatality", "2": "Hospitalized injury", "3": "Non-hospitalized injury"}
+
+
+def accident_injury(row: dict) -> dict:
+    """One `accident_injury` row as the case file shows it (FT-28): `degree` named when the code
+    is known (`degree_code` always kept), fall distance and height in feet only when given and
+    non-zero, and the fatality cause code as DOL publishes it (its names are not decoded yet)."""
+    code = str(row.get("degree_of_inj") or "").strip()
+
+    def feet(v) -> int | None:
+        n = _opt_int(v)
+        return n if n and n > 0 else None
+
+    return {
+        "degree_code": code or None,
+        "degree": DEGREE_OF_INJURY.get(code.lstrip("0") or code),
+        "fall_distance_ft": feet(row.get("fall_distance")),
+        "fall_height_ft": feet(row.get("fall_ht")),
+        "fatality_cause_code": (str(row.get("fat_cause") or "").strip().lstrip("0") or None),
+    }
+
+
 def fetch_inspection_case(c: httpx.Client, key: str, activity_nr: int) -> dict | None:
     """On-demand full case file fetch for one inspection via DOL Open Data API v4."""
     insp_rows = _dol_get(c, key, "inspection", {
@@ -652,12 +675,23 @@ def fetch_inspection_case(c: httpx.Client, key: str, activity_nr: int) -> dict |
 
     accidents: list[dict] = []
     if (insp.get("insp_type") or "").strip().upper() in ("A", "M"):
-        inj_rows = _dol_get_optional(c, key, "accident_injury", {
-            "limit": 20,
-            "fields": "summary_nr,rel_insp_nr,degree_of_inj,fall_distance,fall_ht,fat_cause",
-            "filter_object": json.dumps({"field": "rel_insp_nr", "operator": "eq", "value": activity_nr}),
-        })
+        inj_rows: list[dict] = []                         # one row per injured person, paged like violations
+        for inj_offset in range(0, 1000, 200):
+            page = _dol_get_optional(c, key, "accident_injury", {
+                "limit": 200,
+                "offset": inj_offset,
+                "fields": "summary_nr,rel_insp_nr,degree_of_inj,fall_distance,fall_ht,fat_cause",
+                "filter_object": json.dumps({"field": "rel_insp_nr", "operator": "eq", "value": activity_nr}),
+            })
+            inj_rows.extend(page)
+            if len(page) < 200:
+                break
         sum_nrs = sorted({int(r["summary_nr"]) for r in inj_rows if r.get("summary_nr")})
+        injuries_by_sum: dict[int, list[dict]] = {}
+        for ir in inj_rows:                                   # FT-28: keep what each injured person's row says
+            snr = _opt_int(ir.get("summary_nr"))
+            if snr is not None:
+                injuries_by_sum.setdefault(snr, []).append(accident_injury(ir))
         if sum_nrs:
             acc_rows = _dol_get_optional(c, key, "accident", {
                 "limit": len(sum_nrs),
@@ -685,6 +719,7 @@ def fetch_inspection_case(c: httpx.Client, key: str, activity_nr: int) -> dict |
                     "keywords": str(ac.get("event_keyword") or "").strip(),
                     "fatality": str(ac.get("fatality") or "").strip() or None,
                     "abstract": narrative,
+                    "injuries": injuries_by_sum.get(snr, []),
                 })
 
     related_by_key: dict[tuple[int, str], dict] = {}

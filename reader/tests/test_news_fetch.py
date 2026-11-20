@@ -9,6 +9,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+import httpx
+
 from app import config, news, news_store, news_worker
 from tests.news_fixtures import (DOL_VIOLATIONS, FR_DOCS_JSON, FakeAPI,
                                  NetworkGuardTestCase, PI_JSON)
@@ -180,6 +182,51 @@ class DolFetchTests(FetchTestCase):
         self.assertEqual(case_child["related"][0]["direction"], "parent")
         viol_req = fake.requests_for(VIOL_PATH)[0]
         self.assertIn("hazsub5", viol_req.url.params.get("fields"))
+
+    def test_accident_detail_is_kept_per_injured_person(self):          # FT-28
+        fake = FakeAPI(extra_routes={
+            "/v4/get/OSHA/accident_injury/json": {"data": [
+                {"summary_nr": 555, "rel_insp_nr": 307000001, "degree_of_inj": "1",
+                 "fall_distance": "20", "fall_ht": "25", "fat_cause": "4"},
+                {"summary_nr": 555, "rel_insp_nr": 307000001, "degree_of_inj": "2",
+                 "fall_distance": "0", "fall_ht": None, "fat_cause": "0"},
+            ]},
+            "/v4/get/OSHA/accident/json": {"data": [
+                {"summary_nr": 555, "event_date": "2026-07-30T00:00:00", "event_desc": "Fell from scaffold",
+                 "event_keyword": "SCAFFOLD,FALL", "fatality": "X", "abstract_text": ""},
+            ]},
+            "/v4/get/OSHA/accident_abstract/json": {"data": [
+                {"summary_nr": 555, "line_nr": 1, "abstract_text": "An employee fell from a scaffold."},
+            ]},
+        })
+        with fake.patch_client(), news.client() as c:
+            case = news.fetch_inspection_case(c, "k", 307000001)
+        [acc] = case["accidents"]
+        self.assertEqual(acc["abstract"], "An employee fell from a scaffold.")
+        self.assertEqual(acc["injuries"], [
+            {"degree_code": "1", "degree": "Fatality", "fall_distance_ft": 20, "fall_height_ft": 25,
+             "fatality_cause_code": "4"},
+            {"degree_code": "2", "degree": "Hospitalized injury", "fall_distance_ft": None,
+             "fall_height_ft": None, "fatality_cause_code": None},
+        ])
+        self.assertIsNone(news.accident_injury({"degree_of_inj": "7"})["degree"])
+
+    def test_every_injured_person_is_kept_past_one_page(self):           # FT-28 review: no 20-row cap
+        def injuries(request):
+            offset = int(request.url.params.get("offset") or 0)
+            n = 200 if offset == 0 else 5
+            return httpx.Response(200, json={"data": [
+                {"summary_nr": 556, "rel_insp_nr": 307000001, "degree_of_inj": "3"} for _ in range(n)]},
+                request=request)
+        fake = FakeAPI(extra_routes={
+            "/v4/get/OSHA/accident_injury/json": injuries,
+            "/v4/get/OSHA/accident/json": {"data": [{"summary_nr": 556, "event_desc": "Ammonia release"}]},
+            "/v4/get/OSHA/accident_abstract/json": {"data": []},
+        })
+        with fake.patch_client(), news.client() as c:
+            case = news.fetch_inspection_case(c, "k", 307000001)
+        self.assertEqual(len(case["accidents"][0]["injuries"]), 205)
+        self.assertEqual([r.url.params.get("offset") for r in fake.requests_for("accident_injury")], ["0", "200"])
 
 
 class WorkerSyncTests(FetchTestCase):
