@@ -1,5 +1,6 @@
 import { ChatMessage, state } from '../state';
 import { on } from '../core/events';
+import { OpenItem, openItemFromHash } from '../core/chat_context';
 import { escapeHtml, icon, renderMarkdown, showToast } from '../dom';
 import { applyNav } from '../nav';
 import { dom } from '../state_init';
@@ -48,15 +49,27 @@ export function closeChat(): void {
   if (hadFocus) dom.chatToggle.focus();
 }
 
+/** The non-CFR unit on screen (U.S.C., Constitution, law, FR document, Agenda rule), if any. */
+function currentOpenItem(): OpenItem | null {
+  if (state.currentSection) return null;
+  return openItemFromHash(location.hash);
+}
+
 export function updateChatContext(): void {
+  const open = currentOpenItem();
   if (state.currentSection) {
     dom.chatContext.hidden = false;
     dom.contextLabel.textContent = `${state.currentSection.label} (Title ${state.currentTitle})`;
+  } else if (open) {
+    dom.chatContext.hidden = false;
+    dom.contextLabel.textContent = open.label;
   } else {
     dom.chatContext.hidden = true;
   }
   if (!dom.chat.hidden && state.chatHistory.length === 0 && !state.isGenerating) renderChatWelcome();
 }
+
+on('route:changed', () => updateChatContext());
 
 export const HOME_PROMPTS: Record<number, string[]> = {
   29: [
@@ -123,7 +136,14 @@ export function renderChatWelcome(): void {
     'Draft an audit and compliance checklist for this rule.',
   ];
 
-  if (!state.currentSection) {
+  const open = currentOpenItem();
+  if (open) {
+    prompts = [
+      'Explain this in plain English.',
+      'Which regulations or statutes connect to this?',
+      'What are the key dates and obligations here?',
+    ];
+  } else if (!state.currentSection) {
     prompts = HOME_PROMPTS[state.currentTitle] || [
       'What does this title cover, at a high level?',
       'What are the most important definitions in this title?',
@@ -134,8 +154,8 @@ export function renderChatWelcome(): void {
   const titleList = state.installedTitles.map(t => 'Title ' + t.title).join(', ') || `Title ${state.currentTitle}`;
   dom.chatMessages.innerHTML = `
     <div class="chat-empty">
-      <h3>Ask Claude about ${state.currentSection ? escapeHtml(state.currentSection.label) : 'Title ' + state.currentTitle}</h3>
-      <p>Claude searches and reads the full regulation text across ${escapeHtml(titleList)}. Select any passage in a section to ask about it.</p>
+      <h3>Ask Claude about ${state.currentSection ? escapeHtml(state.currentSection.label) : open ? escapeHtml(open.label) : 'Title ' + state.currentTitle}</h3>
+      <p>Claude searches and reads every installed federal framework: the Constitution, the U.S. Code, Public Laws, the CFR (${escapeHtml(titleList)}), the Federal Register and the Unified Agenda. Select any passage to ask about it.</p>
       <div class="suggestions">
         ${prompts.map(p => `<button type="button" data-prompt="${escapeHtml(p)}">${escapeHtml(p)}</button>`).join('')}
       </div>
@@ -188,8 +208,12 @@ export async function submitChat(): Promise<void> {
   dom.chatSend.disabled = true;
 
   const model = dom.modelSelect.value || state.chatConfig.default;
-  const includeContext = dom.contextToggle.checked && state.currentSection;
+  const includeContext = dom.contextToggle.checked;
   const sectionId = includeContext && state.currentSection ? state.currentSection.id : null;
+  const openItem = includeContext ? currentOpenItem() : null;
+  const open = openItem
+    ? { corpus: openItem.corpus, key: openItem.key, ...(openItem.collection ? { collection: openItem.collection } : {}) }
+    : null;
   let replyText = '';
   let renderRaf = 0;
   let contentDiv: HTMLDivElement | null = null;
@@ -221,6 +245,7 @@ export async function submitChat(): Promise<void> {
       body: JSON.stringify({
         messages: state.chatHistory,
         section_id: sectionId,
+        open,
         model,
       }),
     });

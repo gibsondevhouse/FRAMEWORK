@@ -1,5 +1,5 @@
 {
-  "sha256": "513b9c793d68e69cc32444966ce93fc8890d7e6817497efdf37ab6da18f346b4",
+  "sha256": "d0a460c82be206231141c3f93e622aef30d552741ec96c2f7ce8cf741c278bcf",
   "files": [
     "index.html",
     "src/api/client.ts",
@@ -28,6 +28,7 @@
     "src/components/ui.ts",
     "src/components/view_head.ts",
     "src/core/agenda.ts",
+    "src/core/chat_context.ts",
     "src/core/constitution.ts",
     "src/core/constitution_text.ts",
     "src/core/events.ts",
