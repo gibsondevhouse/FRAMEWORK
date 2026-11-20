@@ -15,7 +15,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, library, news_store, news_worker, store
+from . import config, library, news_store, news_worker, security, store
 from .routers import chat as chat_routes
 from .routers import corpora as corpora_routes
 from .routers import fr as fr_routes
@@ -62,6 +62,9 @@ class RevalidatedStaticFiles(StaticFiles):
 
 app = FastAPI(title="FRAMEWORK: CFR Reader & Assistant", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=2048)
+# Added last so it runs first: a foreign Host or a cross-origin call is refused before any
+# route, the static mount or compression sees it (see app/security.py).
+app.add_middleware(security.LocalTrustMiddleware)
 app.mount("/static", RevalidatedStaticFiles(directory=config.STATIC_DIR), name="static")
 
 
