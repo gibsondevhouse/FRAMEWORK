@@ -264,7 +264,7 @@ class PlanTests(SourcesTestCase):
         self.assertTrue(r["applied"])
         kinds = [k for _, k, _ in self.submitted()]
         self.assertEqual(kinds.count("title"), 49)
-        self.assertEqual(kinds.count("usc-title"), 53)
+        self.assertEqual(kinds.count("usc-title"), 57)          # 53 titles + 4 appendices
         fr_job = [s for s in self.submitted() if s[1] == "fr-build"][0]
         self.assertEqual(fr_job[2], {"titles": [0], "years": 2, "filters": {}})
         self.assertEqual(selection.current(), (rec["selection"], True))

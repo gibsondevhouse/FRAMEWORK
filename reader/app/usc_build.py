@@ -51,8 +51,9 @@ def _noop(phase, done=None, total=None) -> None:
 
 def valid_title(title: int) -> int:
     t = int(title)
-    if t not in usc_client.TITLE_RANGE or t in usc_client.RESERVED:
-        raise ValueError(f"U.S. Code Title {t} doesn't exist (titles 1-54; 53 is reserved)")
+    if t not in usc_client.ALL_TITLES or t in usc_client.RESERVED:
+        raise ValueError(f"U.S. Code Title {usc_client.title_label(t)} doesn't exist or holds no laws "
+                         "(titles 1-54 and appendices 5a, 11a, 18a, 28a; 53 is reserved, 50a was eliminated)")
     return t
 
 
@@ -165,8 +166,8 @@ def build(
             info, tree = uslm.parse_title(xml_tmp, on_section, add_notes)
             if counters["sections"] == 0:
                 raise ValueError(f"No sections found in {member}")
-            if info.get("number") and str(info["number"]).lstrip("0") != str(title):
-                raise ValueError(f"{member} is Title {info['number']}, not Title {title}")
+            if info.get("number") and str(info["number"]).lower().lstrip("0") != usc_client.title_label(title):
+                raise ValueError(f"{member} is Title {info['number']}, not Title {usc_client.title_label(title)}")
             report("Indexing")
             meta = {
                 "release_point": release["release_point"],
@@ -181,7 +182,10 @@ def build(
                 "xml_sha256": xml_sha,
                 "xml_member": member,
                 "title": str(title),
-                "title_name": info.get("name") or f"Title {title}",
+                # An appendix's own <heading> names its first act (an OLRC quirk): use the catalog's name.
+                "title_name": ((static_catalog()["titles"].get(str(title)) or {}).get("name")
+                               if title in usc_client.APPENDIX else None)
+                              or info.get("name") or usc_client.title_name_prefix(title),
                 "positive_law": "1" if info.get("positive_law") else "0",
                 "publication": info.get("publication") or "",
             }
@@ -213,7 +217,7 @@ def build(
               "section_count": counters["sections"], "note_count": counters["notes"],
               "duplicate_ids": counters["dupes"], "zip_sha256": zip_sha, "xml_sha256": xml_sha,
               "elapsed_sec": round(time.perf_counter() - started, 2)}
-    log(f"built Title {title} at {meta['release_point']}: {counters['sections']} sections, "
+    log(f"built Title {usc_client.title_label(title)} at {meta['release_point']}: {counters['sections']} sections, "
         f"{counters['notes']} notes in {result['elapsed_sec']}s")
     return result
 
@@ -302,7 +306,7 @@ def catalog() -> dict:
     current = release["release_point"] if release else None
     installed = set(usc_store.installed_titles())
     rows = []
-    for n in usc_client.TITLE_RANGE:
+    for n in usc_client.ALL_TITLES:
         s = static["titles"].get(str(n), {})
         inst = usc_store.title_summary(n) if n in installed else None
         row = {
@@ -340,7 +344,7 @@ def queue_titles(titles: list[int]) -> dict:
     current = release["release_point"] if release else None
     queued, skipped = [], []
     for n in dict.fromkeys(int(t) for t in titles):
-        if n not in usc_client.TITLE_RANGE or n in usc_client.RESERVED:
+        if n not in usc_client.ALL_TITLES or n in usc_client.RESERVED:
             skipped.append({"title": n, "code": "usc", "reason": "reserved"})
             continue
         if lib.queue.busy_with(job_key(n)):

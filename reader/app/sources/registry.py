@@ -177,14 +177,16 @@ def usc_title_options() -> list[dict]:
     from .. import usc_build, usc_client
     static = usc_build.static_catalog().get("titles", {})
     out = []
-    for n in usc_client.TITLE_RANGE:
+    for n in usc_client.ALL_TITLES:
         s = static.get(str(n)) or {}
         reserved = n in usc_client.RESERVED or bool(s.get("reserved"))
-        name = s.get("name") or f"Title {n}"
+        name = s.get("name") or usc_client.title_name_prefix(n)
         cfr = list(s.get("cfr") or [])
         out.append({
-            "value": n, "label": f"Title {n} · {name}",
-            "description": ("Reserved: no laws are assigned to this title." if reserved else
+            "value": n, "label": f"{usc_client.title_name_prefix(n)} · {name}",
+            "appendix": n in usc_client.APPENDIX,
+            "description": (s.get("summary") or "Reserved: no laws are assigned to this title." if reserved else
+                            s["summary"] if s.get("summary") else
                             f"Implemented mainly by CFR Title{'s' if len(cfr) > 1 else ''} "
                             f"{', '.join(map(str, cfr))}." if cfr else
                             "Permanent federal statutes on this subject."),

@@ -151,7 +151,8 @@ class ReleaseDiscoveryTests(UscTestCase):
         self.assertEqual(info["release_point"], "119-142")
         self.assertEqual((info["congress"], info["law"]), (119, "142"))
         self.assertEqual(info["current_through"], "November 10, 2026")
-        self.assertEqual(sorted(info["titles"]), ["1", "4"])      # appendix + htm + All ignored
+        self.assertEqual(sorted(info["titles"], key=int), ["1", "4", "105"])   # 5a = 105; htm + All ignored
+        self.assertTrue(info["titles"]["105"].endswith("/xml_usc05a@119-142.zip"))
         self.assertEqual(info["titles"]["4"],
                          "https://uscode.house.gov/download/releasepoints/us/pl/119/142/xml_usc04@119-142.zip")
         self.assertIsNone(usc_client.parse_release_page("<html>nothing</html>", "x"))
@@ -391,7 +392,8 @@ class ApiTests(UscTestCase):
         self.assertEqual(self.client.get("/api/usc/4/section/2").json()["status"], "repealed")
         self.assertEqual(self.client.get("/api/usc/4/section/999").status_code, 404)
         self.assertEqual(self.client.get("/api/usc/53/meta").status_code, 404)
-        self.assertEqual(self.client.get("/api/usc/55/meta").status_code, 422)
+        self.assertEqual(self.client.get("/api/usc/55/meta").status_code, 404)    # not a title, not installed
+        self.assertEqual(self.client.get("/api/usc/151/meta").status_code, 422)
 
         r = self.client.get("/api/usc/search", params={"q": "stripes"}).json()
         self.assertEqual(r["results"][0]["id"], "1")
@@ -410,7 +412,7 @@ class ApiTests(UscTestCase):
         with mock.patch.object(usc_client, "client", side_effect=AssertionError("network")):
             c = self.client.get("/api/usc/catalog").json()
         self.assertIsNone(c["release"])
-        self.assertEqual(len(c["titles"]), 54)
+        self.assertEqual(len(c["titles"]), 59)                 # 54 titles + 5 appendix titles
         self.assertIn("Labor, Health & Safety", c["desks"])
         t29 = c["titles"][28]
         self.assertEqual((t29["title"], t29["name"], t29["desk"], t29["cfr"], t29["installed"]),
@@ -445,7 +447,7 @@ class ApiTests(UscTestCase):
         with FakeOLRC(rp="119-142").patch():
             r = self.client.get("/api/usc/release").json()
         self.assertEqual(r["release_point"], "119-142")
-        self.assertEqual(r["available_titles"], [1, 4])
+        self.assertEqual(r["available_titles"], [1, 4, 105])
         self.assertTrue(r["titles"][0]["stale"])
         usc_client.clear_cache()
         with FakeOLRC(page_status=500).patch():
@@ -467,3 +469,51 @@ class ApiTests(UscTestCase):
 if __name__ == "__main__":
     import unittest
     unittest.main()
+
+
+APPENDIX_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<uscDoc xmlns="http://xml.house.gov/schemas/uslm/1.0" xmlns:dc="http://purl.org/dc/elements/1.1/" identifier="/us/usc/t28a">
+<meta><dc:title>Title 28 Appendix</dc:title><docNumber>28a</docNumber><docPublicationName>Online@119-142</docPublicationName>
+<property role="is-positive-law">no</property></meta>
+<appendix identifier="/us/usc/t28a"><num value="28a">Title 28—APPENDIX</num><heading>JUDICIAL PERSONNEL FINANCIAL DISCLOSURE</heading>
+<courtRules identifier="/us/usc/t28a/courtRules/App"><heading>FEDERAL RULES OF APPELLATE PROCEDURE</heading>
+<title identifier="/us/usc/t28a/courtRules/App/tI"><num value="I">TITLE I.</num><heading>APPLICABILITY OF RULES</heading>
+<courtRule identifier="/us/usc/t28a/courtRules/App/rule1"><num value="1">Rule 1.</num><heading>Scope of Rules</heading>
+<content><p>These rules govern procedure in the United States courts of appeals.</p></content></courtRule>
+</title></courtRules>
+<courtRules identifier="/us/usc/t28a/courtRules/Evid"><heading>FEDERAL RULES OF EVIDENCE</heading>
+<courtRule identifier="/us/usc/t28a/courtRules/Evid/rule1"><num value="1">Rule 1.</num><heading>Scope</heading>
+<content><p>These rules apply to proceedings in United States courts.</p></content></courtRule>
+</courtRules>
+<compiledAct identifier="/us/usc/t28a/pl/95/521"><heading>ETHICS IN GOVERNMENT ACT</heading>
+<section identifier="/us/usc/t28a/pl/95/521/s1"><num value="1">§ 1.</num><heading>Short title</heading><content>Short title.</content></section>
+</compiledAct>
+</appendix></uscDoc>"""
+
+
+class AppendixTitleTests(HermeticTestCase):
+    def test_codes_and_labels(self):
+        self.assertEqual(usc_client.title_code("11a"), 111)
+        self.assertEqual(usc_client.title_code("05A"), 105)
+        self.assertEqual(usc_client.title_code("42"), 42)
+        self.assertEqual(usc_client.title_label(128), "28a")
+        self.assertIn(150, usc_client.RESERVED)                 # 50a was eliminated
+        with self.assertRaises(ValueError):
+            usc_build.valid_title(150)
+        self.assertEqual(usc_build.valid_title(128), 128)
+        self.assertTrue(usc_client.zip_url({"congress": 119, "law": "142", "release_point": "119-142",
+                                            "titles": {}}, 111).endswith("/xml_usc11a@119-142.zip"))
+
+    def test_parses_court_rules_and_compiled_acts(self):
+        tmp = Path(tempfile.mkdtemp(prefix="usc-appx-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        p = tmp / "usc28a.xml"
+        p.write_text(APPENDIX_XML, encoding="utf-8")
+        recs = []
+        info, tree = uslm.parse_title(p, recs.append, lambda *a: None)
+        self.assertEqual(info["number"], "28a")
+        self.assertEqual(tree["t"], "appendix")
+        self.assertEqual([r["id"] for r in recs], ["App-rule1", "Evid-rule1", "pl95-521-s1"])
+        self.assertEqual([r["label"] for r in recs], ["Rule 1", "Rule 1", "§ 1"])
+        self.assertEqual(recs[0]["path"][0]["d"], "FEDERAL RULES OF APPELLATE PROCEDURE")
+        self.assertEqual([c["t"] for c in tree["c"]], ["courtRules", "courtRules", "compiledAct"])

@@ -30,7 +30,7 @@ usc_router = APIRouter(prefix="/api/usc", dependencies=[Depends(_no_store)])
 usc_page_router = APIRouter()
 
 
-def installed_usc_title(title: int = Path(..., ge=1, le=54)) -> int:
+def installed_usc_title(title: int = Path(..., ge=1, le=150)) -> int:
     if title not in usc_store.installed_titles():
         raise HTTPException(404, f"U.S. Code Title {title} is not installed on this server.")
     return title
@@ -64,7 +64,7 @@ def current_release(refresh: bool = False) -> dict:
 
 
 @usc_router.get("/search")
-def search(q: str = Query(..., max_length=200), title: int | None = Query(None, ge=1, le=54),
+def search(q: str = Query(..., max_length=200), title: int | None = Query(None, ge=1, le=150),
            limit: int = Query(20, ge=1, le=100), notes: bool = False) -> dict:
     if title is not None and title not in usc_store.installed_titles():
         raise HTTPException(404, f"U.S. Code Title {title} is not installed on this server.")
@@ -107,7 +107,7 @@ def get_section(title: int = Depends(installed_usc_title), section_id: str = "")
 
 
 class DownloadRequest(BaseModel):
-    title: int = Field(ge=1, le=54)
+    title: int = Field(ge=1, le=150)
 
 
 @usc_router.post("/download")
@@ -153,7 +153,7 @@ table{border-collapse:collapse}td,th{border:1px solid var(--line);padding:4px 8p
 
 
 @usc_page_router.get("/usc/{title}/{section_id:path}", include_in_schema=False)
-def section_page(title: int = Path(..., ge=1, le=54), section_id: str = "") -> HTMLResponse:
+def section_page(title: int = Path(..., ge=1, le=150), section_id: str = "") -> HTMLResponse:
     if title not in usc_store.installed_titles():
         raise HTTPException(404, f"U.S. Code Title {title} is not installed on this server.")
     d = _section_payload(title, section_id)

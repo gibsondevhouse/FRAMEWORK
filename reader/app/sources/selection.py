@@ -189,7 +189,7 @@ def usc_titles_of(sel: dict) -> list[int]:
     from .. import usc_client
     v = sel["sources"]["usc"]["scope"].get("titles", [])
     if v == "all":
-        return [n for n in usc_client.TITLE_RANGE if n not in usc_client.RESERVED]
+        return [n for n in usc_client.ALL_TITLES if n not in usc_client.RESERVED]
     return list(v)
 
 
