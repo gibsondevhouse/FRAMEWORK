@@ -15376,11 +15376,22 @@ function plawScope(st) {
 		return null;
 	}
 }
-/** Law counts per Congress (public laws only), newest first. */
+/** Law counts per Congress (public and private laws together, FT-25), newest first. */
 function plawCounts(st) {
 	const m = /* @__PURE__ */ new Map();
-	for (const r of st?.congresses || []) if (r.law_type === "public") m.set(r.congress, (m.get(r.congress) || 0) + r.laws);
+	for (const r of st?.congresses || []) m.set(r.congress, (m.get(r.congress) || 0) + r.laws);
 	return m;
+}
+/** How many installed laws are private laws (0 when none were downloaded). */
+function plawPrivateCount(st) {
+	return (st?.congresses || []).reduce((n, r) => n + (r.law_type === "private" ? r.laws : 0), 0);
+}
+/** One Congress's laws split by type, each in the order the API gave them. */
+function splitLawTypes(rows) {
+	return {
+		public: rows.filter((r) => r.law_type !== "private"),
+		private: rows.filter((r) => r.law_type === "private")
+	};
 }
 async function fetchPlawStatus() {
 	try {
@@ -15389,11 +15400,11 @@ async function fetchPlawStatus() {
 		return null;
 	}
 }
-/** Every public law of one Congress (the API pages at 200). */
+/** Every law of one Congress, public and private (the API pages at 200). */
 async function fetchCongressLaws(congress, signal) {
 	const out = [];
 	for (let offset = 0; offset < 5e3; offset += 200) {
-		const d = await getJSON(`/api/plaw?congress=${congress}&type=public&limit=200&offset=${offset}`, { signal });
+		const d = await getJSON(`/api/plaw?congress=${congress}&limit=200&offset=${offset}`, { signal });
 		out.push(...d.results);
 		if (out.length >= d.total || !d.results.length) break;
 	}
@@ -15439,6 +15450,14 @@ function lawRow(l) {
       <span class="lib-status">${escapeHtml([l.bill, l.approved_date ? shortDate(l.approved_date) : ""].filter(Boolean).join(" · "))}</span>
     </a>`;
 }
+/** The selected Congress's laws: public laws, then private laws under their own label. */
+function lawListHtml(sel, laws) {
+	if (!laws.length) return "<p class=\"lib-none\">No laws yet in this Congress.</p>";
+	const { public: pub, private: pvt } = splitLawTypes(laws);
+	const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+	const head = `${ordinal(sel)} Congress · ${congressYears(sel)} · ${count(pub.length, "public law", "public laws")}`;
+	return (pub.length ? `<div class="lib-label">${escapeHtml(head)}</div>${pub.map(lawRow).join("")}` : "") + (pvt.length ? `<div class="lib-label">${escapeHtml(`Private laws · ${count(pvt.length, "law", "laws")} for named people or entities`)}</div>${pvt.map(lawRow).join("")}` : "");
+}
 function plawTabHtml(st, congress, laws, filter) {
 	if (!st) return `<div class="empty-state"><h2>Public Laws didn’t load</h2><p>Reload the page to try again.</p></div>`;
 	const kicker = `<span class="ref-badge" data-ref-tier="usc">PUB. L. · SESSION LAWS</span><span>GovInfo bulk data · USLM XML · no key needed</span>`;
@@ -15460,6 +15479,7 @@ function plawTabHtml(st, congress, laws, filter) {
 	const sel = plawSelected(st, congress);
 	const scope = plawScope(st);
 	const missing = !counts.has(sel);
+	const pvt = plawPrivateCount(st);
 	const newest = st.meta.built_at ? shortDate(st.meta.built_at.slice(0, 10)) : "";
 	const lead = tabLeadHtml({
 		refTier: "usc",
@@ -15477,7 +15497,7 @@ function plawTabHtml(st, congress, laws, filter) {
 		{
 			labelHtml: "Laws",
 			valueHtml: escapeHtml(fmt(st.law_count)),
-			subHtml: "Public laws installed"
+			subHtml: pvt ? `Including ${fmt(pvt)} private ${pvt === 1 ? "law" : "laws"}` : "Public laws installed"
 		},
 		{
 			labelHtml: "Congresses",
@@ -15503,7 +15523,7 @@ function plawTabHtml(st, congress, laws, filter) {
         ${job || `<p><button type="button" class="btn btn-accent" data-act="plaw-add" data-congress="${sel}">${icon("download")} Add the ${ordinal(sel)} Congress</button></p>`}</div>` : `<div class="lib-tools">
         <input class="lib-filter" id="lib-filter" type="search" placeholder="Filter laws by title, number or bill…" aria-label="Filter laws" autocomplete="off" spellcheck="false" value="${escapeHtml(filter)}">
       </div>
-      <div class="lib-list" id="lib-list">${laws ? laws.length ? `<div class="lib-label">${escapeHtml(`${ordinal(sel)} Congress · ${congressYears(sel)} · ${laws.length} ${laws.length === 1 ? "law" : "laws"}`)}</div>${laws.map(lawRow).join("")}` : "<p class=\"lib-none\">No public laws yet in this Congress.</p>" : "<p class=\"lib-none\">Loading laws…</p>"}</div>
+      <div class="lib-list" id="lib-list">${laws ? lawListHtml(sel, laws) : "<p class=\"lib-none\">Loading laws…</p>"}</div>
       <div class="lib-none" id="lib-none" aria-live="polite" hidden>No law matches. Try words from its title, a number (“118-5”) or a bill (“H.R. 3746”).</div>`;
 	return `${lead}${kpis}${congressTiles(st, sel)}${body}`;
 }
