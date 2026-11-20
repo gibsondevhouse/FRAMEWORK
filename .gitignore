@@ -29,6 +29,8 @@ reader/data/*.sqlite3-*
 reader/data/tree*.json
 reader/data/usc-tree*.json
 reader/data/*.tmp
+reader/data/access-token
+reader/data/access-token.new
 
 # Frontend toolchain (reader/static/dist/ is committed on purpose)
 reader/frontend/node_modules/

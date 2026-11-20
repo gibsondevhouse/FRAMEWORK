@@ -1005,6 +1005,80 @@ class ContentSecurityPolicyTests(BrowserCase):
         self.policy_violations.clear()               # ... and these were the point of the test
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and HAVE_PIL, "playwright and Pillow are required")
+class AccessTokenTests(unittest.TestCase):
+    """SEC-002: a browser that reaches the server under a listed, non-loopback name signs in
+    with the access token through its own sign-in prompt (HTTP Basic); the single-page app and
+    its fetch calls then work unchanged. The name resolves to this machine inside Chromium only."""
+
+    NAME = "reader.test"
+
+    def setUp(self):
+        super().setUp()
+        import logging
+        from app import security
+        os.environ["SERVER_ALLOWED_HOSTS"] = self.NAME
+        self.addCleanup(os.environ.pop, "SERVER_ALLOWED_HOSTS", None)
+        self.token = security.access_token()                       # in the fake titles' temp DATA_DIR
+        self.addCleanup(security.token_path().unlink, True)
+        self.base = f"http://{self.NAME}:{ENV.port}"
+        self.browser = ENV.playwright.chromium.launch(
+            args=["--hide-scrollbars", f"--host-resolver-rules=MAP {self.NAME} 127.0.0.1"])
+        self.addCleanup(self.browser.close)
+
+        # The server's own access log, switched on for this test, to prove the token never reaches it.
+        self.access_lines: list[str] = []
+        capture = logging.Handler()
+        capture.emit = lambda record: self.access_lines.append(record.getMessage())
+        access = logging.getLogger("uvicorn.access")
+        level = access.level
+        access.addHandler(capture)
+        access.setLevel(logging.INFO)
+        self.addCleanup(access.setLevel, level)
+        self.addCleanup(access.removeHandler, capture)
+
+    def context(self, password: str | None):
+        ctx = self.browser.new_context(
+            viewport=DESKTOP, reduced_motion="reduce",
+            http_credentials={"username": "reader", "password": password} if password is not None else None)
+        self.addCleanup(ctx.close)
+        ctx.route("**/*", lambda route: route.continue_()
+                  if route.request.url.startswith((self.base, "data:")) else route.abort())
+        watch_policy_violations(self, ctx)
+        return ctx
+
+    def test_a_browser_on_another_computer_signs_in_with_the_token(self):
+        # No token, or a wrong one: nothing is served, not even the page or its script.
+        for password in (None, "not-the-token"):
+            page = self.context(password).new_page()
+            self.assertEqual(page.goto(f"{self.base}/").status, 401, password)
+            self.assertIn("Access token required", page.inner_text("body"))
+            self.assertEqual(page.locator("#view").count(), 0)
+            self.assertEqual(page.evaluate("fetch('/api/titles').then(r => r.status)"), 401)
+
+        # The token as the password: the app loads and its own fetch calls carry it by themselves.
+        page = self.context(self.token).new_page()
+        self.assertEqual(page.goto(f"{self.base}/#/").status, 200)
+        page.wait_for_selector(".hm-titles[data-snapshot-loaded='1']", timeout=15000)
+        self.assertIn("OSHA", page.inner_text(".hm-titles"))
+        self.assertEqual(page.evaluate("fetch('/api/titles').then(r => r.json()).then(t => t.length)"), 3)
+        # A state-changing call from the app's own page passes the origin rule and the token rule.
+        self.assertEqual(page.evaluate("fetch('/api/library/jobs/clear', {method: 'POST'}).then(r => r.status)"), 200)
+        page.goto(f"{self.base}/#/section/1910.135")
+        page.wait_for_selector("#btn-pin", timeout=15000)
+        self.assertNotIn(self.token, page.url)
+
+        # This computer, meanwhile, is still never asked.
+        local = ENV.browser.new_context()
+        self.addCleanup(local.close)
+        self.assertEqual(local.new_page().goto(f"{ENV.base_url}/").status, 200)
+
+        said = "\n".join(self.access_lines)
+        self.assertIn("401", said)
+        self.assertIn("/api/titles", said)
+        self.assertNotIn(self.token, said)
+
+
 class ScreenshotCase(BrowserCase):
     def assert_baseline(self, page, name: str):
         page.wait_for_timeout(250)  # let fonts/layout fully settle

@@ -20,7 +20,10 @@ guard (`app/security.py`), which otherwise answers only loopback names; `SERVER_
 is a tracked key, so a developer's own value never reaches a test.
 """
 import os
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import httpx
@@ -45,6 +48,9 @@ TRACKED_KEYS = (
 from app import security  # noqa: E402
 
 security.EXTRA_ALLOWED_HOSTS.add("testserver")
+# ... and its requests arrive from the address `testclient`, which the guard would otherwise
+# take for another computer and ask for the access token (SEC-002).
+security.EXTRA_LOCAL_PEERS.add("testclient")
 
 
 def watch_policy_violations(case: unittest.TestCase, context) -> list[str]:
@@ -74,6 +80,20 @@ class HermeticTestCase(unittest.TestCase):
                     os.environ[k] = v
 
         self.addCleanup(restore)
+
+        # The access token (SEC-002) is never read from, or written to, the developer's own
+        # reader/data/: a test that needs one gets it in a temp directory of its own.
+        token_dir: list[Path] = []
+
+        def token_path() -> Path:
+            if not token_dir:
+                token_dir.append(Path(tempfile.mkdtemp(prefix="fw-token-")))
+                self.addCleanup(shutil.rmtree, token_dir[0], True)
+            return token_dir[0] / security.TOKEN_FILE
+
+        token_patch = mock.patch.object(security, "token_path", token_path)
+        token_patch.start()
+        self.addCleanup(token_patch.stop)
 
         from app import fr_client, news
         news.reset_dol_rate_state()

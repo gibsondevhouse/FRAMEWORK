@@ -1,12 +1,17 @@
 """The local trust boundary (app/security.py, register item SEC-001): the server answers
 only under a loopback name, and state-changing or API requests only from its own origin.
-Then the browser security headers (SEC-003): every response carries a content security
+Then the access token (SEC-002): a request from another computer needs it, a local one does
+not. Then the browser security headers (SEC-003): every response carries a content security
 policy, nosniff, a no-framing rule and a referrer policy."""
 import base64
+import contextlib
 import hashlib
+import io
 import os
 import shutil
+import stat
 import tempfile
+import unittest
 from html.parser import HTMLParser
 from pathlib import Path
 from unittest import mock
@@ -23,6 +28,15 @@ from tests.test_usc_corpus import UscTestCase
 
 HOST = "localhost:8000"
 OWN = f"http://{HOST}"
+LAN_HOST = "reader.lan:8000"                 # a name the owner listed in SERVER_ALLOWED_HOSTS
+LAN = f"http://{LAN_HOST}"
+LAN_PEER = ("192.168.1.50", 50000)           # another computer on the network
+THIS_PEER = ("127.0.0.1", 50000)
+REAL_TOKEN_PATH = security.token_path        # before HermeticTestCase points it at a temp directory
+
+
+def basic(password: str, user: str = "reader") -> str:
+    return "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
 
 
 def check(method, path, **headers):
@@ -136,10 +150,12 @@ class MiddlewareTests(HermeticTestCase):
         self.assertEqual(self.mini.get("/api/thing", headers={"sec-fetch-site": "same-origin"}).json(), {"secret": 1})
         self.assertEqual(self.calls, ["changed", "changed"])
 
-    def test_an_extra_host_must_be_listed(self):
+    def test_an_extra_host_must_be_listed_and_then_needs_the_token(self):
         self.assertEqual(self.mini.get("/api/thing", headers={"host": "reader.lan"}).status_code, 400)
         os.environ["SERVER_ALLOWED_HOSTS"] = "reader.lan"
-        self.assertEqual(self.mini.get("/api/thing", headers={"host": "reader.lan"}).status_code, 200)
+        self.assertEqual(self.mini.get("/api/thing", headers={"host": "reader.lan"}).status_code, 401)
+        ok = self.mini.get("/api/thing", headers={"host": "reader.lan", "authorization": f"Bearer {security.access_token()}"})
+        self.assertEqual(ok.json(), {"secret": 1})
 
     def test_the_real_app_is_guarded(self):
         tmp = Path(tempfile.mkdtemp())
@@ -163,6 +179,247 @@ class MiddlewareTests(HermeticTestCase):
             # The app itself still works.
             self.assertEqual(client.get("/api/titles", headers={"sec-fetch-site": "same-origin"}).json(), [])
             self.assertEqual(client.get("/").status_code, 200)
+
+
+# --- The access token (SEC-002) --------------------------------------------------------------
+
+def lan_check(method="GET", path="/api/titles", client=LAN_PEER, host=LAN_HOST, **headers):
+    return security.check_request(
+        method, path, Headers({"host": host, **{k.replace("_", "-"): v for k, v in headers.items()}}), "http", client)
+
+
+class LocalRequestTests(HermeticTestCase):
+    def test_only_a_loopback_address_is_this_computer(self):
+        for peer in (None, ("127.0.0.1", 5), ("127.8.9.1", 5), ("::1", 5), ("::ffff:127.0.0.1", 5), ("testclient", 5)):
+            self.assertTrue(security.is_local_peer(peer), peer)
+        for peer in (("192.168.1.50", 5), ("10.0.0.5", 5), ("8.8.8.8", 5), ("fe80::1%en0", 5), ("::ffff:10.0.0.5", 5),
+                     ("localhost", 5), ("evil.example", 5), ("", 5)):
+            self.assertFalse(security.is_local_peer(peer), peer)
+
+    def test_local_means_loopback_name_and_loopback_peer_and_no_proxy(self):
+        local = Headers({"host": HOST})
+        self.assertTrue(security.is_local_request(local, THIS_PEER))
+        self.assertTrue(security.is_local_request(Headers({"host": "[::1]:8000"}), ("::1", 5)))
+        # Anyone can send `Host: localhost` to a server bound to the network.
+        self.assertFalse(security.is_local_request(local, LAN_PEER))
+        # A listed name is another computer's way in, even over loopback (a local reverse proxy).
+        self.assertFalse(security.is_local_request(Headers({"host": LAN_HOST}), THIS_PEER))
+        for name in security.FORWARDING_HEADERS:
+            self.assertFalse(security.is_local_request(Headers({"host": HOST, name: "203.0.113.9"}), THIS_PEER), name)
+
+
+class TokenStoreTests(HermeticTestCase):
+    def test_it_is_created_on_first_use_and_then_kept(self):
+        path = security.token_path()
+        self.assertFalse(path.exists())
+        token = security.access_token()
+        self.assertGreaterEqual(len(token), 43)                                   # 256 bits, URL-safe
+        self.assertRegex(token, r"^[A-Za-z0-9_-]+$")
+        self.assertEqual(path.read_text(encoding="utf-8"), token + "\n")
+        self.assertEqual(security.access_token(), token)
+        self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["access-token"])   # no temp file left
+
+    def test_two_installs_never_share_a_token(self):
+        first = security.access_token()
+        self.assertNotEqual(security.access_token(rotate=True), first)
+
+    def test_it_lives_in_the_data_directory(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        with mock.patch.object(config, "DATA_DIR", tmp / "data"):
+            self.assertEqual(REAL_TOKEN_PATH(), tmp / "data" / "access-token")
+            with mock.patch.object(security, "token_path", REAL_TOKEN_PATH):
+                token = security.access_token()                                    # creates data/ too
+            self.assertEqual((tmp / "data" / "access-token").read_text(encoding="utf-8").strip(), token)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX file modes")
+    def test_only_its_owner_can_read_it(self):
+        old_umask = os.umask(0)                      # the most permissive process: the file must still be private
+        self.addCleanup(os.umask, old_umask)
+        security.access_token()
+        path = security.token_path()
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        security.access_token(rotate=True)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        os.chmod(path, 0o644)                        # loosened by hand: tightened again on the next read
+        security._token_cache = None
+        security.access_token()
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_a_rotation_from_the_command_line_takes_effect_without_a_restart(self):
+        old = security.access_token()
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            self.assertEqual(security.main(["--rotate"]), 0)
+        new = out.getvalue().strip()
+        self.assertNotEqual(new, old)
+        self.assertNotIn(new, err.getvalue())                                      # the token only on stdout
+        self.assertEqual(security.access_token(), new)
+        # Another process rewrote the file (what `--rotate` is to a running server).
+        other = "x" * 50
+        security.token_path().write_text(other + "\n", encoding="utf-8")
+        self.assertEqual(security.access_token(), other)
+        self.assertFalse(security.token_matches(f"Bearer {new}"))
+        with contextlib.redirect_stdout(io.StringIO()) as shown, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(security.main([]), 0)
+        self.assertEqual(shown.getvalue().strip(), other)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(security.main(["--help"]), 2)
+
+    def test_a_token_that_was_not_generated_here_is_replaced(self):
+        path = security.token_path()
+        for weak in ("", "hunter2\n", "   \n"):
+            path.write_text(weak, encoding="utf-8")
+            security._token_cache = None
+            token = security.access_token()
+            self.assertGreaterEqual(len(token), 43)
+            self.assertFalse(security.token_matches(f"Bearer {weak.strip()}"))
+
+    def test_the_header_forms(self):
+        self.assertEqual(security.presented_token("Bearer abc"), "abc")
+        self.assertEqual(security.presented_token("bearer   abc "), "abc")
+        self.assertEqual(security.presented_token(basic("abc")), "abc")
+        self.assertEqual(security.presented_token(basic("abc", user="")), "abc")          # any user name, or none
+        self.assertEqual(security.presented_token(basic("a:b:c")), "a:b:c")
+        for bad in (None, "", "Bearer", "Bearer ", "Basic", "Basic !!!not-base64!!!", "Digest abc",
+                    "Basic " + base64.b64encode(b"no-colon").decode(), "Basic " + base64.b64encode(b"\xff\xfe:x").decode()):
+            self.assertIsNone(security.presented_token(bad), bad)
+
+    def test_matching_is_exact(self):
+        token = security.access_token()
+        self.assertTrue(security.token_matches(f"Bearer {token}"))
+        self.assertTrue(security.token_matches(basic(token)))
+        for wrong in (None, "", "Bearer ", f"Bearer {token[:-1]}", f"Bearer {token}x", f"Bearer {token.swapcase()}",
+                      basic(""), basic("wrong"), basic(token[:10]), f"Token {token}", "Bearer caf\u00e9"):
+            self.assertFalse(security.token_matches(wrong), wrong)
+
+
+class TokenRuleTests(HermeticTestCase):
+    def setUp(self):
+        super().setUp()
+        os.environ["SERVER_ALLOWED_HOSTS"] = "reader.lan"
+
+    def test_local_use_is_unchanged_and_creates_no_token(self):
+        for method, path in (("GET", "/"), ("GET", "/api/titles"), ("POST", "/api/library/update-all"), ("DELETE", "/api/plaw")):
+            for host, peer in ((HOST, THIS_PEER), ("127.0.0.1:8000", THIS_PEER), ("[::1]:8000", ("::1", 5)), (HOST, None)):
+                self.assertIsNone(lan_check(method, path, client=peer, host=host), (method, path, host))
+        self.assertFalse(security.token_path().exists())
+
+    def test_a_listed_name_is_refused_without_the_token(self):
+        for method, path in (("GET", "/"), ("GET", "/static/dist/app.js"), ("GET", "/healthz"), ("GET", "/api/titles"),
+                             ("POST", "/api/settings/env"), ("DELETE", "/api/library/29")):
+            self.assertEqual(lan_check(method, path), (401, security.NEED_TOKEN), (method, path))
+            self.assertEqual(lan_check(method, path, authorization="Bearer wrong")[0], 401, (method, path))
+            self.assertEqual(lan_check(method, path, authorization=basic("wrong"))[0], 401, (method, path))
+
+    def test_a_listed_name_is_accepted_with_the_token(self):
+        token = security.access_token()
+        for method, path in (("GET", "/"), ("GET", "/api/titles"), ("POST", "/api/settings/env"), ("DELETE", "/api/library/29")):
+            self.assertIsNone(lan_check(method, path, authorization=f"Bearer {token}"), (method, path))
+            self.assertIsNone(lan_check(method, path, authorization=basic(token), origin=LAN), (method, path))
+        # The same over a reverse proxy on this computer that passes the name through.
+        self.assertEqual(lan_check(client=THIS_PEER)[0], 401)
+        self.assertIsNone(lan_check(client=THIS_PEER, authorization=f"Bearer {token}"))
+
+    def test_claiming_to_be_local_is_not_enough(self):
+        token = security.access_token()
+        # `Host: localhost` sent from another computer to a server bound to the network.
+        self.assertEqual(lan_check(host=HOST)[0], 401)
+        self.assertIsNone(lan_check(host=HOST, authorization=f"Bearer {token}"))
+        # A request a proxy relayed, arriving over loopback under a loopback name.
+        self.assertEqual(lan_check(host=HOST, client=THIS_PEER, x_forwarded_for="203.0.113.9")[0], 401)
+
+    def test_the_token_does_not_replace_the_other_rules(self):
+        token = f"Bearer {security.access_token()}"
+        self.assertEqual(lan_check(host="other.lan:8000", authorization=token), (400, security.BAD_HOST))
+        self.assertEqual(lan_check("POST", "/api/settings/env", authorization=token, origin="http://evil.example"),
+                         (403, security.CROSS_ORIGIN))
+        self.assertEqual(lan_check("GET", "/api/titles", authorization=token, sec_fetch_site="cross-site")[0], 403)
+
+    def test_no_token_file_means_no_way_in(self):
+        blocker = security.token_path().parent / "not-a-directory"
+        blocker.write_text("", encoding="utf-8")
+        with mock.patch.object(security, "token_path", lambda: blocker / "access-token"):
+            security._token_cache = None
+            self.assertEqual(lan_check(authorization="Bearer anything"), (503, security.TOKEN_UNAVAILABLE))
+            self.assertIsNone(lan_check(client=THIS_PEER, host=HOST))             # local use still works
+
+    def test_only_the_readers_own_browser_is_asked_to_sign_in(self):
+        for site in (None, "none", "same-origin"):
+            h = Headers({"host": LAN_HOST, **({"sec-fetch-site": site} if site else {})})
+            self.assertTrue(security.challenge(h).startswith("Basic "), site)
+        for site in ("cross-site", "same-site"):
+            self.assertEqual(security.challenge(Headers({"host": LAN_HOST, "sec-fetch-site": site})), "Bearer", site)
+
+
+class TokenOnTheRealAppTests(HermeticTestCase):
+    def setUp(self):
+        super().setUp()
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        patches = (mock.patch.object(config, "DATA_DIR", self.tmp),
+                   mock.patch.object(config, "write_env_updates", side_effect=AssertionError("the key file must not be touched")))
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        store.reset_connections()
+        self.addCleanup(store.reset_connections)
+        os.environ["SERVER_ALLOWED_HOSTS"] = "reader.lan"
+        self.lan = TestClient(app, base_url=LAN, client=LAN_PEER)
+
+    def test_another_computer_is_refused_without_the_token(self):
+        with self.assertLogs(level="DEBUG") as logs:                 # everything any logger says meanwhile
+            for method, path in (("GET", "/"), ("GET", "/static/dist/app.js"), ("GET", "/api/titles"), ("GET", "/healthz"),
+                                 ("GET", "/docs"), ("POST", "/api/settings/env"), ("POST", "/api/library/update-all"),
+                                 ("DELETE", "/api/plaw")):
+                for headers in ({}, {"authorization": "Bearer nope"}, {"authorization": basic("nope")}):
+                    r = self.lan.request(method, path, headers=headers, json={"anthropic_api_key": "x"} if method == "POST" else None)
+                    self.assertEqual((r.status_code, r.json()), (401, {"detail": security.NEED_TOKEN}), (method, path))
+                    self.assertTrue(r.headers["www-authenticate"].startswith('Basic realm="FRAMEWORK'))
+                    self.assertEqual(r.headers["cache-control"], "no-store")
+                    self.assertEqual(r.headers["x-frame-options"], "DENY")
+                    self.assertNotIn(security.access_token(), r.text + str(r.headers))
+        self.assertNotIn(security.access_token(), "\n".join(logs.output))
+        # A page on another site that embeds one of our files makes nobody's browser prompt.
+        r = self.lan.get("/static/dist/app.js", headers={"sec-fetch-site": "cross-site"})
+        self.assertEqual((r.status_code, r.headers["www-authenticate"]), (401, "Bearer"))
+
+    def test_another_computer_is_let_in_with_the_token(self):
+        token = security.access_token()
+        with self.assertLogs(level="DEBUG") as logs:
+            for auth in ({"authorization": f"Bearer {token}"}, {"authorization": basic(token)}):
+                self.assertEqual(self.lan.get("/", headers=auth).status_code, 200)
+                self.assertEqual(self.lan.get("/static/dist/app.js", headers=auth).status_code, 200)
+                self.assertEqual(self.lan.get("/api/titles", headers=auth).json(), [])
+                # The app's own page, as a browser calls it: same origin, credentials attached.
+                r = self.lan.post("/api/library/jobs/clear", headers={**auth, "origin": LAN})
+                self.assertEqual(r.status_code, 200)
+                self.assertNotIn("www-authenticate", r.headers)
+            # httpx's own Basic support, as `curl -u :TOKEN` would send it.
+            self.assertEqual(self.lan.get("/api/titles", auth=("", token)).json(), [])
+        said = "\n".join(logs.output)
+        self.assertIn("/api/titles", said)                          # the requests were logged ...
+        self.assertNotIn(token, said)                               # ... and the token was not
+        self.assertNotIn(basic(token).split(" ")[1], said)
+        # Still not a pass for another site's page.
+        r = self.lan.post("/api/library/jobs/clear", headers={"authorization": f"Bearer {token}", "origin": "http://evil.example"})
+        self.assertEqual(r.status_code, 403)
+
+    def test_this_computer_is_never_asked(self):
+        for client in (TestClient(app, base_url=OWN, client=THIS_PEER), TestClient(app, base_url="http://127.0.0.1:8000", client=THIS_PEER),
+                       TestClient(app)):
+            page = client.get("/")
+            self.assertEqual(page.status_code, 200)
+            self.assertNotIn("www-authenticate", page.headers)
+            self.assertEqual(client.get("/api/titles").json(), [])
+            self.assertEqual(client.post("/api/library/jobs/clear").status_code, 200)
+        self.assertFalse((self.tmp / "access-token").exists())
+        self.assertFalse(security.token_path().exists())
+
+    def test_a_spoofed_local_name_from_the_network_is_refused(self):
+        spoof = TestClient(app, base_url=OWN, client=LAN_PEER)
+        self.assertEqual(spoof.get("/api/titles").status_code, 401)
+        self.assertEqual(spoof.post("/api/settings/env", json={"anthropic_api_key": "x"}).status_code, 401)
 
 
 # --- Browser security headers (SEC-003) -----------------------------------------------------
