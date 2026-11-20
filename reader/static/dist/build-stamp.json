@@ -1,5 +1,5 @@
 {
-  "sha256": "cdf0bdc54352ddd6a74777d40b4e0fb3347fbef11d509de6f5cabd545c6c6886",
+  "sha256": "19b8b2b99b71ea7281542cfeee6d6425ae2825822303cd0f09f8de178e333951",
   "files": [
     "index.html",
     "src/api/client.ts",
@@ -72,6 +72,7 @@
     "src/views/projects.ts",
     "src/views/reader.ts",
     "src/views/reader_part.ts",
+    "src/views/reader_usc.ts",
     "src/views/ref_almanac.ts",
     "src/views/search.ts",
     "src/views/welcome.ts"

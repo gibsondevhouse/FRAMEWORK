@@ -50,7 +50,8 @@ export interface UscTreeNode {
 }
 
 export const uscLibHref = (title?: number | null): string => `#/library/usc${title ? `/${title}` : ''}`;
-export const uscSectionHref = (title: number, id: string): string => `/usc/${title}/${encodeURIComponent(id)}`;
+export const uscSectionHref = (title: number, id: string): string => `#/usc/${title}/section/${encodeURIComponent(id)}`;
+export const uscNodeLibHref = (title: number, id: string): string => `#/usc/${title}/node/${encodeURIComponent(id)}`;
 export const uscCite = (title: number): string => `${title} U.S.C.`;
 
 export function uscJobFor(title: number): TransferJob | undefined {
@@ -219,8 +220,9 @@ export function uscChaptersHtml(title: number, tree: UscTreeNode | null): string
       ? `${escapeHtml(fmtSections(s.total - s.inactive) || 'No active sections')}${s.inactive ? `<span class="lib-row-note">${s.inactive} repealed or omitted</span>` : ''}`
       : '';
     const open = s.first ? `<a class="lib-act" href="${uscSectionHref(title, s.first)}">Read</a>` : '';
+    const rowHref = n.t === 'section' ? uscSectionHref(title, n.id) : uscNodeLibHref(title, n.id);
     return `<div class="lib-row${dim ? ' is-dim' : ''}${open ? ' has-actions' : ''}" data-hay="${escapeHtml(`${num} ${name}`.toLowerCase())}">
-      <span class="lib-main"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></span>
+      <a class="lib-main" href="${rowHref}"><span class="lib-num">${escapeHtml(num)}</span><span class="lib-name">${escapeHtml(name)}</span></a>
       <span class="lib-status">${status}</span><span class="lib-actions">${open}</span></div>`;
   }).join('');
 }
@@ -262,7 +264,8 @@ export function uscDetailActions(t: UscCatalogTitle, tree: UscTreeNode | null): 
   if (t.reserved) return '';
   if (!t.installed) return `<button type="button" class="btn btn-accent" data-act="usc-download" data-usc-title="${t.title}">${icon('download')} Download title</button>`;
   const first = tree ? leafStats(tree).first : null;
-  return (first ? `<a class="btn" href="${uscSectionHref(t.title, first)}">${icon('book')} Read</a>` : '')
+  return `<a class="btn btn-accent" href="#/usc/${t.title}/">${icon('book')} Open in reader</a>`
+    + (first ? `<a class="btn" href="${uscSectionHref(t.title, first)}">First section</a>` : '')
     + (t.installed.stale ? `<button type="button" class="btn" data-act="usc-update" data-usc-title="${t.title}">Update</button>` : '')
     + `<button type="button" class="btn" data-act="usc-remove" data-usc-title="${t.title}">Remove</button>`;
 }

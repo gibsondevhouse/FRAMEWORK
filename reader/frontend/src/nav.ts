@@ -79,6 +79,7 @@ export function saveNav(): void {
 export function isFrameworkRoute(path = state.activeRoute): boolean {
   const p = (path || '/').split('?')[0] || '/';
   if (/^\/corpus\/(?!state\/|county\/)/.test(p)) return true;
+  if (/^\/usc\/\d+(?:\/|$)/.test(p)) return true;
   if (state.noTitles) return false;
   return /^\/(?:title\/\d+(?:\/(?:$|part\/|section\/))|title\/\d+$|part\/|section\/)/.test(p);
 }
@@ -99,6 +100,7 @@ export function routeTarget(path = state.activeRoute): NavTarget {
   const p = (path || '/').split('?')[0] || '/';
   if (p === '/') return 'overview';
   if (p.startsWith('/corpus/')) return 'corpus';
+  if (/^\/usc\/\d+/.test(p)) return 'corpus';
   if (/^\/title\/\d+\/?$/.test(p)) return 'home';
   const rest = p.replace(/^\/title\/\d+/, '');
   if (rest.startsWith('/library')) return 'library';
@@ -459,7 +461,9 @@ export function renderSidebarFrameworks(): void {
 
   const parts: string[] = [];
   if (usc.length) {
-    parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Statutes (U.S.C.)</div>${usc.slice(0, 3).map(c => rowHtml(c)).join('')}</div>`);
+    const installedUsc = usc.filter(c => c.installed);
+    const shownUsc = installedUsc.length ? [...installedUsc, ...usc.filter(c => !c.installed)].slice(0, Math.max(3, installedUsc.length)) : usc.slice(0, 3);
+    parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Statutes (U.S.C.)</div>${shownUsc.map(c => rowHtml(c)).join('')}</div>`);
   }
   if (cfr.length) {
     parts.push(`<div class="ar-fw-group"><div class="ar-fw-tier">Regulations (CFR)</div>${cfr.map(c => rowHtml(c, { stale: Boolean(c.title_num && staleSet.has(c.title_num)) })).join('')}</div>`);

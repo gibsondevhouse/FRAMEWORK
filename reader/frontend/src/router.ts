@@ -18,6 +18,7 @@ import { loadFrDocument } from './views/news_fr';
 import { renderProjects } from './views/projects';
 import { loadSection } from './views/reader';
 import { loadPart, loadPartFull } from './views/reader_part';
+import { loadUscRoute } from './views/reader_usc';
 import { loadSearchPage } from './views/search';
 import { renderWelcome } from './views/welcome';
 
@@ -38,11 +39,35 @@ export async function handleRoute(): Promise<void> {
 
   syncNavToRoute(path);
 
-  if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus)(\/|$)/.test(path)) {
+  if (state.noTitles && !/^\/(library|news|projects|settings|help|corpus|usc)(\/|$)/.test(path)) {
     emit('route:changed', { path });
     await renderWelcome();
     return;
   }
+
+  const uscMatch = /^\/usc\/(\d+)(?:\/(.*))?$/.exec(path);
+  if (uscMatch) {
+    hideMainTabs();
+    clearTreeSelection();
+    const uscTitle = parseInt(uscMatch[1], 10);
+    const rest = (uscMatch[2] || '').replace(/^\/+/, '');
+    const decodeUsc = (s: string): string => { try { return decodeURIComponent(s); } catch { return s; } };
+    if (rest.startsWith('section/')) {
+      const secId = decodeUsc(rest.slice('section/'.length));
+      await loadUscRoute(uscTitle, { sectionId: secId });
+    } else if (rest.startsWith('node/')) {
+      const nodeId = decodeUsc(rest.slice('node/'.length));
+      await loadUscRoute(uscTitle, { nodeId });
+    } else {
+      await loadUscRoute(uscTitle);
+    }
+    applyNav();
+    emit('route:changed', { path });
+    return;
+  }
+  state.currentUscTitle = null;
+  state.currentUscNode = null;
+  state.currentUscSection = null;
 
   let checkPath = path;
   let titleMatch: RegExpMatchArray | [string, string, string] | null = path.match(/^\/title\/(\d+)(\/.*)?$/);
