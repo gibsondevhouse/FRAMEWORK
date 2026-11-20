@@ -59,7 +59,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from starlette.datastructures import Headers, MutableHeaders
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from . import config  # noqa: F401  (importing it loads reader/.env into os.environ)
@@ -374,9 +374,10 @@ def build_policy(script_hashes: list[str], style_hashes: list[str]) -> str:
 
 
 def content_security_policy() -> str:
-    """The policy for the app as built right now. The inline script's hash is read from
-    `static/dist/index.html` and re-read whenever that file changes, so a frontend rebuild
-    (even under a running server) can never leave the policy refusing the page's own script."""
+    """The policy for the app as built right now: what every response that is not itself a
+    page carries. The inline script's hash is read from `static/dist/index.html` and re-read
+    whenever that file changes. The page itself is served by `page_response`, which takes the
+    hash from the very bytes it sends."""
     global _policy_cache
     index = config.STATIC_DIR / "dist" / "index.html"
     try:
@@ -391,15 +392,34 @@ def content_security_policy() -> str:
     try:
         scripts = inline_script_hashes(index.read_bytes())
     except OSError:
-        scripts = []  # no built frontend: nothing inline to allow
+        # No built frontend, or a read that failed this once. Nothing inline can be allowed
+        # now, and nothing is cached, so the next response reads the file again.
+        return build_policy([], sorted(_inline_style_hashes))
     policy = build_policy(scripts, sorted(_inline_style_hashes))
     _policy_cache = (key, policy)
     return policy
 
 
-def response_headers(path: str) -> dict[str, str]:
-    """The security headers for a response to `path`."""
-    policy = DOCS_POLICY if path in INTERACTIVE_DOCS_PATHS else content_security_policy()
+# Where `page_response` leaves the policy for the page it is sending, for the middleware.
+PAGE_POLICY_KEY = "framework.page_policy"
+
+
+def page_response(scope: Scope, path: Path, headers: dict[str, str] | None = None) -> Response:
+    """A page of the built frontend, with the policy for exactly the bytes being sent.
+
+    The file is read once. Its inline-script hashes go into the policy for this one response
+    (left in `scope` for `SecurityHeadersMiddleware`), and the same bytes are the body. So a
+    rebuild that lands while a request is in flight cannot pair new HTML with an old hash, or
+    old HTML with a new one, and block the page's own script."""
+    body = path.read_bytes()
+    scope[PAGE_POLICY_KEY] = build_policy(inline_script_hashes(body), sorted(_inline_style_hashes))
+    return Response(body, media_type="text/html", headers=headers)
+
+
+def response_headers(path: str, page_policy: str | None = None) -> dict[str, str]:
+    """The security headers for a response to `path`. `page_policy` is the policy
+    `page_response` computed for the page being sent, when there is one."""
+    policy = DOCS_POLICY if path in INTERACTIVE_DOCS_PATHS else (page_policy or content_security_policy())
     return {"Content-Security-Policy": policy, **dict(STATIC_HEADERS)}
 
 
@@ -416,7 +436,6 @@ class SecurityHeadersMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        extra = response_headers(scope["path"])
         started = False
 
         async def send_with_headers(message: Message) -> None:
@@ -425,7 +444,9 @@ class SecurityHeadersMiddleware:
                 started = True
                 message.setdefault("headers", [])
                 headers = MutableHeaders(scope=message)
-                for name, value in extra.items():
+                # Worked out now, not when the request arrived: by now the route has run, and a
+                # page has left the policy for its own bytes in the scope.
+                for name, value in response_headers(scope["path"], scope.get(PAGE_POLICY_KEY)).items():
                     headers[name] = value
             await send(message)
 

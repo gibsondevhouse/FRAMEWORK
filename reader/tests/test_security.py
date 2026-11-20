@@ -16,7 +16,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from unittest import mock
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
@@ -453,8 +453,10 @@ class _InlineBlocks(HTMLParser):
 
 
 def inline_blocks(html: str) -> dict[str, list[str]]:
+    """As a browser reads them: its HTML parser turns CRLF and lone CR into LF first, which
+    matters on a Windows checkout, where the built page has CRLF line endings."""
     parser = _InlineBlocks()
-    parser.feed(html)
+    parser.feed(html.replace("\r\n", "\n").replace("\r", "\n"))
     parser.close()
     return parser.blocks
 
@@ -538,6 +540,27 @@ class PolicyTests(HermeticTestCase):
         # Back on the real build, the real hash.
         self.assertNotIn(sha256_source("second_build()"), security.content_security_policy())
 
+    def test_a_read_that_fails_once_is_tried_again(self):
+        """A failed read must not pin the hashless policy to the file's unchanged timestamp."""
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "dist").mkdir()
+        index = tmp / "dist" / "index.html"
+        index.write_bytes(b"<script>boot()</script>")
+        real_read = Path.read_bytes
+        failures = [OSError("the file is being replaced")]
+
+        def flaky(path):
+            if path == index and failures:
+                raise failures.pop()
+            return real_read(path)
+
+        with mock.patch.object(config, "STATIC_DIR", tmp), mock.patch.object(Path, "read_bytes", flaky):
+            self.assertEqual(directives(security.content_security_policy())["script-src"], ["'self'"])
+            self.assertEqual(failures, [])
+            self.assertEqual(directives(security.content_security_policy())["script-src"],     # same file, same stat
+                             ["'self'", sha256_source("boot()")])
+
     def test_the_interactive_api_pages_are_the_only_exception(self):
         self.assertEqual({app.docs_url, app.redoc_url}, set(security.INTERACTIVE_DOCS_PATHS))
         for path in security.INTERACTIVE_DOCS_PATHS:
@@ -590,9 +613,17 @@ class SecurityHeadersMiddlewareTests(HermeticTestCase):
             assert_security_headers(self, page)
             # End to end: every inline block in the page that was served is allowed by the
             # policy that was served with it.
-            blocks = inline_blocks(page.text)
+            blocks = inline_blocks(page.content.decode("utf-8"))
             allowed = directives(page.headers["content-security-policy"])["script-src"]
             self.assertEqual([sha256_source(b) for b in blocks["script"]], allowed[1:])
+            self.assertEqual(page.headers["content-type"], "text/html; charset=utf-8")
+            self.assertEqual(page.headers["cache-control"], "no-store")
+            # The same page reached through the static mount.
+            static_page = client.get("/static/dist/index.html")
+            self.assertEqual(static_page.content, page.content)
+            self.assertEqual(static_page.headers["content-security-policy"], page.headers["content-security-policy"])
+            self.assertEqual(static_page.headers["cache-control"], "no-cache")
+            assert_security_headers(self, static_page)
             etag = client.get("/static/dist/app.css").headers["etag"]
             expected = (
                 ("GET", "/api/titles", {}, 200),                                      # JSON
@@ -615,6 +646,95 @@ class SecurityHeadersMiddlewareTests(HermeticTestCase):
                 r = client.get(path)
                 self.assertEqual(r.status_code, 200, path)
                 assert_security_headers(self, r, security.DOCS_POLICY)
+
+
+class PageSnapshotTests(HermeticTestCase):
+    """A rebuild of the frontend while a request is in flight: the page that is sent and the
+    policy sent with it must still come from the same bytes."""
+
+    V1, V2 = b"<html><script>first_build()</script></html>", b"<html><script>second_build_longer()</script></html>"
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        (self.tmp / "dist").mkdir()
+        self.index = self.tmp / "dist" / "index.html"
+        self.index.write_bytes(self.V1)
+        patch = mock.patch.object(config, "STATIC_DIR", self.tmp)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.before_route: list = []          # things that happen after the middleware is entered
+
+        outer = self
+
+        class Meanwhile:
+            def __init__(self, app):
+                self.app = app
+
+            async def __call__(self, scope, receive, send):
+                if scope["type"] == "http":
+                    for act in outer.before_route:
+                        act()
+                await self.app(scope, receive, send)
+
+        mini = FastAPI()
+        mini.add_middleware(Meanwhile)
+        mini.add_middleware(security.SecurityHeadersMiddleware)          # outermost, as in the app
+
+        @mini.get("/")
+        def page(request: Request):
+            return security.page_response(request.scope, self.index)
+
+        @mini.get("/api/thing")
+        def thing() -> dict:
+            return {}
+
+        self.client = TestClient(mini)
+
+    def script_sources(self, response) -> list[str]:
+        return directives(response.headers["content-security-policy"])["script-src"]
+
+    def test_a_rebuild_between_the_start_of_a_request_and_the_read(self):
+        self.assertIn(sha256_source("first_build()"), security.content_security_policy())     # an earlier request
+        self.before_route.append(lambda: self.index.write_bytes(self.V2))
+        r = self.client.get("/")
+        self.assertEqual(r.content, self.V2)
+        self.assertEqual(self.script_sources(r), ["'self'", sha256_source("second_build_longer()")])
+
+    def test_a_rebuild_right_after_the_read(self):
+        real_read = Path.read_bytes
+
+        def read_then_rebuild(path):
+            data = real_read(path)
+            if path == self.index:
+                self.index.write_bytes(self.V2)
+            return data
+
+        with mock.patch.object(Path, "read_bytes", read_then_rebuild):
+            r = self.client.get("/")
+        self.assertEqual(r.content, self.V1)
+        self.assertEqual(self.script_sources(r), ["'self'", sha256_source("first_build()")])
+        # The next request gets the new page with the new hash.
+        r = self.client.get("/")
+        self.assertEqual((r.content, self.script_sources(r)), (self.V2, ["'self'", sha256_source("second_build_longer()")]))
+
+    def test_a_windows_checkout_of_the_page(self):
+        """Git on Windows checks the built page out with CRLF line endings. The bytes go out as
+        they are; the browser hashes the script with LF, and so must the policy."""
+        self.index.write_bytes(b"<html><script>\r\n  boot();\r\n</script></html>")
+        r = self.client.get("/")
+        self.assertIn(b"\r\n  boot();\r\n", r.content)
+        self.assertEqual(self.script_sources(r), ["'self'", sha256_source("\n  boot();\n")])
+        blocks = inline_blocks(r.content.decode("utf-8"))
+        self.assertEqual([sha256_source(b) for b in blocks["script"]], self.script_sources(r)[1:])
+
+    def test_one_pages_policy_does_not_leak_into_other_responses(self):
+        self.client.get("/")
+        self.index.write_bytes(self.V2)
+        r = self.client.get("/api/thing")
+        self.assertEqual(self.script_sources(r), ["'self'", sha256_source("second_build_longer()")])
+        assert_security_headers(self, r)
 
 
 class ServerRenderedPageTests(UscTestCase):
