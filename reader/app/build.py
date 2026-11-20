@@ -186,19 +186,45 @@ def provenance_rows(base_url: str, structure_url: str, structure: dict,
     return rows
 
 
+_SQLITE_SIDECARS = ("-journal", "-wal", "-shm")
+
+
+def _settle_interrupted_write(dest: Path) -> None:
+    """A writer that died mid-transaction leaves `<store>-journal` behind, and SQLite applies
+    a journal to whatever file carries the store's name: a new store renamed into place would
+    get the old one's pages back. A read-write open of the old store rolls it back first."""
+    if dest.suffix != ".sqlite3" or not any(dest.with_name(dest.name + s).exists() for s in _SQLITE_SIDECARS):
+        return
+    try:
+        with closing(sqlite3.connect(dest, timeout=5.0)) as con:
+            con.execute("SELECT count(*) FROM sqlite_master").fetchone()
+    except sqlite3.Error:
+        pass                      # not a database, or held: what is left is removed after the swap
+
+
 def _replace_with_retry(src: Path, dest: Path, before=None, attempts: int = 40) -> None:
     """Windows won't replace a file another handle has open (the server's SQLite connections
-    and tree responses). `before()` asks those holders to let go; retry briefly until they do."""
+    and tree responses). `before()` asks those holders to let go; retry briefly until they do.
+
+    When `dest` is a SQLite store, nothing the old file left beside it (a journal, a WAL)
+    survives to be applied to the new one."""
+    _settle_interrupted_write(dest)
     for i in range(attempts):
         if before:
             before()
         try:
             src.replace(dest)
-            return
+            break
         except PermissionError:
             if i == attempts - 1:
                 raise
             time.sleep(0.25)
+    if dest.suffix == ".sqlite3":
+        for s in _SQLITE_SIDECARS:
+            try:
+                dest.with_name(dest.name + s).unlink()
+            except OSError:
+                pass
 
 
 def renest(title: int) -> int:

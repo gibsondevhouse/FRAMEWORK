@@ -565,6 +565,27 @@ class InPlaceMigrationTests(MigrateTestCase):
         self.assertNotIn("half_done", tables(path))
         self.assertEqual(self.leftovers(), [])
 
+    def test_a_store_rebuilt_after_a_dead_writer_does_not_inherit_its_journal(self):
+        """SQLite applies a journal to whatever file carries the store's name. A build that
+        renamed a new store over one whose writer had died used to get the old pages back."""
+        path = baseline_store("plaw", self.tmp / "plaw.sqlite3")
+        self.assertEqual(run_and_kill("plaw", path), 9)
+        journal = path.with_name(path.name + "-journal")
+        self.assertTrue(journal.exists())
+        staged = plaw.tmp_path()                                    # what a build stages, then installs
+        with closing(sqlite3.connect(staged)) as con:
+            migrate.init(con, "plaw")
+            con.execute("INSERT INTO meta (key, value) VALUES ('built', 'new')")
+            con.executemany("INSERT INTO law_usc VALUES (?, 29, ?, 'reference')", [(f"119-{i}", str(i)) for i in range(4000)])
+            con.commit()
+        build._replace_with_retry(staged, path)
+        self.assertFalse(journal.exists())
+        with closing(sqlite3.connect(path)) as con:                 # a read-write open: it would replay a journal
+            self.assertEqual(dict(con.execute("SELECT key, value FROM meta")), {"built": "new"})
+            self.assertEqual(con.execute("SELECT count(*) FROM law_usc").fetchone()[0], 4000)
+            self.assertEqual(con.execute("PRAGMA quick_check").fetchone()[0], "ok")
+        self.assertEqual(plaw.status()["meta"], {"built": "new"})
+
     def test_downgrade_is_refused_and_no_longer_restamped(self):
         sources_db.set_setting("selection", {"version": 1})
         with closing(fr_store.connect()) as con:
