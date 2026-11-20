@@ -36,8 +36,9 @@ class Queue:
     # -- public --
     def submit(self, title: int, kind: str, target: dict | None, label: str) -> dict:
         """kind: 'title' | 'part' | 'section' | 'update', or 'fr-build' | 'fr-update' for the
-        Federal Register corpus (title 0, see fr_build.FR_JOB_TITLE). target: the
-        part/section asked for (FR: {"titles", "years"})."""
+        Federal Register corpus (title 0, see fr_build.FR_JOB_TITLE), or 'usc-title' |
+        'usc-update' for a U.S. Code title (title 1000 + N, see usc_build.job_key). target:
+        the part/section asked for (FR: {"titles", "years"}; U.S.C.: {"usc_title"})."""
         with self._op_lock, self._lock:
             for j in [*self._pending, *( [self._current] if self._current else [])]:
                 if j["title"] == title and j["kind"] == kind and j["target"] == target:
@@ -129,8 +130,8 @@ class Queue:
                     job.pop("cancelling", None)
                     self._recent.append(job)
                     self._current = None
-            if cancelled and job["kind"] not in ("fr-build", "fr-update"):
-                lib._remove_partial_files(job["title"])  # fr_build removes its own .tmp
+            if cancelled and job["kind"] not in ("fr-build", "fr-update", "usc-title", "usc-update"):
+                lib._remove_partial_files(job["title"])  # fr_build / usc_build remove their own .tmp
 
     def _progress(self, job: dict):
         def report(phase: str, done=None, total=None) -> None:
@@ -202,9 +203,12 @@ def requested_scope(kind: str, target: dict | None) -> dict | None:
 
 
 def run_job(job: dict, report) -> None:
-    from .. import fr_build
+    from .. import fr_build, usc_build
     if job["kind"] in fr_build.FR_JOB_KINDS:  # the Federal Register corpus shares this queue
         fr_build.run_job(job, report)
+        return
+    if job["kind"] in usc_build.USC_JOB_KINDS:  # so do U.S. Code titles (key 1000 + N)
+        usc_build.run_job(job, report)
         return
     title = job["title"]
     inst = lib.installed(title)

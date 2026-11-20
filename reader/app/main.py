@@ -22,6 +22,7 @@ from .routers import library as library_routes
 from .routers import news as news_routes
 from .routers import reader as reader_routes
 from .routers import settings as settings_routes
+from .routers import usc as usc_routes
 from .routers.deps import NO_STORE
 from .routers.news import news_router
 
@@ -80,6 +81,8 @@ app.include_router(reader_routes.search_router)
 app.include_router(news_router)
 # Same reason: /api/fr/... before /api/{title}.
 app.include_router(fr_routes.fr_router)
+app.include_router(usc_routes.usc_router)
+app.include_router(usc_routes.usc_page_router)
 app.include_router(reader_routes.title_router)
 app.include_router(chat_routes.title_router)
 app.include_router(reader_routes.legacy_router)

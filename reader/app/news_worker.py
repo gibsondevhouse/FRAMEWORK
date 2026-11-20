@@ -114,6 +114,11 @@ def _loop(stop_event: threading.Event | None = None) -> None:
             fr_build.maybe_queue_update()
         except Exception as e:
             build.log(f"FR corpus schedule check failed: {e}")
+        try:                                 # U.S. Code: daily release-point check, installed titles only
+            from . import usc_build
+            usc_build.maybe_queue_updates()
+        except Exception as e:
+            build.log(f"U.S. Code release check failed: {e}")
         delay = CHECK_INTERVAL_SEC
 
 

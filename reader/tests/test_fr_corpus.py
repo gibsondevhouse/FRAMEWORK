@@ -460,7 +460,7 @@ class ApiTests(FrTestCase):
             self.assertNotIn("fr", plain)
             both = self.client.get("/api/search", params={"q": "silica", "title": "all", "include": "fr"}).json()
         self.assertEqual(both["fr"]["results"][0]["document_number"], "2026-20001")
-        self.assertEqual(self.client.get("/api/search", params={"q": "x", "include": "usc"}).status_code, 422)
+        self.assertEqual(self.client.get("/api/search", params={"q": "x", "include": "cfr"}).status_code, 422)
 
     def test_writes_queue_on_the_library_queue(self):
         q = mock.Mock()
