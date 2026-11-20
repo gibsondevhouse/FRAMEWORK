@@ -15,10 +15,13 @@ import json
 from .. import config
 from . import registry, selection
 
+CORPUS_NAMES = {"fr": "the Federal Register archive", "constitution": "the Constitution",
+                "public_laws": "Public Laws", "unified_agenda": "the Unified Agenda"}
 LARGE_BYTES = 50 * registry.MB
 LARGE_SECONDS = 120
 SOURCE_SHORT = {"cfr": "CFR", "usc": "U.S. Code", "fr": "Federal Register archive", "news": "news feed",
-                "dol_enforcement": "DOL enforcement records"}
+                "dol_enforcement": "DOL enforcement records", "constitution": "Constitution",
+                "public_laws": "Public Laws", "unified_agenda": "Unified Agenda"}
 
 
 def _human_bytes(n: int) -> str:
@@ -69,6 +72,28 @@ def _fr_scope_label(t: dict) -> str:
     who = "every agency" if "agencies" not in f else f"{n} agenc{'y' if n == 1 else 'ies'}"
     what = "every document" if t["titles"] == [0] else f"documents citing CFR {', '.join(map(str, t['titles']))}"
     return f"{who}, {what}, {t['years']} year{'s' if t['years'] != 1 else ''}"
+
+
+def _corpus_plans(T: dict) -> list[tuple]:
+    """(source id, module, name, wanted target, estimate, scope differs from what's installed)."""
+    from .. import agenda, constitution, plaw
+    sel = {"sources": T}
+    out = [("constitution", constitution, "the Constitution", None, registry.constitution_estimate(), False)]
+    pw = selection.plaw_target(sel)
+    stored = json.loads(plaw.status()["meta"].get("scope") or "{}") if plaw.exists() else {}
+    differs = bool(stored) and (
+        sorted(stored.get("types") or []) != sorted(pw["types"])
+        or (pw["congresses"] == "all") != bool(stored.get("follow"))
+        or (pw["congresses"] != "all" and sorted(pw["congresses"]) != sorted(stored.get("congresses") or [])))
+    out.append(("public_laws", plaw, "Public Laws", pw, plaw.estimate(pw["congresses"], pw["types"]), differs))
+    ag = selection.agenda_target(sel)
+    m = agenda.status()["meta"] if agenda.exists() else {}
+    stored_f = json.loads(m.get("filters") or "{}") if m else {}
+    differs = bool(m) and (int(m.get("years") or 0) < ag["years"]
+                           or stored_f != agenda.clean_filters(ag["agencies"], ag["stages"]))
+    out.append(("unified_agenda", agenda, "the Unified Agenda", ag,
+                agenda.estimate(ag["years"], ag["agencies"] or "all", ag["stages"] or "all"), differs))
+    return out
 
 
 def preview(raw, remove_unselected: bool = False) -> dict:  # noqa: C901
@@ -134,6 +159,22 @@ def preview(raw, remove_unselected: bool = False) -> dict:  # noqa: C901
         else:
             keeps.append("the Federal Register archive")
 
+    # Constitution, Public Laws, Unified Agenda: one corpus each
+    for sid, mod, name, want, est, differs in _corpus_plans(T):
+        if T[sid]["enabled"]:
+            if not mod.exists():
+                actions.append({"source": sid, "action": "install", "target": want, "label": f"Download {name}",
+                                "estimate": est})
+            elif differs:
+                actions.append({"source": sid, "action": "rebuild", "target": want,
+                                "label": f"Rebuild {name} with the new filters", "estimate": est})
+        elif mod.exists():
+            if remove_unselected:
+                actions.append({"source": sid, "action": "remove", "target": None, "label": f"Delete {name}",
+                                "estimate": None})
+            else:
+                keeps.append(name)
+
     # Updates switched on or off, schedules
     changes: list[dict] = []
     for d in registry.definitions():
@@ -169,9 +210,9 @@ def preview(raw, remove_unselected: bool = False) -> dict:  # noqa: C901
     adds = [x for x in (_titles(n_cfr, "CFR") if n_cfr else "", _titles(n_usc, "U.S. Code") if n_usc else "") if x]
     if adds:
         parts.append("adds " + " and ".join(adds))
-    fr_act = next((a for a in actions if a["source"] == "fr" and a["action"] in ("install", "rebuild")), None)
-    if fr_act:
-        parts.append(("builds" if fr_act["action"] == "install" else "rebuilds") + " the Federal Register archive")
+    for a in actions:
+        if a["source"] in CORPUS_NAMES and a["action"] in ("install", "rebuild"):
+            parts.append(("builds" if a["action"] == "install" else "rebuilds") + f" {CORPUS_NAMES[a['source']]}")
     if downloads:
         parts[-1] += f" (~{_human_bytes(total_bytes)}, {_human_time(total_secs)})"
     for c in changes:
@@ -226,6 +267,18 @@ def apply(raw, confirm: bool = False, remove_unselected: bool = False) -> dict:
                 else:
                     queued.append(fr_build.submit("fr-build", {"titles": t["titles"], "years": t["years"],
                                                                "filters": t["filters"]}))
+            elif src in ("constitution", "public_laws", "unified_agenda") and act in ("install", "rebuild"):
+                from .. import agenda, constitution, plaw
+                mod = {"constitution": constitution, "public_laws": plaw, "unified_agenda": agenda}[src]
+                if lib.queue.busy_with(mod.JOB_KEY):
+                    skipped.append({**a, "reason": "already queued"})
+                elif src == "constitution":
+                    queued.append(constitution.submit())
+                elif src == "public_laws":
+                    queued.append(plaw.submit("plaw-build", t))
+                else:
+                    queued.append(agenda.submit("agenda-build", {"years": t["years"],
+                                                                 **agenda.clean_filters(t["agencies"], t["stages"])}))
             elif act == "remove":
                 if src == "cfr":
                     if lib.queue.busy_with(t):
@@ -244,6 +297,13 @@ def apply(raw, confirm: bool = False, remove_unselected: bool = False) -> dict:
                         continue
                     with fr_store.WRITE_LOCK:
                         fr_store.db_path().unlink(missing_ok=True)
+                elif src in ("constitution", "public_laws", "unified_agenda"):
+                    from .. import agenda, constitution, plaw
+                    mod = {"constitution": constitution, "public_laws": plaw, "unified_agenda": agenda}[src]
+                    if lib.queue.busy_with(mod.JOB_KEY):
+                        skipped.append({**a, "reason": "a download for it is running"})
+                        continue
+                    mod.remove()
                 removed.append(a)
         except (OSError, ValueError) as exc:
             skipped.append({**a, "reason": str(exc)})

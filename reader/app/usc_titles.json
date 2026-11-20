@@ -408,6 +408,48 @@
    "positive_law": true,
    "desk": "Environment, Energy & Land",
    "cfr": []
+  },
+  "105": {
+   "name": "Government Organization and Employees — Appendix",
+   "positive_law": false,
+   "desk": "Government & Administration",
+   "cfr": [
+    5
+   ],
+   "summary": "Reorganization plans and compiled acts such as the Inspector General and Federal Advisory Committee laws."
+  },
+  "111": {
+   "name": "Bankruptcy — Appendix",
+   "positive_law": false,
+   "desk": "Commerce, Finance & Trade",
+   "cfr": [],
+   "summary": "The Federal Rules of Bankruptcy Procedure and Official Forms."
+  },
+  "118": {
+   "name": "Crimes and Criminal Procedure — Appendix",
+   "positive_law": false,
+   "desk": "Defense & Security",
+   "cfr": [
+    28
+   ],
+   "summary": "The Federal Rules of Criminal Procedure and compiled acts such as the Classified Information Procedures Act."
+  },
+  "128": {
+   "name": "Judiciary and Judicial Procedure — Appendix",
+   "positive_law": false,
+   "desk": "Government & Administration",
+   "cfr": [
+    28
+   ],
+   "summary": "The Federal Rules of Civil and Appellate Procedure, Evidence, and other federal court rules."
+  },
+  "150": {
+   "name": "War and National Defense — Appendix (eliminated)",
+   "positive_law": false,
+   "desk": "Defense & Security",
+   "cfr": [],
+   "reserved": true,
+   "summary": "Eliminated: its provisions now appear in Title 50 and other titles."
   }
  }
 }

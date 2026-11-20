@@ -30,7 +30,7 @@ usc_router = APIRouter(prefix="/api/usc", dependencies=[Depends(_no_store)])
 usc_page_router = APIRouter()
 
 
-def installed_usc_title(title: int = Path(..., ge=1, le=54)) -> int:
+def installed_usc_title(title: int = Path(..., ge=1, le=150)) -> int:
     if title not in usc_store.installed_titles():
         raise HTTPException(404, f"U.S. Code Title {title} is not installed on this server.")
     return title
@@ -44,10 +44,11 @@ def list_titles() -> dict:
 
 
 @usc_router.get("/catalog")
-def title_catalog() -> dict:
+def title_catalog(appendix: bool = False) -> dict:
     """All 54 titles for the Library: static facts, install state, bytes, staleness against
-    the release point this server last saw. Local only."""
-    return usc_build.catalog()
+    the release point this server last saw. Local only. `appendix=true` adds the appendix
+    titles (5a, 11a, 18a, 28a, 50a as 105, 111, 118, 128, 150, with `label`)."""
+    return usc_build.catalog(include_appendix=appendix)
 
 
 @usc_router.get("/release")
@@ -59,12 +60,15 @@ def current_release(refresh: bool = False) -> dict:
         raise HTTPException(503, f"The OLRC didn't answer: {exc}")
     st = usc_build.status(release)
     return {"release_point": release["release_point"], "current_through": release.get("current_through"),
-            "available_titles": sorted(int(k) for k in release.get("titles", {})),
+            "available_titles": sorted(int(k) for k in release.get("titles", {})
+                                       if int(k) not in usc_client.APPENDIX),
+            "available_appendix_titles": sorted(int(k) for k in release.get("titles", {})
+                                                if int(k) in usc_client.APPENDIX),
             "titles": st["titles"]}
 
 
 @usc_router.get("/search")
-def search(q: str = Query(..., max_length=200), title: int | None = Query(None, ge=1, le=54),
+def search(q: str = Query(..., max_length=200), title: int | None = Query(None, ge=1, le=150),
            limit: int = Query(20, ge=1, le=100), notes: bool = False) -> dict:
     if title is not None and title not in usc_store.installed_titles():
         raise HTTPException(404, f"U.S. Code Title {title} is not installed on this server.")
@@ -107,7 +111,7 @@ def get_section(title: int = Depends(installed_usc_title), section_id: str = "")
 
 
 class DownloadRequest(BaseModel):
-    title: int = Field(ge=1, le=54)
+    title: int = Field(ge=1, le=150)
 
 
 @usc_router.post("/download")
@@ -153,7 +157,7 @@ table{border-collapse:collapse}td,th{border:1px solid var(--line);padding:4px 8p
 
 
 @usc_page_router.get("/usc/{title}/{section_id:path}", include_in_schema=False)
-def section_page(title: int = Path(..., ge=1, le=54), section_id: str = "") -> HTMLResponse:
+def section_page(title: int = Path(..., ge=1, le=150), section_id: str = "") -> HTMLResponse:
     if title not in usc_store.installed_titles():
         raise HTTPException(404, f"U.S. Code Title {title} is not installed on this server.")
     d = _section_payload(title, section_id)

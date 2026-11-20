@@ -131,6 +131,20 @@ def derived() -> dict:
         "agencies": config.news_agencies(), "follow_cfr_titles": "installed",
         "public_inspection": True, "retention_days": news_store.retention_days()})
     s["dol_enforcement"].update(enabled=True, schedule="daily")
+    # The newer corpora are on only when they're already installed (nothing downloads by itself).
+    from .. import agenda, constitution, plaw
+    s["constitution"].update(enabled=constitution.exists())
+    s["public_laws"].update(enabled=plaw.exists())
+    if plaw.exists():
+        sc = json.loads(plaw.status()["meta"].get("scope") or "{}")
+        s["public_laws"]["scope"] = {"congresses": "all" if sc.get("follow") else sc.get("congresses", []),
+                                     "law_types": sc.get("types", ["public"])}
+    s["unified_agenda"].update(enabled=agenda.exists())
+    if agenda.exists():
+        m = agenda.status()["meta"]
+        f = json.loads(m.get("filters") or "{}")
+        s["unified_agenda"]["scope"] = {"agencies": f.get("agencies") or "all", "stages": f.get("stages") or "all",
+                                        "years": int(m.get("years") or 2)}
     return normalize(sel, base=sel)
 
 
@@ -189,7 +203,7 @@ def usc_titles_of(sel: dict) -> list[int]:
     from .. import usc_client
     v = sel["sources"]["usc"]["scope"].get("titles", [])
     if v == "all":
-        return [n for n in usc_client.TITLE_RANGE if n not in usc_client.RESERVED]
+        return [n for n in usc_client.ALL_TITLES if n not in usc_client.RESERVED]
     return list(v)
 
 
@@ -223,6 +237,18 @@ def news_agencies() -> list[str] | None:
 def news_follow_titles() -> list[int]:
     v = source("news")["scope"].get("follow_cfr_titles", [])
     return list(resolve_titles(v, config.installed_titles())) if v != "all" else []
+
+
+def plaw_target(sel: dict) -> dict:
+    sc = sel["sources"]["public_laws"]["scope"]
+    return {"congresses": sc.get("congresses", "all"), "types": sc.get("law_types") or ["public"]}
+
+
+def agenda_target(sel: dict) -> dict:
+    sc = sel["sources"]["unified_agenda"]["scope"]
+    return {"years": int(sc.get("years") or 2),
+            "agencies": None if sc.get("agencies") in ("all", None) else list(sc["agencies"]),
+            "stages": None if sc.get("stages") in ("all", None) else list(sc["stages"])}
 
 
 def news_public_inspection() -> bool:

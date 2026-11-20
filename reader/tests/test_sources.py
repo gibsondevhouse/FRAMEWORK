@@ -86,8 +86,12 @@ class RegistryShapeTests(SourcesTestCase):
         self.assertIsNone(cfr_titles[34]["estimate"])                       # Title 35 is reserved
         self.assertGreater(cfr_titles[28]["estimate"]["bytes"], 50 * registry.MB)
         for pid in ("constitution", "public_laws", "unified_agenda"):
-            self.assertFalse(by[pid]["available"])
-            self.assertFalse(by[pid]["enabled"])
+            self.assertTrue(by[pid]["available"])
+            self.assertFalse(by[pid]["needs_key"])                          # GovInfo bulk data and reginfo.gov
+            self.assertFalse(by[pid]["enabled"])                            # not installed: off in the current setup
+        self.assertEqual(by["public_laws"]["default_scope"], {"congresses": "all", "law_types": ["public"]})
+        self.assertEqual(by["public_laws"]["filters"][0]["options"][0]["label"], "113th Congress (2013–2014)")
+        self.assertIn("prerule", [o["value"] for o in by["unified_agenda"]["filters"][1]["options"]])
 
     def test_keys_report_presence_only(self):
         d = {s["id"]: s for s in self.client.get("/api/sources").json()["sources"]}
@@ -95,7 +99,6 @@ class RegistryShapeTests(SourcesTestCase):
         self.assertTrue(dol["needs_key"])
         self.assertFalse(dol["key_present"])
         self.assertEqual(dol["get_key_url"], "https://dataportal.dol.gov/registration")
-        self.assertTrue(d["public_laws"]["needs_key"])
         self.assertEqual(d["fr"]["optional_key"]["get_key_url"], "https://api.data.gov/signup/")
         with mock.patch.dict("os.environ", {"DOL_API_KEY": "SECRET-DOL-1234567", "GOVINFO_API_KEY": "SECRET-GOV-99"}):
             r = self.client.get("/api/sources")
@@ -137,7 +140,7 @@ class SelectionTests(SourcesTestCase):
             "cfr": {"enabled": True, "schedule": "hourly", "scope": {"titles": [40, "29", 35, 99, 40], "api_key": "x"}},
             "news": {"scope": {"agencies": ["environmental-protection-agency", "Bad Slug!"], "retention_days": 99999,
                                "token": "abc"}},
-            "public_laws": {"enabled": True},
+            "public_laws": {"enabled": True, "scope": {"congresses": [118, 99, "x"], "law_types": ["nope"]}},
             "bogus": {"enabled": True},
         }, "DOL_API_KEY": "SECRET"}}
         r = self.client.put("/api/sources/selection", json=body)
@@ -147,7 +150,8 @@ class SelectionTests(SourcesTestCase):
         self.assertEqual(s["cfr"]["schedule"], "manual")                    # invalid schedule: kept the old one
         self.assertEqual(s["news"]["scope"]["agencies"], ["environmental-protection-agency"])
         self.assertEqual(s["news"]["scope"]["retention_days"], 3650)
-        self.assertFalse(s["public_laws"]["enabled"])                       # not available yet
+        self.assertTrue(s["public_laws"]["enabled"])
+        self.assertEqual(s["public_laws"]["scope"], {"congresses": [118], "law_types": []})
         self.assertNotIn("bogus", s)
         raw = sqlite3.connect(self.tmp / "sources.sqlite3").execute("SELECT value FROM settings").fetchone()[0]
         self.assertNotIn("SECRET", raw)
@@ -264,7 +268,7 @@ class PlanTests(SourcesTestCase):
         self.assertTrue(r["applied"])
         kinds = [k for _, k, _ in self.submitted()]
         self.assertEqual(kinds.count("title"), 49)
-        self.assertEqual(kinds.count("usc-title"), 53)
+        self.assertEqual(kinds.count("usc-title"), 57)          # 53 titles + 4 appendices
         fr_job = [s for s in self.submitted() if s[1] == "fr-build"][0]
         self.assertEqual(fr_job[2], {"titles": [0], "years": 2, "filters": {}})
         self.assertEqual(selection.current(), (rec["selection"], True))

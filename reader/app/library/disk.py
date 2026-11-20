@@ -67,8 +67,14 @@ def _remove_partial_files(title: int) -> None:
 # Storage: what the reader keeps on disk, and cleaning up after interrupted builds
 # ---------------------------------------------------------------------------
 
+# Staging databases of resumable builds: kept so the next run picks up where one stopped.
+RESUMABLE_STAGING = {"fr.sqlite3.tmp", "plaw.sqlite3.tmp", "agenda.sqlite3.tmp"}
+
+
 def _is_temp(name: str) -> bool:
     # Builds write `title-N.tmp`, `title-N(.pieceI).xml.tmp(.download)` and `tree-N.json.tmp`.
+    if name in RESUMABLE_STAGING:
+        return False
     return ".tmp" in name or name.endswith(".download")
 
 

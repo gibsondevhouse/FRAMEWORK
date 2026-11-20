@@ -9,7 +9,8 @@ from .. import config
 
 _integrity: dict[str, dict] = {}
 _integrity_lock = threading.Lock()
-CORPUS_OF = {"cfr": "cfr", "usc": "usc", "fr": "fr"}
+CORPUS_OF = {"cfr": "cfr", "usc": "usc", "fr": "fr", "constitution": "constitution", "public_laws": "plaw",
+             "unified_agenda": "agenda"}
 
 
 def _size(path) -> int:
@@ -22,7 +23,7 @@ def _size(path) -> int:
 def run_integrity() -> None:
     """Offline integrity check of the three corpora, cached for the status payload."""
     from .. import integrity
-    for corpus in ("cfr", "usc", "fr"):
+    for corpus in CORPUS_OF.values():
         try:
             rep = integrity.run(corpus=corpus, online=False)
             res = {"status": rep["status"], "summary": rep["summary"], "checked_at": rep["checked_at"],
@@ -113,8 +114,38 @@ def dol() -> dict:
     return {"installed": row["last_refresh"] is not None, "bytes": None, **row, "jobs": []}
 
 
+def constitution() -> dict:
+    from .. import constitution as k
+    st = k.status()
+    m = st["meta"]
+    return {"installed": st["installed"], "bytes": _size(k.db_path()), "units": st["unit_count"],
+            "annotations": st["note_count"], "edition": m.get("edition"), "last_refresh": m.get("built_at"),
+            "jobs": _jobs(kinds=k.JOB_KINDS)}
+
+
+def public_laws() -> dict:
+    from .. import plaw
+    st = plaw.status()
+    m = st["meta"]
+    return {"installed": st["installed"], "bytes": _size(plaw.db_path()), "laws": st["law_count"],
+            "usc_links": st["usc_link_count"], "congresses": sorted({r["congress"] for r in st["congresses"]}),
+            "last_refresh": m.get("last_ok_at"), "last_error": m.get("last_error") or None,
+            "pending_build": plaw.pending_build(), "jobs": _jobs(kinds=plaw.JOB_KINDS)}
+
+
+def unified_agenda() -> dict:
+    from .. import agenda
+    st = agenda.status()
+    m = st["meta"]
+    return {"installed": st["installed"], "bytes": _size(agenda.db_path()), "entries": st["entry_count"],
+            "editions": [e["edition"] for e in st["editions"]], "last_refresh": m.get("last_ok_at"),
+            "last_error": m.get("last_error") or None, "pending_build": agenda.pending_build(),
+            "jobs": _jobs(kinds=agenda.JOB_KINDS)}
+
+
 def for_source(sid: str) -> dict:
-    fn = {"cfr": cfr, "usc": usc, "fr": fr, "news": news, "dol_enforcement": dol}.get(sid)
+    fn = {"cfr": cfr, "usc": usc, "fr": fr, "news": news, "dol_enforcement": dol, "constitution": constitution,
+          "public_laws": public_laws, "unified_agenda": unified_agenda}.get(sid)
     st = fn() if fn else {"installed": False, "bytes": None, "last_refresh": None, "jobs": []}
     st["integrity"] = integrity_for(sid)
     return st

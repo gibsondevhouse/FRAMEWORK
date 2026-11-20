@@ -17,8 +17,8 @@ integrity_router = APIRouter()
 @integrity_router.get("/api/integrity")
 async def get_integrity(
     response: Response,
-    corpus: str | None = Query(None, pattern="^(cfr|fr|usc)$"),
-    title: int | None = Query(None, ge=1, le=54),
+    corpus: str | None = Query(None, pattern="^(cfr|fr|usc|constitution|plaw|agenda)$"),
+    title: int | None = Query(None, ge=1, le=150),
     offline: bool = False,
     govinfo_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict:

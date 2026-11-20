@@ -25,7 +25,12 @@ from typing import Callable
 
 NS = "http://xml.house.gov/schemas/uslm/1.0"
 LEVELS = ("title", "subtitle", "chapter", "subchapter", "part", "subpart", "division",
-          "subdivision", "article")
+          "subdivision", "article",
+          # appendix titles (5a, 11a, 18a, 28a): the root, acts compiled into it, rule sets
+          "appendix", "compiledAct", "courtRules", "reorganizationPlans")
+ROOTS = ("title", "appendix")
+# Readable units: sections, plus a court rule or a reorganization plan in an appendix title.
+LEAVES = ("section", "courtRule", "reorganizationPlan")
 CROSSHEADING_CATEGORY = {"editorialNotes": "editorial", "statutoryNotes": "statutory", "execDoc": "executive"}
 STATUS_WORDS = ("repealed", "omitted", "transferred", "renumbered", "vacant", "reserved", "expired")
 _STATUS_RE = re.compile(r"^\W*(" + "|".join(STATUS_WORDS) + r")\b", re.I)
@@ -160,7 +165,7 @@ def parse_title(
                 elif not quoted and tag in LEVELS and is_uslm(el.tag):  # not dc:title
                     node = {"t": tag, "id": short_id(el.get("identifier"), tag), "l": "", "d": "", "c": []}
                     nodes.append(node)
-                    if tag == "title" and root_node is None:
+                    if tag in ROOTS and root_node is None:
                         root_node = node
                 continue
 
@@ -184,8 +189,8 @@ def parse_title(
                 nodes[-1]["l" if tag == "num" else "d"] = text_of(el).rstrip("—–- ").strip()
             elif tag == "toc" and ptag in LEVELS and parent is not None:
                 parent.remove(el)
-            elif tag == "section":
-                rec = _section_record(el, nodes)
+            elif tag in LEAVES:
+                rec = _section_record(el, nodes, tag)
                 if nodes:
                     nodes[-1]["c"].append({"t": "section", "id": rec["id"], "l": rec["label"],
                                            "d": rec["heading"], **({"s": rec["status"]} if rec["status"] else {})})
@@ -198,24 +203,45 @@ def parse_title(
                 notes = _collect_notes(el)
                 if notes and on_notes:
                     on_notes(el.get("identifier") or tag, tag, split_notes(notes))
-                if tag == "title":
+                is_root = node is not None and node is root_node
+                if is_root:
                     info["name"] = node["d"] if node else ""
                     if not info["number"] and node:
                         info["number"] = node["id"].lstrip("t")
                 elif node is not None and nodes:
                     nodes[-1]["c"].append(node)
                 el.clear()
-                if parent is not None and tag != "title":
+                if parent is not None and not is_root:
                     parent.remove(el)
 
     tree = root_node or {"t": "title", "id": "", "l": "", "d": "", "c": []}
     return info, tree
 
 
-def _section_record(el: ET.Element, nodes: list[dict]) -> dict:
+def leaf_id(identifier: str, tag: str, num: str) -> str:
+    """A section's id is its identifier's last segment ('/us/usc/t42/s2000e-2' → '2000e-2').
+    Appendix units whose last segment repeats get more of the path: a reorganization plan
+    '/us/usc/t5a/reorgPlan/1939/I' → 'reorgPlan-1939-I', a section of a compiled act
+    '/us/usc/t18a/pl/91/538/s1' → 'pl91-538-s1'; a court rule keeps 'rule1001'."""
+    fallback = re.sub(r"[^0-9A-Za-z.-]", "", num).strip(".")
+    if not identifier:
+        return fallback
+    parts = [p for p in identifier.split("/") if p]
+    if tag == "reorganizationPlan" and "reorgPlan" in parts:
+        return "-".join(parts[parts.index("reorgPlan"):])
+    if tag == "courtRule" and "courtRules" in parts[:-2]:      # 28a: App / Civil / Evid … share numbers
+        i = parts.index("courtRules")
+        return "-".join(parts[i + 1:])
+    if tag == "section" and "pl" in parts[:-1]:
+        i = parts.index("pl")
+        return "pl" + "-".join(parts[i + 1:])
+    return short_id(identifier, fallback)
+
+
+def _section_record(el: ET.Element, nodes: list[dict], tag: str = "section") -> dict:
     identifier = el.get("identifier") or ""
     num = _num_text(el)
-    sid = short_id(identifier, re.sub(r"[^0-9A-Za-z.-]", "", num))
+    sid = leaf_id(identifier, tag, num)
     heading = _heading_text(el)
     notes = split_notes(_collect_notes(el))
     sc = next((c for c in el if local(c.tag) == "sourceCredit"), None)
@@ -224,12 +250,12 @@ def _section_record(el: ET.Element, nodes: list[dict]) -> dict:
     strip_ns(el)
     el.tail = None
     body_text = text_of(el, skip=("sourceCredit", "num", "heading"))
-    ancestors = [{"t": n["t"], "id": n["id"], "l": n["l"], "d": n["d"]} for n in nodes if n["t"] != "title"]
+    ancestors = [{"t": n["t"], "id": n["id"], "l": n["l"], "d": n["d"]} for n in nodes[1:]] if nodes else []
     chapter = next((n["id"] for n in reversed(ancestors) if n["t"] == "chapter"), None)
     return {
         "id": sid,
         "identifier": identifier,
-        "label": f"§ {sid}",
+        "label": f"§ {sid}" if tag == "section" and not sid.startswith("pl") else (num.strip(" .—–") or sid),
         "heading": heading,
         "status": status,
         "chapter": chapter,

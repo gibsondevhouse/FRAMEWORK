@@ -32,6 +32,7 @@ TRACKED_KEYS = (
     "FR_CORPUS_YEARS",
     "FR_MIN_INTERVAL",
     "GOVINFO_API_KEY",
+    "GOV_MIN_INTERVAL",
 )
 
 
@@ -64,6 +65,11 @@ class HermeticTestCase(unittest.TestCase):
         fr_sleep.start()
         self.addCleanup(fr_sleep.stop)
         fr_client.reset_pacing()
+        from app import gov_http           # GovInfo bulk data / reginfo.gov pacing never sleeps either
+        gov_sleep = mock.patch.object(gov_http, "_sleep", lambda sec: None)
+        gov_sleep.start()
+        self.addCleanup(gov_sleep.stop)
+        gov_http.reset_pacing()
 
         sync_guard = mock.patch.object(
             httpx.HTTPTransport, "handle_request",

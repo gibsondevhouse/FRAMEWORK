@@ -177,14 +177,16 @@ def usc_title_options() -> list[dict]:
     from .. import usc_build, usc_client
     static = usc_build.static_catalog().get("titles", {})
     out = []
-    for n in usc_client.TITLE_RANGE:
+    for n in usc_client.ALL_TITLES:
         s = static.get(str(n)) or {}
         reserved = n in usc_client.RESERVED or bool(s.get("reserved"))
-        name = s.get("name") or f"Title {n}"
+        name = s.get("name") or usc_client.title_name_prefix(n)
         cfr = list(s.get("cfr") or [])
         out.append({
-            "value": n, "label": f"Title {n} · {name}",
-            "description": ("Reserved: no laws are assigned to this title." if reserved else
+            "value": n, "label": f"{usc_client.title_name_prefix(n)} · {name}",
+            "appendix": n in usc_client.APPENDIX,
+            "description": (s.get("summary") or "Reserved: no laws are assigned to this title." if reserved else
+                            s["summary"] if s.get("summary") else
                             f"Implemented mainly by CFR Title{'s' if len(cfr) > 1 else ''} "
                             f"{', '.join(map(str, cfr))}." if cfr else
                             "Permanent federal statutes on this subject."),
@@ -197,6 +199,47 @@ def usc_title_options() -> list[dict]:
 def agency_options() -> list[dict]:
     return [{"value": slug, "label": name, "description": f"Documents issued by the {name}."}
             for slug, name in FR_AGENCIES]
+
+
+# ---------------------------------------------------------------------------
+# Constitution, Public Laws, Unified Agenda
+# ---------------------------------------------------------------------------
+
+PLAW_TYPES = [
+    {"value": "public", "label": "Public laws", "description": "Laws that apply generally (almost all laws)."},
+    {"value": "private", "label": "Private laws",
+     "description": "Laws for named people or companies, such as immigration relief or claims."},
+]
+AGENDA_STAGES = [
+    {"value": "prerule", "label": "Prerule", "description": "Early ideas: advance notices and requests for information."},
+    {"value": "proposed", "label": "Proposed rule", "description": "Rules an agency plans to propose."},
+    {"value": "final", "label": "Final rule", "description": "Rules an agency plans to finish."},
+    {"value": "long_term", "label": "Long-term actions", "description": "Actions not expected within a year."},
+    {"value": "completed", "label": "Completed actions", "description": "Rules finished or withdrawn since the last edition."},
+]
+
+
+def constitution_estimate() -> dict:
+    return estimate(1 * MB, 15)
+
+
+def congress_options() -> list[dict]:
+    from .. import plaw
+    out = []
+    for cg in range(plaw.FIRST_CONGRESS, plaw.current_congress() + 1):
+        start = 1789 + 2 * (cg - 1)
+        sfx = "th" if 10 <= cg % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(cg % 10, "th")
+        out.append({"value": cg, "label": f"{cg}{sfx} Congress ({start}–{start + 1})",
+                    "description": "In session now; laws are added as they're signed." if cg == plaw.current_congress()
+                    else f"Laws signed in {start}–{start + 1}.",
+                    "estimate": plaw.estimate([cg], ["public"])})
+    return out
+
+
+def agenda_agency_options() -> list[dict]:
+    from .. import agenda
+    return [{"value": code, "label": f"{name} ({acr})", "description": f"Rules planned by the {name} and its offices."}
+            for code, acr, name in agenda.AGENCIES]
 
 
 # ---------------------------------------------------------------------------
@@ -322,27 +365,50 @@ def _defs() -> list[dict]:
         },
         {
             "id": "constitution", "label": "U.S. Constitution", "short": "Const.", "category": "Statutes",
-            "description": "The Constitution and its amendments. Coming in a later version.",
-            "provider": "GovInfo", "available": False, **_key(None, False), "actions": [],
-            "schedule_options": _sched("manual"), "default_schedule": "manual",
-            "filters": [], "default_scope": {},
+            "description": "The Constitution and all 27 amendments, article by article, with the House "
+                           "Parliamentarian's annotations kept separately.",
+            "provider": "GovInfo bulk data (House Rules and Manual)", "available": True, **_key(None, False),
+            "actions": ["install", "update", "remove"],
+            "schedule_options": _sched("weekly", "manual"), "default_schedule": "weekly",
+            "filters": [], "default_scope": {}, "estimate": constitution_estimate(),
         },
         {
             "id": "public_laws", "label": "Public Laws (Statutes at Large)", "short": "Pub. L.",
             "category": "Statutes",
-            "description": "New laws exactly as Congress passed them, before they're sorted into the U.S. Code. "
-                           "Coming in a later version.",
-            "provider": "GovInfo", "available": False, **_key("govinfo", True), "actions": [],
+            "description": "New laws exactly as Congress passed them, with links to the U.S. Code sections each "
+                           "one changes. From the 113th Congress (2013) on.",
+            "provider": "GovInfo bulk data (PLAW)", "available": True, **_key(None, False),
+            "actions": ["install", "update", "remove"],
             "schedule_options": _sched("weekly", "manual"), "default_schedule": "weekly",
-            "filters": [], "default_scope": {},
+            "filters": [
+                {"id": "congresses", "type": "multi", "label": "Congresses",
+                 "description": "Which two-year Congresses to keep. All also adds each new Congress.",
+                 "allow_all": True, "options": congress_options()},
+                {"id": "law_types", "type": "multi", "label": "Kinds of law",
+                 "description": "Public laws apply generally; private laws help named people or companies.",
+                 "allow_all": False, "options": PLAW_TYPES},
+            ],
+            "default_scope": {"congresses": "all", "law_types": ["public"]},
         },
         {
             "id": "unified_agenda", "label": "Unified Agenda", "short": "Agenda", "category": "Rulemaking",
-            "description": "Each agency's published plan of rules it expects to propose or finish, with target "
-                           "dates. Coming in a later version.",
-            "provider": "RegInfo.gov", "available": False, **_key(None, False), "actions": [],
-            "schedule_options": _sched("manual"), "default_schedule": "manual",
-            "filters": [], "default_scope": {},
+            "description": "Each agency's published plan of the rules it expects to propose or finish, with "
+                           "target dates, linked to their Federal Register documents.",
+            "provider": "RegInfo.gov (OIRA)", "available": True, **_key(None, False),
+            "actions": ["install", "update", "remove"],
+            "schedule_options": _sched("weekly", "manual"), "default_schedule": "weekly",
+            "filters": [
+                {"id": "agencies", "type": "multi", "label": "Agencies",
+                 "description": "Only these agencies' plans. Choose All for every agency.",
+                 "allow_all": True, "allow_custom": True, "options": agenda_agency_options()},
+                {"id": "stages", "type": "multi", "label": "Stages",
+                 "description": "Which stages of rulemaking to keep.", "allow_all": True,
+                 "options": AGENDA_STAGES},
+                {"id": "years", "type": "number", "label": "How far back",
+                 "description": "Editions are published each spring and fall; keep this many years of them.",
+                 "min": 1, "max": 10, "unit": "years"},
+            ],
+            "default_scope": {"agencies": "all", "stages": "all", "years": 2},
         },
     ]
 
