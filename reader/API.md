@@ -649,7 +649,7 @@ Cached industry enforcement benchmark (`case_count`, `total_penalty_usd`, `gdc_c
 
 ### `GET /api/news/inspection/{activity_nr}`
 Local inspection case file (`article`, `detail`, `violations` with parsed section &
-paragraph links, `events`, `gdc`, `accidents` (each with `injuries[{degree, degree_code, fall_distance_ft, fall_height_ft, fatality_cause_code}]`, one per injured person; cases fetched before this field existed gain it on their next enrich), `related` bidirectional inspection links,
+paragraph links, `events`, `gdc`, `accidents` (each with `injuries[{degree, degree_code, fall_distance_ft, fall_height_ft, fatality_cause_code}]`, one per injured person; cases fetched before this field existed gain it when enriched again with `?force=true`), `related` bidirectional inspection links,
 `enrich_ver`, `needs_enrichment`, `dol_configured`).
 Returns `404` when absent locally and `DOL_API_KEY` is unconfigured.
 
