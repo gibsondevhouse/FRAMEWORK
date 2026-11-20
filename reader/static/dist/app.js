@@ -5129,6 +5129,10 @@ function fetchUscSection(titleNum, sectionId, opts, unit = null) {
 	const qs = unit === null ? "" : `?unit=${encodeURIComponent(unit)}`;
 	return getJSON(`/api/usc/${titleNum}/section/${encodeURIComponent(sectionId)}${qs}`, opts);
 }
+/** Notes attached to a U.S.C. title (`path` empty) or to one chapter / subchapter (its tree ids from the title down). */
+function fetchUscLevelNotes(titleNum, path, opts) {
+	return tryGetJSON(`/api/usc/${titleNum}/notes?node=${encodeURIComponent(path.join("/"))}`, opts);
+}
 function fetchUscCitations(titleNum, sectionId, opts) {
 	return tryGetJSON(`/api/usc/${titleNum}/citations/${encodeURIComponent(sectionId)}`, opts);
 }
@@ -19984,6 +19988,34 @@ function findNodeAndParent(root, targetId, ancestors = []) {
 	}
 	return null;
 }
+/** Notes grouped by category (editorial / statutory / executive), as section pages and the
+*  title and chapter pages show them (QUIRK-006). Empty string when there are none. */
+function uscNotesHtml(notes, id, title) {
+	if (!notes.length) return "";
+	const groups = /* @__PURE__ */ new Map();
+	for (const n of notes) {
+		const cat = (n.category || "editorial").toLowerCase();
+		if (!groups.has(cat)) groups.set(cat, []);
+		groups.get(cat).push(n);
+	}
+	const blocks = [...groups.entries()].map(([cat, items]) => `
+      <div class="usc-note-group">
+        <h3 class="usc-note-cat">${escapeHtml(cat.charAt(0).toUpperCase() + cat.slice(1))} notes</h3>
+        ${items.map((n) => `<div class="usc-note-card">${n.html}</div>`).join("")}
+      </div>
+    `).join("");
+	return `<section class="usc-notes" id="${escapeHtml(id)}" aria-label="Statutory and editorial notes">
+      <h2 class="usc-notes-head">${escapeHtml(title)} <span class="usc-notes-count">${notes.length}</span></h2>
+      ${blocks}
+    </section>`;
+}
+/** Fill the title or chapter page's notes slot (FT-26) once the page has painted; silent on failure. */
+async function fillUscLevelNotes(titleNum, path, label, seq, signal) {
+	const data = await fetchUscLevelNotes(titleNum, path, { signal }).catch(() => null);
+	if (seq !== state.routeSeq) return;
+	const slot = document.getElementById("usc-level-notes");
+	if (slot && data?.notes?.length) slot.innerHTML = uscNotesHtml(data.notes, "usc-notes", `Notes on ${label}`);
+}
 function nodeStats(n) {
 	if (n.t === "section") return {
 		total: 1,
@@ -20089,6 +20121,7 @@ function renderUscTitleStart(titleNum, meta, tree) {
       <div class="lib-list" id="usc-node-list">${rows || "<p class=\"lib-none\">No contents found in this title.</p>"}</div>
       <div class="lib-none" id="usc-node-none" aria-live="polite" hidden>Nothing matches that filter.</div>
     </section>
+    <div id="usc-level-notes"></div>
   </div>`;
 	enterView();
 }
@@ -20135,6 +20168,7 @@ function renderUscNode(titleNum, meta, tree, nodeId) {
     </div>
     <div class="lib-list" id="usc-node-list">${rows || "<p class=\"lib-none\">No sections in this division.</p>"}</div>
     <div class="lib-none" id="usc-node-none" aria-live="polite" hidden>Nothing matches that filter.</div>
+    <div id="usc-level-notes"></div>
   </div>`;
 	enterView();
 }
@@ -20168,25 +20202,7 @@ function renderUscSection(titleNum, meta, d, full) {
 	const toggle = d.mode !== "units" ? "" : full ? `<a class="btn" href="${uscSectionHref(titleNum, d.id)}">${icon("stack")} Read in parts</a>` : `<a class="btn" href="${uscUnitHref(titleNum, d.id, "full")}">${icon("expand")} See full section</a>`;
 	const unitBanner = current ? `<div class="unit-context"><span>${escapeHtml(current.label ? `Subdivision ${current.label}` : current.title || "")}</span><span class="sep" aria-hidden="true">·</span><span class="unit-pos">Unit ${unitIdx + 1} of ${outline.length}</span></div>` : "";
 	const notes = d.notes || [];
-	let notesHtml = "";
-	if (notes.length) {
-		const groups = /* @__PURE__ */ new Map();
-		for (const n of notes) {
-			const cat = (n.category || "editorial").toLowerCase();
-			if (!groups.has(cat)) groups.set(cat, []);
-			groups.get(cat).push(n);
-		}
-		const blocks = [...groups.entries()].map(([cat, items]) => `
-      <div class="usc-note-group">
-        <h3 class="usc-note-cat">${escapeHtml(cat.charAt(0).toUpperCase() + cat.slice(1))} notes</h3>
-        ${items.map((n) => `<div class="usc-note-card">${n.html}</div>`).join("")}
-      </div>
-    `).join("");
-		notesHtml = `<section class="usc-notes" id="usc-notes" aria-label="Statutory and editorial notes">
-      <h2 class="usc-notes-head">Notes <span class="usc-notes-count">${notes.length}</span></h2>
-      ${blocks}
-    </section>`;
-	}
+	const notesHtml = uscNotesHtml(notes, "usc-notes", "Notes");
 	dom.view.innerHTML = `
     <div class="doc-kicker" data-ref-tier="usc">
       <a href="${uscTitleHref(titleNum)}">${escapeHtml(uscCite(titleNum))}</a> ${chapterLink}
@@ -20405,9 +20421,12 @@ async function loadUscRoute(titleNum, opts = {}) {
 	}
 	if (opts.nodeId) {
 		renderUscNode(titleNum, meta, tree, opts.nodeId);
+		const hit = findNodeAndParent(tree, opts.nodeId);
+		if (hit) fillUscLevelNotes(titleNum, [...hit.ancestors.map((a) => a.id), hit.node.id], nodeDisplayLabel(hit.node) || "this division", seq, signal);
 		return;
 	}
 	renderUscTitleStart(titleNum, meta, tree);
+	fillUscLevelNotes(titleNum, [], `Title ${uscTitleLabel(titleNum)}`, seq, signal);
 }
 var uscParaTools = createParaToolsController({
 	root: dom.view,

@@ -14,6 +14,7 @@ import type {
   StorageSnapshot,
   TreeNode,
   UscCitedBy,
+  UscNoteItem,
   UscSectionData,
   UscTitleSummary,
   UscTreeNodeData,
@@ -127,6 +128,11 @@ export function fetchUscTree(titleNum: number, opts?: RequestInit): Promise<UscT
 export function fetchUscSection(titleNum: number, sectionId: string, opts?: RequestInit, unit: string | null = null): Promise<UscSectionData> {
   const qs = unit === null ? '' : `?unit=${encodeURIComponent(unit)}`;
   return getJSON<UscSectionData>(`/api/usc/${titleNum}/section/${encodeURIComponent(sectionId)}${qs}`, opts);
+}
+
+/** Notes attached to a U.S.C. title (`path` empty) or to one chapter / subchapter (its tree ids from the title down). */
+export function fetchUscLevelNotes(titleNum: number, path: string[], opts?: RequestInit): Promise<{ notes: UscNoteItem[] } | null> {
+  return tryGetJSON<{ notes: UscNoteItem[] }>(`/api/usc/${titleNum}/notes?node=${encodeURIComponent(path.join('/'))}`, opts);
 }
 
 export function fetchUscCitations(titleNum: number, sectionId: string, opts?: RequestInit): Promise<UscCitedBy | null> {

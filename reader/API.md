@@ -333,6 +333,9 @@ Asks the OLRC for the current release point (cached 30 min; `?refresh=true` bypa
 ### `GET /api/usc/{title}/meta` · `GET /api/usc/{title}/tree`
 Title summary (one row of `/api/usc/titles`; `title_name` repeats `name`, and `current_through` is the OLRC's "current through" date for the release point, or `null` when the build did not record one), and the contents tree (`t/id/l/d/c`, sections carry `s` = status). 404 when not installed.
 
+### `GET /api/usc/{title}/notes`
+Notes attached to the title itself or to one chapter, subchapter, part … rather than to a section (DM-113). `?node=` is the division's path of tree ids from the title down (`ch21`, `ch21/schI`); leave it empty for the title's own notes. Returns `{node, notes[{category, topic, heading, html, text}]}`, shaped like a section's notes; an unknown path gives an empty list. 404 when the title is not installed.
+
 ### `GET /api/usc/{title}/section/{section_id}`
 Accepts `655`, `§ 655` or `29 U.S.C. 655(b)`. Returns `id, identifier, label, heading, status` (`repealed`, `omitted`, `transferred`, … or `null`), `chapter, path, ord, text, source_credit, html` (allowlist-rendered body as the CFR reader's flat paragraphs — `<p class="reg-p lvl-N" id="pN">` with a `span.pmark` number; U.S.C. references link to the local copy when installed, else Cornell LII), `notes[{category: editorial | statutory | executive, topic, heading, html, text}]` (kept apart from the section text, QUIRK-006), `prev`, `next`, `citation`.
 

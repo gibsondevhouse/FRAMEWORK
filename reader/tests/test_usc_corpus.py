@@ -434,6 +434,16 @@ class ApiTests(UscTestCase):
         self.assertEqual(meta["current_through"], "November 10, 2026")
         self.assertEqual(meta["title_name"], meta["name"])
         self.assertTrue(meta["title_name"])
+        # FT-26: notes on the title itself and on a chapter, by the chapter's tree path
+        title_notes = self.client.get("/api/usc/4/notes").json()["notes"]
+        self.assertEqual([n["topic"] for n in title_notes], ["enacting"])
+        ch = self.client.get("/api/usc/4/notes", params={"node": "ch1"}).json()
+        self.assertEqual([n["topic"] for n in ch["notes"]], ["miscellaneous"])
+        self.assertIn("Zebra crossing", ch["notes"][0]["html"])
+        self.assertEqual(self.client.get("/api/usc/4/notes", params={"node": "ch2"}).json()["notes"], [])
+        self.assertEqual(self.client.get("/api/usc/4/notes", params={"node": "1"}).json()["notes"], [])   # a section's notes stay on the section
+        self.assertEqual(self.client.get("/api/usc/4/notes", params={"node": "<x>"}).status_code, 422)
+        self.assertEqual(self.client.get("/api/usc/5/notes").status_code, 404)
         self.assertEqual(self.client.get("/api/usc/4/tree").json()["c"][1]["d"], "THE SEAL")
         s = self.client.get("/api/usc/4/section/§ 1").json()
         self.assertEqual((s["label"], s["heading"], s["citation"]), ("§ 1", "Flag; stripes and stars on", "4 U.S.C. 1"))
