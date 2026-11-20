@@ -1,9 +1,11 @@
 """Built-in presets: data only. Each is a selection fragment merged over the registry
 defaults by `selection.normalize`, so a preset names only what it changes.
 
-- Recommended (the default): every statute and regulation title, the whole Federal Register
-  archive for 2 years, the news feed for every agency. Needs no keys.
-- Everything: the same with 5 years of the Federal Register and DOL enforcement (needs a key).
+- Recommended (the default): the Constitution, every statute and regulation title, public
+  laws from every congress in USLM, 2 years of the Federal Register archive and the Unified
+  Agenda, the news feed for every agency. Needs no keys.
+- Everything: the same with 5 years of the Federal Register and the Agenda, private laws and
+  DOL enforcement (needs a key).
 - Minimal: nothing refreshes and nothing new downloads; what's on disk stays readable.
 - One per Library bundle (`library.COMPLIANCE_SUITES`) and one per Library desk
   (`title_blurbs.json` desks), narrowing CFR / U.S.C. / FR / news to those titles.
@@ -19,8 +21,9 @@ def _fixed() -> list[dict]:
     return [
         {
             "id": "recommended", "name": "Recommended", "default": True, "needs_keys": [],
-            "description": "Every federal law and regulation title, two years of the Federal Register, and "
-                           "news from every agency. No keys needed.",
+            "description": "The Constitution, every federal law and regulation title, new Public Laws, two "
+                           "years of the Federal Register and the Unified Agenda, and news from every agency. "
+                           "No keys needed.",
             "sources": {
                 "usc": {"enabled": True, "schedule": "daily", "scope": {"titles": "all"}},
                 "cfr": {"enabled": True, "schedule": "weekly", "scope": {"titles": "all"}},
@@ -29,12 +32,17 @@ def _fixed() -> list[dict]:
                 "news": {"enabled": True, "schedule": "auto",
                          "scope": {"agencies": "all", "follow_cfr_titles": [], "public_inspection": True}},
                 "dol_enforcement": {"enabled": False},
+                "constitution": {"enabled": True, "schedule": "weekly"},
+                "public_laws": {"enabled": True, "schedule": "weekly",
+                                "scope": {"congresses": "all", "law_types": ["public"]}},
+                "unified_agenda": {"enabled": True, "schedule": "weekly",
+                                   "scope": {"agencies": "all", "stages": "all", "years": 2}},
             },
         },
         {
             "id": "everything", "name": "Everything", "default": False, "needs_keys": ["dol"],
-            "description": "Recommended plus five years of the Federal Register and Labor Department "
-                           "enforcement records (needs a free DOL key).",
+            "description": "Recommended plus five years of the Federal Register and the Unified Agenda, "
+                           "private laws, and Labor Department enforcement records (needs a free DOL key).",
             "sources": {
                 "usc": {"enabled": True, "schedule": "daily", "scope": {"titles": "all"}},
                 "cfr": {"enabled": True, "schedule": "weekly", "scope": {"titles": "all"}},
@@ -43,6 +51,11 @@ def _fixed() -> list[dict]:
                 "news": {"enabled": True, "schedule": "auto",
                          "scope": {"agencies": "all", "follow_cfr_titles": [], "public_inspection": True}},
                 "dol_enforcement": {"enabled": True, "schedule": "daily"},
+                "constitution": {"enabled": True, "schedule": "weekly"},
+                "public_laws": {"enabled": True, "schedule": "weekly",
+                                "scope": {"congresses": "all", "law_types": ["public", "private"]}},
+                "unified_agenda": {"enabled": True, "schedule": "weekly",
+                                   "scope": {"agencies": "all", "stages": "all", "years": 5}},
             },
         },
         {
@@ -63,6 +76,9 @@ def _narrow(cfr: list[int], usc: list[int]) -> dict:
         "news": {"enabled": True, "schedule": "auto",
                  "scope": {"agencies": [], "follow_cfr_titles": cfr, "public_inspection": False}},
         "dol_enforcement": {"enabled": False},
+        "constitution": {"enabled": True, "schedule": "weekly"},
+        "public_laws": {"enabled": False},
+        "unified_agenda": {"enabled": False},
     }
 
 

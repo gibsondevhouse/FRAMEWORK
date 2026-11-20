@@ -36,7 +36,7 @@ from pathlib import Path
 from . import config, fr_store, govinfo, news_schedule as sched, usc_store
 
 OK, WARN, FAIL, INFO = "OK", "WARN", "FAIL", "INFO"
-CORPORA = ("cfr", "fr", "usc")
+CORPORA = ("cfr", "fr", "usc", "constitution", "plaw", "agenda")
 FR_STALE_BUSINESS_DAYS = 3
 UNKNOWN = "unknown"
 
@@ -375,6 +375,131 @@ def check_usc(titles: list[int] | None = None, online: bool = True) -> list[dict
 
 
 # ---------------------------------------------------------------------------
+# Constitution, Public Laws, Unified Agenda
+# ---------------------------------------------------------------------------
+
+def _open_corpus(corpus: str, path: Path, missing: str) -> tuple[sqlite3.Connection | None, list[dict]]:
+    if not path.exists():
+        return None, [_item(corpus, "corpus", "installed", INFO, missing)]
+    try:
+        con = _ro(path)
+    except sqlite3.Error as exc:
+        return None, [_item(corpus, "corpus", "database", FAIL, f"can't open {path.name}: {exc}")]
+    st, detail = _quick_check(con)
+    items = [_item(corpus, "corpus", "database", st, f"{path.name}: {detail}")]
+    if st == FAIL:
+        con.close()
+        return None, items
+    return con, items
+
+
+def _meta_of(con: sqlite3.Connection) -> dict[str, str]:
+    return {r["key"]: r["value"] for r in con.execute("SELECT key, value FROM meta")}
+
+
+def check_constitution(online: bool = True) -> list[dict]:
+    from . import constitution, gov_http
+    con, items = _open_corpus("constitution", constitution.db_path(),
+                              "Constitution not installed (python -m app.constitution)")
+    if con is None:
+        return items
+    with closing(con):
+        meta = _meta_of(con)
+        n = con.execute("SELECT count(*) FROM units").fetchone()[0]
+        amdts = con.execute("SELECT count(DISTINCT amendment) FROM units WHERE amendment IS NOT NULL").fetchone()[0]
+        arts = con.execute("SELECT count(DISTINCT article) FROM units WHERE article IS NOT NULL").fetchone()[0]
+        notes = con.execute("SELECT count(*) FROM notes").fetchone()[0]
+    ok = n == int(meta.get("unit_count") or -1) and notes == int(meta.get("note_count") or -1)
+    items.append(_item("constitution", "corpus", "counts", OK if ok else WARN,
+                       f"{n} units, {notes} annotations" + ("" if ok else " (meta disagrees)")))
+    whole = arts == 7 and amdts == 27
+    items.append(_item("constitution", "corpus", "completeness", OK if whole else FAIL,
+                       f"{arts} articles, {amdts} amendments" + ("" if whole else " (expected 7 and 27)")))
+    items.append(_provenance("constitution", "corpus", meta, ("edition", "source_url", "zip_sha256", "xml_sha256",
+                                                               "fetched_at")))
+    cached = config.DATA_DIR / "constitution.xml"
+    if cached.exists():
+        items.append(_rehash("constitution", "corpus", "xml_sha256", cached, meta.get("xml_sha256")))
+    if online:
+        try:
+            with gov_http.client() as c:
+                ed = constitution.latest_edition(c)
+            cur = f"HMAN-{ed['congress']}"
+            items.append(_item("constitution", "corpus", "upstream", OK if cur == meta.get("edition") else WARN,
+                               f"{meta.get('edition')} is the newest House Manual" if cur == meta.get("edition")
+                               else f"installed {meta.get('edition')}, GovInfo has {cur}"))
+        except Exception as exc:
+            items.append(_item("constitution", "corpus", "upstream", WARN, f"couldn't reach GovInfo: {exc}"))
+    return items
+
+
+def check_plaw(online: bool = True) -> list[dict]:
+    import zlib
+    from . import gov_http, plaw
+    con, items = _open_corpus("plaw", plaw.db_path(), "Public Laws not installed (python -m app.plaw)")
+    if con is None:
+        return items
+    with closing(con):
+        meta = _meta_of(con)
+        n = con.execute("SELECT count(*) FROM laws").fetchone()[0]
+        bad = [r["id"] for r in con.execute("SELECT id, xml_z, sha256 FROM laws")
+               if hashlib.sha256(zlib.decompress(r["xml_z"])).hexdigest() != r["sha256"]]
+        chunks = [dict(r) for r in con.execute("SELECT congress, law_type, laws, zip_sha256 FROM build_chunks")]
+    items.append(_item("plaw", "corpus", "laws", OK if n and n == int(meta.get("law_count") or -1) else WARN,
+                       f"{n} laws" + ("" if n == int(meta.get("law_count") or -1) else ", meta disagrees")))
+    items.append(_item("plaw", "corpus", "sha256", FAIL if bad else OK,
+                       f"{len(bad)} laws don't match their hash, e.g. {bad[:5]}" if bad
+                       else f"all {n} law files match their sha256"))
+    scope = json.loads(meta.get("scope") or "{}")
+    missing = [f"{c}/{t}" for c in scope.get("congresses", []) for t in scope.get("types", [])
+               if not any(x["congress"] == c and x["law_type"] == t for x in chunks)]
+    items.append(_item("plaw", "corpus", "coverage", WARN if missing else OK,
+                       f"not downloaded: {missing}" if missing else f"{len(chunks)} congress/type chunks"))
+    if online and scope.get("follow"):
+        try:
+            with gov_http.client() as c:
+                latest = max(plaw.available_congresses(c))
+            have = max(scope.get("congresses") or [0])
+            items.append(_item("plaw", "corpus", "upstream", OK if have >= latest else WARN,
+                               f"through the {have}th Congress" if have >= latest
+                               else f"through the {have}th Congress, GovInfo has the {latest}th"))
+        except Exception as exc:
+            items.append(_item("plaw", "corpus", "upstream", WARN, f"couldn't reach GovInfo: {exc}"))
+    return items
+
+
+def check_agenda(online: bool = True) -> list[dict]:
+    from . import agenda, gov_http
+    con, items = _open_corpus("agenda", agenda.db_path(), "Unified Agenda not installed (python -m app.agenda)")
+    if con is None:
+        return items
+    with closing(con):
+        meta = _meta_of(con)
+        n = con.execute("SELECT count(*) FROM entries").fetchone()[0]
+        eds = [dict(r) for r in con.execute("SELECT edition, entries, sha256 FROM editions ORDER BY edition")]
+        per = {r[0]: r[1] for r in con.execute("SELECT edition, count(*) FROM entries GROUP BY edition")}
+    items.append(_item("agenda", "corpus", "entries", OK if n and n == int(meta.get("entry_count") or -1) else WARN,
+                       f"{n} entries in {len(eds)} editions"))
+    off = [e["edition"] for e in eds if per.get(e["edition"], 0) != e["entries"]]
+    items.append(_item("agenda", "corpus", "editions", WARN if off else OK,
+                       f"entry counts differ for {off}" if off else "every edition's entries are present"))
+    nohash = [e["edition"] for e in eds if not e["sha256"]]
+    items.append(_item("agenda", "corpus", "sha256", INFO if nohash else OK,
+                       f"no recorded hash for {nohash}" if nohash else "every edition has its download's sha256"))
+    if online:
+        try:
+            with gov_http.client() as c:
+                newest = agenda.parse_edition_list(gov_http.request(c, agenda.LIST_URL).text)[0]["edition"]
+            have = eds[-1]["edition"] if eds else ""
+            items.append(_item("agenda", "corpus", "upstream", OK if have >= newest else WARN,
+                               f"edition {have} is the newest" if have >= newest
+                               else f"newest installed {have}, reginfo.gov has {newest}"))
+        except Exception as exc:
+            items.append(_item("agenda", "corpus", "upstream", WARN, f"couldn't reach reginfo.gov: {exc}"))
+    return items
+
+
+# ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
 
@@ -382,7 +507,7 @@ def run(corpus: str | None = None, title: int | None = None, online: bool = True
         govinfo_date: str | None = None, now: datetime | None = None) -> dict:
     if corpus is not None and corpus not in CORPORA:
         raise ValueError(f"corpus must be one of {', '.join(CORPORA)}")
-    if title is not None and corpus == "fr":
+    if title is not None and corpus not in (None, "cfr", "usc"):
         raise ValueError("--title applies to cfr and usc")
     items: list[dict] = []
     titles = [title] if title is not None else None
@@ -392,6 +517,12 @@ def run(corpus: str | None = None, title: int | None = None, online: bool = True
         items += check_fr(online=online, now=now, govinfo_date=govinfo_date)
     if corpus in (None, "usc"):
         items += check_usc(titles, online=online)
+    if corpus in (None, "constitution"):
+        items += check_constitution(online=online)
+    if corpus in (None, "plaw"):
+        items += check_plaw(online=online)
+    if corpus in (None, "agenda"):
+        items += check_agenda(online=online)
     summary = {s: sum(1 for i in items if i["status"] == s) for s in (OK, WARN, FAIL, INFO)}
     overall = FAIL if summary[FAIL] else WARN if summary[WARN] else OK
     return {"status": overall, "summary": summary, "items": items,
@@ -410,7 +541,7 @@ def format_report(report: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Verify the integrity of the installed CFR, FR and U.S.C. stores.")
+    parser = argparse.ArgumentParser(description="Verify the integrity of the installed CFR, FR, U.S.C., Constitution, Public Laws and Unified Agenda stores.")
     parser.add_argument("--corpus", choices=CORPORA)
     parser.add_argument("--title", type=int, help="one CFR or U.S.C. title (with --corpus cfr|usc)")
     parser.add_argument("--offline", action="store_true", help="skip eCFR / OLRC / GovInfo checks")

@@ -141,6 +141,11 @@ def _loop(stop_event: threading.Event | None = None) -> None:
             usc_build.maybe_queue_updates()
         except Exception as e:
             build.log(f"U.S. Code release check failed: {e}")
+        try:                                 # Constitution / Public Laws / Unified Agenda, when installed and due
+            from .sources import schedule as corpus_schedule
+            corpus_schedule.maybe_queue_corpus_updates()
+        except Exception as e:
+            build.log(f"Corpus refresh check failed: {e}")
         try:                                 # CFR: edition check on the registry's schedule (default: manual)
             from .library import jobs
             jobs.maybe_queue_cfr_updates()

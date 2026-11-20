@@ -344,6 +344,36 @@ A standalone HTML page for one section (the target of local U.S.C. citation link
 
 `GET /api/search?include=usc` (or `include=fr,usc`) adds a `usc` block (`{installed, total, results}`).
 
+## U.S. Constitution
+
+`data/constitution.sqlite3`, built from the Constitution file of the House Rules and Manual in GovInfo bulk data (`bulkdata/HMAN/{congress}/HMAN-{congress}.zip`, newest edition; official GPO USLM, no key). `python -m app.constitution [--force] [--status] [--keep-source]`. The House Parliamentarian's annotations are kept as separate `notes`, never in the text. Unit ids: `preamble`, `art1-s2`, `art5` (an article without sections), `amdt1`, `amdt14-s1`. Every response is `no-store`; GETs never touch the network.
+
+- `GET /api/constitution` → `{installed, unit_count, note_count, meta{edition, source_url, zip_sha256, xml_sha256, fetched_at, built_at, …}, outline[{id, kind, article, amendment, section, label, chars, note_count}]}`
+- `GET /api/constitution/unit/{id}` → `{id, ord, kind, article, amendment, section, label, text, note_count, notes[], prev, next}` (404 unknown/not installed)
+- `GET /api/constitution/search?q=&notes=false&limit=20` → `{installed, total, results[{id, label, snippet, kind: text|annotation}]}` (`\x02`/`\x03` snippet sentinels)
+- `POST /api/constitution/build` → `{job}` (queue key 2000; the scheduled `constitution-update` job rebuilds only when GovInfo lists a newer Manual)
+
+## Public Laws
+
+`data/plaw.sqlite3`, from GovInfo bulk data `bulkdata/PLAW/{congress}/{public|private}/PLAW-{congress}-{type}.zip` (USLM, 113th Congress on; no key). `python -m app.plaw [--congress 118-119] [--types public,private] [--force] | --update | --status`. Builds are resumable per (congress, type) chunk and replace the live file atomically; `update()` re-reads the newest congress (and, for an "all congresses" scope, any newer one). Law ids: `118-2` (public), `118-pvt-5` (private).
+
+- `GET /api/plaw?congress=&type=&limit=&offset=` → `{installed, total, results[{id, congress, law_type, number, citation, statute, title, approved_date, bill}], status}`
+- `GET /api/plaw/law/{id}?xml=false` → the law plus `text`, `usc[{title, section, kind: reference|codified|note}]` and `provenance{source_url, sha256, byte_len, fetched_at}` (`xml=true` adds the USLM)
+- `GET /api/plaw/usc/{title}/{section}` → laws that cite, amend or place provisions at that U.S. Code section (`kinds`)
+- `GET /api/plaw/search?q=` → `Pub. L. 118-31` / `118-31` is an exact hit; else FTS over title and text
+- `POST /api/plaw/build` `{congresses?, types?}` · `POST /api/plaw/update` → `{job}` (queue key 3000)
+
+## Unified Agenda
+
+`data/agenda.sqlite3`, from reginfo.gov's XML editions (`XMLViewFileAction?f=REGINFO_RIN_DATA_{YYYYMM}.xml`, listed on `eAgendaXmlReport`; no key). `python -m app.agenda [--years 2] [--agencies 2000,1200] [--stages final,proposed] [--force] | --update | --status`. One row per (RIN, edition); agency contact names, phones and e-mails are not stored. Builds are resumable per edition; `update()` adds newer editions.
+
+- `GET /api/agenda?edition=YYYYMM&agency=NNNN&stage=final&limit=&offset=` → `{installed, edition (default newest), total, results[{rin, edition, agency, agency_acronym, parent, parent_acronym, title, stage, priority, major}], status}`
+- `GET /api/agenda/rin/{rin}?edition=` → the entry (`abstract`, `cfr[]`, `authority[]`, `timetable[{action, date, fr_citation}]`, `related[]`, `history[{edition, stage, rin_status}]`) plus `fr_documents[]` — Federal Register corpus documents whose `regulation_id_numbers` include the RIN or whose citation matches a timetable FR citation
+- `GET /api/agenda/search?q=` → a RIN (`1218-AD39`) is an exact hit; else FTS over title and abstract
+- `POST /api/agenda/build` `{years, agencies?, stages?}` · `POST /api/agenda/update` → `{job}` (queue key 4000)
+
+`GET /api/integrity` (and `python -m app.integrity --corpus constitution|plaw|agenda`) covers the three: database `quick_check`, counts vs meta, completeness (7 articles and 27 amendments), every law file re-hashed against its SHA-256, congress/type and edition coverage, recorded provenance, and (online) whether GovInfo / reginfo.gov has something newer.
+
 ## Integrity
 
 ### `GET /api/integrity`
@@ -385,7 +415,7 @@ The federal source registry (`app/sources/`) is what a Settings checklist drives
 }
 ```
 
-- **Sources** (`categories`: Statutes, Regulations, Rulemaking, Enforcement, News): `usc`, `cfr`, `fr` (the archive), `news` (the News page feed), `dol_enforcement` (needs `DOL_API_KEY`), and placeholders `constitution`, `public_laws` (needs a GovInfo key), `unified_agenda` with `available: false` (they can't be enabled yet).
+- **Sources** (`categories`: Statutes, Regulations, Rulemaking, Enforcement, News): `usc` (titles 1–54 plus the appendix titles 5a, 11a, 18a, 28a as option values 105, 111, 118, 128; 50a = 150 is eliminated and listed as reserved), `cfr`, `fr` (the archive), `news` (the News page feed), `dol_enforcement` (needs `DOL_API_KEY`), `constitution`, `public_laws` (filters `congresses` 113…current or `"all"`, `law_types` public/private) and `unified_agenda` (filters `agencies` = reginfo.gov parent agency codes such as `"2000"`, `stages` prerule/proposed/final/long_term/completed, `years`). None of the last three needs a key (GovInfo **bulk data** and reginfo.gov are keyless). Status adds per-source counts (`units`/`annotations`, `laws`/`usc_links`/`congresses`, `entries`/`editions`).
 - **Filter types**: `multi` takes a list of option values, or `"all"` when `allow_all`, or `"installed"` (the CFR titles on this computer) when `allow_installed`; `allow_custom` accepts any lowercase slug. `toggle` is a bool, `number` an int clamped to `min`..`max`, `choice` one option value. Title options carry `estimate {bytes, seconds, approximate: true}` (null for reserved titles) and `desk`.
 - **Keys**: only presence (`key_present`), never a value. `needs_key` means the source can't update without one; `optional_key` adds a feature.
 - **Status**: what is on disk (`installed`, `items`, `bytes`), `last_refresh`, queued/running `jobs`, and `integrity` — the last offline `app.integrity` result (`{status, summary, checked_at, problems}`) for cfr/usc/fr, `null` until `GET /api/sources?check=true` runs one.
@@ -421,10 +451,10 @@ What the flags do: unchecking a source (or a title) **stops its updates and keep
 }
 ```
 
-`actions[].action`: `install`, `complete` (a partly installed CFR title), `rebuild` (the FR archive's scope or window changed), `remove` (only with `remove_unselected: true`). `changes[].change`: `start_updates`, `stop_updates`, `schedule`, `scope`, `needs_key` (with `get_key_url`). `needs_confirm` is true when the plan downloads more than ~50 MB, takes more than ~2 minutes, or deletes anything; `apply` without `confirm: true` then returns the plan with `applied: false` and changes nothing. A confirmed apply adds `applied: true, queued[], removed[], skipped[{…, reason}]`. Estimates are approximate (CFR from eCFR's measured XML sizes × 3.5 on disk; FR ~7 KB and ~27,000 documents a year; U.S.C. rough per-title sizes).
+`actions[].action`: `install`, `complete` (a partly installed CFR title), `rebuild` (the FR archive's, Public Laws' or Unified Agenda's scope changed), `remove` (only with `remove_unselected: true`). Jobs: CFR `title`, U.S.C. `usc-title`, FR `fr-build`, `constitution-build` (queue key 2000), `plaw-build` `{congresses, types}` (3000), `agenda-build` `{years, agencies?, stages?}` (4000). `changes[].change`: `start_updates`, `stop_updates`, `schedule`, `scope`, `needs_key` (with `get_key_url`). `needs_confirm` is true when the plan downloads more than ~50 MB, takes more than ~2 minutes, or deletes anything; `apply` without `confirm: true` then returns the plan with `applied: false` and changes nothing. A confirmed apply adds `applied: true, queued[], removed[], skipped[{…, reason}]`. Estimates are approximate (CFR from eCFR's measured XML sizes × 3.5 on disk; FR ~7 KB and ~27,000 documents a year; U.S.C. rough per-title sizes).
 
 ### Templates and presets
-A template is `{id, name, description, builtin, selection, created_at?, updated_at?}`; built-in presets also carry `default`, `needs_keys` and `group`, and have ids `preset:…`: `preset:recommended` (the default: every U.S.C. and CFR title, 2 years of every FR document, news from every agency, no keys), `preset:everything` (5 years + DOL enforcement), `preset:minimal` (nothing refreshes or downloads), one per Library bundle (`preset:bundle-ehs|trade|govcon`) and one per Library desk (`preset:desk-…`), each narrowing CFR, U.S.C., FR and news to that desk's titles.
+A template is `{id, name, description, builtin, selection, created_at?, updated_at?}`; built-in presets also carry `default`, `needs_keys` and `group`, and have ids `preset:…`: `preset:recommended` (the default: the Constitution, every U.S.C. and CFR title, public laws from every congress, 2 years of every FR document and of the Unified Agenda, news from every agency, no keys), `preset:everything` (5 years, private laws too, and DOL enforcement), `preset:minimal` (nothing refreshes or downloads), one per Library bundle (`preset:bundle-ehs|trade|govcon`) and one per Library desk (`preset:desk-…`), each narrowing CFR, U.S.C., FR and news to that desk's titles.
 
 - `GET /api/sources/templates` → `{templates: [presets…, saved…]}`
 - `POST /api/sources/templates` `{name, description?, selection?}` (no `selection` = the current one) → the template

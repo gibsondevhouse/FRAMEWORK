@@ -35,7 +35,8 @@ class Queue:
 
     # -- public --
     def submit(self, title: int, kind: str, target: dict | None, label: str) -> dict:
-        """kind: 'title' | 'part' | 'section' | 'update', or 'fr-build' | 'fr-update' for the
+        """kind: 'title' | 'part' | 'section' | 'update'; 'constitution-build' (key 2000),
+        'plaw-build' | 'plaw-update' (3000), 'agenda-build' | 'agenda-update' (4000); or 'fr-build' | 'fr-update' for the
         Federal Register corpus (title 0, see fr_build.FR_JOB_TITLE), or 'usc-title' |
         'usc-update' for a U.S. Code title (title 1000 + N, see usc_build.job_key). target:
         the part/section asked for (FR: {"titles", "years"}; U.S.C.: {"usc_title"})."""
@@ -130,7 +131,7 @@ class Queue:
                     job.pop("cancelling", None)
                     self._recent.append(job)
                     self._current = None
-            if cancelled and job["kind"] not in ("fr-build", "fr-update", "usc-title", "usc-update"):
+            if cancelled and job["kind"] in ("title", "part", "section", "update"):
                 lib._remove_partial_files(job["title"])  # fr_build / usc_build remove their own .tmp
 
     def _progress(self, job: dict):
@@ -245,10 +246,14 @@ def requested_scope(kind: str, target: dict | None) -> dict | None:
 
 
 def run_job(job: dict, report) -> None:
-    from .. import fr_build, usc_build
+    from .. import agenda, constitution, fr_build, plaw, usc_build
     if job["kind"] in fr_build.FR_JOB_KINDS:  # the Federal Register corpus shares this queue
         fr_build.run_job(job, report)
         return
+    for mod in (constitution, plaw, agenda):   # keys 2000 / 3000 / 4000
+        if job["kind"] in mod.JOB_KINDS:
+            mod.run_job(job, report)
+            return
     if job["kind"] in usc_build.USC_JOB_KINDS:  # so do U.S. Code titles (key 1000 + N)
         usc_build.run_job(job, report)
         return
