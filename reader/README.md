@@ -1,6 +1,6 @@
 # FRAMEWORK — Federal Codes & Laws Platform
 
-**FRAMEWORK** is a calm, local-first, **federal-only** platform for reading, searching, and staying up to date on federal codes and laws across federal frameworks — including the **Code of Federal Regulations (CFR)**, the **Federal Register**, and the **United States Code (U.S.C.)**. Everything runs locally on your computer—fast, private, and free of clutter. *(State-law coverage and HSE-specific suites are out of scope.)*
+**FRAMEWORK** is a calm, local-first, **federal-only** platform for reading, searching, and staying up to date on federal codes and laws across federal frameworks — including the **U.S. Constitution**, the **United States Code (U.S.C.)**, **Public Laws**, the **Code of Federal Regulations (CFR)**, the **Federal Register**, and the **Unified Agenda**. Everything runs locally on your computer—fast, private, and free of clutter. *(State-law coverage and HSE-specific suites are out of scope.)*
 
 Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a strict TypeScript frontend bundled via Vite. Official federal XML and JSON feeds render into clean, readable legal typography with zero heavy runtime frameworks getting in the way.
 
@@ -48,7 +48,7 @@ Under the hood, it pairs a **FastAPI** and **SQLite FTS5** backend with a strict
 - **Curated bundles.** Install related titles together in one click, statutes included—such as *Environment, Health & Safety* (CFR Titles 29, 40, 49 plus 29, 42 and 49 U.S.C.), *Trade & Commerce*, or *Government Contracting*.
 - **Granular installs.** Download an entire title, a single part, or just one section or appendix. You can always expand a partial install later, or hit **Update all** to bring everything up to the latest eCFR edition.
 - **Floating Transfer Dock.** Downloads run in a background queue with a compact floating progress card in the corner—showing pipeline stages, download speed, and time remaining—so you can keep reading while titles install.
-- **Data sources checklist.** **Settings → Data sources** lists every federal source (U.S. Code, CFR, Federal Register archive, news, DOL enforcement) as plain checkboxes: switch each on or off, choose how often it updates, and tick exactly which titles, agencies or document types to collect. Start from a template (Recommended, Everything, Minimal, or a desk/bundle), save your own, and share templates as a file. Nothing downloads until you review the changes and apply them, and unticking keeps your data unless you choose to remove it.
+- **Data sources checklist.** **Settings → Data sources** lists every federal source (Constitution, U.S. Code, Public Laws, CFR, Federal Register archive, Unified Agenda, Newsroom, and optional DOL enforcement) as plain checkboxes: switch each on or off, choose how often it updates, and tick exactly which titles, Congresses, agencies, stages, or document types to collect. Start from a template (Recommended, Everything, Minimal, or a desk/bundle), save your own, and share templates as a file. Nothing downloads until you review and apply the exact plan on screen, and unticking keeps your data unless you choose to remove it.
 - **Storage cleanup.** Check how much disk space each title uses and clear out leftover temporary files right from **Settings**.
 
 ### Federal Register Newsroom (sanctioned APIs only)
@@ -140,16 +140,22 @@ Open **http://127.0.0.1:8000** in your browser. On first start nothing is instal
 - Interactive API docs: http://127.0.0.1:8000/docs
 - Full HTTP & streaming reference: [`API.md`](API.md)
 
-### 5. Managing titles from the CLI (optional)
+### 5. Managing corpora from the CLI (optional)
 
-You can install or refresh titles from the terminal if you prefer:
+You can install or refresh federal corpora from the terminal if you prefer:
 
 ```bash
 cd reader
-../.venv/bin/python -m app.build                    # Download Title 29 if missing
-../.venv/bin/python -m app.build --title 40         # Install another title
-../.venv/bin/python -m app.build --force            # Re-download the latest edition
+../.venv/bin/python -m app.build                    # Download CFR Title 29 if missing
+../.venv/bin/python -m app.build --title 40         # Install another CFR title
+../.venv/bin/python -m app.build --force            # Re-download the latest CFR edition
 ../.venv/bin/python -m app.build --title 29 --renest  # Fix subpart nesting in place (no download)
+../.venv/bin/python -m app.usc_build --title 4      # Install a U.S. Code title from OLRC
+../.venv/bin/python -m app.fr_build                 # Build/update the Federal Register archive
+../.venv/bin/python -m app.constitution             # Build the U.S. Constitution (GovInfo bulk data)
+../.venv/bin/python -m app.plaw                     # Build Public Laws (GovInfo bulk data)
+../.venv/bin/python -m app.agenda                   # Build the Unified Agenda (reginfo.gov)
+../.venv/bin/python -m app.integrity --offline      # Check local database integrity across all corpora
 ```
 
 Note that a CLI build isn't picked up by an already-running server until you restart it or call `POST /api/library/reload`. Downloads started inside the app's **Library** take effect right away.
@@ -176,9 +182,9 @@ FRAMEWORK/
 ├── README.md                  # Top-level overview
 ├── Start FRAMEWORK.command    # One-click macOS launcher
 ├── docs/
-│   ├── plans/                 # Design plans by subject (10-series) + MAPPED_PLAN_OVERVIEW.md
+│   ├── plans/                 # Historical archive of earlier design plans (active plans live in Linear)
 │   ├── notes/                 # Lightweight dev logs for cleanup and follow-ups
-│   └── bugs,quirks/           # eCFR ingest quirks register (duplicate appendix ids, reserved titles)
+│   └── bugs,quirks/           # Federal ingest quirks register (duplicate appendix ids, reserved titles, U.S.C. notes)
 └── reader/
     ├── app/
     │   ├── config.py          # Paths, .env loading, installed-title discovery
@@ -186,18 +192,33 @@ FRAMEWORK/
     │   ├── build.py           # eCFR download, streaming XML ingest, SQLite FTS5 indexer
     │   ├── store.py           # Per-title SQLite connections, caches, federated search
     │   ├── citations/         # One citation grammar (parser.py) + per-title references / cited-by / IBR graph (graph.py)
-    │   ├── render/            # XML → HTML: text, hierarchy, linkifier, units, html (deterministic anchors)
-    │   ├── ingest/            # Structure-tree utilities + streaming XML parse (for build.py)
+    │   ├── render/            # XML → HTML: text, hierarchy, linkifier, units, html, uslm_html, plaw_html
+    │   ├── ingest/            # Structure-tree utilities + streaming eCFR XML & USLM parsers
     │   ├── library/           # eCFR client, suites, disk, job queue, views
+    │   ├── fr_client.py       # Shared Federal Register API v1 client (pacing, retries, sanitization)
+    │   ├── fr_store.py        # fr.sqlite3 corpus schema, FTS5, provenance, CFR links
+    │   ├── fr_build.py        # Resumable Federal Register corpus builder & incremental updater
+    │   ├── usc_client.py      # OLRC U.S. Code release discovery & zip downloader (incl. appendix titles)
+    │   ├── usc_store.py       # Per-title usc-{N}.sqlite3 store & FTS5 search
+    │   ├── usc_build.py       # U.S. Code builder, updater & catalog
+    │   ├── usc_citations.py   # Reverse U.S.C. / CFR / authority citations for U.S.C. sections
+    │   ├── gov_http.py        # Polite keyless client for GovInfo bulk data & reginfo.gov
+    │   ├── constitution.py    # U.S. Constitution ingest & store (GovInfo HMAN USLM)
+    │   ├── plaw.py            # Public Laws ingest & store (GovInfo PLAW USLM)
+    │   ├── agenda.py          # Unified Agenda ingest & store (reginfo.gov XML)
+    │   ├── sources/           # Federal source registry, selection, presets, plans, schedules & status
+    │   ├── integrity.py       # Cross-corpus integrity checks (SQLite, SHA-256, coverage, freshness)
+    │   ├── govinfo.py         # Optional GovInfo FR cross-check helper
     │   ├── news.py            # Federal Register + DOL fetchers, DOL standard decoder, inspection case files, takeaway bullets
     │   ├── news_store.py      # osha_news.sqlite3: articles, citations, FTS5, sync status, enforcement_cases
     │   ├── news_schedule.py   # Publication windows, staleness, backoff (pure functions)
     │   ├── news_worker.py     # Schedule-gated background sync thread
-    │   ├── routers/           # Domain routers: settings, library, news, reader, chat (+deps)
+    │   ├── routers/           # Domain routers: settings, library, news, fr, usc, integrity, sources, corpora, reader, chat (+deps)
     │   ├── chat.py            # Claude streaming tool-use loop
     │   ├── main.py            # App init + router mounting (order is a contract)
-    │   └── title_blurbs.json  # Editorial summaries, desks, agencies, and size estimates
-    ├── data/                  # title-{N}.sqlite3 + tree-{N}.json per title (gitignored)
+    │   ├── title_blurbs.json  # Editorial summaries, desks, agencies, and size estimates for CFR titles
+    │   └── usc_titles.json    # Static catalog, desks, and CFR mappings for U.S. Code titles
+    ├── data/                  # SQLite DBs + tree JSON per corpus/title (gitignored)
     ├── frontend/              # Frontend sources (Node 20+ only for contributors)
     │   ├── index.html         # App shell, activity rail, drawer, and transfer dock
     │   └── src/               # ES modules + TypeScript: state.ts, views/, components/, panels/, styles/
