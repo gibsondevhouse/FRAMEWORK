@@ -178,10 +178,11 @@ def _fr_paginated(c: httpx.Client, base_params: list[tuple[str, str]]) -> list[d
     return results
 
 
-def fetch_federal_register_documents(c: httpx.Client, agency: str, since: str) -> list[dict]:
-    """Every document published on or after `since` (ISO date) for `agency`, following next_page_url."""
-    params = [("conditions[agencies][]", agency), ("conditions[publication_date][gte]", since),
-              ("order", "newest"), ("per_page", str(FR_PER_PAGE))]
+def fetch_federal_register_documents(c: httpx.Client, agency: str | None, since: str) -> list[dict]:
+    """Every document published on or after `since` (ISO date) for `agency` (None = every
+    agency), following next_page_url."""
+    params = ([("conditions[agencies][]", agency)] if agency else []) + [
+        ("conditions[publication_date][gte]", since), ("order", "newest"), ("per_page", str(FR_PER_PAGE))]
     results = _fr_paginated(c, params)
     return [fr_document_item(d, agency) for d in results if d.get("document_number")]
 
@@ -230,19 +231,20 @@ def fr_document_item(doc: dict, agency: str | None = None) -> dict:
 # Sanitizer, host guard and on-demand body fetch live in fr_client (re-exported above).
 
 
-def fetch_public_inspection(c: httpx.Client, agency: str) -> list[dict]:
+def fetch_public_inspection(c: httpx.Client, agency: str | None) -> list[dict]:
+    """Documents on public inspection now, for `agency` (None = every agency)."""
     results = _get_json(c, f"{FR_BASE}/public-inspection-documents.json",
-                        {"conditions[agencies][]": agency}).get("results", [])
+                        {"conditions[agencies][]": agency} if agency else {}).get("results", [])
     return [pi_item(d, agency) for d in results if d.get("document_number")]
 
 
-def pi_item(doc: dict, agency: str) -> dict:
+def pi_item(doc: dict, agency: str | None) -> dict:
     excerpt = " ".join(x for x in (doc.get("subject_1"), doc.get("subject_2"), doc.get("subject_3")) if x)
     return {
         **empty_item(),
         "guid": f"fr:{doc['document_number']}",  # same guid as the published document (no duplicates)
         "source": "federal_register_pi",
-        "agency": agency,
+        "agency": _fr_agency_slug(doc, agency),
         "category": "public_inspection",
         "doc_type": doc.get("type") or "Public Inspection",  # the type it WILL have once published
         "title": (doc.get("title") or "").strip(),

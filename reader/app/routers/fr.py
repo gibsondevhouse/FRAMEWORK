@@ -123,9 +123,12 @@ def queue_build(req: BuildRequest | None = None) -> dict:
     """Queue a full (atomic) corpus build on the library queue."""
     req = req or BuildRequest()
     titles = sorted(set(req.titles or fr_build.default_titles()))
-    if not titles or any(not 1 <= t <= 50 for t in titles):
-        raise HTTPException(422, "Give CFR titles 1-50, or install a title first.")
-    return {"job": fr_build.submit("fr-build", {"titles": titles, "years": req.years})}
+    if titles == [fr_build.ALL_DOCUMENTS]:
+        pass                                  # every document (the source registry's default)
+    elif not titles or any(not 1 <= t <= 50 for t in titles):
+        raise HTTPException(422, "Give CFR titles 1-50, choose every document, or install a title first.")
+    filters = fr_build.clean_filters(None if req.titles else fr_build.default_filters())
+    return {"job": fr_build.submit("fr-build", {"titles": titles, "years": req.years, "filters": filters})}
 
 
 @fr_router.post("/update")

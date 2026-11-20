@@ -192,6 +192,48 @@ def update_all() -> dict:
     return {"queued": queued, "count": len(queued)}
 
 
+_cfr_check_lock = threading.Lock()
+_cfr_last_check: float | None = None
+CFR_RETRY_AFTER_FAILURE = 6 * 3600
+
+
+def maybe_queue_cfr_updates(now: float | None = None) -> dict | None:
+    """Called by the news worker on each wake. When the source registry has the CFR on a
+    "daily" or "weekly" schedule (the default for an unsaved selection is "manual": updates
+    only when asked), it compares installed editions with eCFR's latest at most that often and
+    queues updates for the selected installed titles that are behind. Unchecked titles keep
+    their data and are never updated."""
+    global _cfr_last_check
+    from ..sources import selection
+    src = selection.source("cfr")
+    if not src["enabled"] or src["schedule"] not in ("daily", "weekly"):
+        return None
+    wanted = set(selection.cfr_titles())
+    if not set(config.installed_titles()) & wanted:
+        return None
+    now = time.time() if now is None else now
+    every = 86400 if src["schedule"] == "daily" else 7 * 86400
+    with _cfr_check_lock:
+        if _cfr_last_check is not None and now - _cfr_last_check < every:
+            return None
+        _cfr_last_check = now
+    try:
+        behind = [n for n in lib.outdated() if n in wanted]
+    except Exception as exc:
+        build.log(f"CFR edition check failed: {exc}")
+        with _cfr_check_lock:                 # try again sooner than a full period
+            _cfr_last_check = now - every + CFR_RETRY_AFTER_FAILURE
+        return None
+    queued = [lib.queue.submit(n, "update", None, f"Update Title {n}") for n in behind if not lib.queue.busy_with(n)]
+    return {"queued": queued, "count": len(queued)}
+
+
+def reset_cfr_schedule() -> None:
+    global _cfr_last_check
+    with _cfr_check_lock:
+        _cfr_last_check = None
+
+
 def requested_scope(kind: str, target: dict | None) -> dict | None:
     if kind == "title":
         return None

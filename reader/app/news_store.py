@@ -216,7 +216,14 @@ def db_path() -> Path:
 
 
 def retention_days() -> int:
-    """How many days of news to keep; also the first FR sync's backfill window."""
+    """How many days of news to keep; also the first FR sync's backfill window. A saved
+    source selection (`app/sources`, news → "Keep news for") wins over NEWS_RETENTION_DAYS."""
+    from .sources import selection
+    saved = selection.saved()
+    if saved is not None:
+        days = saved["sources"]["news"]["scope"].get("retention_days")
+        if isinstance(days, int) and days > 0:
+            return days
     try:
         return max(1, int(os.getenv("NEWS_RETENTION_DAYS", "365").strip() or 365))
     except ValueError:

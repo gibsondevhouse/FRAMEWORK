@@ -178,10 +178,20 @@ class PureHelperTests(HermeticTestCase):
         self.assertEqual(fr_build.default_window(1, today=date(2028, 2, 29))[0], "2027-02-28")
 
     def test_title_config(self):
-        with mock.patch.dict("os.environ", {"FR_CORPUS_TITLES": "40, 29,x,99,40"}):
-            self.assertEqual(config.fr_corpus_titles(), [40, 29])
-        with mock.patch.object(config, "installed_titles", return_value=[29, 49]):
-            self.assertEqual(fr_build.default_titles(), [29, 49])
+        from app.sources import selection
+        tmp = Path(tempfile.mkdtemp(prefix="fr-sel-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        with mock.patch.object(config, "DATA_DIR", tmp):
+            with mock.patch.dict("os.environ", {"FR_CORPUS_TITLES": "40, 29,x,99,40"}):
+                self.assertEqual(config.fr_corpus_titles(), [40, 29])
+                self.assertEqual(fr_build.default_titles(), [29, 40])     # .env narrows an unsaved setup
+            with mock.patch.object(config, "installed_titles", return_value=[29, 49]):
+                self.assertEqual(fr_build.default_titles(), [fr_build.ALL_DOCUMENTS])   # default: every document
+                self.assertEqual(fr_build.default_filters(), {})
+                selection.save({"sources": {"fr": {"scope": {"cfr_titles": "installed",
+                                                             "agencies": ["environmental-protection-agency"]}}}})
+                self.assertEqual(fr_build.default_titles(), [29, 49])     # the old behaviour, as a filter
+                self.assertEqual(fr_build.default_filters(), {"agencies": ["environmental-protection-agency"]})
 
     def test_news_shares_the_fr_client(self):
         self.assertIs(news.client, fr_client.client)
@@ -282,6 +292,8 @@ class BuildTests(FrTestCase):
         self.assertTrue(fr_store.tmp_path().exists())       # kept for the next run to resume
 
     def test_build_without_titles_refuses(self):
+        from app.sources import selection
+        selection.save({"sources": {"fr": {"scope": {"cfr_titles": "installed"}}}})
         with mock.patch.object(config, "installed_titles", return_value=[]):
             with self.assertRaises(ValueError):
                 fr_build.build(force=True)
@@ -360,7 +372,8 @@ class ResumeTests(FrTestCase):
             fr_build.build(titles=[29, 40], since="2026-06-01", until="2026-11-18")
         self.assertFalse(fr_store.db_path().exists())
         self.assertTrue(fr_store.tmp_path().exists())
-        self.assertEqual(fr_build.pending_build(), {"titles": [29, 40], "since": "2026-06-01", "until": "2026-11-18"})
+        self.assertEqual(fr_build.pending_build(), {"titles": [29, 40], "since": "2026-06-01", "until": "2026-11-18",
+                                                    "filters": {}})
         done_before = self.chunk_count()
         self.assertEqual(done_before, 3)                   # Jun-Aug of title 29 finished
 
@@ -597,9 +610,15 @@ class ApiTests(FrTestCase):
                 mock.patch.object(config, "installed_titles", return_value=[29, 40]):
             r = self.client.post("/api/fr/build", json={"years": 2})
             self.assertEqual(r.status_code, 200)
-            q.submit.assert_called_with(0, "fr-build", {"titles": [29, 40], "years": 2}, "Build Federal Register corpus")
+            q.submit.assert_called_with(0, "fr-build", {"titles": [0], "years": 2, "filters": {}},
+                                        "Build Federal Register corpus")       # default: every document
+            self.client.post("/api/fr/build", json={"titles": [29], "years": 2})
+            q.submit.assert_called_with(0, "fr-build", {"titles": [29], "years": 2, "filters": {}},
+                                        "Build Federal Register corpus")
             self.client.post("/api/fr/update")
             q.submit.assert_called_with(0, "fr-update", None, "Update Federal Register corpus")
+        from app.sources import selection
+        selection.save({"sources": {"fr": {"scope": {"cfr_titles": "installed"}}}})
         with mock.patch.object(config, "installed_titles", return_value=[]):
             self.assertEqual(self.client.post("/api/fr/build", json={}).status_code, 422)
 

@@ -384,9 +384,11 @@ def run_job(job: dict, report) -> None:
     build(title, force=True, progress=report, release=release)
 
 
-def update_all(release: dict | None = None) -> dict:
+def update_all(release: dict | None = None, only: set[int] | None = None) -> dict:
+    """Queue updates for installed titles behind `release` (only those in `only`, when given:
+    the scheduled check skips titles unchecked in the source registry)."""
     release = release or usc_client.current_release()
-    queued = [submit(t, "usc-update") for t in outdated(release)]
+    queued = [submit(t, "usc-update") for t in outdated(release) if only is None or t in only]
     return {"release_point": release["release_point"], "queued": queued, "count": len(queued)}
 
 
@@ -395,16 +397,22 @@ def maybe_queue_updates(now: datetime | None = None) -> dict | None:
     check) it asks the OLRC for the current release point and queues updates for installed
     titles that are behind. Does nothing when no U.S.C. title is installed."""
     global _last_check, _last_check_ok
+    from .sources import selection
     now = now or datetime.now(timezone.utc)
-    if not usc_store.installed_titles():
+    src = selection.source("usc")
+    if not src["enabled"] or src["schedule"] == "manual":
+        return None
+    wanted = set(selection.usc_titles())
+    if not set(usc_store.installed_titles()) & wanted:
         return None
     with _check_lock:
-        wait = CHECK_EVERY if _last_check_ok else RETRY_AFTER_FAILURE
+        every = timedelta(days=7) if src["schedule"] == "weekly" else CHECK_EVERY
+        wait = every if _last_check_ok else RETRY_AFTER_FAILURE
         if _last_check is not None and now - _last_check < wait:
             return None
         _last_check = now
     try:
-        res = update_all(usc_client.current_release(force=True))
+        res = update_all(usc_client.current_release(force=True), only=wanted)
         _last_check_ok = True
         return res
     except Exception as exc:

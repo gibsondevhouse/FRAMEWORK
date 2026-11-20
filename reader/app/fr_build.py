@@ -5,11 +5,14 @@ the live file atomically only once it is complete; incremental updates upsert in
 live file one committed chunk at a time (re-running a chunk is idempotent, so an
 interrupted update just resumes from the last recorded window).
 
-Scope: documents whose `cfr_references` cite one of the corpus titles
-(`conditions[cfr][title]=N`), published within the last `FR_CORPUS_YEARS` years
-(default 5). The titles default to the installed CFR titles (`FR_CORPUS_TITLES`
-overrides). Each (title, month) is one query; when the API reports the 10,000-result
-ceiling the range is split in half until it fits.
+Scope (from the source registry, `app/sources`): by default every document — every
+agency, every type, no CFR condition; the stream key is title 0 (`ALL_DOCUMENTS`) —
+published within the window (`years`, default 5). The registry's filters can narrow it to
+agencies (`conditions[agencies][]`), document types (`conditions[type][]`) and/or
+documents citing certain CFR titles (`conditions[cfr][title]=N`, one stream per title;
+"installed" = the old default). `FR_CORPUS_TITLES` still narrows an unsaved setup. Each
+(stream, month) is one query; when the API reports the 10,000-result ceiling the range is
+split in half until it fits. Filters are stored in meta (`filters`) so updates reuse them.
 
 Full text is not downloaded during a build (tens of thousands of requests); `fetch_body`
 pulls one document's XML on demand and stores it with its SHA-256.
@@ -74,8 +77,31 @@ def default_window(years: int | None = None, today: date | None = None) -> tuple
     return since.isoformat(), today.isoformat()
 
 
+ALL_DOCUMENTS = 0                     # the "title" key of the stream with no CFR filter
+
+
 def default_titles() -> list[int]:
-    return config.fr_corpus_titles() or config.installed_titles()
+    """The CFR titles to collect for, from the source registry (`sources.selection`):
+    [0] means every document regardless of which CFR title it cites (the default); the
+    registry's "installed" filter gives the installed titles; FR_CORPUS_TITLES still
+    narrows it while no selection is saved."""
+    from .sources import selection
+    return selection.fr_corpus_scope()["titles"]
+
+
+def default_filters() -> dict:
+    """Agency / document-type filters from the source registry ({} = every one)."""
+    from .sources import selection
+    return selection.fr_corpus_scope()["filters"]
+
+
+def clean_filters(filters: dict | None) -> dict:
+    out: dict[str, list[str]] = {}
+    for k in ("agencies", "doc_types"):
+        v = (filters or {}).get(k)
+        if isinstance(v, list) and v:
+            out[k] = sorted({str(x) for x in v})
+    return out
 
 
 def month_chunks(since: str, until: str) -> list[tuple[str, str]]:
@@ -103,9 +129,15 @@ def split_range(start: str, end: str) -> tuple[tuple[str, str], tuple[str, str]]
 # Fetching
 # ---------------------------------------------------------------------------
 
-def query_params(title: int, start: str, end: str) -> list[tuple[str, str]]:
-    return [
-        ("conditions[cfr][title]", str(int(title))),
+def query_params(title: int, start: str, end: str, filters: dict | None = None) -> list[tuple[str, str]]:
+    """One documents.json query. `title` 0 (ALL_DOCUMENTS) drops the CFR condition;
+    `filters` adds agency and document-type conditions."""
+    params = [("conditions[cfr][title]", str(int(title)))] if title else []
+    for slug in (filters or {}).get("agencies", []):
+        params.append(("conditions[agencies][]", slug))
+    for t in (filters or {}).get("doc_types", []):
+        params.append(("conditions[type][]", t))
+    return params + [
         ("conditions[publication_date][gte]", start),
         ("conditions[publication_date][lte]", end),
         ("order", "oldest"),
@@ -117,27 +149,32 @@ def _on_retry(attempt: int, retries: int, delay: float, reason: str) -> None:
     log(f"{reason} from federalregister.gov; retry {attempt}/{retries} in {delay:.0f}s")
 
 
-def fetch_range(c, title: int, start: str, end: str) -> list[tuple[list[dict], str, str, str]]:
+def fetch_range(c, title: int, start: str, end: str,
+                filters: dict | None = None) -> list[tuple[list[dict], str, str, str]]:
     """Every document citing `title` published in [start, end], as
     [(docs, source_url, start, end)] — one entry per sub-range actually fetched. A range
     whose count reaches the API's 10,000 ceiling is split in half and re-queried. Each
     request is paced and retried on 429/5xx (see fr_client)."""
     max_pages = -(-fr_client.RESULT_CAP // fr_client.MAX_PER_PAGE)
-    docs, count, urls = fr_client.paginate(c, query_params(title, start, end), fr_client.CORPUS_FIELDS,
+    docs, count, urls = fr_client.paginate(c, query_params(title, start, end, filters), fr_client.CORPUS_FIELDS,
                                            max_pages, retries=fr_client.MAX_RETRIES, on_retry=_on_retry)
     if count >= fr_client.RESULT_CAP:
         halves = split_range(start, end)
         if halves is not None:
             out = []
             for s, e in halves:
-                out += fetch_range(c, title, s, e)
+                out += fetch_range(c, title, s, e, filters)
             return out
-        log(f"warning: Title {title} on {start} reports {count}+ documents; kept the first {len(docs)}")
+        log(f"warning: {_stream(title)} on {start} reports {count}+ documents; kept the first {len(docs)}")
     return [(docs, urls[0] if urls else fr_client.documents_url(), start, end)]
 
 
+def _stream(title: int) -> str:
+    return f"title {title}" if title else "all documents"
+
+
 def _ingest_ranges(con, titles: list[int], ranges: dict[int, list[tuple[str, str]]], report,
-                   resume: bool = False) -> dict[str, int]:
+                   resume: bool = False, filters: dict | None = None) -> dict[str, int]:
     """Fetch each (title, chunk) and upsert it, committing per chunk together with its
     `build_chunks` row. With `resume`, chunks already in `build_chunks` are skipped."""
     totals = {"inserted": 0, "changed": 0, "unchanged": 0, "skipped": 0, "requests": 0, "resumed_chunks": 0}
@@ -156,7 +193,7 @@ def _ingest_ranges(con, titles: list[int], ranges: dict[int, list[tuple[str, str
                     report("Fetching Federal Register", done, steps)
                     continue
                 n_docs = 0
-                for docs, src, s, e in fetch_range(c, t, start, end):
+                for docs, src, s, e in fetch_range(c, t, start, end, filters):
                     fetched_at = fr_store.now_iso()
                     counts = fr_store.upsert_documents(con, docs, src, fetched_at)
                     for k, v in counts.items():
@@ -168,7 +205,7 @@ def _ingest_ranges(con, titles: list[int], ranges: dict[int, list[tuple[str, str
                     "INSERT OR REPLACE INTO build_chunks (title, start, end, docs, done_at) VALUES (?,?,?,?,?)",
                     (t, start, end, n_docs, fr_store.now_iso()))
                 con.commit()
-                log(f"title {t} {start[:7]}: {n_docs} docs ({done}/{steps})")
+                log(f"{_stream(t)} {start[:7]}: {n_docs} docs ({done}/{steps})")
                 report("Fetching Federal Register", done, steps)
     if totals["resumed_chunks"]:
         log(f"resumed: skipped {totals['resumed_chunks']} chunk(s) finished by an earlier run")
@@ -204,6 +241,7 @@ def build(
     years: int | None = None,
     force: bool = False,
     progress=None,
+    filters: dict | None = None,
 ) -> dict:
     """Full build into `fr.sqlite3.tmp`, then atomic replace once every chunk is done.
 
@@ -215,22 +253,23 @@ def build(
     report = progress or _noop
     pending = None if force else pending_build()
     req_titles = sorted(set(titles or default_titles()))
-    if pending and req_titles == pending.get("titles") and (since in (None, pending["since"])) \
-            and (until in (None, pending["until"])) and years is None:
+    req_filters = clean_filters(filters if filters is not None else (None if titles else default_filters()))
+    if pending and req_titles == pending.get("titles") and req_filters == pending.get("filters", {}) \
+            and (since in (None, pending["since"])) and (until in (None, pending["until"])) and years is None:
         titles, since, until = pending["titles"], pending["since"], pending["until"]
         resume = True
     elif fr_store.exists() and not force and not pending:
         return update(titles=titles, progress=progress)
     else:
         if pending:
-            log(f"discarding an unfinished build for {pending.get('titles')} (different titles or window)")
+            log(f"discarding an unfinished build for {pending.get('titles')} (different titles, filters or window)")
         titles = req_titles
         d_since, d_until = default_window(years)
         since, until = since or d_since, until or d_until
         resume = False
     if not titles:
         raise ValueError("No CFR titles to collect Federal Register documents for. "
-                         "Install a title or set FR_CORPUS_TITLES.")
+                         "Choose every document, pick titles, or install a title.")
     if since > until:
         raise ValueError(f"Empty window: {since} is after {until}")
     started = time.perf_counter()
@@ -239,22 +278,26 @@ def build(
         tmp.unlink(missing_ok=True)
     ranges = {t: month_chunks(since, until) for t in titles}
     steps = sum(len(v) for v in ranges.values())
-    log(f"{'resuming' if resume else 'building'} corpus for CFR titles {titles}, {since} → {until} "
+    scope_txt = "every document" if titles == [ALL_DOCUMENTS] else f"CFR titles {titles}"
+    if req_filters:
+        scope_txt += f" ({', '.join(f'{k}: {len(v)}' for k, v in req_filters.items())})"
+    log(f"{'resuming' if resume else 'building'} corpus for {scope_txt}, {since} → {until} "
         f"({steps} chunks, ≥{fr_client.min_interval():g}s between requests)")
     con = fr_store.connect(path=tmp)
     with closing(con):
         if not resume:
-            fr_store.set_meta(con, {"pending_build": {"titles": titles, "since": since, "until": until},
+            fr_store.set_meta(con, {"pending_build": {"titles": titles, "since": since, "until": until,
+                                                      "filters": req_filters},
                                     "build_started_at": fr_store.now_iso()})
             con.commit()
         # Any failure from here leaves the staging DB for the next run to resume.
-        totals = _ingest_ranges(con, titles, ranges, report, resume=resume)
+        totals = _ingest_ranges(con, titles, ranges, report, resume=resume, filters=req_filters)
         report("Indexing", None, None)
         built = fr_store.now_iso()
         fr_store.set_meta(con, {
             "source": fr_store.SOURCE, "schema": str(fr_store.SCHEMA_VERSION),
             "built_at": built, "updated_at": built, "last_ok_at": built,
-            "window_start": since, "window_end": until, "titles": titles,
+            "window_start": since, "window_end": until, "titles": titles, "filters": req_filters,
             "fail_count": "0", "last_error": "", "last_error_at": "",
         })
         con.execute("DELETE FROM meta WHERE key = 'pending_build'")
@@ -264,7 +307,7 @@ def build(
     with fr_store.WRITE_LOCK:
         from .build import _replace_with_retry
         _replace_with_retry(tmp, fr_store.db_path())
-    result = {**totals, "titles": titles, "window_start": since, "window_end": until,
+    result = {**totals, "titles": titles, "filters": req_filters, "window_start": since, "window_end": until,
               "doc_count": _doc_count(), "elapsed_sec": round(time.perf_counter() - started, 2), "mode": "build"}
     log(f"built: {result['doc_count']} documents in {result['elapsed_sec']}s ({totals['requests']} queries)")
     return result
@@ -284,6 +327,10 @@ def update(titles: list[int] | None = None, now: datetime | None = None, progres
         meta = fr_store.get_meta(con)
         known = json.loads(meta.get("titles") or "[]")
         titles = sorted(set(titles or known or default_titles()))
+        try:
+            filters = clean_filters(json.loads(meta.get("filters") or "{}"))
+        except ValueError:
+            filters = {}
         window_start = meta.get("window_start") or default_window(today=date.fromisoformat(until))[0]
         last_end = {r["title"]: r["e"] for r in con.execute("SELECT title, max(end) AS e FROM coverage GROUP BY title")}
         ranges: dict[int, list[tuple[str, str]]] = {}
@@ -294,7 +341,7 @@ def update(titles: list[int] | None = None, now: datetime | None = None, progres
             else:
                 s = window_start
             ranges[t] = month_chunks(s, until) if s <= until else []
-        totals = _ingest_ranges(con, titles, ranges, report)
+        totals = _ingest_ranges(con, titles, ranges, report, filters=filters)
         ok = fr_store.now_iso()
         fr_store.set_meta(con, {
             "updated_at": ok, "last_ok_at": ok, "window_end": until,
@@ -406,7 +453,8 @@ def run_job(job: dict, report) -> None:
     target = job.get("target") or {}
     try:
         if job["kind"] == "fr-build":
-            build(titles=target.get("titles"), years=target.get("years"), force=True, progress=report)
+            build(titles=target.get("titles"), years=target.get("years"), force=True, progress=report,
+                  filters=target.get("filters"))
         elif fr_store.exists():
             update(progress=report)
         else:
@@ -447,10 +495,28 @@ def is_due(now: datetime | None = None, meta: dict[str, str] | None = None) -> b
     return sched.is_due(SCHEDULE_SOURCE, schedule_row(meta), now or datetime.now(timezone.utc))
 
 
+def schedule_allows(schedule: str, now: datetime, meta: dict[str, str]) -> bool:
+    """The registry schedule on top of `is_due`: "auto" follows the publication window,
+    "weekly" waits 7 days since the last good refresh, "manual" never refreshes."""
+    if schedule == "manual":
+        return False
+    if schedule == "weekly":
+        last = schedule_row(meta)["last_ok_at"]
+        return last is None or now - last >= timedelta(days=7)
+    return True
+
+
 def maybe_queue_update(now: datetime | None = None) -> dict | None:
-    """Called by the news worker on each wake: queue an update when one is due."""
+    """Called by the news worker on each wake: queue an update when one is due and the
+    source registry has the Federal Register archive switched on (unchecking it only stops
+    updates; the corpus stays on disk)."""
     from . import library as lib
-    if not is_due(now) or lib.queue.busy_with(FR_JOB_TITLE):
+    from .sources import selection
+    now = now or datetime.now(timezone.utc)
+    src = selection.source("fr")
+    if not src["enabled"] or not is_due(now) or lib.queue.busy_with(FR_JOB_TITLE):
+        return None
+    if not schedule_allows(src["schedule"], now, fr_store.read_meta()):
         return None
     return submit("fr-update")
 
