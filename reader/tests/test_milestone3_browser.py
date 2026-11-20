@@ -308,5 +308,37 @@ class Milestone3BrowserTests(HermeticTestCase):
         self.assertEqual(self.external, [])
 
 
+    def test_settings_data_sources_tab_toggle_review_apply(self):
+        page = self._new_page()
+
+        # General tab carries the Settings switchboard; the Data sources tab is a link.
+        page.goto(f"{self.base_url}/#/settings", wait_until="networkidle")
+        page.wait_for_selector("#set-tabs", timeout=10000)
+        page.locator("#set-tabs a[href='#/settings/sources']").click()
+        page.wait_for_selector("#ds-root", timeout=10000)
+        self.assertIn("#/settings/sources", page.url)
+
+        # Untick the news feed: a sticky bar offers Review changes.
+        news = page.locator("[data-ds-enable='news']")
+        was_on = news.is_checked()
+        news.click()
+        page.wait_for_selector(".ds-bar [data-ds-act='review']", timeout=5000)
+        page.locator(".ds-bar [data-ds-act='review']").click()
+        page.wait_for_selector("#ds-review", timeout=10000)
+        self.assertTrue(page.locator("#ds-review").inner_text().strip())
+
+        # Apply saves the selection; nothing downloads, so no confirmation is needed.
+        page.locator("#ds-review [data-ds-act='apply']").click()
+        page.wait_for_function("() => !document.getElementById('ds-review')", timeout=10000)
+        saved = page.evaluate("""async () => {
+            const r = await fetch('/api/sources/selection');
+            return r.json();
+        }""")
+        self.assertEqual(saved["selection"]["sources"]["news"]["enabled"], not was_on)
+        page.evaluate("() => fetch('/api/sources/selection', {method: 'DELETE'})")
+        self.assertEqual(page._page_errors, [])
+        self.assertEqual(self.external, [])
+
+
 if __name__ == "__main__":
     unittest.main()

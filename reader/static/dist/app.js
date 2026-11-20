@@ -2281,7 +2281,7 @@ var freeze = Object.freeze;
 var seal = Object.seal;
 var create = Object.create;
 var _ref = typeof Reflect !== "undefined" && Reflect;
-var apply = _ref.apply;
+var apply$1 = _ref.apply;
 var construct = _ref.construct;
 if (!freeze) freeze = function freeze(x) {
 	return x;
@@ -2289,7 +2289,7 @@ if (!freeze) freeze = function freeze(x) {
 if (!seal) seal = function seal(x) {
 	return x;
 };
-if (!apply) apply = function apply(func, thisArg) {
+if (!apply$1) apply$1 = function apply(func, thisArg) {
 	for (var _len = arguments.length, args = new Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++) args[_key - 2] = arguments[_key];
 	return func.apply(thisArg, args);
 };
@@ -2332,7 +2332,7 @@ function unapply(func) {
 	return function(thisArg) {
 		if (thisArg instanceof RegExp) thisArg.lastIndex = 0;
 		for (var _len3 = arguments.length, args = new Array(_len3 > 1 ? _len3 - 1 : 0), _key3 = 1; _key3 < _len3; _key3++) args[_key3 - 1] = arguments[_key3];
-		return apply(func, thisArg, args);
+		return apply$1(func, thisArg, args);
 	};
 }
 /**
@@ -2389,7 +2389,7 @@ function cleanArray(array) {
 * @param object - The object to be cloned.
 * @returns A new object that copies the original.
 */
-function clone(object) {
+function clone$1(object) {
 	const newObject = create(null);
 	for (const _ref2 of entries(object)) {
 		var _ref3 = _slicedToArray(_ref2, 2);
@@ -2397,7 +2397,7 @@ function clone(object) {
 		const value = _ref3[1];
 		if (objectHasOwnProperty(object, property)) {
 			if (arrayIsArray(value)) newObject[property] = cleanArray(value);
-			else if (value && typeof value === "object" && value.constructor === Object) newObject[property] = clone(value);
+			else if (value && typeof value === "object" && value.constructor === Object) newObject[property] = clone$1(value);
 			else newObject[property] = value;
 		}
 	}
@@ -3222,7 +3222,7 @@ var _createHooksMap = function _createHooksMap() {
 * @returns the resolved set
 */
 var _resolveSetOption = function _resolveSetOption(cfg, key, fallback, options) {
-	return objectHasOwnProperty(cfg, key) && arrayIsArray(cfg[key]) ? addToSet(options.base ? clone(options.base) : {}, cfg[key], options.transform) : fallback;
+	return objectHasOwnProperty(cfg, key) && arrayIsArray(cfg[key]) ? addToSet(options.base ? clone$1(options.base) : {}, cfg[key], options.transform) : fallback;
 };
 /**
 * Resolve an object-valued configuration option: a prototype-free clone
@@ -3237,7 +3237,7 @@ var _resolveSetOption = function _resolveSetOption(cfg, key, fallback, options) 
 */
 var _resolveObjectOption = function _resolveObjectOption(cfg, key, makeFallback) {
 	const value = objectHasOwnProperty(cfg, key) ? cfg[key] : void 0;
-	return value && typeof value === "object" ? clone(value) : makeFallback();
+	return value && typeof value === "object" ? clone$1(value) : makeFallback();
 };
 function createDOMPurify() {
 	let window = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : getGlobal();
@@ -3501,7 +3501,7 @@ function createDOMPurify() {
 		let cfg = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : {};
 		if (CONFIG && CONFIG === cfg) return;
 		if (!cfg || typeof cfg !== "object") cfg = {};
-		cfg = clone(cfg);
+		cfg = clone$1(cfg);
 		PARSER_MEDIA_TYPE = SUPPORTED_PARSER_MEDIA_TYPES.indexOf(cfg.PARSER_MEDIA_TYPE) === -1 ? DEFAULT_PARSER_MEDIA_TYPE : cfg.PARSER_MEDIA_TYPE;
 		transformCaseFunc = PARSER_MEDIA_TYPE === "application/xhtml+xml" ? stringToString : stringToLowerCase;
 		ALLOWED_TAGS = _resolveSetOption(cfg, "ALLOWED_TAGS", DEFAULT_ALLOWED_TAGS, { transform: transformCaseFunc });
@@ -3516,9 +3516,9 @@ function createDOMPurify() {
 			base: DEFAULT_DATA_URI_TAGS
 		});
 		FORBID_CONTENTS = _resolveSetOption(cfg, "FORBID_CONTENTS", DEFAULT_FORBID_CONTENTS, { transform: transformCaseFunc });
-		FORBID_TAGS = _resolveSetOption(cfg, "FORBID_TAGS", clone({}), { transform: transformCaseFunc });
-		FORBID_ATTR = _resolveSetOption(cfg, "FORBID_ATTR", clone({}), { transform: transformCaseFunc });
-		USE_PROFILES = objectHasOwnProperty(cfg, "USE_PROFILES") ? cfg.USE_PROFILES && typeof cfg.USE_PROFILES === "object" ? clone(cfg.USE_PROFILES) : cfg.USE_PROFILES : false;
+		FORBID_TAGS = _resolveSetOption(cfg, "FORBID_TAGS", clone$1({}), { transform: transformCaseFunc });
+		FORBID_ATTR = _resolveSetOption(cfg, "FORBID_ATTR", clone$1({}), { transform: transformCaseFunc });
+		USE_PROFILES = objectHasOwnProperty(cfg, "USE_PROFILES") ? cfg.USE_PROFILES && typeof cfg.USE_PROFILES === "object" ? clone$1(cfg.USE_PROFILES) : cfg.USE_PROFILES : false;
 		ALLOW_ARIA_ATTR = cfg.ALLOW_ARIA_ATTR !== false;
 		ALLOW_DATA_ATTR = cfg.ALLOW_DATA_ATTR !== false;
 		ALLOW_UNKNOWN_PROTOCOLS = cfg.ALLOW_UNKNOWN_PROTOCOLS || false;
@@ -3574,19 +3574,19 @@ function createDOMPurify() {
 		if (objectHasOwnProperty(cfg, "ADD_TAGS")) {
 			if (typeof cfg.ADD_TAGS === "function") EXTRA_ELEMENT_HANDLING.tagCheck = cfg.ADD_TAGS;
 			else if (arrayIsArray(cfg.ADD_TAGS)) {
-				if (ALLOWED_TAGS === DEFAULT_ALLOWED_TAGS) ALLOWED_TAGS = clone(ALLOWED_TAGS);
+				if (ALLOWED_TAGS === DEFAULT_ALLOWED_TAGS) ALLOWED_TAGS = clone$1(ALLOWED_TAGS);
 				addToSet(ALLOWED_TAGS, cfg.ADD_TAGS, transformCaseFunc);
 			}
 		}
 		if (objectHasOwnProperty(cfg, "ADD_ATTR")) {
 			if (typeof cfg.ADD_ATTR === "function") EXTRA_ELEMENT_HANDLING.attributeCheck = cfg.ADD_ATTR;
 			else if (arrayIsArray(cfg.ADD_ATTR)) {
-				if (ALLOWED_ATTR === DEFAULT_ALLOWED_ATTR) ALLOWED_ATTR = clone(ALLOWED_ATTR);
+				if (ALLOWED_ATTR === DEFAULT_ALLOWED_ATTR) ALLOWED_ATTR = clone$1(ALLOWED_ATTR);
 				addToSet(ALLOWED_ATTR, cfg.ADD_ATTR, transformCaseFunc);
 			}
 		}
 		if (objectHasOwnProperty(cfg, "ADD_FORBID_CONTENTS") && arrayIsArray(cfg.ADD_FORBID_CONTENTS)) {
-			if (FORBID_CONTENTS === DEFAULT_FORBID_CONTENTS) FORBID_CONTENTS = clone(FORBID_CONTENTS);
+			if (FORBID_CONTENTS === DEFAULT_FORBID_CONTENTS) FORBID_CONTENTS = clone$1(FORBID_CONTENTS);
 			addToSet(FORBID_CONTENTS, cfg.ADD_FORBID_CONTENTS, transformCaseFunc);
 		}
 		if (KEEP_CONTENT) ALLOWED_TAGS["#text"] = true;
@@ -4253,7 +4253,7 @@ function createDOMPurify() {
 	*/
 	const _forkSharedAllowlist = function _forkSharedAllowlist(hookList, set, defaultSet, setConfigSet) {
 		if (hookList.length === 0) return set;
-		return set === defaultSet || set === setConfigSet ? clone(set) : set;
+		return set === defaultSet || set === setConfigSet ? clone$1(set) : set;
 	};
 	/**
 	* A hook may have detached the node it was called for. If so, treat it as
@@ -4597,8 +4597,8 @@ function createDOMPurify() {
 			ALLOWED_TAGS = SET_CONFIG_ALLOWED_TAGS;
 			ALLOWED_ATTR = SET_CONFIG_ALLOWED_ATTR;
 		} else _parseConfig(cfg);
-		if (hooks.uponSanitizeElement.length > 0 || hooks.uponSanitizeAttribute.length > 0) ALLOWED_TAGS = clone(ALLOWED_TAGS);
-		if (hooks.uponSanitizeAttribute.length > 0) ALLOWED_ATTR = clone(ALLOWED_ATTR);
+		if (hooks.uponSanitizeElement.length > 0 || hooks.uponSanitizeAttribute.length > 0) ALLOWED_TAGS = clone$1(ALLOWED_TAGS);
+		if (hooks.uponSanitizeAttribute.length > 0) ALLOWED_ATTR = clone$1(ALLOWED_ATTR);
 		DOMPurify.removed = [];
 		const inPlace = IN_PLACE && typeof dirty !== "string" && _isNode(dirty);
 		let inPlaceNodes = [];
@@ -10328,6 +10328,557 @@ function setPanel(panel, html) {
 	if (next) next.scrollTop = top;
 	if (navState.panel === panel) drawerEl.meta.textContent = panelMeta(panel);
 }
+// src/components/page_shell.ts
+function pageMastheadHtml({ folioLeftHtml, folioRightHtml = "", title, subHtml = "", actionsHtml = "", tabsHtml = "" }) {
+	return `<header class="pg-masthead">
+      <div class="pg-folio">
+        <div class="pg-folio-left">${folioLeftHtml}</div>
+        ${folioRightHtml ? `<div class="pg-folio-right">${folioRightHtml}</div>` : ""}
+      </div>
+      <div class="pg-head">
+        <div class="pg-title-copy">
+          <h1 class="doc-title pg-display">${escapeHtml(title)}</h1>
+          ${subHtml ? `<p class="pg-sub">${subHtml}</p>` : ""}
+        </div>
+        ${actionsHtml ? `<div class="pg-head-acts">${actionsHtml}</div>` : ""}
+      </div>
+      ${tabsHtml}
+    </header>`;
+}
+function switchboardHtml({ id, idPrefix, dataAttr, panelId, label, tabs, active }) {
+	return `
+    <nav class="pg-tabs" id="${escapeHtml(id)}" role="tablist" aria-label="${escapeHtml(label)}" style="--pg-tab-count:${tabs.length}">
+      ${tabs.map((t) => {
+		const on = active === t.id;
+		const tag = t.href ? "a" : "button";
+		return `<${tag} ${t.href ? `href="${escapeHtml(t.href)}"` : "type=\"button\""} class="pg-tab${on ? " is-active" : ""}" id="${escapeHtml(`${idPrefix}-${t.id}`)}" role="tab" aria-selected="${on}" aria-controls="${escapeHtml(panelId)}" tabindex="${on ? "0" : "-1"}" data-${dataAttr}="${escapeHtml(t.id)}"${t.refTier ? ` data-ref-tier="${escapeHtml(t.refTier)}"` : ""}>
+          <span class="pg-tab-top">
+            <span class="pg-tab-abbr">${t.refTier ? "<span class=\"tier-pip\" aria-hidden=\"true\"></span>" : ""}${escapeHtml(t.abbr)}</span>
+            <span class="pg-tab-right">
+              ${t.alert ? `<span class="stat-dot is-stale" title="${escapeHtml(t.alertTitle || "Update or sync due")}" aria-hidden="true"></span>` : ""}
+              ${t.countLabel ? `<span class="pg-tab-count">${escapeHtml(t.countLabel)}</span>` : ""}
+            </span>
+          </span>
+          <span class="pg-tab-label">${escapeHtml(t.label)}</span>
+          <span class="pg-tab-sub">${escapeHtml(t.sub)}</span>
+        </${tag}>`;
+	}).join("")}
+    </nav>`;
+}
+/**
+* WAI-ARIA tablist keys for a switchboard: ←/→ wrap, Home/End jump. `activate` receives the
+* next tab id and must move focus to it once the tabs are re-rendered.
+*/
+function bindSwitchboardKeys(tablistSelector, dataAttr, order, activate) {
+	const key = dataAttr.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+	onView("keydown", (ev) => {
+		const e = ev;
+		const tab = e.target?.closest(`${tablistSelector} [data-${dataAttr}]`);
+		if (!tab) return;
+		const ids = order();
+		const idx = ids.indexOf(tab.dataset[key] || "");
+		if (idx < 0) return;
+		let next = -1;
+		if (e.key === "ArrowRight") next = (idx + 1) % ids.length;
+		else if (e.key === "ArrowLeft") next = (idx - 1 + ids.length) % ids.length;
+		else if (e.key === "Home") next = 0;
+		else if (e.key === "End") next = ids.length - 1;
+		if (next < 0) return;
+		e.preventDefault();
+		activate(ids[next]);
+	});
+}
+function tabLeadHtml({ refTier, kickerHtml, title, subHtml = "", actionsHtml = "", id }) {
+	return `<div class="pg-lead"${id ? ` id="${escapeHtml(id)}"` : ""}${refTier ? ` data-ref-tier="${escapeHtml(refTier)}"` : ""}>
+      <div class="pg-lead-copy">
+        <div class="pg-lead-kicker">${kickerHtml}</div>
+        <h2 class="pg-lead-title">${escapeHtml(title)}</h2>
+        ${subHtml ? `<p class="pg-lead-sub">${subHtml}</p>` : ""}
+      </div>
+      ${actionsHtml ? `<div class="pg-lead-acts">${actionsHtml}</div>` : ""}
+    </div>`;
+}
+function kpiStripHtml(cells, { label, refTier, cls = "" }) {
+	return `<section class="pg-kpi-strip${cls ? ` ${cls}` : ""}"${refTier ? ` data-ref-tier="${escapeHtml(refTier)}"` : ""} aria-label="${escapeHtml(label)}">
+      ${cells.map((c) => `<div class="pg-kpi-cell${c.alert ? " is-alert" : ""}">
+        <span class="pg-kpi-lbl">${c.labelHtml}</span>
+        <span class="pg-kpi-val">${c.valueHtml}</span>
+        ${c.subHtml ? `<span class="pg-kpi-sub">${c.subHtml}</span>` : ""}
+      </div>`).join("")}
+    </section>`;
+}
+function flagHtml(title, metaHtml = "", id = "") {
+	return `<header class="pg-flag"${id ? ` id="${escapeHtml(id)}"` : ""}><h2 class="pg-flag-title">${escapeHtml(title)}</h2>${metaHtml ? `<span class="pg-flag-meta">${metaHtml}</span>` : ""}</header>`;
+}
+// src/views/data_sources.ts
+var ds = {
+	data: null,
+	templates: [],
+	draft: null,
+	dirty: false,
+	plan: null,
+	planFor: null,
+	removeUnselected: false,
+	busy: false,
+	open: /* @__PURE__ */ new Set(),
+	search: {},
+	templateId: "",
+	saving: false
+};
+var clone = (v) => JSON.parse(JSON.stringify(v));
+var SOURCES_URL = "/api/sources";
+var jsonPost = (body, method = "POST") => ({
+	method,
+	headers: { "Content-Type": "application/json" },
+	body: JSON.stringify(body)
+});
+function sizeLabel(e) {
+	if (!e || !e.bytes) return "";
+	return `${e.approximate ? "~" : ""}${fmtBytes(e.bytes)}`;
+}
+async function loadDataSources() {
+	const [data, tpl] = await Promise.all([getJSON(SOURCES_URL), getJSON(`${SOURCES_URL}/templates`)]);
+	ds.data = data;
+	ds.templates = tpl.templates || [];
+	if (!ds.dirty || !ds.draft) {
+		ds.draft = clone(data.selection);
+		ds.dirty = false;
+	}
+	if (!ds.templateId) ds.templateId = data.default_preset;
+}
+function choiceFor(id) {
+	const d = ds.draft;
+	if (!d.sources[id]) d.sources[id] = {
+		enabled: false,
+		schedule: "",
+		scope: {}
+	};
+	return d.sources[id];
+}
+function templateBarHtml() {
+	const groups = /* @__PURE__ */ new Map();
+	for (const t of ds.templates) {
+		const g = t.builtin ? t.group || "Presets" : "My templates";
+		if (!groups.has(g)) groups.set(g, []);
+		groups.get(g).push(t);
+	}
+	const opts = [...groups].map(([g, list]) => `<optgroup label="${escapeHtml(g)}">${list.map((t) => `<option value="${escapeHtml(t.id)}"${t.id === ds.templateId ? " selected" : ""}>${escapeHtml(t.name)}${t.default ? " (default)" : ""}</option>`).join("")}</optgroup>`).join("");
+	const cur = ds.templates.find((t) => t.id === ds.templateId);
+	const desc = cur?.description ? escapeHtml(cur.description) : "";
+	const needs = cur?.needs_keys?.length ? ` <span class="ds-key-note">${icon("key")} Needs a free key for ${escapeHtml(cur.needs_keys.join(", ").toUpperCase())}</span>` : "";
+	return tabLeadHtml({
+		kickerHtml: "Templates",
+		title: "Start from a template, then tick your own boxes",
+		subHtml: "A template fills in the whole checklist below. Nothing downloads until you review the changes and apply them. Unticking only stops updates; your data stays until you choose to remove it.",
+		actionsHtml: `<button type="button" class="btn" data-ds-act="export"${ds.templates.filter((t) => !t.builtin).length ? "" : " disabled"}>Export my templates</button>
+      <label class="btn ds-import">Import<input type="file" accept="application/json,.json" data-ds-import hidden></label>`,
+		id: "ds-templates"
+	}) + `<div class="ds-tpl-row">
+      <label class="ds-tpl-pick"><span class="set-name">Template</span>
+        <select class="set-select" data-ds-template aria-label="Template">${opts}</select></label>
+      <button type="button" class="btn btn-accent" data-ds-act="use-template">Use this template</button>
+      ${cur && !cur.builtin ? `<button type="button" class="btn" data-ds-act="delete-template" data-id="${escapeHtml(cur.id)}">Delete</button>` : ""}
+    </div>
+    ${desc || needs ? `<p class="dr-note ds-tpl-desc">${desc}${needs}</p>` : ""}
+    <div class="ds-tpl-row">
+      <input type="text" class="set-input" data-ds-template-name maxlength="80" placeholder="Name for your checklist, e.g. My EPA desk" aria-label="Template name">
+      <button type="button" class="btn" data-ds-act="save-template">Save my checklist as a template</button>
+    </div>`;
+}
+function statusLine(s) {
+	const st = s.status || {};
+	const bits = [];
+	if (st.installed) {
+		if (st.items?.length) bits.push(`${st.items.length} on this computer`);
+		if (st.documents) bits.push(`${st.documents.toLocaleString()} documents`);
+		if (st.bytes) bits.push(fmtBytes(st.bytes));
+	} else bits.push("Nothing downloaded yet");
+	if (st.last_refresh) bits.push(`updated ${timeAgo(Date.parse(st.last_refresh))}`);
+	if (st.jobs?.length) bits.push("download in progress");
+	return `<p class="ds-status">${escapeHtml(bits.join(" · "))}${st.last_error ? ` <span class="ds-err">Last update failed: ${escapeHtml(st.last_error)}</span>` : ""}</p>`;
+}
+function keyHtml(s) {
+	const parts = [];
+	if (s.needs_key) parts.push(s.key_present ? `<p class="ds-key ok">${icon("key")} ${escapeHtml(s.key_label || "Key")} is set.</p>` : `<p class="ds-key">${icon("key")} Needs a free ${escapeHtml(s.key_label || "key")}. Ticked boxes wait until it's added.
+          ${s.get_key_url ? `<a href="${escapeHtml(s.get_key_url)}" target="_blank" rel="noopener">Get a key</a>` : ""}
+          <button type="button" class="btn btn-sm" data-open-env="${escapeHtml((s.key_env || "").toLowerCase())}">Add key</button></p>`);
+	const ok = s.optional_key;
+	if (ok && !ok.key_present) parts.push(`<p class="ds-key opt">${icon("key")} Optional: ${escapeHtml(ok.key_label)}${ok.purpose ? ` — ${escapeHtml(ok.purpose)}` : ""}.
+      <a href="${escapeHtml(ok.get_key_url)}" target="_blank" rel="noopener">Get a key</a>
+      <button type="button" class="btn btn-sm" data-open-env="${escapeHtml(ok.key_env.toLowerCase())}">Add key</button></p>`);
+	return parts.join("");
+}
+function multiHtml(s, f, value) {
+	const key = `${s.id}.${f.id}`;
+	const mode = value === "all" ? "all" : value === "installed" ? "installed" : "some";
+	const picked = new Set((Array.isArray(value) ? value : []).map(String));
+	const modes = [];
+	if (f.allow_all) modes.push(["all", "All"]);
+	if (f.allow_installed) modes.push(["installed", "The ones on this computer"]);
+	modes.push(["some", modes.length ? "Only the ones I tick" : "Pick"]);
+	const opts = (f.options || []).filter((o) => !o.reserved);
+	const q = (ds.search[key] || "").toLowerCase();
+	const list = mode === "some" ? `
+      <div class="ds-pick-tools">
+        <input type="search" class="set-input ds-pick-q" data-ds-search="${escapeHtml(key)}" value="${escapeHtml(ds.search[key] || "")}" placeholder="Filter ${escapeHtml(f.label.toLowerCase())}" aria-label="Filter ${escapeHtml(f.label)}">
+        <button type="button" class="btn btn-sm" data-ds-all="${escapeHtml(key)}" data-on="1">Tick all</button>
+        <button type="button" class="btn btn-sm" data-ds-all="${escapeHtml(key)}" data-on="0">Clear</button>
+        <span class="ds-count">${picked.size} of ${opts.length} ticked</span>
+      </div>
+      <ul class="ds-pick" role="list">${opts.map((o) => {
+		const hay = `${o.label} ${o.desk || ""} ${o.value}`.toLowerCase();
+		const hidden = q && !hay.includes(q) ? " hidden" : "";
+		const sz = sizeLabel(o.estimate);
+		return `<li${hidden}><label class="ds-check" title="${escapeHtml(o.description || "")}">
+          <input type="checkbox" data-ds-opt="${escapeHtml(key)}" value="${escapeHtml(String(o.value))}"${picked.has(String(o.value)) ? " checked" : ""}>
+          <span class="ds-check-label">${escapeHtml(o.label)}</span>${sz ? `<span class="ds-size">${sz}</span>` : ""}</label></li>`;
+	}).join("")}</ul>` : "";
+	return `<fieldset class="ds-filter">
+      <legend class="set-name">${escapeHtml(f.label)}</legend>
+      ${f.description ? `<p class="dr-note">${escapeHtml(f.description)}</p>` : ""}
+      ${modes.length > 1 ? `<div class="ds-modes" role="radiogroup" aria-label="${escapeHtml(f.label)}">${modes.map(([v, l]) => `<label class="ds-radio"><input type="radio" name="ds-${escapeHtml(key)}" data-ds-mode="${escapeHtml(key)}" value="${v}"${v === mode ? " checked" : ""}> ${escapeHtml(l)}</label>`).join("")}</div>` : ""}
+      ${list}
+    </fieldset>`;
+}
+function filterHtml(s, f, choice) {
+	const key = `${s.id}.${f.id}`;
+	const value = choice.scope[f.id] ?? s.default_scope[f.id];
+	if (f.type === "multi") return multiHtml(s, f, value);
+	if (f.type === "toggle") return `<label class="ds-check ds-toggle-row"><input type="checkbox" data-ds-toggle="${escapeHtml(key)}"${value ? " checked" : ""}>
+      <span><span class="set-name">${escapeHtml(f.label)}</span>${f.description ? `<span class="set-sub">${escapeHtml(f.description)}</span>` : ""}</span></label>`;
+	if (f.type === "number") return `<label class="ds-filter ds-number"><span class="set-name">${escapeHtml(f.label)}</span>
+      <span class="ds-number-in"><input type="number" class="set-input" data-ds-number="${escapeHtml(key)}" min="${f.min ?? ""}" max="${f.max ?? ""}" value="${escapeHtml(String(value ?? ""))}"> ${escapeHtml(f.unit || "")}</span>
+      ${f.description ? `<span class="dr-note">${escapeHtml(f.description)}</span>` : ""}</label>`;
+	return `<label class="ds-filter"><span class="set-name">${escapeHtml(f.label)}</span>
+    <select class="set-select" data-ds-choice="${escapeHtml(key)}">${(f.options || []).map((o) => `<option value="${escapeHtml(String(o.value))}"${String(o.value) === String(value) ? " selected" : ""}>${escapeHtml(o.label)}</option>`).join("")}</select></label>`;
+}
+function sourceCardHtml(s) {
+	if (!s.available) return `<section class="set-card ds-card is-soon" data-ds-source="${escapeHtml(s.id)}">
+      <div class="ds-card-head"><span class="ds-abbr">${escapeHtml(s.short || s.id)}</span>
+        <h3 class="ds-title">${escapeHtml(s.label)}</h3><span class="ds-soon">Coming soon</span></div>
+      <p class="ds-desc">${escapeHtml(s.description)}</p></section>`;
+	const c = choiceFor(s.id);
+	const open = ds.open.has(s.id);
+	const sched = s.schedule_options.find((o) => o.value === c.schedule);
+	return `<section class="set-card ds-card${c.enabled ? "" : " is-off"}" data-ds-source="${escapeHtml(s.id)}">
+      <div class="ds-card-head">
+        <label class="ds-switch"><input type="checkbox" role="switch" data-ds-enable="${escapeHtml(s.id)}"${c.enabled ? " checked" : ""} aria-label="Keep ${escapeHtml(s.label)} up to date"><span class="ds-switch-ui" aria-hidden="true"></span></label>
+        <span class="ds-abbr">${escapeHtml(s.short || s.id)}</span>
+        <h3 class="ds-title">${escapeHtml(s.label)}</h3>
+      </div>
+      <p class="ds-desc">${escapeHtml(s.description)} <span class="ds-provider">From ${escapeHtml(s.provider)}.</span></p>
+      ${statusLine(s)}
+      ${keyHtml(s)}
+      <div class="ds-row">
+        <label class="ds-sched"><span class="set-name">Check for updates</span>
+          <select class="set-select" data-ds-schedule="${escapeHtml(s.id)}"${c.enabled ? "" : " disabled"}>${s.schedule_options.map((o) => `<option value="${escapeHtml(o.value)}"${o.value === c.schedule ? " selected" : ""}>${escapeHtml(o.label)}</option>`).join("")}</select></label>
+        ${sched?.description ? `<span class="dr-note">${escapeHtml(sched.description)}</span>` : ""}
+      </div>
+      ${s.filters.length ? `<button type="button" class="ds-more" data-ds-toggle-open="${escapeHtml(s.id)}" aria-expanded="${open}">${open ? "Hide" : "Choose"} what to collect ${icon("chevronRight")}</button>
+        ${open ? `<div class="ds-filters">${s.filters.map((f) => filterHtml(s, f, c)).join("")}</div>` : ""}` : ""}
+    </section>`;
+}
+function reviewHtml() {
+	const p = ds.plan;
+	if (p) {
+		const title = ds.planFor?.kind === "template" ? `Use “${ds.planFor.name}”` : "Review your changes";
+		const est = p.estimate?.bytes_label ? `<p class="ds-est">Download about ${escapeHtml(p.estimate.bytes_label)}, ${escapeHtml(p.estimate.time_label || "")}.</p>` : "";
+		const list = (items, cls) => items.length ? `<ul class="ds-plan-list ${cls}">${items.map((i) => `<li>${escapeHtml(i.label)}${sizeLabel(i.estimate) ? ` <span class="ds-size">${sizeLabel(i.estimate)}</span>` : ""}${i.get_key_url ? ` <a href="${escapeHtml(i.get_key_url)}" target="_blank" rel="noopener">Get a key</a>` : ""}</li>`).join("")}</ul>` : "";
+		return `<section class="ds-review" id="ds-review" role="region" aria-label="${escapeHtml(title)}">
+        <h3 class="ds-title">${escapeHtml(title)}</h3>
+        <p class="ds-summary">${escapeHtml(p.summary)}</p>
+        ${est}
+        ${list(p.actions, "is-actions")}
+        ${list(p.changes, "is-changes")}
+        ${p.keeps.length ? `<p class="dr-note">Kept on this computer without updates: ${escapeHtml(p.keeps.join(", "))}.</p>` : ""}
+        <label class="ds-check ds-remove"><input type="checkbox" data-ds-remove${ds.removeUnselected ? " checked" : ""}> Also delete the data for anything I unticked</label>
+        <div class="ds-review-acts">
+          <button type="button" class="btn" data-ds-act="cancel-review">Back</button>
+          <button type="button" class="btn btn-accent" data-ds-act="apply"${ds.busy ? " disabled" : ""}>${p.needs_confirm || ds.removeUnselected ? "Yes, apply these changes" : "Apply"}</button>
+        </div>
+      </section>`;
+	}
+	return ds.dirty ? `<div class="ds-bar" role="region" aria-label="Unsaved changes">
+      <span>You have changes that aren't applied yet.</span>
+      <button type="button" class="btn" data-ds-act="discard">Discard</button>
+      <button type="button" class="btn btn-accent" data-ds-act="review"${ds.busy ? " disabled" : ""}>Review changes</button>
+    </div>` : "";
+}
+function dataSourcesHtml() {
+	if (!ds.data || !ds.draft) return "<p class=\"dr-note\">Loading data sources…</p>";
+	const cats = ds.data.categories;
+	const byCat = (c) => ds.data.sources.filter((s) => s.category === c);
+	return `<div class="ds" id="ds-root">
+      ${templateBarHtml()}
+      ${!ds.data.saved && !ds.dirty ? "<p class=\"dr-note ds-derived\">You haven't saved a checklist yet, so the app follows what is already on this computer. Pick a template or tick boxes, then apply.</p>" : ""}
+      ${cats.map((c) => byCat(c).length ? `${flagHtml(c)}<div class="ds-grid">${byCat(c).map(sourceCardHtml).join("")}</div>` : "").join("")}
+      <div id="ds-review-slot">${reviewHtml()}</div>
+    </div>`;
+}
+function rerender(focusSel) {
+	const root = document.getElementById("ds-root");
+	if (!root) return;
+	const active = document.activeElement;
+	const sel = focusSel || (active?.dataset.dsSearch ? `[data-ds-search="${active.dataset.dsSearch}"]` : "");
+	const caret = active?.selectionStart ?? null;
+	const top = dom.main.scrollTop;
+	root.outerHTML = dataSourcesHtml();
+	dom.main.scrollTop = top;
+	if (sel) {
+		const el = document.querySelector(sel);
+		if (el) {
+			el.focus();
+			if (caret != null && el.setSelectionRange) try {
+				el.setSelectionRange(caret, caret);
+			} catch {}
+		}
+	}
+}
+function markDirty() {
+	ds.dirty = true;
+	ds.plan = null;
+	ds.planFor = null;
+}
+async function review() {
+	ds.busy = true;
+	try {
+		ds.plan = await getJSON(`${SOURCES_URL}/selection/preview`, jsonPost({
+			selection: ds.draft,
+			remove_unselected: ds.removeUnselected
+		}));
+		ds.planFor = { kind: "draft" };
+	} catch (err) {
+		showToast(err instanceof Error ? err.message : "Could not prepare the changes", 5e3);
+	}
+	ds.busy = false;
+	rerender();
+	document.getElementById("ds-review")?.scrollIntoView({ block: "nearest" });
+}
+async function previewTemplate() {
+	const t = ds.templates.find((x) => x.id === ds.templateId);
+	if (!t) return;
+	ds.busy = true;
+	try {
+		ds.plan = await getJSON(`${SOURCES_URL}/templates/${encodeURIComponent(t.id)}/preview`, jsonPost({ remove_unselected: ds.removeUnselected }));
+		ds.planFor = {
+			kind: "template",
+			id: t.id,
+			name: t.name
+		};
+	} catch (err) {
+		showToast(err instanceof Error ? err.message : "Could not prepare the template", 5e3);
+	}
+	ds.busy = false;
+	rerender();
+	document.getElementById("ds-review")?.scrollIntoView({ block: "nearest" });
+}
+async function apply() {
+	if (!ds.planFor) return;
+	ds.busy = true;
+	rerender();
+	try {
+		const body = {
+			confirm: true,
+			remove_unselected: ds.removeUnselected
+		};
+		showToast((ds.planFor.kind === "template" ? await getJSON(`${SOURCES_URL}/templates/${encodeURIComponent(ds.planFor.id)}/apply`, jsonPost(body)) : await getJSON(`${SOURCES_URL}/selection/apply`, jsonPost({
+			...body,
+			selection: ds.draft
+		}))).applied === false ? "Nothing was changed" : "Data sources updated. Downloads run in the transfer dock.");
+		ds.dirty = false;
+		ds.plan = null;
+		ds.planFor = null;
+		ds.removeUnselected = false;
+		await loadDataSources();
+	} catch (err) {
+		showToast(err instanceof Error ? err.message : "Could not apply the changes", 5e3);
+	}
+	ds.busy = false;
+	rerender();
+}
+async function saveTemplate() {
+	const input = document.querySelector("[data-ds-template-name]");
+	const name = (input?.value || "").trim();
+	if (!name) {
+		input?.focus();
+		showToast("Give the template a name first");
+		return;
+	}
+	try {
+		const t = await getJSON(`${SOURCES_URL}/templates`, jsonPost({
+			name,
+			selection: ds.draft
+		}));
+		ds.templates = (await getJSON(`${SOURCES_URL}/templates`)).templates || [];
+		ds.templateId = t.id;
+		showToast(`Saved “${t.name}”`);
+	} catch (err) {
+		showToast(err instanceof Error ? err.message : "Could not save the template", 5e3);
+	}
+	rerender();
+}
+async function deleteTemplate(id, btn) {
+	if (btn.dataset.confirm !== "1") {
+		btn.dataset.confirm = "1";
+		btn.textContent = "Click again to delete";
+		return;
+	}
+	try {
+		await getJSON(`${SOURCES_URL}/templates/${encodeURIComponent(id)}`, { method: "DELETE" });
+		ds.templates = ds.templates.filter((t) => t.id !== id);
+		ds.templateId = ds.data?.default_preset || "";
+		showToast("Template deleted");
+	} catch (err) {
+		showToast(err instanceof Error ? err.message : "Could not delete the template", 5e3);
+	}
+	rerender();
+}
+async function exportTemplates() {
+	try {
+		const data = await getJSON(`${SOURCES_URL}/templates/export`);
+		const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = "framework-data-source-templates.json";
+		a.click();
+		setTimeout(() => URL.revokeObjectURL(url), 1e3);
+	} catch (err) {
+		showToast(err instanceof Error ? err.message : "Could not export", 5e3);
+	}
+}
+async function importTemplates(file) {
+	try {
+		const body = JSON.parse(await file.text());
+		const res = await getJSON(`${SOURCES_URL}/templates/import`, jsonPost(body));
+		ds.templates = (await getJSON(`${SOURCES_URL}/templates`)).templates || [];
+		showToast(res.count ? `Imported ${res.count} template${res.count === 1 ? "" : "s"}` : "No templates found in that file");
+	} catch (err) {
+		showToast(err instanceof Error && !(err instanceof SyntaxError) ? err.message : "That file isn’t a template export", 5e3);
+	}
+	rerender();
+}
+function splitKey(key) {
+	const [sid, fid] = key.split(".");
+	const s = ds.data?.sources.find((x) => x.id === sid);
+	return [s, s?.filters.find((f) => f.id === fid)];
+}
+function optValue(f, raw) {
+	const o = (f.options || []).find((x) => String(x.value) === raw);
+	return o ? o.value : raw;
+}
+var inDs = (t) => Boolean(t?.closest("#ds-root"));
+onView("click", (e) => {
+	const t = e.target;
+	if (!inDs(t)) return;
+	const act = t?.closest("[data-ds-act]");
+	if (act) {
+		const a = act.dataset.dsAct;
+		if (a === "review") review();
+		else if (a === "use-template") previewTemplate();
+		else if (a === "apply") apply();
+		else if (a === "cancel-review") {
+			ds.plan = null;
+			ds.planFor = null;
+			rerender();
+		} else if (a === "discard") {
+			ds.draft = clone(ds.data.selection);
+			ds.dirty = false;
+			ds.plan = null;
+			rerender();
+		} else if (a === "save-template") saveTemplate();
+		else if (a === "delete-template") deleteTemplate(act.dataset.id || "", act);
+		else if (a === "export") exportTemplates();
+		return;
+	}
+	const more = t?.closest("[data-ds-toggle-open]");
+	if (more) {
+		const id = more.dataset.dsToggleOpen || "";
+		if (ds.open.has(id)) ds.open.delete(id);
+		else ds.open.add(id);
+		rerender(`[data-ds-toggle-open="${id}"]`);
+		return;
+	}
+	const all = t?.closest("[data-ds-all]");
+	if (all) {
+		const key = all.dataset.dsAll || "";
+		const [s, f] = splitKey(key);
+		if (!s || !f) return;
+		const q = (ds.search[key] || "").toLowerCase();
+		const visible = (f.options || []).filter((o) => !o.reserved && (!q || `${o.label} ${o.desk || ""} ${o.value}`.toLowerCase().includes(q)));
+		const cur = choiceFor(s.id).scope[f.id];
+		const set = new Set((Array.isArray(cur) ? cur : []).map(String));
+		for (const o of visible) if (all.dataset.on === "1") set.add(String(o.value));
+		else set.delete(String(o.value));
+		choiceFor(s.id).scope[f.id] = [...set].map((v) => optValue(f, v));
+		markDirty();
+		rerender();
+	}
+});
+onView("change", (e) => {
+	const t = e.target;
+	if (!t || !inDs(t)) return;
+	const d = t.dataset;
+	if (d.dsTemplate !== void 0 && t instanceof HTMLSelectElement) {
+		ds.templateId = t.value;
+		ds.plan = null;
+		rerender("[data-ds-template]");
+		return;
+	}
+	if (t instanceof HTMLInputElement && t.hasAttribute("data-ds-import")) {
+		const file = t.files?.[0];
+		if (file) importTemplates(file);
+		return;
+	}
+	if (t instanceof HTMLInputElement && t.hasAttribute("data-ds-remove")) {
+		ds.removeUnselected = t.checked;
+		if (ds.planFor?.kind === "template") previewTemplate();
+		else if (ds.planFor) review();
+		return;
+	}
+	if (d.dsEnable) {
+		choiceFor(d.dsEnable).enabled = t.checked;
+		markDirty();
+		rerender(`[data-ds-enable="${d.dsEnable}"]`);
+		return;
+	}
+	if (d.dsSchedule) {
+		choiceFor(d.dsSchedule).schedule = t.value;
+		markDirty();
+		rerender(`[data-ds-schedule="${d.dsSchedule}"]`);
+		return;
+	}
+	const key = d.dsMode || d.dsOpt || d.dsToggle || d.dsNumber || d.dsChoice;
+	if (!key) return;
+	const [s, f] = splitKey(key);
+	if (!s || !f) return;
+	const scope = choiceFor(s.id).scope;
+	if (d.dsMode) {
+		const prev = scope[f.id];
+		scope[f.id] = t.value === "some" ? Array.isArray(prev) ? prev : [] : t.value;
+	} else if (d.dsOpt) {
+		const cur = scope[f.id];
+		const set = new Set((Array.isArray(cur) ? cur : []).map(String));
+		if (t.checked) set.add(t.value);
+		else set.delete(t.value);
+		scope[f.id] = [...set].map((v) => optValue(f, v));
+	} else if (d.dsToggle) scope[f.id] = t.checked;
+	else if (d.dsNumber) {
+		const n = parseInt(t.value, 10);
+		if (Number.isNaN(n)) return;
+		scope[f.id] = Math.min(f.max ?? n, Math.max(f.min ?? n, n));
+	} else if (d.dsChoice) scope[f.id] = optValue(f, t.value);
+	markDirty();
+	rerender(d.dsOpt ? `[data-ds-opt="${key}"][value="${CSS.escape(t.value)}"]` : d.dsMode ? `[data-ds-mode="${key}"][value="${t.value}"]` : `[data-ds-${d.dsToggle ? "toggle" : d.dsNumber ? "number" : "choice"}="${key}"]`);
+});
+onView("input", (e) => {
+	const t = e.target;
+	if (!t?.dataset.dsSearch) return;
+	ds.search[t.dataset.dsSearch] = t.value;
+	const q = t.value.toLowerCase();
+	(t.closest(".ds-filter")?.querySelector(".ds-pick"))?.querySelectorAll("li").forEach((li) => {
+		li.hidden = Boolean(q) && !(li.textContent || "").toLowerCase().includes(q);
+	});
+});
 // src/panels/settings_panel.ts
 state.navStorage = null;
 state.navNewsStatus = null;
@@ -10457,7 +11008,63 @@ function renderSettingsPanel() {
     </a>`);
 	if (!state.navEnvStatus) loadEnvStatus();
 }
+var settingsTab = "general";
+function settingsTabsHtml() {
+	return switchboardHtml({
+		id: "set-tabs",
+		idPrefix: "set-tab",
+		dataAttr: "set-tab",
+		panelId: "set-tab-body",
+		label: "Settings sections",
+		active: settingsTab,
+		tabs: [{
+			id: "general",
+			label: "General",
+			abbr: "GEN",
+			sub: "Appearance, Claude, news, storage, keys",
+			href: "#/settings"
+		}, {
+			id: "sources",
+			label: "Data sources",
+			abbr: "DATA",
+			sub: "What to download and keep up to date",
+			href: "#/settings/sources"
+		}]
+	});
+}
+async function renderDataSourcesPage(opts = {}) {
+	settingsTab = "sources";
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = "Data sources · Settings · FRAMEWORK";
+	const paint = () => {
+		dom.view.innerHTML = `<div class="settings-front pg">
+      ${pageMastheadHtml({
+			folioLeftHtml: `<a href="#/">Home</a>${SEP}<span>Settings</span>`,
+			title: "Data sources",
+			subHtml: "Choose, in plain checkboxes, what FRAMEWORK downloads and keeps up to date from each federal source.",
+			tabsHtml: settingsTabsHtml()
+		})}
+      <div id="set-tab-body" class="pg-tab-body" role="tabpanel" aria-labelledby="set-tab-sources">${dataSourcesHtml()}</div>
+    </div>`;
+	};
+	paint();
+	if (opts.enter) enterView();
+	try {
+		await loadDataSources();
+	} catch (err) {
+		showToast(err instanceof Error ? err.message : "Could not load data sources", 5e3);
+	}
+	if (settingsTab === "sources" && state.activeRoute.startsWith("/settings/sources")) {
+		const body = document.getElementById("set-tab-body");
+		if (body) body.innerHTML = dataSourcesHtml();
+	}
+}
 function renderSettingsPage(opts = {}) {
+	settingsTab = "general";
 	state.currentSection = null;
 	state.currentPart = null;
 	clearTreeSelection();
@@ -10467,17 +11074,15 @@ function renderSettingsPage(opts = {}) {
 	const size = parseInt(lsGet("fontSize") || "", 10) || 16;
 	const top = dom.main.scrollTop;
 	dom.view.innerHTML = `
-    <div class="settings-front">
-      <header class="help-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK</div>
-          <h1 class="doc-title">Settings</h1>
-          <p class="help-lead">Appearance, Claude, news sync, storage and keyboard shortcuts. API keys and data sources live in <a href="#/help">Connections &amp; API Keys</a>.</p>
-        </div>
-        <div class="help-head-actions">
-          <button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>
-        </div>
-      </header>
+    <div class="settings-front pg">
+      ${pageMastheadHtml({
+		folioLeftHtml: `<a href="#/">Home</a>${SEP}<span>Settings</span>`,
+		title: "Settings",
+		subHtml: "Appearance, Claude, news sync, storage and keyboard shortcuts. What gets downloaded lives under <a href=\"#/settings/sources\">Data sources</a>.",
+		actionsHtml: `<button type="button" class="btn" data-open-env="">${icon("key")} Edit API keys</button>`,
+		tabsHtml: settingsTabsHtml()
+	})}
+      <div id="set-tab-body" class="pg-tab-body" role="tabpanel" aria-labelledby="set-tab-general">
       <div class="settings-grid">
         <section class="set-card">
           <h2 class="set-card-label">Appearance</h2>
@@ -10511,6 +11116,7 @@ function renderSettingsPage(opts = {}) {
           ${settingsKeysHtml()}
         </section>
       </div>
+      </div>
     </div>`;
 	if (opts.enter) enterView();
 	else dom.main.scrollTop = top;
@@ -10519,9 +11125,11 @@ function renderSettingsPage(opts = {}) {
 	if (!state.navEnvStatus) loadEnvStatus();
 }
 var onSettingsPage = () => state.activeRoute === "/settings" || state.activeRoute === "/settings/";
+var onDataSourcesPage = () => /^\/settings\/sources\/?$/.test(state.activeRoute);
 function refreshSettingsViews() {
 	if (navState.panel === "settings") renderSettingsPanel();
 	if (onSettingsPage()) renderSettingsPage();
+	else if (onDataSourcesPage()) renderDataSourcesPage();
 }
 function setMotionSetting(level) {
 	applyMotionLevel(level);
@@ -10580,6 +11188,10 @@ dom.sidebar?.addEventListener("change", (e) => {
 	}
 });
 registerDrawerPanel("settings", renderSettingsPanel);
+bindSwitchboardKeys("#set-tabs", "set-tab", () => ["general", "sources"], (id) => {
+	window.location.hash = id === "sources" ? "#/settings/sources" : "#/settings";
+	requestAnimationFrame(() => document.getElementById(`set-tab-${id}`)?.focus());
+});
 on("nav:mode-changed", () => refreshSettingsViews());
 on("env:saved", () => refreshSettingsViews());
 on("jobs:finished", () => {
@@ -11862,88 +12474,6 @@ onView("keydown", (e) => {
 on("projects:changed", ({ quiet }) => {
 	if (!quiet && routeTarget() === "projects") renderProjects(projectRouteId$1());
 });
-// src/components/page_shell.ts
-function pageMastheadHtml({ folioLeftHtml, folioRightHtml = "", title, subHtml = "", actionsHtml = "", tabsHtml = "" }) {
-	return `<header class="pg-masthead">
-      <div class="pg-folio">
-        <div class="pg-folio-left">${folioLeftHtml}</div>
-        ${folioRightHtml ? `<div class="pg-folio-right">${folioRightHtml}</div>` : ""}
-      </div>
-      <div class="pg-head">
-        <div class="pg-title-copy">
-          <h1 class="doc-title pg-display">${escapeHtml(title)}</h1>
-          ${subHtml ? `<p class="pg-sub">${subHtml}</p>` : ""}
-        </div>
-        ${actionsHtml ? `<div class="pg-head-acts">${actionsHtml}</div>` : ""}
-      </div>
-      ${tabsHtml}
-    </header>`;
-}
-function switchboardHtml({ id, idPrefix, dataAttr, panelId, label, tabs, active }) {
-	return `
-    <nav class="pg-tabs" id="${escapeHtml(id)}" role="tablist" aria-label="${escapeHtml(label)}" style="--pg-tab-count:${tabs.length}">
-      ${tabs.map((t) => {
-		const on = active === t.id;
-		const tag = t.href ? "a" : "button";
-		return `<${tag} ${t.href ? `href="${escapeHtml(t.href)}"` : "type=\"button\""} class="pg-tab${on ? " is-active" : ""}" id="${escapeHtml(`${idPrefix}-${t.id}`)}" role="tab" aria-selected="${on}" aria-controls="${escapeHtml(panelId)}" tabindex="${on ? "0" : "-1"}" data-${dataAttr}="${escapeHtml(t.id)}"${t.refTier ? ` data-ref-tier="${escapeHtml(t.refTier)}"` : ""}>
-          <span class="pg-tab-top">
-            <span class="pg-tab-abbr">${t.refTier ? "<span class=\"tier-pip\" aria-hidden=\"true\"></span>" : ""}${escapeHtml(t.abbr)}</span>
-            <span class="pg-tab-right">
-              ${t.alert ? `<span class="stat-dot is-stale" title="${escapeHtml(t.alertTitle || "Update or sync due")}" aria-hidden="true"></span>` : ""}
-              ${t.countLabel ? `<span class="pg-tab-count">${escapeHtml(t.countLabel)}</span>` : ""}
-            </span>
-          </span>
-          <span class="pg-tab-label">${escapeHtml(t.label)}</span>
-          <span class="pg-tab-sub">${escapeHtml(t.sub)}</span>
-        </${tag}>`;
-	}).join("")}
-    </nav>`;
-}
-/**
-* WAI-ARIA tablist keys for a switchboard: ←/→ wrap, Home/End jump. `activate` receives the
-* next tab id and must move focus to it once the tabs are re-rendered.
-*/
-function bindSwitchboardKeys(tablistSelector, dataAttr, order, activate) {
-	const key = dataAttr.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-	onView("keydown", (ev) => {
-		const e = ev;
-		const tab = e.target?.closest(`${tablistSelector} [data-${dataAttr}]`);
-		if (!tab) return;
-		const ids = order();
-		const idx = ids.indexOf(tab.dataset[key] || "");
-		if (idx < 0) return;
-		let next = -1;
-		if (e.key === "ArrowRight") next = (idx + 1) % ids.length;
-		else if (e.key === "ArrowLeft") next = (idx - 1 + ids.length) % ids.length;
-		else if (e.key === "Home") next = 0;
-		else if (e.key === "End") next = ids.length - 1;
-		if (next < 0) return;
-		e.preventDefault();
-		activate(ids[next]);
-	});
-}
-function tabLeadHtml({ refTier, kickerHtml, title, subHtml = "", actionsHtml = "", id }) {
-	return `<div class="pg-lead"${id ? ` id="${escapeHtml(id)}"` : ""}${refTier ? ` data-ref-tier="${escapeHtml(refTier)}"` : ""}>
-      <div class="pg-lead-copy">
-        <div class="pg-lead-kicker">${kickerHtml}</div>
-        <h2 class="pg-lead-title">${escapeHtml(title)}</h2>
-        ${subHtml ? `<p class="pg-lead-sub">${subHtml}</p>` : ""}
-      </div>
-      ${actionsHtml ? `<div class="pg-lead-acts">${actionsHtml}</div>` : ""}
-    </div>`;
-}
-function kpiStripHtml(cells, { label, refTier, cls = "" }) {
-	return `<section class="pg-kpi-strip${cls ? ` ${cls}` : ""}"${refTier ? ` data-ref-tier="${escapeHtml(refTier)}"` : ""} aria-label="${escapeHtml(label)}">
-      ${cells.map((c) => `<div class="pg-kpi-cell${c.alert ? " is-alert" : ""}">
-        <span class="pg-kpi-lbl">${c.labelHtml}</span>
-        <span class="pg-kpi-val">${c.valueHtml}</span>
-        ${c.subHtml ? `<span class="pg-kpi-sub">${c.subHtml}</span>` : ""}
-      </div>`).join("")}
-    </section>`;
-}
-function flagHtml(title, metaHtml = "", id = "") {
-	return `<header class="pg-flag"${id ? ` id="${escapeHtml(id)}"` : ""}><h2 class="pg-flag-title">${escapeHtml(title)}</h2>${metaHtml ? `<span class="pg-flag-meta">${metaHtml}</span>` : ""}</header>`;
-}
 // src/views/home.ts
 var HOME_NEWS_CACHE = "newsCache:v1:all";
 var HOME_STATUS_CACHE = "newsCache:v1:status";
@@ -18677,6 +19207,9 @@ async function handleRoute() {
 	} else if (!titleMatch && (checkPath === "/settings" || checkPath === "/settings/")) {
 		hideMainTabs();
 		renderSettingsPage({ enter: true });
+	} else if (!titleMatch && /^\/settings\/sources\/?$/.test(checkPath)) {
+		hideMainTabs();
+		await renderDataSourcesPage({ enter: true });
 	} else if (checkPath.startsWith("/search")) {
 		hideMainTabs();
 		const q = params.get("q") || "";

@@ -12,7 +12,9 @@ import { drawerShown, mqMobile, navState, registerDrawerPanel, setNavMode } from
 import { drLabel, setPanel } from '../panels/shared';
 import { dom } from '../state_init';
 import { timeAgo } from '../usage';
-import { fmtBytes, segmentedHtml } from '../components/ui';
+import { SEP, fmtBytes, segmentedHtml } from '../components/ui';
+import { bindSwitchboardKeys, pageMastheadHtml, switchboardHtml } from '../components/page_shell';
+import { dataSourcesHtml, loadDataSources } from '../views/data_sources';
 
 // --- Settings panel ---
 state.navStorage = null;
@@ -132,7 +134,54 @@ export function renderSettingsPanel() {
   if (!state.navEnvStatus) loadEnvStatus();
 }
 
+export type SettingsTab = 'general' | 'sources';
+let settingsTab: SettingsTab = 'general';
+
+function settingsTabsHtml(): string {
+  return switchboardHtml({
+    id: 'set-tabs', idPrefix: 'set-tab', dataAttr: 'set-tab', panelId: 'set-tab-body', label: 'Settings sections',
+    active: settingsTab,
+    tabs: [
+      { id: 'general', label: 'General', abbr: 'GEN', sub: 'Appearance, Claude, news, storage, keys', href: '#/settings' },
+      { id: 'sources', label: 'Data sources', abbr: 'DATA', sub: 'What to download and keep up to date', href: '#/settings/sources' },
+    ],
+  });
+}
+
+export async function renderDataSourcesPage(opts: { enter?: boolean } = {}): Promise<void> {
+  settingsTab = 'sources';
+  state.currentSection = null;
+  state.currentPart = null;
+  clearTreeSelection();
+  updateChatContext();
+  setViewHead('');
+  document.title = 'Data sources · Settings · FRAMEWORK';
+  const paint = () => {
+    dom.view.innerHTML = `<div class="settings-front pg">
+      ${pageMastheadHtml({
+        folioLeftHtml: `<a href="#/">Home</a>${SEP}<span>Settings</span>`,
+        title: 'Data sources',
+        subHtml: 'Choose, in plain checkboxes, what FRAMEWORK downloads and keeps up to date from each federal source.',
+        tabsHtml: settingsTabsHtml(),
+      })}
+      <div id="set-tab-body" class="pg-tab-body" role="tabpanel" aria-labelledby="set-tab-sources">${dataSourcesHtml()}</div>
+    </div>`;
+  };
+  paint();
+  if (opts.enter) enterView();
+  try {
+    await loadDataSources();
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : 'Could not load data sources', 5000);
+  }
+  if (settingsTab === 'sources' && state.activeRoute.startsWith('/settings/sources')) {
+    const body = document.getElementById('set-tab-body');
+    if (body) body.innerHTML = dataSourcesHtml();
+  }
+}
+
 export function renderSettingsPage(opts: { enter?: boolean } = {}) {
+  settingsTab = 'general';
   state.currentSection = null;
   state.currentPart = null;
   clearTreeSelection();
@@ -142,17 +191,15 @@ export function renderSettingsPage(opts: { enter?: boolean } = {}) {
   const size = parseInt(lsGet('fontSize') || '', 10) || 16;
   const top = dom.main.scrollTop;
   dom.view.innerHTML = `
-    <div class="settings-front">
-      <header class="help-head">
-        <div>
-          <div class="doc-kicker">FRAMEWORK</div>
-          <h1 class="doc-title">Settings</h1>
-          <p class="help-lead">Appearance, Claude, news sync, storage and keyboard shortcuts. API keys and data sources live in <a href="#/help">Connections &amp; API Keys</a>.</p>
-        </div>
-        <div class="help-head-actions">
-          <button type="button" class="btn" data-open-env="">${icon('key')} Edit API keys</button>
-        </div>
-      </header>
+    <div class="settings-front pg">
+      ${pageMastheadHtml({
+        folioLeftHtml: `<a href="#/">Home</a>${SEP}<span>Settings</span>`,
+        title: 'Settings',
+        subHtml: 'Appearance, Claude, news sync, storage and keyboard shortcuts. What gets downloaded lives under <a href="#/settings/sources">Data sources</a>.',
+        actionsHtml: `<button type="button" class="btn" data-open-env="">${icon('key')} Edit API keys</button>`,
+        tabsHtml: settingsTabsHtml(),
+      })}
+      <div id="set-tab-body" class="pg-tab-body" role="tabpanel" aria-labelledby="set-tab-general">
       <div class="settings-grid">
         <section class="set-card">
           <h2 class="set-card-label">Appearance</h2>
@@ -182,6 +229,7 @@ export function renderSettingsPage(opts: { enter?: boolean } = {}) {
           ${settingsKeysHtml()}
         </section>
       </div>
+      </div>
     </div>`;
   if (opts.enter) enterView();
   else dom.main.scrollTop = top;
@@ -191,10 +239,12 @@ export function renderSettingsPage(opts: { enter?: boolean } = {}) {
 }
 
 export const onSettingsPage = () => state.activeRoute === '/settings' || state.activeRoute === '/settings/';
+export const onDataSourcesPage = () => /^\/settings\/sources\/?$/.test(state.activeRoute);
 
 export function refreshSettingsViews(): void {
   if (navState.panel === 'settings') renderSettingsPanel();
   if (onSettingsPage()) renderSettingsPage();
+  else if (onDataSourcesPage()) void renderDataSourcesPage();
 }
 
 export function setMotionSetting(level?: string): void {
@@ -259,6 +309,10 @@ dom.sidebar?.addEventListener('change', (e) => {
 });
 
 registerDrawerPanel('settings', renderSettingsPanel);
+bindSwitchboardKeys('#set-tabs', 'set-tab', () => ['general', 'sources'], (id) => {
+  window.location.hash = id === 'sources' ? '#/settings/sources' : '#/settings';
+  requestAnimationFrame(() => document.getElementById(`set-tab-${id}`)?.focus());
+});
 on('nav:mode-changed', () => refreshSettingsViews());
 on('env:saved', () => refreshSettingsViews());
 on('jobs:finished', () => {
