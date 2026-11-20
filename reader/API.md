@@ -357,6 +357,8 @@ A standalone HTML page for one section: the href of local U.S.C. citation links 
 - `GET /api/constitution/unit/{id}` → `{id, ord, kind, article, amendment, section, label, text, note_count, notes[], prev, next}` (404 unknown/not installed)
 - `GET /api/constitution/search?q=&notes=false&limit=20` → `{installed, total, results[{id, label, snippet, kind: text|annotation}]}` (`\x02`/`\x03` snippet sentinels)
 - `POST /api/constitution/build` → `{job}` (queue key 2000; the scheduled `constitution-update` job rebuilds only when GovInfo lists a newer Manual)
+- `POST /api/constitution/update` → `{job}` (a `constitution-update` job: rebuilds only when GovInfo lists a newer Manual; downloads it when nothing is installed)
+- `DELETE /api/constitution` → `{removed: "constitution"}` (409 while its job is queued or running, 404 when not installed)
 
 ## Public Laws
 

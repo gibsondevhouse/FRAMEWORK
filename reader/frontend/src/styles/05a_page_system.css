@@ -153,3 +153,19 @@
   .pg-head { flex-direction: column; align-items: flex-start; }
   .pg-head .pg-display { font-size: 32px; }
 }
+
+/* Library → Constitution tab before install: what the download holds. */
+.const-preview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 28px; margin-top: 22px; }
+.const-pv-head { margin: 0 0 10px; font: var(--w-medium) 12px/1.2 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--fg-3); }
+.const-pv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.const-pv-list.is-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+.const-pv-list li { display: flex; gap: 10px; align-items: baseline; min-width: 0; font-size: 13px; color: var(--fg-2); }
+.const-pv-num { flex: 0 0 auto; min-width: 4.6em; font: var(--w-medium) 12px/1.4 var(--mono); color: var(--ref-const); font-variant-numeric: tabular-nums; }
+.const-pv-list.is-cols .const-pv-num { min-width: 2.6em; }
+.const-pv-name { min-width: 0; }
+@container pg (max-width: 760px) {
+  .const-preview { grid-template-columns: minmax(0, 1fr); }
+}
+@container pg (max-width: 520px) {
+  .const-pv-list.is-cols { grid-template-columns: minmax(0, 1fr); }
+}

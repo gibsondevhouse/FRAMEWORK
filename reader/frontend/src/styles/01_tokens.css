@@ -137,6 +137,7 @@
   --ref-cross: oklch(0.77 0.130 234);         /* 3. Cross-title installed Federal CFR */
   --ref-uninstalled: oklch(0.79 0.125 56);    /* 4. Uninstalled downloadable corpus */
   --ref-usc: oklch(0.81 0.120 92);            /* 5. Federal Statute (U.S.C.) */
+  --ref-const: oklch(0.84 0.070 70);          /* 5a. U.S. Constitution (parchment, beside the statutes) */
   --ref-fr: oklch(0.76 0.138 14);             /* 6. Federal Register rulemaking */
   --ref-ibr: oklch(0.78 0.132 304);           /* 7. IBR Consensus Standard (ANSI, NFPA, ASTM...) */
   --ref-state: oklch(0.79 0.120 158);         /* 8. State statute / admin code */

@@ -243,6 +243,18 @@ class ConstitutionTests(CorpusTestCase):
         self.assertEqual(d["outline"][0]["id"], "preamble")
         self.assertEqual(c.get("/api/constitution/unit/amdt1").json()["label"], "Amdt. I")
         self.assertEqual(c.get("/api/constitution/search", params={"q": "religion"}).json()["results"][0]["id"], "amdt1")
+        # The Library tab's Remove: refused while a job for the Constitution is queued, then removes it.
+        with mock.patch.object(library.queue, "busy_with", lambda key: key == constitution.JOB_KEY):
+            self.assertEqual(c.delete("/api/constitution").status_code, 409)
+        self.assertEqual(c.delete("/api/constitution").json(), {"removed": "constitution"})
+        self.assertFalse(c.get("/api/constitution").json()["installed"])
+        self.assertEqual(c.delete("/api/constitution").status_code, 404)
+
+    def test_update_endpoint_queues_an_update_job(self):
+        c = TestClient(app)
+        with mock.patch.object(library.queue, "submit", lambda key, kind, target, label: {"id": 7, "title": key, "kind": kind}):
+            self.assertEqual(c.post("/api/constitution/update").json()["job"],
+                             {"id": 7, "title": constitution.JOB_KEY, "kind": "constitution-update"})
 
 
 class PublicLawTests(CorpusTestCase):

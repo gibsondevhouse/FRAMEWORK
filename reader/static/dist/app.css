@@ -142,6 +142,7 @@
   --ref-cross: oklch(0.77 0.130 234);         /* 3. Cross-title installed Federal CFR */
   --ref-uninstalled: oklch(0.79 0.125 56);    /* 4. Uninstalled downloadable corpus */
   --ref-usc: oklch(0.81 0.120 92);            /* 5. Federal Statute (U.S.C.) */
+  --ref-const: oklch(0.84 0.070 70);          /* 5a. U.S. Constitution (parchment, beside the statutes) */
   --ref-fr: oklch(0.76 0.138 14);             /* 6. Federal Register rulemaking */
   --ref-ibr: oklch(0.78 0.132 304);           /* 7. IBR Consensus Standard (ANSI, NFPA, ASTM...) */
   --ref-state: oklch(0.79 0.120 158);         /* 8. State statute / admin code */
@@ -501,6 +502,7 @@ select option { background: var(--pop); color: var(--fg); }
 [data-ref-tier="cross"] { --tier-hue: var(--ref-cross); }
 [data-ref-tier="uninstalled"] { --tier-hue: var(--ref-uninstalled); }
 [data-ref-tier="usc"] { --tier-hue: var(--ref-usc); }
+[data-ref-tier="const"] { --tier-hue: var(--ref-const); }
 [data-ref-tier="fr"] { --tier-hue: var(--ref-fr); }
 [data-ref-tier="ibr"] { --tier-hue: var(--ref-ibr); }
 [data-ref-tier="state"] { --tier-hue: var(--ref-state); }
@@ -1140,6 +1142,22 @@ body.resizing { cursor: col-resize; -webkit-user-select: none; user-select: none
   .pg-head { flex-direction: column; align-items: flex-start; }
   .pg-head .pg-display { font-size: 32px; }
 }
+
+/* Library → Constitution tab before install: what the download holds. */
+.const-preview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 28px; margin-top: 22px; }
+.const-pv-head { margin: 0 0 10px; font: var(--w-medium) 12px/1.2 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--fg-3); }
+.const-pv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.const-pv-list.is-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+.const-pv-list li { display: flex; gap: 10px; align-items: baseline; min-width: 0; font-size: 13px; color: var(--fg-2); }
+.const-pv-num { flex: 0 0 auto; min-width: 4.6em; font: var(--w-medium) 12px/1.4 var(--mono); color: var(--ref-const); font-variant-numeric: tabular-nums; }
+.const-pv-list.is-cols .const-pv-num { min-width: 2.6em; }
+.const-pv-name { min-width: 0; }
+@container pg (max-width: 760px) {
+  .const-preview { grid-template-columns: minmax(0, 1fr); }
+}
+@container pg (max-width: 520px) {
+  .const-pv-list.is-cols { grid-template-columns: minmax(0, 1fr); }
+}
 /* ---------- Title Start (#/title/{n}/): Broadsheet Newsroom Front Page ---------- */
 .view:has(> .home-hero),
 .view:has(> .ts-front) { max-width: 1180px; padding-top: 24px; padding-bottom: 84px; }
@@ -1659,9 +1677,10 @@ a.hm-chain-node:hover { color: var(--fg-strong); text-decoration: none; }
 .hm-upd-name { flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: var(--w-regular); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hm-upd-detail { flex: 0 0 auto; font: var(--w-regular) 11.5px/1 var(--sans); color: var(--fg-3); font-variant-numeric: tabular-nums; }
 
-/* Band 1: Cushioned Federal Framework Pulse Cards (U.S.C. · CFR · FR) */
+/* Band 1: Cushioned Federal Framework Pulse Cards (Constitution · U.S.C. · CFR · FR) */
 .hm-systems { border: 0; }
-.hm-sys-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.hm-sys-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+a.hm-sys-card { text-decoration: none; }
 .hm-sys-card {
   position: relative; display: flex; flex-direction: column; align-items: stretch; text-align: left; min-width: 0;
   padding: 18px 20px; border-radius: var(--r-12);
@@ -1996,6 +2015,9 @@ a.hm-resume-title:hover { color: var(--brand-hover); text-decoration: none; }
   .hm-top { grid-template-columns: minmax(0, 1fr); }
   .hm-title-grid, .hm-title-grid.is-usc-grid, .hm-news-skel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hm-news-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@container hm (max-width: 1040px) {
+  .hm-sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container hm (max-width: 640px) {
   .hm-sys-grid { grid-template-columns: minmax(0, 1fr); }
@@ -2341,6 +2363,7 @@ a.lib-main:hover .lib-name { color: var(--fg); }
 }
 a.dr-row:hover { background: var(--hover); color: var(--fg-strong); text-decoration: none; }
 .dr-row.is-static { color: var(--fg-2); }
+.dr-row.is-current { background: var(--active); color: var(--fg-strong); }
 .dr-num { flex: 0 0 24px; font-size: 12px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .dr-name { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dr-time { flex: 0 0 auto; font-size: 12px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
@@ -3452,6 +3475,23 @@ mark { background: var(--mark); color: var(--fg); border-radius: 2px; padding: 0
 .usc-note-card { background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-8); padding: 12px 14px; margin-bottom: 8px; font-size: 13.5px; line-height: 1.6; color: var(--fg-2); }
 .usc-note-card .usc-heading { display: block; font-weight: var(--w-semibold); color: var(--fg); margin-bottom: 4px; }
 .usc-note-card p { margin: 6px 0 0; }
+
+
+/* U.S. Constitution reader (#/constitution/{id}): plain prose; numbered clauses carry a small
+   number that copies "U.S. Const. art. I, § 8, cl. 3". Annotations reuse the .usc-notes cards. */
+.const-body { max-width: 66ch; }
+.const-p { margin: 0 0 .9em; text-wrap: pretty; }
+.const-clause { position: relative; padding-left: 2.1em; }
+.const-cl {
+  position: absolute; left: 0; top: .1em; min-width: 1.6em; padding: 0 .35em;
+  border: 1px solid color-mix(in oklab, var(--ref-const) 30%, var(--line)); border-radius: var(--r-6, 6px);
+  background: color-mix(in oklab, var(--ref-const) 7%, transparent);
+  color: color-mix(in oklab, var(--ref-const) 80%, var(--fg-2));
+  font: var(--w-medium) .74em/1.6 var(--sans); font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out);
+}
+.const-cl:hover, .const-cl:focus-visible { background: color-mix(in oklab, var(--ref-const) 16%, transparent); border-color: var(--ref-const); color: var(--fg); }
+.const-notes-src { margin: -8px 0 14px; font-size: 12.5px; color: var(--fg-3); }
 /* ---------- Chat ---------- */
 .chat { display: flex; flex-direction: column; min-height: 0; overflow: hidden; animation: chat-in var(--t-ui) var(--ease-out); }
 @keyframes chat-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }

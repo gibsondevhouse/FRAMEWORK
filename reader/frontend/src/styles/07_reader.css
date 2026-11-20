@@ -856,3 +856,19 @@ mark { background: var(--mark); color: var(--fg); border-radius: 2px; padding: 0
 .usc-note-card .usc-heading { display: block; font-weight: var(--w-semibold); color: var(--fg); margin-bottom: 4px; }
 .usc-note-card p { margin: 6px 0 0; }
 
+
+/* U.S. Constitution reader (#/constitution/{id}): plain prose; numbered clauses carry a small
+   number that copies "U.S. Const. art. I, § 8, cl. 3". Annotations reuse the .usc-notes cards. */
+.const-body { max-width: 66ch; }
+.const-p { margin: 0 0 .9em; text-wrap: pretty; }
+.const-clause { position: relative; padding-left: 2.1em; }
+.const-cl {
+  position: absolute; left: 0; top: .1em; min-width: 1.6em; padding: 0 .35em;
+  border: 1px solid color-mix(in oklab, var(--ref-const) 30%, var(--line)); border-radius: var(--r-6, 6px);
+  background: color-mix(in oklab, var(--ref-const) 7%, transparent);
+  color: color-mix(in oklab, var(--ref-const) 80%, var(--fg-2));
+  font: var(--w-medium) .74em/1.6 var(--sans); font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out);
+}
+.const-cl:hover, .const-cl:focus-visible { background: color-mix(in oklab, var(--ref-const) 16%, transparent); border-color: var(--ref-const); color: var(--fg); }
+.const-notes-src { margin: -8px 0 14px; font-size: 12.5px; color: var(--fg-3); }

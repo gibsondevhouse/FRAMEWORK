@@ -16,6 +16,7 @@ function activeRouteKind(): 'cfr' | 'usc' | 'fr' | 'corpus' | 'platform' {
   const p = (state.activeRoute || '/').split('?')[0] || '/';
   if (p.startsWith('/news')) return 'fr';
   if (/^\/usc\/\d+(?:\/|$)/.test(p)) return 'usc';
+  if (/^\/constitution(?:\/|$)/.test(p)) return 'corpus';
   if (p.startsWith('/corpus/')) {
     return state.activeCorpus?.tier === 'federal-register' ? 'fr' : 'corpus';
   }

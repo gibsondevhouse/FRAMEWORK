@@ -2,6 +2,7 @@
 // Zero `any` fields: every API response and UI state container carries a typed shape.
 
 export type AuthorityTier =
+  | 'federal-constitution'
   | 'federal-statute'
   | 'federal-reg'
   | 'federal-register'
@@ -18,6 +19,7 @@ export type RefTier =
   | 'cfr'
   | 'cross'
   | 'uninstalled'
+  | 'const'
   | 'usc'
   | 'fr'
   | 'ibr'
@@ -275,9 +277,10 @@ export interface NewsActivityCtx {
 
 export interface TransferJob {
   id: number;
-  /** CFR titles 1–50; Federal Register corpus 0; U.S. Code title N is 1000 + N. */
+  /** CFR titles 1–50; Federal Register corpus 0; U.S. Code title N is 1000 + N; the Constitution 2000. */
   title: number;
-  kind: 'title' | 'part' | 'section' | 'update' | 'usc-title' | 'usc-update' | 'fr-build' | 'fr-update';
+  kind: 'title' | 'part' | 'section' | 'update' | 'usc-title' | 'usc-update' | 'fr-build' | 'fr-update'
+    | 'constitution-build' | 'constitution-update';
   target?: { t?: string; id?: string; part?: string; usc_title?: number } | null;
   label: string;
   state: 'queued' | 'running' | 'done' | 'error' | 'cancelled';
@@ -505,6 +508,35 @@ export interface UscSectionData {
   unit_next?: SectionOutlineItem | null;
 }
 
+/** One row of `GET /api/constitution`'s outline (the Preamble, an article section, an amendment…). */
+export interface ConstitutionOutlineItem {
+  id: string;
+  kind: 'preamble' | 'section' | 'article' | 'amendment';
+  article: number | null;
+  amendment: number | null;
+  section: number | null;
+  label: string;
+  chars: number;
+  note_count: number;
+}
+
+export interface ConstitutionStatus {
+  installed: boolean;
+  unit_count: number;
+  note_count: number;
+  meta: Record<string, string>;
+  outline: ConstitutionOutlineItem[];
+}
+
+/** `GET /api/constitution/unit/{id}`: the text, the House Parliamentarian's annotations, prev/next ids. */
+export interface ConstitutionUnitData extends Omit<ConstitutionOutlineItem, 'chars'> {
+  ord: number;
+  text: string;
+  notes: string[];
+  prev: string | null;
+  next: string | null;
+}
+
 export interface UscCitedBy {
   title: number;
   section_id: string;
@@ -532,6 +564,8 @@ export interface AppState {
   currentUscTitle: number | null;
   currentUscSection: UscSectionData | null;
   currentUscNode: string | null;
+  /** The Constitution unit on screen (`#/constitution/{id}`), so Pin, ⌘D and Clip cite it. */
+  currentConstUnit: ConstitutionUnitData | null;
   uscTrees: Map<number, UscTreeNodeData>;
   homeSnapshot: HomeSnapshot | undefined;
   noTitles: boolean;
@@ -611,6 +645,7 @@ export const state: AppState = {
   currentUscTitle: null,
   currentUscSection: null,
   currentUscNode: null,
+  currentConstUnit: null,
   uscTrees: new Map(),
   homeSnapshot: undefined,
   noTitles: false,
