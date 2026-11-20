@@ -11301,6 +11301,166 @@ onView("input", (e) => {
 		li.hidden = Boolean(q) && !(li.dataset.hay || "").includes(q);
 	});
 });
+// src/core/integrity.ts
+/** The authority chain's order, as the rest of the app lists frameworks. */
+var INTEGRITY_FRAMEWORKS = [
+	["constitution", "U.S. Constitution"],
+	["usc", "United States Code"],
+	["plaw", "Public Laws"],
+	["cfr", "Code of Federal Regulations"],
+	["fr", "Federal Register"],
+	["agenda", "Unified Agenda"]
+];
+var RANK = {
+	FAIL: 3,
+	WARN: 2,
+	OK: 1,
+	INFO: 0
+};
+/** The most serious status of a set (a store with only notes reads as a note). */
+function worstStatus(statuses) {
+	return statuses.reduce((w, s) => RANK[s] > RANK[w] ? s : w, "INFO");
+}
+/** The plain word shown for a status. */
+function statusWord(s) {
+	return {
+		OK: "OK",
+		WARN: "Check",
+		FAIL: "Problem",
+		INFO: "Note"
+	}[s] || s;
+}
+/** The report grouped by framework, then by store ("title 29", "corpus", …), in report order. */
+function groupIntegrity(report) {
+	const items = report?.items || [];
+	const names = new Map(INTEGRITY_FRAMEWORKS);
+	const order = [...INTEGRITY_FRAMEWORKS.map(([k]) => k), ...items.map((i) => i.corpus).filter((c) => !names.has(c))];
+	const groups = [];
+	for (const corpus of [...new Set(order)]) {
+		const mine = items.filter((i) => i.corpus === corpus);
+		if (!mine.length) continue;
+		const targets = [];
+		for (const target of [...new Set(mine.map((i) => i.target))]) {
+			const rows = mine.filter((i) => i.target === target);
+			const prov = rows.find((i) => i.check === "provenance" && i.provenance);
+			targets.push({
+				target,
+				status: worstStatus(rows.map((r) => r.status)),
+				checks: rows.filter((r) => r !== prov),
+				provenance: prov?.provenance || null
+			});
+		}
+		const installed = !mine.every((i) => i.check === "installed" && i.status === "INFO");
+		groups.push({
+			corpus,
+			label: names.get(corpus) || corpus.toUpperCase(),
+			status: worstStatus(mine.map((i) => i.status)),
+			targets,
+			installed
+		});
+	}
+	return groups;
+}
+/** "a1b2c3d4e5f6…" for a SHA-256 (the full value goes in a title attribute). */
+function shortHash(h) {
+	if (!h || h === "unknown") return h || "";
+	return h.length > 16 ? `${h.slice(0, 12)}…` : h;
+}
+/** Provenance rows worth showing, labelled in plain words, in a fixed order; "unknown" stays visible. */
+function provenanceRows(p) {
+	if (!p) return [];
+	return [
+		["edition", "Edition"],
+		["release_point", "Release point"],
+		["current_through", "Current through"],
+		["source_url", "Source"],
+		["fetched_at", "Fetched"],
+		["built_at", "Built"],
+		["xml_sha256", "Source SHA-256"],
+		["zip_sha256", "Download SHA-256"],
+		["structure_sha256", "Structure SHA-256"]
+	].filter(([k]) => p[k]).map(([key, label]) => ({
+		key,
+		label,
+		value: p[key],
+		hash: key.endsWith("sha256")
+	}));
+}
+/** FT-08: the sentence a CFR title shows when its download had sections with no text. */
+function incompleteTitleNotice(meta) {
+	const n = Number(meta?.missing_sections || 0);
+	if (!n) return "";
+	const sample = (meta?.missing_sample || []).slice(0, 3).map((id) => `§\u00a0${id}`).join(", ");
+	return `${n === 1 ? "1 section" : `${n.toLocaleString()} sections`} listed in eCFR’s table of contents had no text in this download${sample ? ` (for example ${sample})` : ""}, so ${n === 1 ? "it isn’t" : "they aren’t"} in this copy.`;
+}
+// src/views/integrity.ts
+var report = null;
+var loading = false;
+var error = "";
+var stWord = (s) => `<span class="int-st int-st-${s.toLowerCase()}">${escapeHtml(statusWord(s))}</span>`;
+function provenanceHtml(t) {
+	const rows = provenanceRows(t.provenance);
+	if (!rows.length) return "";
+	return `<dl class="int-prov">${rows.map((r) => {
+		let v = escapeHtml(r.value);
+		if (r.hash && r.value !== "unknown") v = `<code title="${escapeHtml(r.value)}">${escapeHtml(shortHash(r.value))}</code>`;
+		else if (r.key === "source_url" && safeHttpUrl(r.value)) v = `<a href="${escapeHtml(safeHttpUrl(r.value))}" target="_blank" rel="noopener">${escapeHtml(r.value)}</a>`;
+		return `<dt>${escapeHtml(r.label)}</dt><dd${r.value === "unknown" ? " class=\"is-unknown\"" : ""}>${v}</dd>`;
+	}).join("")}</dl>`;
+}
+function targetHtml(t) {
+	return `<details class="int-target"${t.status === "WARN" || t.status === "FAIL" ? " open" : ""}>
+      <summary><span class="int-target-name">${escapeHtml(t.target)}</span>${stWord(t.status)}</summary>
+      <ul class="int-checks">${t.checks.map((c) => `<li>${stWord(c.status)}<span class="int-check">${escapeHtml(c.check.replace(/_/g, " "))}</span><span class="int-detail">${escapeHtml(c.detail)}</span></li>`).join("")}</ul>
+      ${provenanceHtml(t)}
+    </details>`;
+}
+function groupHtml(g) {
+	return `<section class="set-card set-card-wide int-card" aria-label="${escapeHtml(g.label)}">
+      <div class="int-card-head"><h2 class="set-card-label">${escapeHtml(g.label)}</h2>${stWord(g.status)}<span class="int-count">${escapeHtml(plural(g.targets.length, "store"))}</span></div>
+      ${g.targets.map(targetHtml).join("")}
+    </section>`;
+}
+/** The tab body. */
+function integrityHtml() {
+	const busy = loading ? " disabled aria-busy=\"true\"" : "";
+	const s = report?.summary || {};
+	const counts = report ? [
+		`${s.FAIL || 0} ${s.FAIL === 1 ? "problem" : "problems"}`,
+		`${s.WARN || 0} to check`,
+		`${s.OK || 0} OK`,
+		`${s.INFO || 0} notes`
+	].join(" · ") : "";
+	const when = report?.checked_at ? new Date(report.checked_at).toLocaleString() : "";
+	const bar = `<div class="int-bar">
+      <p class="int-lead">Checks every installed store: that the database opens and is intact, that its counts match what was recorded, and where its text came from with the checksum taken when it was downloaded. ${report?.online ? "This run also compared editions with the official sources." : "This run stayed offline."}</p>
+      <div class="int-acts">
+        <button type="button" class="btn" data-int-act="offline"${busy}>Check again</button>
+        <button type="button" class="btn" data-int-act="online"${busy}>Compare with official sources</button>
+      </div>
+      ${report ? `<p class="int-sum">${escapeHtml(counts)}${when ? ` · checked ${escapeHtml(when)}` : ""}</p>` : ""}
+    </div>`;
+	if (error) return `${bar}<div class="empty-state"><h2>The integrity check didn’t run</h2><p>${escapeHtml(error)}</p></div>`;
+	if (!report) return `${bar}${skeletonHtml("list", "Checking every store…")}`;
+	const all = groupIntegrity(report);
+	const groups = all.filter((g) => g.installed);
+	const absent = all.filter((g) => !g.installed).map((g) => g.label);
+	const absentHtml = absent.length ? `<p class="int-absent">Not downloaded, so nothing to check: ${escapeHtml(absent.join(", "))}. Add them from the <a href="#/library">Library</a>.</p>` : "";
+	if (!groups.length) return `${bar}<div class="empty-state"><h2>Nothing installed yet</h2><p>Download a framework in the <a href="#/library">Library</a> and its checks appear here.</p></div>`;
+	return `${bar}<div class="settings-grid int-grid">${groups.map(groupHtml).join("")}</div>${absentHtml}`;
+}
+/** Run the report (offline unless `online`); resolves once `integrityHtml()` reflects it. */
+async function loadIntegrity(online = false) {
+	loading = true;
+	error = "";
+	try {
+		report = await getJSON(`/api/integrity${online ? "" : "?offline=true"}`);
+	} catch (err) {
+		error = err instanceof Error ? err.message : "The server didn’t answer.";
+	} finally {
+		loading = false;
+	}
+}
 // src/panels/settings_panel.ts
 state.navStorage = null;
 state.navNewsStatus = null;
@@ -11439,19 +11599,29 @@ function settingsTabsHtml() {
 		panelId: "set-tab-body",
 		label: "Settings sections",
 		active: settingsTab,
-		tabs: [{
-			id: "general",
-			label: "General",
-			abbr: "GEN",
-			sub: "Appearance, Claude, news, storage, keys",
-			href: "#/settings"
-		}, {
-			id: "sources",
-			label: "Data sources",
-			abbr: "DATA",
-			sub: "What to download and keep up to date",
-			href: "#/settings/sources"
-		}]
+		tabs: [
+			{
+				id: "general",
+				label: "General",
+				abbr: "GEN",
+				sub: "Appearance, Claude, news, storage, keys",
+				href: "#/settings"
+			},
+			{
+				id: "sources",
+				label: "Data sources",
+				abbr: "DATA",
+				sub: "What to download and keep up to date",
+				href: "#/settings/sources"
+			},
+			{
+				id: "integrity",
+				label: "Data integrity",
+				abbr: "CHECK",
+				sub: "Where each store came from, and whether it is intact",
+				href: "#/settings/integrity"
+			}
+		]
 	});
 }
 async function renderDataSourcesPage(opts = {}) {
@@ -11484,6 +11654,33 @@ async function renderDataSourcesPage(opts = {}) {
 		const body = document.getElementById("set-tab-body");
 		if (body) body.innerHTML = dataSourcesHtml();
 	}
+}
+/** Settings → Data integrity (FT-07): the integrity report per framework. */
+async function renderIntegrityPage(opts = {}) {
+	settingsTab = "integrity";
+	state.currentSection = null;
+	state.currentPart = null;
+	clearTreeSelection();
+	updateChatContext();
+	setViewHead("");
+	document.title = "Data integrity · Settings · FRAMEWORK";
+	const paint = () => {
+		if (!onIntegrityPage()) return;
+		dom.view.innerHTML = `<div class="settings-front pg">
+      ${pageMastheadHtml({
+			folioLeftHtml: `<a href="#/">Home</a>${SEP}<span>Settings</span>`,
+			title: "Data integrity",
+			subHtml: "Is every downloaded framework intact, and where did its text come from? The same report as <code>python -m app.integrity</code>.",
+			tabsHtml: settingsTabsHtml()
+		})}
+      <div id="set-tab-body" class="pg-tab-body" role="tabpanel" aria-labelledby="set-tab-integrity">${integrityHtml()}</div>
+    </div>`;
+	};
+	const run = loadIntegrity(Boolean(opts.online));
+	paint();
+	if (opts.enter) enterView();
+	await run;
+	if (settingsTab === "integrity") paint();
 }
 function renderSettingsPage(opts = {}) {
 	settingsTab = "general";
@@ -11548,6 +11745,7 @@ function renderSettingsPage(opts = {}) {
 }
 var onSettingsPage = () => state.activeRoute === "/settings" || state.activeRoute === "/settings/";
 var onDataSourcesPage = () => /^\/settings\/sources\/?$/.test(state.activeRoute);
+var onIntegrityPage = () => /^\/settings\/integrity\/?$/.test(state.activeRoute);
 function refreshSettingsViews() {
 	if (navState.panel === "settings") renderSettingsPanel();
 	if (onSettingsPage()) renderSettingsPage();
@@ -11584,6 +11782,8 @@ function handleSettingsClick(e) {
 	}
 	const setAct = t?.closest("[data-set-act]");
 	if (setAct) runSettingsAction(setAct);
+	const intAct = t?.closest("[data-int-act]");
+	if (intAct && onIntegrityPage()) renderIntegrityPage({ online: intAct.dataset.intAct === "online" });
 }
 onView("click", handleSettingsClick);
 onView("input", (e) => {
@@ -11610,8 +11810,12 @@ dom.sidebar?.addEventListener("change", (e) => {
 	}
 });
 registerDrawerPanel("settings", renderSettingsPanel);
-bindSwitchboardKeys("#set-tabs", "set-tab", () => ["general", "sources"], (id) => {
-	window.location.hash = id === "sources" ? "#/settings/sources" : "#/settings";
+bindSwitchboardKeys("#set-tabs", "set-tab", () => [
+	"general",
+	"sources",
+	"integrity"
+], (id) => {
+	window.location.hash = id === "general" ? "#/settings" : `#/settings/${id}`;
 	requestAnimationFrame(() => document.getElementById(`set-tab-${id}`)?.focus());
 });
 on("nav:mode-changed", () => refreshSettingsViews());
@@ -12263,8 +12467,10 @@ async function renderHome() {
 	const tagline = content?.tagline || snapRow?.summary || `Read, search, and research Title ${titleNum} of the Code of Federal Regulations.`;
 	const count = Number(state.metaInfo.section_count || 0);
 	const readCount = visitedCountFor(titleNum);
+	const edLabel = state.metaInfo.edition ? `Edition ${shortDate(state.metaInfo.edition) || state.metaInfo.edition}` : "";
+	const incomplete = incompleteTitleNotice(state.metaInfo);
 	const folioMeta = joinSep([
-		state.metaInfo.edition ? `Edition ${shortDate(state.metaInfo.edition) || state.metaInfo.edition}` : "",
+		edLabel,
 		count ? `${fmt(count)} sections` : "",
 		readCount ? `${fmt(readCount)} read` : ""
 	]);
@@ -12290,6 +12496,7 @@ async function renderHome() {
             <a class="btn btn-sm" href="#/library/${titleNum}">Manage in Library</a>
           </div>
         </div>
+        ${incomplete ? `<p class="ts-incomplete" role="note">${icon("help")}<span>${escapeHtml(incomplete)} <a href="#/library/${titleNum}">Update it in the Library</a> or see <a href="#/settings/integrity">Data integrity</a>.</span></p>` : ""}
         <div class="ts-double-rule" aria-hidden="true"></div>
         ${authorityStackHtml(titleNum)}
         <div id="ts-beats-slot">${beatsRibbonHtml()}</div>
@@ -21772,6 +21979,9 @@ async function handleRoute() {
 	} else if (!titleMatch && /^\/settings\/sources\/?$/.test(checkPath)) {
 		hideMainTabs();
 		await renderDataSourcesPage({ enter: true });
+	} else if (!titleMatch && /^\/settings\/integrity\/?$/.test(checkPath)) {
+		hideMainTabs();
+		await renderIntegrityPage({ enter: true });
 	} else if (checkPath.startsWith("/search")) {
 		hideMainTabs();
 		const q = params.get("q") || "";

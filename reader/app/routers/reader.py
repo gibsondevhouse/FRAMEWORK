@@ -53,6 +53,18 @@ def _parse_scope(raw: str | None) -> tuple[list[str] | None, int]:
     return parts, len(sections)
 
 
+def _missing_sections(m: dict) -> dict:
+    """FT-08: how many sections eCFR's table of contents lists that had no text in the download
+    (`missing_sections`, None for a title built before this was recorded) and up to ten of
+    their ids (`missing_sample`)."""
+    raw = m.get("missing_leaves")
+    try:
+        sample = [str(x) for x in json.loads(m.get("missing_sample") or "[]")][:10]
+    except (TypeError, ValueError):
+        sample = []
+    return {"missing_sections": _safe_int(raw, 0) if raw is not None else None, "missing_sample": sample}
+
+
 @titles_router.get("/api/titles")
 def list_titles() -> list[dict]:
     """List all installed CFR titles and their metadata."""
@@ -69,6 +81,7 @@ def list_titles() -> list[dict]:
             "section_count": _safe_int(m.get("section_count"), 0),
             "partial": bool(m.get("scope")),
             "ai_configured": ai_on,
+            **_missing_sections(m),
         })
     return results
 
@@ -162,6 +175,7 @@ def get_title_meta(title: int = Depends(deps.valid_installed_title)) -> dict:
         "built_at": m.get("built_at"),
         "section_count": _safe_int(m.get("section_count"), 0),
         "ai_configured": config.anthropic_key() is not None,
+        **_missing_sections(m),
     }
 
 

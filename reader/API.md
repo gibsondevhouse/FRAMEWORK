@@ -34,12 +34,14 @@ Every installed title.
     "built_at": "2026-11-09T20:37:13",
     "section_count": 7374,
     "partial": false,
-    "ai_configured": true
+    "ai_configured": true,
+    "missing_sections": 0,
+    "missing_sample": []
   }
 ]
 ```
 
-`partial` is true when only some parts/sections of the title are installed. Returns `[]` on a fresh server before any title is downloaded.
+`partial` is true when only some parts/sections of the title are installed. `missing_sections` counts the sections eCFR's table of contents listed that had no text in the download (`null` for a title built before this was recorded), with up to ten of their ids in `missing_sample`; the Title start page warns when it is above zero. Returns `[]` on a fresh server before any title is downloaded.
 
 ### `GET /api/titles/snapshot`
 Local-only living snapshot of installed titles for the Home screen (`Cache-Control: no-store`; makes no external network requests).
@@ -91,7 +93,7 @@ Curated first-run profiles and static names for all 50 CFR titles (available bef
 ```
 
 ### `GET /api/{title}/meta`
-Same fields for one title (without `partial`).
+Same fields for one title (without `partial`), including `missing_sections` and `missing_sample`.
 
 ### `GET /api/{title}/tree`
 The title's navigation tree, served verbatim from `data/tree-{title}.json`. Nodes use compact keys: `t` (kind: `subtitle`, `chapter`, `subchapter`, `part`, `subpart`, `section`, `appendix`), `id`, `l` (label), `d` (description/heading), `r` (reserved), `range` (section range), `c` (children).

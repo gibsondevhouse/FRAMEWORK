@@ -1,4 +1,5 @@
 import { state, TreeNode } from '../state';
+import { incompleteTitleNotice } from '../core/integrity';
 import { fetchNewsPreview, fetchTitleReferences, fetchTitlesSnapshot } from '../api/client';
 import { isStale } from '../core/library_meta';
 import { fmtMoney, inspectionActivityNr, newsKicker, newsPartHref, newsSectionHref } from '../core/news_format';
@@ -601,6 +602,7 @@ export async function renderHome(): Promise<void> {
   const count = Number(state.metaInfo.section_count || 0);
   const readCount = visitedCountFor(titleNum);
   const edLabel = state.metaInfo.edition ? `Edition ${shortDate(state.metaInfo.edition) || state.metaInfo.edition}` : '';
+  const incomplete = incompleteTitleNotice(state.metaInfo);
   const folioMeta = joinSep([
     edLabel,
     count ? `${fmt(count)} sections` : '',
@@ -629,6 +631,7 @@ export async function renderHome(): Promise<void> {
             <a class="btn btn-sm" href="#/library/${titleNum}">Manage in Library</a>
           </div>
         </div>
+        ${incomplete ? `<p class="ts-incomplete" role="note">${icon('help')}<span>${escapeHtml(incomplete)} <a href="#/library/${titleNum}">Update it in the Library</a> or see <a href="#/settings/integrity">Data integrity</a>.</span></p>` : ''}
         <div class="ts-double-rule" aria-hidden="true"></div>
         ${authorityStackHtml(titleNum)}
         <div id="ts-beats-slot">${beatsRibbonHtml()}</div>

@@ -15,6 +15,7 @@ import { timeAgo } from '../usage';
 import { SEP, fmtBytes, segmentedHtml } from '../components/ui';
 import { bindSwitchboardKeys, pageMastheadHtml, switchboardHtml } from '../components/page_shell';
 import { dataSourcesHtml, loadDataSources } from '../views/data_sources';
+import { integrityHtml, loadIntegrity } from '../views/integrity';
 
 // --- Settings panel ---
 state.navStorage = null;
@@ -134,7 +135,7 @@ export function renderSettingsPanel() {
   if (!state.navEnvStatus) loadEnvStatus();
 }
 
-export type SettingsTab = 'general' | 'sources';
+export type SettingsTab = 'general' | 'sources' | 'integrity';
 let settingsTab: SettingsTab = 'general';
 
 function settingsTabsHtml(): string {
@@ -144,6 +145,7 @@ function settingsTabsHtml(): string {
     tabs: [
       { id: 'general', label: 'General', abbr: 'GEN', sub: 'Appearance, Claude, news, storage, keys', href: '#/settings' },
       { id: 'sources', label: 'Data sources', abbr: 'DATA', sub: 'What to download and keep up to date', href: '#/settings/sources' },
+      { id: 'integrity', label: 'Data integrity', abbr: 'CHECK', sub: 'Where each store came from, and whether it is intact', href: '#/settings/integrity' },
     ],
   });
 }
@@ -178,6 +180,34 @@ export async function renderDataSourcesPage(opts: { enter?: boolean } = {}): Pro
     const body = document.getElementById('set-tab-body');
     if (body) body.innerHTML = dataSourcesHtml();
   }
+}
+
+/** Settings → Data integrity (FT-07): the integrity report per framework. */
+export async function renderIntegrityPage(opts: { enter?: boolean; online?: boolean } = {}): Promise<void> {
+  settingsTab = 'integrity';
+  state.currentSection = null;
+  state.currentPart = null;
+  clearTreeSelection();
+  updateChatContext();
+  setViewHead('');
+  document.title = 'Data integrity · Settings · FRAMEWORK';
+  const paint = () => {
+    if (!onIntegrityPage()) return;
+    dom.view.innerHTML = `<div class="settings-front pg">
+      ${pageMastheadHtml({
+        folioLeftHtml: `<a href="#/">Home</a>${SEP}<span>Settings</span>`,
+        title: 'Data integrity',
+        subHtml: 'Is every downloaded framework intact, and where did its text come from? The same report as <code>python -m app.integrity</code>.',
+        tabsHtml: settingsTabsHtml(),
+      })}
+      <div id="set-tab-body" class="pg-tab-body" role="tabpanel" aria-labelledby="set-tab-integrity">${integrityHtml()}</div>
+    </div>`;
+  };
+  const run = loadIntegrity(Boolean(opts.online));
+  paint();                                   // shows the buttons disabled while the check runs
+  if (opts.enter) enterView();
+  await run;
+  if (settingsTab === 'integrity') paint();
 }
 
 export function renderSettingsPage(opts: { enter?: boolean } = {}) {
@@ -240,6 +270,7 @@ export function renderSettingsPage(opts: { enter?: boolean } = {}) {
 
 export const onSettingsPage = () => state.activeRoute === '/settings' || state.activeRoute === '/settings/';
 export const onDataSourcesPage = () => /^\/settings\/sources\/?$/.test(state.activeRoute);
+export const onIntegrityPage = () => /^\/settings\/integrity\/?$/.test(state.activeRoute);
 
 export function refreshSettingsViews(): void {
   if (navState.panel === 'settings') renderSettingsPanel();
@@ -280,6 +311,8 @@ function handleSettingsClick(e: Event): void {
   }
   const setAct = t?.closest<HTMLButtonElement>('[data-set-act]');
   if (setAct) runSettingsAction(setAct);
+  const intAct = t?.closest<HTMLButtonElement>('[data-int-act]');
+  if (intAct && onIntegrityPage()) void renderIntegrityPage({ online: intAct.dataset.intAct === 'online' });
 }
 
 onView('click', handleSettingsClick);
@@ -309,8 +342,8 @@ dom.sidebar?.addEventListener('change', (e) => {
 });
 
 registerDrawerPanel('settings', renderSettingsPanel);
-bindSwitchboardKeys('#set-tabs', 'set-tab', () => ['general', 'sources'], (id) => {
-  window.location.hash = id === 'sources' ? '#/settings/sources' : '#/settings';
+bindSwitchboardKeys('#set-tabs', 'set-tab', () => ['general', 'sources', 'integrity'], (id) => {
+  window.location.hash = id === 'general' ? '#/settings' : `#/settings/${id}`;
   requestAnimationFrame(() => document.getElementById(`set-tab-${id}`)?.focus());
 });
 on('nav:mode-changed', () => refreshSettingsViews());
