@@ -310,6 +310,53 @@ class PublicLawTests(CorpusTestCase):
         self.assertGreater(plaw.estimate([118], ["public"])["bytes"], 10 * 1024 * 1024)
 
 
+    def test_law_reader_units_and_api(self):
+        from app.render import plaw_html
+        # A long law with a division reads a section at a time; margin notes are their own lines.
+        filler = "Lorem ipsum dolor sit amet. " * 600
+        xml = f"""<pLaw xmlns="{PLAW_NS}"><main><longTitle><docTitle>An Act</docTitle><officialTitle>To do things.</officialTitle></longTitle>
+<enactingFormula>Be it enacted.</enactingFormula>
+<division><num>DIVISION A</num><heading>FIRST PART</heading>
+<section><num>SEC. 101.</num><heading>Short title.</heading><content>{filler}<sidenote><p>42 USC 6901 note.</p></sidenote></content></section>
+<section><num>SEC. 102.</num><heading>Amendments.</heading><content>{filler}</content></section></division>
+<section><num>SEC. 2.</num><heading>Last.</heading><content>{filler}</content></section></main></pLaw>""".encode()
+        units = plaw_html.law_units(xml)
+        self.assertEqual([u["key"] for u in units], ["preamble", "s1", "s2", "s3"])
+        self.assertEqual((units[1]["label"], units[1]["title"], units[1]["group_label"]), ("SEC. 101", "Short title", "DIVISION A FIRST PART"))
+        self.assertIsNone(units[3]["group_label"])
+        self.assertIn("Be it enacted.", units[0]["html"])
+        self.assertIn('<p class="plaw-sidenote">42 USC 6901 note.</p>', units[1]["html"])
+        self.assertNotIn("<script", "".join(u["html"] for u in units))
+
+        c = TestClient(app)
+        self.assertEqual(c.get("/api/plaw/law/114-1/text").status_code, 404)
+        with self.fake.patch():
+            plaw.build([113, 114])
+        st = c.get("/api/plaw?limit=1").json()["status"]
+        self.assertEqual((st["first_congress"], st["current_congress"]), (113, plaw.current_congress()))
+        # A short law is one page: every unit in one html, preamble first, sections headed.
+        d = c.get("/api/plaw/law/114-1/text").json()
+        self.assertEqual(d["mode"], "page")
+        self.assertEqual([u["key"] for u in d["outline"]], ["preamble", "s1"])
+        self.assertIn('<h2 class="plaw-sec-head">SEC. 1</h2>', d["html"])
+        self.assertIn("42 USC 6921a.", d["html"])
+        self.assertNotIn("text", c.get("/api/plaw/law/114-1", params={"text": "false"}).json())
+        self.assertIn("text", c.get("/api/plaw/law/114-1").json())
+        # A long law: one unit per request, with its neighbours; an unknown unit is a 404.
+        with mock.patch.object(plaw_html, "law_units", lambda x: units):
+            u = c.get("/api/plaw/law/114-1/text", params={"unit": ""}).json()
+            self.assertEqual((u["mode"], u["unit"], u["unit_prev"], u["unit_next"]["key"]), ("units", "preamble", None, "s1"))
+            u = c.get("/api/plaw/law/114-1/text", params={"unit": "s3"}).json()
+            self.assertEqual((u["unit_prev"]["key"], u["unit_next"]), ("s2", None))
+            self.assertEqual(c.get("/api/plaw/law/114-1/text", params={"unit": "s9"}).status_code, 404)
+        # Remove: refused while a Public Laws job is queued, then deletes; 404 once gone.
+        with mock.patch.object(library.queue, "busy_with", lambda key: key == plaw.JOB_KEY):
+            self.assertEqual(c.delete("/api/plaw").status_code, 409)
+        self.assertEqual(c.delete("/api/plaw").json(), {"removed": "plaw"})
+        self.assertFalse(plaw.exists())
+        self.assertEqual(c.delete("/api/plaw").status_code, 404)
+
+
 class AgendaTests(CorpusTestCase):
     def test_editions_window(self):
         eds = agenda.parse_edition_list('f=REGINFO_RIN_DATA_202510.xml f=REGINFO_RIN_DATA_202404.xml '

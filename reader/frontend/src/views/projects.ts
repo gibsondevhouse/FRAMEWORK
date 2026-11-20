@@ -19,6 +19,7 @@ import { SEP, emptyStateHtml, fmtDate, joinSep, shortDate } from '../components/
 import { refTierForCorpus, TIER_META, TIER_ORDER } from '../components/corpora';
 import { buildTabGroupSnapshot, formatTabLabel, restoreTabGroup } from '../components/reader_tabs';
 import { CONST_LIB_HREF, constCached, constHref } from '../core/constitution';
+import { uscCite } from '../core/usc_label';
 
 export {
   PROJECTS_KEY, PROJECT_HUES, validProject, loadProjects, saveProjects, nowIso,
@@ -285,7 +286,7 @@ export function renderProjects(id: string | null): void {
           <span class="proj-item-date">Pinned ${escapeHtml(shortDate((s.pinned_at || '').slice(0, 10)))}</span></div>
         <h3 class="story-name">${have ? `<a href="${href}">${escapeHtml(s.label || '§ ' + s.id)} ${escapeHtml(s.heading || '')}</a>`
           : `${escapeHtml(s.label || '§ ' + s.id)} ${escapeHtml(s.heading || '')}`}</h3>
-        ${have ? '' : `<p class="proj-missing">${isConst ? 'The Constitution' : isUsc ? `${s.title} U.S.C.` : `Title ${s.title}`} isn’t installed. <a href="${libHref}">Download it</a> to read this section.</p>`}
+        ${have ? '' : `<p class="proj-missing">${isConst ? 'The Constitution' : isUsc ? uscCite(s.title) : `Title ${s.title}`} isn’t installed. <a href="${libHref}">Download it</a> to read this section.</p>`}
         <textarea class="proj-note" rows="1" data-sec="${escapeHtml(secKey(s.title, s.id))}" placeholder="Add a note…" aria-label="Note on ${escapeHtml(s.label || s.id)}">${escapeHtml(s.note || '')}</textarea>
         <div class="proj-item-acts"><button type="button" class="lib-act is-danger" data-proj-act="unpin" data-sec="${escapeHtml(secKey(s.title, s.id))}">Remove</button></div>
       </article>`;

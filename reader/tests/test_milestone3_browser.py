@@ -23,12 +23,13 @@ try:
 except ImportError:
     HAVE_PLAYWRIGHT = False
 
-from app import constitution, gov_http, news_store, news_worker, store
+from app import constitution, gov_http, news_store, news_worker, plaw, store, usc_build, usc_client
 from app.library import client as lib_client
 from app.main import app
 import fake_titles
 from tests.base import HermeticTestCase, TRACKED_KEYS
-from tests.test_new_corpora import FakeGov
+from tests.test_new_corpora import FakeGov, plaw_xml, zip_of
+from tests.test_usc_corpus import FakeOLRC
 
 REQUIRE_BROWSER = os.environ.get("REQUIRE_BROWSER") == "1"
 
@@ -391,6 +392,63 @@ class Milestone3BrowserTests(HermeticTestCase):
         page.goto(f"{self.base_url}/#/", wait_until="networkidle")
         page.wait_for_selector("#hm-sys-const[href='#/constitution/']", timeout=10000)
         self.assertIn("Installed", page.locator("#hm-sys-const").inner_text())
+        self.assertEqual(page._page_errors, [])
+        self.assertEqual(self.external, [])
+
+    def test_public_laws_tab_reader_and_enacted_by(self):
+        """Public Laws: Library tab by Congress, the law reader with its U.S. Code links, U.S.C. "Enacted by"."""
+        plaw.remove()
+        self.addCleanup(plaw.remove)
+        self.addCleanup(lambda: usc_build.remove(4))
+        page = self._new_page()
+
+        page.goto(f"{self.base_url}/#/library/plaw", wait_until="networkidle")
+        page.wait_for_selector("#lib-tab-plaw[aria-selected='true']", timeout=10000)
+        self.assertIn("Not installed", page.locator("#lib-tab-plaw").inner_text())
+
+        fake = FakeGov()
+        fake.plaw[(114, "public")] = zip_of({
+            "PLAW-114publ1.xml": plaw_xml(114, 1, "Second law", '<ref href="/us/usc/t42/s6921">42 U.S.C. 6921</ref>', "42 USC 6921a."),
+            "PLAW-114publ2.xml": plaw_xml(114, 2, "Third law about silica"),
+            "PLAW-114publ3.xml": plaw_xml(114, 3, "Flag law", '<ref href="/us/usc/t4/s1">4 U.S.C. 1</ref>', "4 USC 1 note."),
+        })
+        with fake.patch(), mock.patch.object(gov_http, "_sleep", lambda s: None), \
+                mock.patch.object(plaw, "log", lambda msg: None):
+            page.locator("[data-act='plaw-download'][data-congresses='all']").click()
+            page.wait_for_selector("#lib-list a.lib-row[href='#/law/114-1']", timeout=15000)
+        self.assertIn("4 laws", page.locator("#lib-tab-plaw").inner_text())
+        page.locator("#lib-filter").fill("silica")
+        page.wait_for_function("() => document.querySelector(\"#lib-list a[href='#/law/114-1']\").hidden", timeout=3000)
+        self.assertTrue(page.locator("#lib-list a[href='#/law/114-2']").is_visible())
+        page.locator(".plaw-cong[href='#/library/plaw/113']").click()
+        page.wait_for_selector("#lib-list a.lib-row[href='#/law/113-1']", timeout=5000)
+        self.assertIn("Not downloaded", page.locator(".plaw-cong[href='#/library/plaw/115']").inner_text())
+
+        # The law reader: heading, citation, and where it went in the U.S. Code.
+        page.goto(f"{self.base_url}/#/law/114-1", wait_until="networkidle")
+        page.wait_for_selector("#plaw-usc", timeout=10000)
+        self.assertEqual(page.locator("h1.doc-title").inner_text().strip(), "Pub. L. 114-1 Second law")
+        self.assertEqual(page.locator("#plaw-btn-cite").get_attribute("data-plaw-cite"), "Pub. L. No. 114-1, 137 Stat. 10 (2023)")
+        usc = page.locator("#plaw-usc").inner_text()
+        self.assertIn("42 U.S.C. § 6921a", usc)
+        self.assertIn("42 U.S.C. § 6921", usc)
+        self.assertTrue(page.evaluate("() => document.documentElement.classList.contains('in-framework')"))
+
+        # The U.S. Code tab lists the appendix titles in their own group.
+        page.goto(f"{self.base_url}/#/library/usc", wait_until="networkidle")
+        page.wait_for_selector(".lib-desk[aria-label='Appendices'] .lib-story", timeout=10000)
+        self.assertEqual(page.locator(".lib-desk[aria-label='Appendices'] .lib-story").count(), 4)
+        self.assertIn("Bankruptcy — Appendix", page.locator(".lib-desk[aria-label='Appendices']").inner_text())
+
+        # A U.S. Code section lists the laws that enacted or amended it.
+        usc_client.clear_cache()
+        with FakeOLRC().patch(), mock.patch.object(usc_build, "log", lambda msg: None):
+            usc_build.build(4, force=True)
+        page.goto(f"{self.base_url}/#/usc/4/section/1", wait_until="networkidle")
+        page.wait_for_selector("#usc-btn-laws:not([hidden])", timeout=10000)
+        self.assertIn("Enacted by 1", page.locator("#usc-btn-laws").inner_text())
+        page.locator("#usc-btn-laws").click()
+        page.wait_for_selector("#cite-pop a[href='#/law/114-3']", timeout=5000)
         self.assertEqual(page._page_errors, [])
         self.assertEqual(self.external, [])
 

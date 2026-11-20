@@ -364,11 +364,13 @@ A standalone HTML page for one section: the href of local U.S.C. citation links 
 
 `data/plaw.sqlite3`, from GovInfo bulk data `bulkdata/PLAW/{congress}/{public|private}/PLAW-{congress}-{type}.zip` (USLM, 113th Congress on; no key). `python -m app.plaw [--congress 118-119] [--types public,private] [--force] | --update | --status`. Builds are resumable per (congress, type) chunk and replace the live file atomically; `update()` re-reads the newest congress (and, for an "all congresses" scope, any newer one). Law ids: `118-2` (public), `118-pvt-5` (private).
 
-- `GET /api/plaw?congress=&type=&limit=&offset=` → `{installed, total, results[{id, congress, law_type, number, citation, statute, title, approved_date, bill}], status}`
-- `GET /api/plaw/law/{id}?xml=false` → the law plus `text`, `usc[{title, section, kind: reference|codified|note}]` and `provenance{source_url, sha256, byte_len, fetched_at}` (`xml=true` adds the USLM)
+- `GET /api/plaw?congress=&type=&limit=&offset=` → `{installed, total, results[{id, congress, law_type, number, citation, statute, title, approved_date, bill}], status}`; `status` carries `installed`, `law_count`, `usc_link_count`, `meta` (with the `scope` JSON), `congresses[{congress, law_type, laws}]`, and `first_congress` (113) / `current_congress` (from today's date) for the Library's Congress tiles
+- `GET /api/plaw/law/{id}?xml=false&text=true` → the law plus `text`, `usc[{title, section, kind: reference|codified|note}]` and `provenance{source_url, sha256, byte_len, fetched_at}` (`xml=true` adds the USLM; `text=false` leaves out the plain text)
+- `GET /api/plaw/law/{id}/text?unit=` → the law as reading units: `{id, mode: units|page, outline[{key, label, title, kind, group, group_label, group_title, chars}], chars, unit, unit_prev, unit_next, html}`. Units are `preamble` (long title and enacting clause) and `s1`, `s2` … (every `SEC.` in reading order, labelled with its division/title as `group_label`); margin notes render as `p.plaw-sidenote`. A long law (2+ units past 25,000 characters) is `units`: with `unit` (`''` = the first) only that unit's `html`; otherwise, and for a short law, `html` is the whole law with each unit in `section.reg-unit#u-{key}`. 404 for an unknown law or unit
 - `GET /api/plaw/usc/{title}/{section}` → laws that cite, amend or place provisions at that U.S. Code section (`kinds`)
 - `GET /api/plaw/search?q=` → `Pub. L. 118-31` / `118-31` is an exact hit; else FTS over title and text
 - `POST /api/plaw/build` `{congresses?, types?}` · `POST /api/plaw/update` → `{job}` (queue key 3000)
+- `DELETE /api/plaw` → `{removed: "plaw"}`; 409 while a Public Laws job is queued or running, 404 when not installed
 
 ## Unified Agenda
 

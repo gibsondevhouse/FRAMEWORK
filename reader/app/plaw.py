@@ -401,12 +401,14 @@ def read_con() -> Iterator[sqlite3.Connection | None]:
 def status() -> dict:
     with read_con() as con:
         if con is None:
-            return {"installed": False, "law_count": 0, "usc_link_count": 0, "meta": {}, "congresses": []}
+            return {"installed": False, "law_count": 0, "usc_link_count": 0, "meta": {}, "congresses": [],
+                    "first_congress": FIRST_CONGRESS, "current_congress": current_congress()}
         meta = _get_meta(con)
         cong = [dict(r) for r in con.execute(
             "SELECT congress, law_type, count(*) AS laws FROM laws GROUP BY congress, law_type ORDER BY congress")]
     return {"installed": True, "law_count": int(meta.get("law_count") or 0),
-            "usc_link_count": int(meta.get("usc_link_count") or 0), "meta": meta, "congresses": cong}
+            "usc_link_count": int(meta.get("usc_link_count") or 0), "meta": meta, "congresses": cong,
+            "first_congress": FIRST_CONGRESS, "current_congress": current_congress()}
 
 
 _LIST = "id, congress, law_type, number, citation, statute, title, approved_date, bill"
@@ -447,6 +449,46 @@ def get_law(lid: str, include_xml: bool = False) -> dict | None:
     d["provenance"] = {"source_url": d.pop("source_url"), "sha256": d.pop("sha256"), "byte_len": d.pop("byte_len"),
                        "fetched_at": d.pop("fetched_at")}
     return d
+
+
+def law_text(lid: str, unit: str | None = None) -> dict | None:
+    """A law as reading units (render/plaw_html): `mode` "units" for a long law with 2+
+    sections (one section at a time; `unit` '' = the first), else "page" (all of it)."""
+    from .render import plaw_html
+    from .render.units import UNIT_MODE_MIN_CHARS
+    with read_con() as con:
+        if con is None:
+            return None
+        row = con.execute("SELECT xml_z FROM laws WHERE id = ?", (lid,)).fetchone()
+    if row is None:
+        return None
+    units = plaw_html.law_units(zlib.decompress(row["xml_z"]))
+    total = sum(u["chars"] for u in units)
+    mode = "units" if len(units) >= 2 and total > UNIT_MODE_MIN_CHARS else "page"
+    outline = [{k: u[k] for k in ("key", "label", "title", "kind", "group", "group_label", "group_title", "chars")}
+               for u in units]
+    out: dict = {"id": lid, "mode": mode, "outline": outline, "chars": total}
+    if mode == "units" and unit is not None:
+        keys = [u["key"] for u in units]
+        i = keys.index(unit) if unit in keys else (0 if unit == "" else -1)
+        if i < 0:
+            raise KeyError(unit)
+        out.update(unit=keys[i], html=units[i]["html"],
+                   unit_prev=outline[i - 1] if i > 0 else None,
+                   unit_next=outline[i + 1] if i + 1 < len(units) else None)
+    else:
+        out.update(unit=None, unit_prev=None, unit_next=None,
+                   html="".join(f'<section class="reg-unit" id="u-{u["key"]}" data-unit="{u["key"]}">'
+                                + (f'<h2 class="plaw-sec-head">{_esc(u["label"])}'
+                                   + (f' <span class="plaw-sec-title">{_esc(u["title"])}</span>' if u["title"] else "")
+                                   + "</h2>" if u["key"] != "preamble" and u["label"] else "")
+                                + u["html"] + "</section>" for u in units))
+    return out
+
+
+def _esc(s: str) -> str:
+    from html import escape
+    return escape(s or "", quote=False)
 
 
 def laws_for_usc(title: int, section: str, limit: int = 50) -> list[dict]:
