@@ -280,7 +280,9 @@ def write_env_updates(updates: dict[str, str | None]) -> dict:
 LOG_SECRET_KEYS = (*ENV_SECRET_KEYS, "GOVINFO_API_KEY")
 REDACTED = "[redacted]"
 MIN_SECRET_CHARS = 8          # shorter values are not keys, and replacing them would mangle text
-_SECRET_PARAM_RE = re.compile(r"(?i)\b((?:x-api-key|api[_-]?key)=)[^&\s\"'<>)\]]+")
+# The lookahead skips a value that is already the marker, so redacting twice changes nothing
+# more: `_redact_record` relies on that to tell a cleaned record from one that still has a key.
+_SECRET_PARAM_RE = re.compile(r"(?i)\b((?:x-api-key|api[_-]?key)=)(?!\[redacted\])[^&\s\"'<>)\]]+")
 
 
 def redact_secrets(text: str) -> str:

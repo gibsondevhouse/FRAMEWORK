@@ -163,6 +163,17 @@ class RedactionTests(SecretsCase):
         for text, want in cases.items():
             self.assertEqual(config.redact_secrets(text), want)
 
+    def test_redacting_twice_changes_nothing_more(self):
+        """The record cleaner redacts, then checks its own result by redacting again: if the
+        marker itself were matched, every cleaned record would look dirty."""
+        for text in (f"GET /healthz?api_key=sample-secret-1234 and X-API-KEY={DOL}&x=1",
+                     f"https://api.govinfo.gov/x?api_key={quote(GOV, safe='')}", f"key {ANT} twice {ANT}",
+                     "api_key=[redacted]", "x-api-key=[redacted]&api_key=[redacted]] trailing"):
+            once = config.redact_secrets(text)
+            self.assertEqual(config.redact_secrets(once), once, text)
+            self.assert_no_key(once)
+        self.assertEqual(config.redact_secrets("/healthz?api_key=sample-secret-1234"), "/healthz?api_key=[redacted]")
+
     def test_a_configured_key_is_removed_wherever_it_appears(self):
         text = f"headers={{'x-api-key': '{ANT}'}} tried {DOL} then {GOV} then {quote(GOV, safe='')}"
         clean = config.redact_secrets(text)
@@ -211,8 +222,16 @@ class RedactionTests(SecretsCase):
         self.addCleanup(access.removeHandler, handler)
         access.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5", "GET", f"/api/search?q={ANT}", "1.1", 200)
         access.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5", "GET", "/api/titles", "1.1", 200)
+        # A key-named query parameter, whatever its value (not one of the configured keys).
+        access.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5", "GET", "/healthz?api_key=sample-secret-1234&x=1", "1.1", 200)
+        access.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5", "GET", f"/x?X-API-KEY={DOL}", "1.1", 200)
         self.assertEqual(records[0].args, ("127.0.0.1:5", "GET", "/api/search?q=[redacted]", "1.1", 200))
         self.assertEqual(records[1].args, ("127.0.0.1:5", "GET", "/api/titles", "1.1", 200))   # untouched
+        self.assertEqual(records[2].args, ("127.0.0.1:5", "GET", "/healthz?api_key=[redacted]&x=1", "1.1", 200))
+        self.assertEqual(records[3].args, ("127.0.0.1:5", "GET", "/x?X-API-KEY=[redacted]", "1.1", 200))
+        for record in records:                       # each still formats the way the server's formatter needs
+            client, method, path, version, status = record.args
+            self.assertEqual(record.getMessage(), f'{client} - "{method} {path} HTTP/{version}" {status}')
 
     def test_a_malformed_record_is_left_for_logging_to_report(self):
         record = logging.getLogRecordFactory()("x", logging.INFO, __file__, 1, "%d and %d", ("one",), None)
