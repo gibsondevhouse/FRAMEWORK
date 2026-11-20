@@ -17,6 +17,31 @@ and `LocalTrustMiddleware` refuses both before any route runs:
 Clients that are not browsers (curl, scripts, the CLI, the test client) send neither header
 and are not affected: this is a guard against the browser being used as a proxy, not a login.
 
+**Access token beyond this computer (register item SEC-002).** A name listed in
+`SERVER_ALLOWED_HOSTS` used to be open to anyone who could reach the machine. Now every
+request that is not *local* must carry the access token or is answered 401. Local means all
+three of: a loopback name in `Host`, a loopback address on the other end of the connection,
+and no proxy forwarding header. The `Host` header alone proves nothing (any client can send
+`Host: localhost` to a server bound to the network), which is why the connection's own
+address is checked. Local use is unchanged: no token, no prompt, and no token file is created.
+
+One case cannot be told apart from local use: a reverse proxy on this same computer that
+passes requests on without any forwarding header. Its visitors arrive over loopback, and one
+of them can send `Host: localhost`. Such a proxy must add `X-Forwarded-For` (any
+`X-Forwarded-*`, `Forwarded` or `X-Real-IP` header counts) to every request, or the owner sets
+`SERVER_REQUIRE_TOKEN=1`, which asks every request for the token, local ones included.
+
+The token is 256 random bits, generated on this computer the first time it is needed and kept
+in `data/access-token`, readable by its owner only (POSIX file modes; Windows has none, so
+there the file has the permissions of the folder it is in). It is read from the file on every
+use, never cached, never logged and never put in a URL.
+A browser presents it through its built-in sign-in prompt (HTTP Basic: any user name, the
+token as the password) and then sends it by itself on every request, including the page's own
+`fetch` calls, so the single-page app needs no change. Scripts send
+`Authorization: Bearer <token>`. `python -m app.security` shows the token; `--rotate` replaces
+it. Over plain `http://` the token crosses the network unencrypted, like everything else:
+put TLS in front of the server on a network you do not trust.
+
 **Browser security headers (register item SEC-003).** `SecurityHeadersMiddleware` puts four
 headers on every response: a content security policy, `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY` and `Referrer-Policy: same-origin`. The frontend builds most of its
@@ -28,9 +53,17 @@ allowed and why.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
+import hmac
+import ipaddress
 import os
 import re
+import secrets
+import stat
+import sys
+import tempfile
+import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -46,13 +79,32 @@ UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 SAME_SITE_VALUES = frozenset({"same-origin", "none"})
 API_PREFIX = "/api/"
 
-# Hosts added in-process rather than through the environment. The test base adds Starlette's
-# `testserver`; nothing in the app itself writes to it.
+# Hosts added in-process rather than through the environment, and treated as this computer's
+# own names. The test base adds Starlette's `testserver`; nothing in the app itself writes to it.
 EXTRA_ALLOWED_HOSTS: set[str] = set()
+# The same for the address on the other end of the connection (the test client's `testclient`).
+EXTRA_LOCAL_PEERS: set[str] = set()
+
+# Headers a reverse proxy adds when it relays a request for someone else: these two, and
+# anything that starts with `x-forwarded-` (-for, -host, -proto, -port, ...).
+FORWARDING_HEADERS = ("forwarded", "x-real-ip")
+FORWARDING_PREFIX = "x-forwarded-"
+
+TOKEN_FILE = "access-token"
+TOKEN_BYTES = 32                                            # 256 bits
+TOKEN_CHARS = len(secrets.token_urlsafe(TOKEN_BYTES))       # which is 43 URL-safe characters
+# What a token generated here looks like. Anything else in the file is replaced, never accepted.
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{%d,}" % TOKEN_CHARS)
 
 BAD_HOST = ("Invalid Host header. FRAMEWORK only answers under this computer's own name; "
             "list another name in SERVER_ALLOWED_HOSTS (reader/.env) to serve it there.")
 CROSS_ORIGIN = "Cross-origin request refused. FRAMEWORK's API only answers its own pages."
+NEED_TOKEN = ("Access token required. This copy of FRAMEWORK is being reached from another computer. "
+              "On the computer that runs it, show the token with `python -m app.security` (from reader/), "
+              "then sign in here with any user name and the token as the password. "
+              "Scripts send it as `Authorization: Bearer <token>`.")
+TOKEN_UNAVAILABLE = ("The access token could not be read or created on the server (reader/data/access-token), "
+                     "so requests from other computers are refused.")
 
 
 def allowed_hosts() -> frozenset[str]:
@@ -97,24 +149,176 @@ def same_origin(origin: str, host: str, scheme: str = "http") -> bool:
     return _authority(parts.netloc, parts.scheme) == _authority(host, scheme)
 
 
-def check_request(method: str, path: str, headers: Headers, scheme: str = "http") -> tuple[int, str] | None:
+def is_local_peer(client: tuple | list | None) -> bool:
+    """True when the other end of the connection is this computer: a loopback address, or no
+    network address at all (a Unix socket)."""
+    if not client:
+        return True
+    host = str(client[0]).strip().lower()
+    if host in EXTRA_LOCAL_PEERS:
+        return True
+    try:
+        ip = ipaddress.ip_address(host.partition("%")[0])
+    except ValueError:
+        return False
+    return (getattr(ip, "ipv4_mapped", None) or ip).is_loopback
+
+
+def is_forwarded(headers: Headers) -> bool:
+    """True when a header says a proxy relayed this request for someone else."""
+    return any(name in FORWARDING_HEADERS or name.startswith(FORWARDING_PREFIX) for name in headers.keys())
+
+
+def token_always_required() -> bool:
+    """`SERVER_REQUIRE_TOKEN=1`: ask every request for the token, local ones included. For a
+    reverse proxy on this computer that cannot be made to add a forwarding header."""
+    return os.environ.get("SERVER_REQUIRE_TOKEN", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def is_local_request(headers: Headers, client: tuple | list | None = None) -> bool:
+    """True for a request made on this computer, which needs no token: a loopback `Host`, a
+    loopback peer, and nothing saying a proxy relayed it for someone else."""
+    if token_always_required():
+        return False
+    if host_name(headers.get("host", "")) not in (LOOPBACK_HOSTS | EXTRA_ALLOWED_HOSTS):
+        return False
+    return is_local_peer(client) and not is_forwarded(headers)
+
+
+# --- The access token (SEC-002) -------------------------------------------------------------
+
+_token_lock = threading.Lock()
+
+
+def token_path() -> Path:
+    return config.DATA_DIR / TOKEN_FILE
+
+
+def _read_token(path: Path) -> str | None:
+    """The token in the file, or None when there is no file or it does not hold a token
+    generated here. Read from disk every time, never cached: a rotation, however it was done,
+    counts from the next request. The file is made owner-only again if someone loosened it."""
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return None
+    if os.name == "posix" and stat.S_IMODE(st.st_mode) & 0o077:
+        os.chmod(path, 0o600)
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except UnicodeDecodeError:
+        return None
+    return token if _TOKEN_RE.fullmatch(token) else None
+
+
+def _install_token(path: Path, token: str, replace: bool) -> None:
+    """Put a token file in place without it ever being readable by anyone but its owner: it is
+    written to a temporary file of its own (created with mode 0600, under a unique name, so
+    two processes never share one) and then moved into place in one step.
+
+    With `replace` the new file takes the old one's place. Without it the first writer wins:
+    if another process has created the file meanwhile, that file stays and this one is dropped.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(token + "\n")
+        if replace:
+            os.replace(tmp, path)
+            return
+        try:
+            os.link(tmp, path)                  # atomic, and refuses to overwrite
+        except FileExistsError:
+            pass                                # someone else's token is already there: keep it
+        except OSError:
+            os.replace(tmp, path)               # a filesystem without hard links
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def access_token(rotate: bool = False) -> str:
+    """The access token as it is on disk right now, created on first use (or replaced, with
+    `rotate`). Always returns what the file holds after the call, which is another process's
+    token if that process got there first. Raises `OSError` when the file can be neither read
+    nor written."""
+    path = token_path()
+    with _token_lock:
+        replace = rotate
+        if not rotate:
+            token = _read_token(path)
+            if token is not None:
+                return token
+            replace = path.exists()             # there, but not a token generated here
+        _install_token(path, secrets.token_urlsafe(TOKEN_BYTES), replace)
+        token = _read_token(path)
+        if token is None:
+            raise OSError(f"the access token file could not be written: {path}")
+        return token
+
+
+def presented_token(authorization: str | None) -> str | None:
+    """The token in an `Authorization` header: `Bearer <token>`, or the password of
+    `Basic <base64(user:password)>` (the user name is ignored)."""
+    scheme, _, value = (authorization or "").strip().partition(" ")
+    value = value.strip()
+    if not value:
+        return None
+    if scheme.lower() == "bearer":
+        return value
+    if scheme.lower() == "basic":
+        try:
+            decoded = base64.b64decode(value, validate=True).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError):
+            return None
+        _user, sep, password = decoded.partition(":")
+        return password if sep else None
+    return None
+
+
+def token_matches(authorization: str | None) -> bool:
+    """True when the header carries the access token. Compared in constant time."""
+    given = presented_token(authorization)
+    expected = access_token()
+    return given is not None and hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
+
+
+def check_request(method: str, path: str, headers: Headers, scheme: str = "http",
+                  client: tuple | list | None = None) -> tuple[int, str] | None:
     """None when the request may proceed, else `(status, detail)` for the refusal."""
     host = headers.get("host", "")
     if host_name(host) not in allowed_hosts():
         return 400, BAD_HOST
-    if method.upper() not in UNSAFE_METHODS and not path.startswith(API_PREFIX):
-        return None  # pages and static assets: nothing private, nothing changed
-    origin = headers.get("origin")
-    if origin is not None:
-        return None if same_origin(origin, host, scheme) else (403, CROSS_ORIGIN)
-    site = headers.get("sec-fetch-site")
-    if site is not None and site.strip().lower() not in SAME_SITE_VALUES:
-        return 403, CROSS_ORIGIN
+    guarded = method.upper() in UNSAFE_METHODS or path.startswith(API_PREFIX)
+    if guarded:  # pages and static assets may be linked from elsewhere; these may not
+        origin = headers.get("origin")
+        if origin is not None:
+            if not same_origin(origin, host, scheme):
+                return 403, CROSS_ORIGIN
+        else:
+            site = headers.get("sec-fetch-site")
+            if site is not None and site.strip().lower() not in SAME_SITE_VALUES:
+                return 403, CROSS_ORIGIN
+    if not is_local_request(headers, client):
+        try:
+            if not token_matches(headers.get("authorization")):
+                return 401, NEED_TOKEN
+        except OSError:
+            return 503, TOKEN_UNAVAILABLE
     return None
 
 
+def challenge(headers: Headers) -> str:
+    """The `WWW-Authenticate` value for a 401. `Basic` makes a browser show its sign-in prompt,
+    so it is offered only to the app's own pages and to an address typed by the reader; a
+    request another site's page caused gets `Bearer`, which prompts nobody."""
+    site = (headers.get("sec-fetch-site") or "none").strip().lower()
+    return 'Basic realm="FRAMEWORK access token", charset="UTF-8"' if site in SAME_SITE_VALUES else "Bearer"
+
+
 class LocalTrustMiddleware:
-    """Pure ASGI middleware: answers 400/403 itself, otherwise passes the request through
+    """Pure ASGI middleware: answers 400/401/403 itself, otherwise passes the request through
     untouched (so streaming responses such as the chat SSE are not buffered)."""
 
     def __init__(self, app: ASGIApp) -> None:
@@ -122,11 +326,15 @@ class LocalTrustMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
-            refusal = check_request(scope["method"], scope["path"], Headers(scope=scope), scope.get("scheme", "http"))
+            headers = Headers(scope=scope)
+            refusal = check_request(scope["method"], scope["path"], headers, scope.get("scheme", "http"),
+                                    scope.get("client"))
             if refusal is not None:
                 status, detail = refusal
-                response = JSONResponse({"detail": detail}, status_code=status,
-                                        headers={"Cache-Control": "no-store", **response_headers(scope["path"])})
+                extra = {"Cache-Control": "no-store", **response_headers(scope["path"])}
+                if status == 401:
+                    extra["WWW-Authenticate"] = challenge(headers)
+                response = JSONResponse({"detail": detail}, status_code=status, headers=extra)
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
@@ -292,3 +500,21 @@ class SecurityHeadersMiddleware:
             if not started:
                 await PlainTextResponse("Internal Server Error", status_code=500)(scope, receive, send_with_headers)
             raise
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`python -m app.security [--rotate]`: print the access token (creating it if needed)."""
+    args = sys.argv[1:] if argv is None else argv
+    if any(a not in ("--rotate",) for a in args):
+        print("usage: python -m app.security [--rotate]", file=sys.stderr)
+        return 2
+    token = access_token(rotate="--rotate" in args)
+    print(f"Access token for reaching FRAMEWORK from another computer ({token_path()}):", file=sys.stderr)
+    print(token)
+    print("In a browser: any user name, this token as the password. "
+          "In a script: Authorization: Bearer <token>.", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
