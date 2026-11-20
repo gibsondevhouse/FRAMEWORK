@@ -1,0 +1,413 @@
+{
+ "_note": "U.S. Code catalog (static). Names and positive-law status from the OLRC's title list (uscode.house.gov, 2026); an installed title's own USLM metadata wins. `cfr` lists the main CFR titles that implement each title's statutes (editorial, not exhaustive); the Library shows it as 'Implemented by' and the inverse as 'Authorized by'.",
+ "desks": [
+  "Labor, Health & Safety",
+  "Environment, Energy & Land",
+  "Transportation & Space",
+  "Commerce, Finance & Trade",
+  "Government & Administration",
+  "Defense & Security",
+  "Agriculture, Education & People"
+ ],
+ "titles": {
+  "1": {
+   "name": "General Provisions",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": []
+  },
+  "2": {
+   "name": "The Congress",
+   "positive_law": false,
+   "desk": "Government & Administration",
+   "cfr": []
+  },
+  "3": {
+   "name": "The President",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": []
+  },
+  "4": {
+   "name": "Flag and Seal, Seat of Government, and the States",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": []
+  },
+  "5": {
+   "name": "Government Organization and Employees",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": [
+    5
+   ]
+  },
+  "6": {
+   "name": "Domestic Security",
+   "positive_law": false,
+   "desk": "Government & Administration",
+   "cfr": []
+  },
+  "7": {
+   "name": "Agriculture",
+   "positive_law": false,
+   "desk": "Agriculture, Education & People",
+   "cfr": [
+    7
+   ]
+  },
+  "8": {
+   "name": "Aliens and Nationality",
+   "positive_law": false,
+   "desk": "Agriculture, Education & People",
+   "cfr": [
+    8
+   ]
+  },
+  "9": {
+   "name": "Arbitration",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": []
+  },
+  "10": {
+   "name": "Armed Forces",
+   "positive_law": true,
+   "desk": "Defense & Security",
+   "cfr": [
+    32
+   ]
+  },
+  "11": {
+   "name": "Bankruptcy",
+   "positive_law": true,
+   "desk": "Commerce, Finance & Trade",
+   "cfr": []
+  },
+  "12": {
+   "name": "Banks and Banking",
+   "positive_law": false,
+   "desk": "Commerce, Finance & Trade",
+   "cfr": [
+    12
+   ]
+  },
+  "13": {
+   "name": "Census",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": []
+  },
+  "14": {
+   "name": "Coast Guard",
+   "positive_law": true,
+   "desk": "Defense & Security",
+   "cfr": [
+    33
+   ]
+  },
+  "15": {
+   "name": "Commerce and Trade",
+   "positive_law": false,
+   "desk": "Commerce, Finance & Trade",
+   "cfr": [
+    15,
+    16,
+    17
+   ]
+  },
+  "16": {
+   "name": "Conservation",
+   "positive_law": false,
+   "desk": "Environment, Energy & Land",
+   "cfr": [
+    36,
+    50
+   ]
+  },
+  "17": {
+   "name": "Copyrights",
+   "positive_law": true,
+   "desk": "Commerce, Finance & Trade",
+   "cfr": []
+  },
+  "18": {
+   "name": "Crimes and Criminal Procedure",
+   "positive_law": true,
+   "desk": "Defense & Security",
+   "cfr": [
+    28
+   ]
+  },
+  "19": {
+   "name": "Customs Duties",
+   "positive_law": false,
+   "desk": "Commerce, Finance & Trade",
+   "cfr": [
+    19
+   ]
+  },
+  "20": {
+   "name": "Education",
+   "positive_law": false,
+   "desk": "Agriculture, Education & People",
+   "cfr": [
+    34
+   ]
+  },
+  "21": {
+   "name": "Food and Drugs",
+   "positive_law": false,
+   "desk": "Labor, Health & Safety",
+   "cfr": [
+    21
+   ]
+  },
+  "22": {
+   "name": "Foreign Relations and Intercourse",
+   "positive_law": false,
+   "desk": "Agriculture, Education & People",
+   "cfr": [
+    22
+   ]
+  },
+  "23": {
+   "name": "Highways",
+   "positive_law": true,
+   "desk": "Transportation & Space",
+   "cfr": [
+    23
+   ]
+  },
+  "24": {
+   "name": "Hospitals and Asylums",
+   "positive_law": false,
+   "desk": "Labor, Health & Safety",
+   "cfr": []
+  },
+  "25": {
+   "name": "Indians",
+   "positive_law": false,
+   "desk": "Agriculture, Education & People",
+   "cfr": [
+    25
+   ]
+  },
+  "26": {
+   "name": "Internal Revenue Code",
+   "positive_law": false,
+   "desk": "Commerce, Finance & Trade",
+   "cfr": [
+    26
+   ]
+  },
+  "27": {
+   "name": "Intoxicating Liquors",
+   "positive_law": false,
+   "desk": "Commerce, Finance & Trade",
+   "cfr": [
+    27
+   ]
+  },
+  "28": {
+   "name": "Judiciary and Judicial Procedure",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": [
+    28
+   ]
+  },
+  "29": {
+   "name": "Labor",
+   "positive_law": false,
+   "desk": "Labor, Health & Safety",
+   "cfr": [
+    29
+   ]
+  },
+  "30": {
+   "name": "Mineral Lands and Mining",
+   "positive_law": false,
+   "desk": "Environment, Energy & Land",
+   "cfr": [
+    30
+   ]
+  },
+  "31": {
+   "name": "Money and Finance",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": [
+    31
+   ]
+  },
+  "32": {
+   "name": "National Guard",
+   "positive_law": true,
+   "desk": "Defense & Security",
+   "cfr": []
+  },
+  "33": {
+   "name": "Navigation and Navigable Waters",
+   "positive_law": false,
+   "desk": "Environment, Energy & Land",
+   "cfr": [
+    33
+   ]
+  },
+  "34": {
+   "name": "Crime Control and Law Enforcement",
+   "positive_law": false,
+   "desk": "Defense & Security",
+   "cfr": []
+  },
+  "35": {
+   "name": "Patents",
+   "positive_law": true,
+   "desk": "Commerce, Finance & Trade",
+   "cfr": []
+  },
+  "36": {
+   "name": "Patriotic and National Observances, Ceremonies, and Organizations",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": []
+  },
+  "37": {
+   "name": "Pay and Allowances of the Uniformed Services",
+   "positive_law": true,
+   "desk": "Defense & Security",
+   "cfr": []
+  },
+  "38": {
+   "name": "Veterans' Benefits",
+   "positive_law": true,
+   "desk": "Defense & Security",
+   "cfr": [
+    38
+   ]
+  },
+  "39": {
+   "name": "Postal Service",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": [
+    39
+   ]
+  },
+  "40": {
+   "name": "Public Buildings, Property, and Works",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": [
+    41
+   ]
+  },
+  "41": {
+   "name": "Public Contracts",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": [
+    41,
+    48
+   ]
+  },
+  "42": {
+   "name": "The Public Health and Welfare",
+   "positive_law": false,
+   "desk": "Labor, Health & Safety",
+   "cfr": [
+    40,
+    42,
+    45
+   ]
+  },
+  "43": {
+   "name": "Public Lands",
+   "positive_law": false,
+   "desk": "Environment, Energy & Land",
+   "cfr": [
+    43
+   ]
+  },
+  "44": {
+   "name": "Public Printing and Documents",
+   "positive_law": true,
+   "desk": "Government & Administration",
+   "cfr": []
+  },
+  "45": {
+   "name": "Railroads",
+   "positive_law": false,
+   "desk": "Transportation & Space",
+   "cfr": [
+    49
+   ]
+  },
+  "46": {
+   "name": "Shipping",
+   "positive_law": true,
+   "desk": "Transportation & Space",
+   "cfr": [
+    46
+   ]
+  },
+  "47": {
+   "name": "Telecommunications",
+   "positive_law": false,
+   "desk": "Commerce, Finance & Trade",
+   "cfr": [
+    47
+   ]
+  },
+  "48": {
+   "name": "Territories and Insular Possessions",
+   "positive_law": false,
+   "desk": "Agriculture, Education & People",
+   "cfr": []
+  },
+  "49": {
+   "name": "Transportation",
+   "positive_law": true,
+   "desk": "Transportation & Space",
+   "cfr": [
+    14,
+    49
+   ]
+  },
+  "50": {
+   "name": "War and National Defense",
+   "positive_law": false,
+   "desk": "Defense & Security",
+   "cfr": [
+    15
+   ]
+  },
+  "51": {
+   "name": "National and Commercial Space Programs",
+   "positive_law": true,
+   "desk": "Transportation & Space",
+   "cfr": [
+    14
+   ]
+  },
+  "52": {
+   "name": "Voting and Elections",
+   "positive_law": false,
+   "desk": "Government & Administration",
+   "cfr": [
+    11
+   ]
+  },
+  "53": {
+   "name": "[Reserved]",
+   "reserved": true
+  },
+  "54": {
+   "name": "National Park Service and Related Programs",
+   "positive_law": true,
+   "desk": "Environment, Energy & Land",
+   "cfr": []
+  }
+ }
+}

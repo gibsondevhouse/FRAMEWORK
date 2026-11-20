@@ -31,6 +31,7 @@ import {
 } from '../components/corpora';
 import { fmtMB, fmtSections, SEP, joinSep, shortDate, statPill } from '../components/ui';
 import { startNewWorkspace } from '../views/projects';
+import { pageMastheadHtml, switchboardHtml, SwitchboardTab } from '../components/page_shell';
 
 const HOME_NEWS_CACHE = 'newsCache:v1:all';
 const HOME_STATUS_CACHE = 'newsCache:v1:status';
@@ -1097,15 +1098,7 @@ function homeTabsHtml(
   const cfrAlert = attention.some(a => a.tier === 'cfr');
   const frAlert = attention.some(a => a.tier === 'fr');
 
-  const tabs: Array<{
-    id: HomeTab;
-    label: string;
-    abbr: string;
-    refTier?: string;
-    countLabel?: string;
-    sub: string;
-    alert?: boolean;
-  }> = [
+  const tabs: Array<SwitchboardTab & { id: HomeTab }> = [
     {
       id: 'overview',
       label: 'Overview',
@@ -1144,23 +1137,15 @@ function homeTabsHtml(
     },
   ];
 
-  return `
-    <nav class="hm-tabs" id="hm-tabs" role="tablist" aria-label="Home sections">
-      ${tabs.map(t => {
-        const active = tab === t.id;
-        return `<button type="button" class="hm-tab${active ? ' is-active' : ''}" id="hm-tab-${t.id}" role="tab" aria-selected="${active}" aria-controls="hm-tab-body" tabindex="${active ? '0' : '-1'}" data-hm-tab="${t.id}"${t.refTier ? ` data-ref-tier="${t.refTier}"` : ''}>
-          <span class="hm-tab-top">
-            <span class="hm-tab-abbr">${t.refTier ? '<span class="tier-pip" aria-hidden="true"></span>' : ''}${escapeHtml(t.abbr)}</span>
-            <span class="hm-tab-right">
-              ${t.alert ? '<span class="stat-dot is-stale" title="Update or sync due" aria-hidden="true"></span>' : ''}
-              ${t.countLabel ? `<span class="hm-tab-count">${escapeHtml(t.countLabel)}</span>` : ''}
-            </span>
-          </span>
-          <span class="hm-tab-label">${escapeHtml(t.label)}</span>
-          <span class="hm-tab-sub">${escapeHtml(t.sub)}</span>
-        </button>`;
-      }).join('')}
-    </nav>`;
+  return switchboardHtml({
+    id: 'hm-tabs',
+    idPrefix: 'hm-tab',
+    dataAttr: 'hm-tab',
+    panelId: 'hm-tab-body',
+    label: 'Home sections',
+    tabs,
+    active: tab,
+  });
 }
 
 function uscDossierCardHtml(
@@ -1293,37 +1278,37 @@ function renderUscTabHtml(
   const cards = shown.map(c => uscDossierCardHtml(c, titles, recent, projects, usage, articles)).join('');
 
   return `
-    <div class="hm-tab-lead" data-ref-tier="usc">
-      <div class="hm-tab-lead-copy">
-        <div class="hm-tab-lead-kicker"><span class="ref-badge" data-ref-tier="usc">U.S.C. · STATUTORY AUTHORITY</span><span>Acts of Congress &amp; Regulatory Delegation</span></div>
-        <h2 class="hm-tab-lead-title">United States Code</h2>
-        <p class="hm-tab-lead-sub">Enabling federal statutes enacted by Congress, their major statutory mandates, and direct delegation chains into your installed CFR titles and active Federal Register rulemaking.</p>
+    <div class="pg-lead" data-ref-tier="usc">
+      <div class="pg-lead-copy">
+        <div class="pg-lead-kicker"><span class="ref-badge" data-ref-tier="usc">U.S.C. · STATUTORY AUTHORITY</span><span>Acts of Congress &amp; Regulatory Delegation</span></div>
+        <h2 class="pg-lead-title">United States Code</h2>
+        <p class="pg-lead-sub">Enabling federal statutes enacted by Congress, their major statutory mandates, and direct delegation chains into your installed CFR titles and active Federal Register rulemaking.</p>
       </div>
-      <div class="hm-tab-lead-acts">
+      <div class="pg-lead-acts">
         <a class="btn btn-sm" href="https://uscode.house.gov/" target="_blank" rel="noopener noreferrer">Official U.S.C. Portal ${icon('external')}</a>
         <button type="button" class="btn btn-sm btn-accent" data-hm-tab="cfr">Implementing CFR Desk ${icon('chevronRight')}</button>
       </div>
     </div>
-    <div class="hm-kpi-strip" data-ref-tier="usc" aria-label="United States Code telemetry">
-      <div class="hm-kpi-cell">
-        <span class="hm-kpi-lbl">Tracked Statutes</span>
-        <span class="hm-kpi-val">${fmt(uscList.length)} U.S.C. titles</span>
-        <span class="hm-kpi-sub">Linked to ${plural(linkedCfrSet.size || titles.length, 'CFR title')}</span>
+    <div class="pg-kpi-strip" data-ref-tier="usc" aria-label="United States Code telemetry">
+      <div class="pg-kpi-cell">
+        <span class="pg-kpi-lbl">Tracked Statutes</span>
+        <span class="pg-kpi-val">${fmt(uscList.length)} U.S.C. titles</span>
+        <span class="pg-kpi-sub">Linked to ${plural(linkedCfrSet.size || titles.length, 'CFR title')}</span>
       </div>
-      <div class="hm-kpi-cell">
-        <span class="hm-kpi-lbl">Principal Enacted Acts</span>
-        <span class="hm-kpi-val">${fmt(totalActs)} organic acts</span>
-        <span class="hm-kpi-sub">OSH Act, FLSA, RCRA, CAA, CWA, HMTA</span>
+      <div class="pg-kpi-cell">
+        <span class="pg-kpi-lbl">Principal Enacted Acts</span>
+        <span class="pg-kpi-val">${fmt(totalActs)} organic acts</span>
+        <span class="pg-kpi-sub">OSH Act, FLSA, RCRA, CAA, CWA, HMTA</span>
       </div>
-      <div class="hm-kpi-cell">
-        <span class="hm-kpi-lbl">Enabling Mandates Mapped</span>
-        <span class="hm-kpi-val">${fmt(totalProvs)} provisions</span>
-        <span class="hm-kpi-sub">Deep-linked to implementing CFR parts</span>
+      <div class="pg-kpi-cell">
+        <span class="pg-kpi-lbl">Enabling Mandates Mapped</span>
+        <span class="pg-kpi-val">${fmt(totalProvs)} provisions</span>
+        <span class="pg-kpi-sub">Deep-linked to implementing CFR parts</span>
       </div>
-      <div class="hm-kpi-cell">
-        <span class="hm-kpi-lbl">Implementing Rulemaking</span>
-        <span class="hm-kpi-val">${fmt(relatedRules.length)} FR dockets</span>
-        <span class="hm-kpi-sub">${relatedRules[0] ? `Latest ${escapeHtml(shortDate(relatedRules[0].published_at))}` : 'Synced via Federal Register API'}</span>
+      <div class="pg-kpi-cell">
+        <span class="pg-kpi-lbl">Implementing Rulemaking</span>
+        <span class="pg-kpi-val">${fmt(relatedRules.length)} FR dockets</span>
+        <span class="pg-kpi-sub">${relatedRules[0] ? `Latest ${escapeHtml(shortDate(relatedRules[0].published_at))}` : 'Synced via Federal Register API'}</span>
       </div>
     </div>
     <section class="hm-titles" id="hm-titles" data-snapshot-loaded="1" aria-label="United States Code statutory dossiers">
@@ -1534,37 +1519,37 @@ function renderCfrTabHtml(
   return `
     ${activeTransfersHtml()}
     ${updatesBannerHtml(cfrAttention, titles)}
-    <div class="hm-tab-lead" data-ref-tier="cfr">
-      <div class="hm-tab-lead-copy">
-        <div class="hm-tab-lead-kicker"><span class="ref-badge" data-ref-tier="cfr">CFR · CODIFIED REGULATIONS</span><span>Local SQLite FTS5 &amp; Citation Graph</span></div>
-        <h2 class="hm-tab-lead-title">Code of Federal Regulations</h2>
-        <p class="hm-tab-lead-sub">Locally indexed eCFR editions with clause-by-clause unit reading, Part TOC Atlases, deterministic cross-reference graphs, and incorporation-by-reference (IBR) standards.</p>
+    <div class="pg-lead" data-ref-tier="cfr">
+      <div class="pg-lead-copy">
+        <div class="pg-lead-kicker"><span class="ref-badge" data-ref-tier="cfr">CFR · CODIFIED REGULATIONS</span><span>Local SQLite FTS5 &amp; Citation Graph</span></div>
+        <h2 class="pg-lead-title">Code of Federal Regulations</h2>
+        <p class="pg-lead-sub">Locally indexed eCFR editions with clause-by-clause unit reading, Part TOC Atlases, deterministic cross-reference graphs, and incorporation-by-reference (IBR) standards.</p>
       </div>
-      <div class="hm-tab-lead-acts">
+      <div class="pg-lead-acts">
         <button type="button" class="btn btn-sm" data-hm-act="check-updates">${icon('refresh')} Check eCFR</button>
         <a class="btn btn-sm btn-accent" href="#/library">${icon('download')} Manage Library ${icon('chevronRight')}</a>
       </div>
     </div>
-    <div class="hm-kpi-strip" data-ref-tier="cfr" aria-label="CFR archive telemetry">
-      <div class="hm-kpi-cell">
-        <span class="hm-kpi-lbl">Installed Editions</span>
-        <span class="hm-kpi-val">${plural(titles.length, 'CFR title')}</span>
-        <span class="hm-kpi-sub">${fmt(totalSections)} offline sections indexed</span>
+    <div class="pg-kpi-strip" data-ref-tier="cfr" aria-label="CFR archive telemetry">
+      <div class="pg-kpi-cell">
+        <span class="pg-kpi-lbl">Installed Editions</span>
+        <span class="pg-kpi-val">${plural(titles.length, 'CFR title')}</span>
+        <span class="pg-kpi-sub">${fmt(totalSections)} offline sections indexed</span>
       </div>
-      <div class="hm-kpi-cell">
-        <span class="hm-kpi-lbl">eCFR Currency</span>
-        <span class="hm-kpi-val">${cfrAttention.length > 0 ? `${plural(cfrAttention.length, 'update')} ready` : (latestEdition ? `Edition ${escapeHtml(shortDate(latestEdition))}` : 'Verified current')}</span>
-        <span class="hm-kpi-sub">${week.recent > 0 ? `${plural(week.recent, 'title')} amended this week` : 'Checked against eCFR Versioner'}</span>
+      <div class="pg-kpi-cell">
+        <span class="pg-kpi-lbl">eCFR Currency</span>
+        <span class="pg-kpi-val">${cfrAttention.length > 0 ? `${plural(cfrAttention.length, 'update')} ready` : (latestEdition ? `Edition ${escapeHtml(shortDate(latestEdition))}` : 'Verified current')}</span>
+        <span class="pg-kpi-sub">${week.recent > 0 ? `${plural(week.recent, 'title')} amended this week` : 'Checked against eCFR Versioner'}</span>
       </div>
-      <div class="hm-kpi-cell">
-        <span class="hm-kpi-lbl">Study Coverage</span>
-        <span class="hm-kpi-val">${fmt(totalRead)} sections</span>
-        <span class="hm-kpi-sub">${fmt(partsExplored)} regulatory parts explored</span>
+      <div class="pg-kpi-cell">
+        <span class="pg-kpi-lbl">Study Coverage</span>
+        <span class="pg-kpi-val">${fmt(totalRead)} sections</span>
+        <span class="pg-kpi-sub">${fmt(partsExplored)} regulatory parts explored</span>
       </div>
-      <div class="hm-kpi-cell">
-        <span class="hm-kpi-lbl">Workspace Citations</span>
-        <span class="hm-kpi-val">${fmt(totalPinnedCfr)} pinned</span>
-        <span class="hm-kpi-sub">${cfrWorkspaces ? `Across ${plural(cfrWorkspaces, 'active workspace')}` : 'Pin any section with ⌘D'}</span>
+      <div class="pg-kpi-cell">
+        <span class="pg-kpi-lbl">Workspace Citations</span>
+        <span class="pg-kpi-val">${fmt(totalPinnedCfr)} pinned</span>
+        <span class="pg-kpi-sub">${cfrWorkspaces ? `Across ${plural(cfrWorkspaces, 'active workspace')}` : 'Pin any section with ⌘D'}</span>
       </div>
     </div>
     <div class="hm-cfr-desk">
@@ -1741,13 +1726,13 @@ function renderFrTabHtml(
 
   return `
     ${frAttention.length ? updatesBannerHtml(frAttention, []) : ''}
-    <div class="hm-tab-lead" data-ref-tier="fr">
-      <div class="hm-tab-lead-copy">
-        <div class="hm-tab-lead-kicker"><span class="ref-badge" data-ref-tier="fr">FR · DAILY RULEMAKING</span><span>Federal Register API v1 &amp; In-App Preamble Reader</span></div>
-        <h2 class="hm-tab-lead-title">Federal Register</h2>
-        <p class="hm-tab-lead-sub">Daily Final Rules, Proposed Rules, Notices, and Public Inspection filings across configured federal agencies and installed CFR titles, with sanitized in-app preamble reading.</p>
+    <div class="pg-lead" data-ref-tier="fr">
+      <div class="pg-lead-copy">
+        <div class="pg-lead-kicker"><span class="ref-badge" data-ref-tier="fr">FR · DAILY RULEMAKING</span><span>Federal Register API v1 &amp; In-App Preamble Reader</span></div>
+        <h2 class="pg-lead-title">Federal Register</h2>
+        <p class="pg-lead-sub">Daily Final Rules, Proposed Rules, Notices, and Public Inspection filings across configured federal agencies and installed CFR titles, with sanitized in-app preamble reading.</p>
       </div>
-      <div class="hm-tab-lead-acts">
+      <div class="pg-lead-acts">
         <span id="hm-news-pill">${pill}</span>
         ${status?.sync_enabled !== false
           ? `<button type="button" class="btn btn-sm btn-accent" data-hm-act="sync-fr"${frSyncing ? ' disabled' : ''}>${icon('refresh')} ${frSyncing ? 'Syncing…' : 'Sync now'}</button>`
@@ -1952,33 +1937,16 @@ export function renderHomeScreen({ enter = true }: { enter?: boolean } = {}): vo
   const scrollTop = dom.main.scrollTop;
   const edText = state.metaInfo.edition ? `Edition ${escapeHtml(shortDate(state.metaInfo.edition))}` : 'Local Archive';
   dom.view.innerHTML = `
-    <div class="hm">
-      <header class="hm-masthead">
-        <div class="hm-folio">
-          <div class="hm-folio-left">
-            <span class="hm-folio-brand">FRAMEWORK</span>
-            ${SEP}
-            <span>${edText}</span>
-          </div>
-          <div class="hm-folio-right">
-            <span>${escapeHtml(plural(allFrameworks.length, 'federal framework'))}</span>
-            ${SEP}
-            <span>U.S.C. · CFR · FR</span>
-          </div>
-        </div>
-        <div class="hm-head">
-          <div class="hm-title-copy">
-            <h1 class="doc-title hm-display">Home</h1>
-            <p class="hm-sub">${sub}</p>
-          </div>
-          <div class="hm-head-acts">
-            <button type="button" class="btn btn-sm" data-hm-act="new-workspace">${icon('plus')} New workspace</button>
-            <a class="btn btn-sm" href="#/library">${icon('download')} Library</a>
-          </div>
-        </div>
-        <div class="hm-double-rule" aria-hidden="true"></div>
-        ${homeTabsHtml(allFrameworks, titles, status, attention, totalSections, totalRead, projects.length)}
-      </header>
+    <div class="hm pg">
+      ${pageMastheadHtml({
+        folioLeftHtml: `<span class="pg-folio-brand">FRAMEWORK</span>${SEP}<span>${edText}</span>`,
+        folioRightHtml: `<span>${escapeHtml(plural(allFrameworks.length, 'federal framework'))}</span>${SEP}<span>U.S.C. · CFR · FR</span>`,
+        title: 'Home',
+        subHtml: sub,
+        actionsHtml: `<button type="button" class="btn btn-sm" data-hm-act="new-workspace">${icon('plus')} New workspace</button>
+            <a class="btn btn-sm" href="#/library">${icon('download')} Library</a>`,
+        tabsHtml: homeTabsHtml(allFrameworks, titles, status, attention, totalSections, totalRead, projects.length),
+      })}
       <div id="hm-tab-body" role="tabpanel" aria-labelledby="hm-tab-${activeTab}">
         ${renderHomeTabBody(
           titles,

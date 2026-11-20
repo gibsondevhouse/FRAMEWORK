@@ -18,7 +18,8 @@ DESKS: list[str] = list(_BLURBS.get("desks", []))
 OTHER_DESK = "More titles"  # a title eCFR adds that has no editorial entry yet
 
 # Compliance suites: titles that are usually read together, downloadable in one go
-# (`POST /api/library/batch-download {"suite": id}`). A new suite is one entry here; its size
+# (`POST /api/library/batch-download {"suite": id}`). `titles` are CFR titles; `usc_titles`
+# are the U.S. Code titles whose statutes they implement, queued in the same batch. A new suite is one entry here; its size
 # and section count are summed from the titles' measured figures in title_blurbs.json.
 COMPLIANCE_SUITES: dict[str, dict] = {
     "ehs": {
@@ -26,6 +27,7 @@ COMPLIANCE_SUITES: dict[str, dict] = {
         "badge": "Core compliance",
         "featured": True,
         "titles": [29, 40, 49],
+        "usc_titles": [29, 42, 49],
         "summary": "Workplace safety and health (OSHA), environmental protection (EPA) and hazardous materials "
                    "transport (DOT): the baseline an EHS program is audited against.",
     },
@@ -33,12 +35,14 @@ COMPLIANCE_SUITES: dict[str, dict] = {
         "name": "Commerce, Banking & Securities",
         "badge": "Financial markets",
         "titles": [12, 15, 17],
+        "usc_titles": [12, 15],
         "summary": "Bank and credit union rules, Commerce export controls, and SEC and CFTC market regulation.",
     },
     "govcon": {
         "name": "Federal Contracting",
         "badge": "Government",
         "titles": [41, 48],
+        "usc_titles": [40, 41],
         "summary": "The Federal Acquisition Regulation and agency supplements, with GSA property and travel rules.",
     },
 }
@@ -51,7 +55,7 @@ def suites() -> dict[str, dict]:
     for sid, s in COMPLIANCE_SUITES.items():
         bs = [blurbs.get(str(n), {}) for n in s["titles"]]
         out[sid] = {
-            "id": sid, "featured": bool(s.get("featured")), **s,
+            "id": sid, "featured": bool(s.get("featured")), "usc_titles": [], **s,
             "size_mb": round(sum(b.get("size_mb") or 0 for b in bs), 1),
             "sections": sum(b.get("sections") or 0 for b in bs),
         }

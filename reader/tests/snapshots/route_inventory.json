@@ -48,6 +48,7 @@
   "POST /api/fr/build",
   "POST /api/fr/update",
   "GET /api/usc/titles",
+  "GET /api/usc/catalog",
   "GET /api/usc/release",
   "GET /api/usc/search",
   "GET /api/usc/{title}/meta",

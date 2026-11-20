@@ -42,6 +42,8 @@ export interface LibrarySuite {
   badge?: string;
   featured?: boolean;
   titles: number[];
+  /** U.S. Code titles queued with the bundle (their statutes). */
+  usc_titles?: number[];
   sections?: number;
   size_mb?: number;
 }

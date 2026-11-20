@@ -138,11 +138,19 @@ export async function handleRoute(): Promise<void> {
     else await loadPart(rest);
   } else if (checkPath === '/library' || checkPath.startsWith('/library/')) {
     hideMainTabs();
-    const m = /^\/library(?:\/(\d+)(?:\/part\/(.+))?)?\/?$/.exec(checkPath);
-    if (!m) renderNotFound();
-    else {
-      await loadLibrary(m[1] ? parseInt(m[1], 10) : null, m[2] ? decode(m[2]) : null);
-    }
+    // #/library (Overview) · #/library/usc[/{n}] · #/library/cfr[/{n}[/part/{p}]]; the older
+    // #/library/{n}[/part/{p}] CFR links are rewritten to their /cfr/ form.
+    const legacy = /^\/library\/(\d+)((?:\/part\/.+)?)\/?$/.exec(checkPath);
+    const usc = /^\/library\/usc(?:\/(\d+))?\/?$/.exec(checkPath);
+    const cfr = /^\/library\/cfr(?:\/(\d+)(?:\/part\/(.+))?)?\/?$/.exec(checkPath);
+    if (legacy) {
+      history.replaceState(null, '', `#/library/cfr/${legacy[1]}${legacy[2]}`);
+      const m = /^\/part\/(.+)$/.exec(legacy[2]);
+      await loadLibrary('cfr', parseInt(legacy[1], 10), m ? decode(m[1]) : null);
+    } else if (usc) await loadLibrary('usc', usc[1] ? parseInt(usc[1], 10) : null, null);
+    else if (cfr) await loadLibrary('cfr', cfr[1] ? parseInt(cfr[1], 10) : null, cfr[2] ? decode(cfr[2]) : null);
+    else if (/^\/library\/?$/.test(checkPath)) await loadLibrary('overview', null, null);
+    else renderNotFound();
   } else if (!titleMatch && (checkPath === '/projects' || checkPath.startsWith('/projects/'))) {
     hideMainTabs();
     const id = checkPath.slice('/projects/'.length);

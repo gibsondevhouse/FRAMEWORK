@@ -862,7 +862,7 @@ class BehaviorTests(BrowserCase):
         self.assert_no_external_requests()
 
     def test_library_front_filter_sort_and_two_click_remove_arming(self):
-        page = self.open_page("/library", ".lib-front .lib-story")
+        page = self.open_page("/library/cfr", ".lib-front .lib-story")
         # Sort toggle
         page.click('.lib-seg [data-sort="number"]')
         self.assertEqual(page.locator('.lib-seg [data-sort="number"]').get_attribute("aria-pressed"), "true")
@@ -878,6 +878,35 @@ class BehaviorTests(BrowserCase):
         rm_btn.click()
         self.assertIn("Confirm remove", rm_btn.inner_text())
         self.assertIn("Press again", page.inner_text('#nav-live'))
+        self.assert_no_external_requests()
+
+    def test_library_tabs_usc_catalog_and_legacy_links(self):
+        page = self.open_page("/library", "#lib-tabs")
+        # Overview is the default tab: three tabs, installed shelf and bundles with statutes.
+        self.assertEqual(page.locator("#lib-tabs [data-lib-tab]").count(), 3)
+        self.assertEqual(page.get_attribute("#lib-tab-overview", "aria-selected"), "true")
+        self.assertGreaterEqual(page.locator(".lib-bundle .citation-chip[data-ref-tier='uninstalled'], .lib-bundle .citation-chip[data-ref-tier='usc']").count(), 1)
+        self.assertIn("Federal Register", page.inner_text(".pg-head-acts"))
+        # The U.S. Code tab lists every title (53 live + 1 reserved) under topic desks.
+        page.click("#lib-tab-usc")
+        page.wait_for_selector(".lib-front[data-lib-tab='usc'] .lib-story[data-ref-tier='usc']", timeout=10000)
+        self.assertTrue(page.evaluate("location.hash").startswith("#/library/usc"))
+        self.assertEqual(page.locator(".lib-story[data-ref-tier='usc']").count(), 54)
+        page.fill("#lib-filter", "29 cfr")
+        self.assertEqual(page.locator(".lib-story:not([hidden])").count(), 1)
+        # ArrowRight moves to the CFR tab and keeps focus on the tablist.
+        page.locator("#lib-tab-usc").focus()
+        page.keyboard.press("ArrowRight")
+        page.wait_for_selector(".lib-front[data-lib-tab='cfr'] .lib-seg", timeout=10000)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "lib-tab-cfr")
+        # A title page for an uninstalled U.S. Code title offers the download and its CFR titles.
+        page.goto(f"{ENV.base_url}/#/library/usc/29")
+        page.wait_for_selector(".lib-usc-title [data-act='usc-download']", timeout=10000)
+        self.assertIn("29 CFR", page.inner_text(".lib-links-band"))
+        # Old CFR Library links are rewritten to #/library/cfr/{n}.
+        page.goto(f"{ENV.base_url}/#/library/29")
+        page.wait_for_selector(".lib-row", timeout=10000)
+        self.assertEqual(page.evaluate("location.hash"), "#/library/cfr/29")
         self.assert_no_external_requests()
 
 

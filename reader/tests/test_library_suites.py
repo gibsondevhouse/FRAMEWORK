@@ -9,7 +9,7 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-from app import build, config, library
+from app import build, config, library, usc_build, usc_client, usc_store
 from app.main import app
 from tests.base import HermeticTestCase
 
@@ -92,15 +92,33 @@ class BatchTests(HermeticTestCase):
         with mock.patch.object(library, "installed", lambda n: None):
             res = self.client.post("/api/library/batch-download", json={"suite": "ehs"})
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()["count"], 3)
-        self.assertEqual(self.kinds(), [(29, "title"), (40, "title"), (49, "title")])
+        # Three CFR titles plus the three U.S. Code titles they implement (key 1000 + N).
+        self.assertEqual(res.json()["count"], 6)
+        self.assertEqual(self.kinds(), [(29, "title"), (40, "title"), (49, "title"),
+                                        (1029, "usc-title"), (1042, "usc-title"), (1049, "usc-title")])
 
     def test_suite_skips_current_updates_stale_and_completes_partial(self):
         state = {29: inst("2026-11-12"), 40: inst("2026-10-01"), 49: inst("2026-11-12", {"parts": ["172"], "sections": []})}
-        with mock.patch.object(library, "installed", state.get):
+        empty = {"queued": [], "skipped": [], "count": 0}
+        with mock.patch.object(library, "installed", state.get), \
+                mock.patch.object(usc_build, "queue_titles", lambda ts: empty):
             res = self.client.post("/api/library/batch-download", json={"suite": "ehs"}).json()
         self.assertEqual(self.kinds(), [(40, "update"), (49, "title")])
         self.assertEqual(res["skipped"], [{"title": 29, "reason": "current"}])
+
+    def test_usc_queue_installs_missing_updates_behind_and_skips_current(self):
+        summaries = {29: {"release_point": "119-142"}, 42: {"release_point": "119-100"}}
+        with mock.patch.object(usc_store, "title_summary", summaries.get), \
+                mock.patch.object(usc_client, "cached_release", lambda: {"release_point": "119-142"}):
+            res = usc_build.queue_titles([29, 42, 49, 53, 49])
+        self.assertEqual(self.kinds(), [(1042, "usc-update"), (1049, "usc-title")])
+        self.assertEqual([(s["title"], s["reason"]) for s in res["skipped"]], [(29, "current"), (53, "reserved")])
+
+    def test_usc_queue_without_a_known_release_only_installs(self):
+        with mock.patch.object(usc_store, "title_summary", {29: {"release_point": "1"}}.get), \
+                mock.patch.object(usc_client, "cached_release", lambda: None):
+            usc_build.queue_titles([29, 42])
+        self.assertEqual(self.kinds(), [(1042, "usc-title")])
 
     def test_titles_list_skips_reserved_and_duplicates(self):
         with mock.patch.object(library, "installed", lambda n: None):
