@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { NEWS_CITE_RE } from '../src/citations';
+import { NEWS_CITE_RE, paragraphPathFrom } from '../src/citations';
 import {
   cleanInlineLabel,
   escapeHtml,
@@ -252,4 +252,28 @@ test('news helpers parse queries, build URLs/hashes, detect changes, and format 
   assert.equal(articleNewsTitle({ category: 'rules', title: 'T', link: 'L', published_at: '2026-09-01', cfr_parts: [{ title: 40, part: 261 }] }), 40);
   NEWS_CITE_RE.lastIndex = 0;
   assert.ok(NEWS_CITE_RE.test('29 CFR 1910.1200'));
+});
+
+test('paragraphPathFrom walks folded markers without repeating siblings', () => {
+  const paras = [
+    { lvl: 0, marks: '' },
+    { lvl: 1, marks: '(a)(1)' },
+    { lvl: 2, marks: '(2)' },
+    { lvl: 3, marks: '(i)' },
+    { lvl: 1, marks: '(5)(A)' },
+    { lvl: 2, marks: '(B)' },
+    { lvl: 1, marks: '(b)' },
+    { lvl: 2, marks: '(2)(A)' },
+    { lvl: 3, marks: '(B)' },
+    { lvl: 2, marks: '' },
+  ];
+  assert.equal(paragraphPathFrom(paras, 0), '');
+  assert.equal(paragraphPathFrom(paras, 1), '(a)(1)');
+  assert.equal(paragraphPathFrom(paras, 2), '(a)(2)');
+  assert.equal(paragraphPathFrom(paras, 3), '(a)(2)(i)');
+  assert.equal(paragraphPathFrom(paras, 4), '(5)(A)');
+  assert.equal(paragraphPathFrom(paras, 5), '(5)(B)');
+  assert.equal(paragraphPathFrom(paras, 7), '(b)(2)(A)');
+  assert.equal(paragraphPathFrom(paras, 8), '(b)(2)(B)');
+  assert.equal(paragraphPathFrom(paras, 9), '');
 });

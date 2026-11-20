@@ -110,7 +110,10 @@ export function collectSectionReferences(root: Element | null = dom.view, fallba
       const tier = classifyDomRef(el);
       const label = cleanInlineLabel(el.textContent);
       if (!label) continue;
-      const href = el.getAttribute('href') || '';
+      // A local U.S. Code link (/usc/16/1533) opens the in-app U.S.C. reader from the ledger.
+      const rawHref = el.getAttribute('href') || '';
+      const uscLocal = /^\/usc\/(\d+)\/([^?#]+)$/.exec(rawHref);
+      const href = uscLocal ? `#/usc/${uscLocal[1]}/section/${uscLocal[2]}` : rawHref;
       const anchor = el.dataset.anchor || '';
       const ibrCode = el.dataset.ibrCode || '';
       const localPara = el.dataset.localPara || '';

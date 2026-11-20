@@ -54,6 +54,7 @@
   "GET /api/usc/{title}/meta",
   "GET /api/usc/{title}/tree",
   "GET /api/usc/{title}/section/{section_id:path}",
+  "GET /api/usc/{title}/citations/{section_id:path}",
   "POST /api/usc/download",
   "POST /api/usc/update-all",
   "DELETE /api/usc/{title}",

@@ -455,6 +455,66 @@ export interface EnvStatusSnapshot {
   };
 }
 
+export interface UscTitleSummary {
+  title: number;
+  title_name?: string;
+  positive_law?: boolean;
+  release_point?: string | null;
+  current_through?: string | null;
+  built_at?: string | null;
+  section_count?: number;
+  note_count?: number;
+  bytes?: number;
+}
+
+export interface UscTreeNodeData {
+  t: string;
+  id: string;
+  l?: string;
+  d?: string;
+  s?: string | null;
+  c?: UscTreeNodeData[];
+}
+
+export interface UscNoteItem {
+  category: string;
+  topic?: string;
+  heading?: string;
+  html: string;
+  text?: string;
+}
+
+export interface UscSectionData {
+  id: string;
+  title: number;
+  label: string;
+  heading: string;
+  status?: string | null;
+  citation: string;
+  html: string;
+  source_credit?: string | null;
+  path: Array<{ t?: string; id?: string; l?: string; d?: string }>;
+  notes: UscNoteItem[];
+  prev?: { id: string; label: string; heading?: string } | null;
+  next?: { id: string; label: string; heading?: string } | null;
+  /** "units" for a long section read one top-level subsection at a time, else "page". */
+  mode?: 'units' | 'page';
+  outline?: SectionOutlineItem[];
+  unit?: string | null;
+  unit_prev?: SectionOutlineItem | null;
+  unit_next?: SectionOutlineItem | null;
+}
+
+export interface UscCitedBy {
+  title: number;
+  section_id: string;
+  citation: string;
+  usc: Array<{ title: number; id: string; label: string; heading: string }>;
+  cfr: Array<{ title: number; id: string; part: string; label: string; heading: string; paragraphs: string[] }>;
+  authority: Array<{ title: number; part: string }>;
+  count: number;
+}
+
 export interface AppState {
   currentTitle: number;
   activeCorpusId: string;
@@ -468,6 +528,11 @@ export interface AppState {
   corpora: CorpusSummary[];
   extraCorpora: CorpusSummary[];
   installedTitles: InstalledTitleMeta[];
+  installedUscTitles: UscTitleSummary[];
+  currentUscTitle: number | null;
+  currentUscSection: UscSectionData | null;
+  currentUscNode: string | null;
+  uscTrees: Map<number, UscTreeNodeData>;
   homeSnapshot: HomeSnapshot | undefined;
   noTitles: boolean;
   profilesData: { profiles: ProfileInfo[]; title_names: Record<string, string> } | undefined;
@@ -542,6 +607,11 @@ export const state: AppState = {
   corpora: [],
   extraCorpora: [],
   installedTitles: [],
+  installedUscTitles: [],
+  currentUscTitle: null,
+  currentUscSection: null,
+  currentUscNode: null,
+  uscTrees: new Map(),
   homeSnapshot: undefined,
   noTitles: false,
   profilesData: undefined,

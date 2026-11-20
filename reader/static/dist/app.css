@@ -3432,6 +3432,26 @@ a.xref-web:hover, a.xref-web:focus-visible { background: var(--hover); color: va
 .result .result-snippet { margin-top: 4px; color: var(--fg-3); font-size: 13px; line-height: 1.55; }
 mark { background: var(--mark); color: var(--fg); border-radius: 2px; padding: 0 1px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .tree mark { color: inherit; }
+
+/* --- U.S. Code Reader ---
+   Section text renders as the CFR's own .reg-p / .lvl-N / .pmark paragraphs (render/uslm_html.py),
+   so only what the CFR has no counterpart for lives here: quoted (amending) text, whose nested
+   levels stay nested, the source credit, notes (QUIRK-006) and the chapter page's filter row. */
+.usc-body .usc-quotedContent, .usc-body .usc-sourceCredit { max-width: 66ch; }
+.usc-body .usc-quotedContent { margin: .25em 0 1em var(--indent-step); padding: 8px 14px; border-left: 2px solid var(--ref-usc, var(--line)); background: var(--card); border-radius: 0 var(--r-8) var(--r-8) 0; }
+.usc-quotedContent .usc-level, .usc-note-card .usc-level { margin: 6px 0 6px 1.25em; }
+.usc-quotedContent .usc-num, .usc-note-card .usc-num { color: var(--fg-3); font-weight: var(--w-medium); margin-right: .2em; }
+.usc-quotedContent .usc-heading { font-weight: var(--w-semibold); color: var(--fg); }
+.usc-body .usc-sourceCredit { margin: 1.6em 0 0; padding-top: 12px; border-top: 1px solid var(--line-soft); font-size: 13px; color: var(--fg-3); line-height: 1.55; }
+.usc-node-tools { margin-bottom: 14px; }
+.usc-notes { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line); max-width: 66ch; }
+.usc-notes-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--w-semibold); letter-spacing: .04em; text-transform: uppercase; color: var(--fg-2); margin: 0 0 16px; }
+.usc-notes-count { font-size: 12px; font-weight: var(--w-medium); color: var(--fg-3); background: var(--card); border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; font-variant-numeric: tabular-nums; }
+.usc-note-group { margin-bottom: 20px; }
+.usc-note-cat { font-size: 12px; font-weight: var(--w-semibold); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); margin: 0 0 8px; }
+.usc-note-card { background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-8); padding: 12px 14px; margin-bottom: 8px; font-size: 13.5px; line-height: 1.6; color: var(--fg-2); }
+.usc-note-card .usc-heading { display: block; font-weight: var(--w-semibold); color: var(--fg); margin-bottom: 4px; }
+.usc-note-card p { margin: 6px 0 0; }
 /* ---------- Chat ---------- */
 .chat { display: flex; flex-direction: column; min-height: 0; overflow: hidden; animation: chat-in var(--t-ui) var(--ease-out); }
 @keyframes chat-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }

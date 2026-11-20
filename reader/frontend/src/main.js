@@ -23,6 +23,7 @@ import './components/view_head';
 import './components/part_toc';
 import './components/refs_popovers';
 import './views/reader';
+import './views/reader_usc';
 import './components/rail';
 import './views/reader_part';
 import './views/search';
@@ -51,7 +52,7 @@ import './components/split_pane';
 import './components/cfr_resolver';
 import './components/peek';
 import { state } from './state';
-import { fetchInstalledTitles, fetchTitleMeta, getJSON } from './api/client';
+import { fetchInstalledTitles, fetchInstalledUscTitles, fetchTitleMeta, getJSON } from './api/client';
 import { pollJobsIfActive, setJobs } from './api/jobs';
 import { refreshModelsConfig } from './components/env_modal';
 import { ensureTreeLoaded, switchTitle } from './components/sidebar';
@@ -73,7 +74,12 @@ if (chatKbd) chatKbd.textContent = isMac ? '⌘J' : 'Ctrl J';
 // --- Init ---
 export async function init() {
   try {
-    state.installedTitles = await fetchInstalledTitles();
+    const [cfrTitles, uscTitles] = await Promise.all([
+      fetchInstalledTitles(),
+      fetchInstalledUscTitles().catch(() => []),
+    ]);
+    state.installedTitles = cfrTitles;
+    state.installedUscTitles = uscTitles;
     state.noTitles = state.installedTitles.length === 0;
     syncCorporaState();
     // Title 29 is the default, but it may have been removed in the library.

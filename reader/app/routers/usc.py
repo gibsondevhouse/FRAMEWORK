@@ -5,8 +5,8 @@ would be captured as a (non-integer) CFR title and 422.
 
 Reads are local. Two endpoints reach the OLRC: `GET /api/usc/release` (the current
 release point, cached 30 min) and the queued installs/updates. `/usc/{t}/{s}` is the
-target of U.S.C. citation links once a title is installed: a plain, self-contained page
-(the SPA has no U.S.C. reader yet), so a link opened from a CFR section works.
+href of U.S.C. citation links once a title is installed: a self-contained fallback page
+(inside the app, peek.ts opens the SPA reader at `#/usc/{t}/section/{s}` instead).
 """
 from __future__ import annotations
 
@@ -16,8 +16,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
-from .. import library, usc_build, usc_client, usc_store
+from .. import library, usc_build, usc_citations, usc_client, usc_store
 from ..render import uslm_html
+from ..render.units import UNIT_MODE_MIN_CHARS
 
 _SEC = r"^[0-9A-Za-z.~\-–]{1,40}$"
 
@@ -87,7 +88,11 @@ def title_tree(title: int = Depends(installed_usc_title)) -> FileResponse:
     return FileResponse(p, media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
-def _section_payload(title: int, section_id: str) -> dict:
+def _section_payload(title: int, section_id: str, unit: str | None = None) -> dict:
+    """The section as JSON, shaped like the CFR's `GET /api/{title}/section/{id}`: `mode` is
+    "units" for a long section (read one top-level subsection at a time) else "page";
+    `outline` lists every unit; `?unit=KEY` (`?unit=` = first) on a units-mode section
+    returns only that unit's `html` plus `unit`, `unit_prev`, `unit_next`."""
     sid = usc_store.normalize_section_id(section_id)
     d = usc_store.get_section(title, sid)
     if d is None:
@@ -96,14 +101,40 @@ def _section_payload(title: int, section_id: str) -> dict:
     for n in d.pop("notes"):
         notes.append({"category": n["category"], "topic": n["topic"], "heading": n["heading"],
                       "html": uslm_html.render_fragment(n["xml"]), "text": n["text"]})
-    xml = d.pop("xml")
-    return {**d, "title": title, "html": uslm_html.render_body(xml), "notes": notes,
-            "citation": f"{title} U.S.C. {sid}"}
+    units = uslm_html.render_units(d.pop("xml"))
+    outline = [{k: u[k] for k in ("key", "label", "title", "kind", "chars")}
+               | {"group": None, "group_label": None, "group_title": None} for u in units]
+    total = sum(u["chars"] for u in units)
+    mode = "units" if len(units) >= 2 and total > UNIT_MODE_MIN_CHARS else "page"
+    out = {**d, "title": title, "notes": notes, "citation": f"{title} U.S.C. {sid}",
+           "mode": mode, "outline": outline}
+    if unit is not None and mode == "units":
+        keys = [u["key"] for u in units]
+        i = keys.index(unit) if unit in keys else (0 if unit == "" else -1)
+        if i < 0:
+            raise HTTPException(404, f"{title} U.S.C. § {sid} has no unit {unit!r}.")
+        out.update(html=uslm_html.wrap_unit(units[i]), unit=keys[i],
+                   unit_prev=outline[i - 1] if i > 0 else None,
+                   unit_next=outline[i + 1] if i + 1 < len(units) else None)
+    else:
+        out["html"] = "".join(uslm_html.wrap_unit(u) for u in units)
+    return out
 
 
 @usc_router.get("/{title}/section/{section_id:path}")
-def get_section(title: int = Depends(installed_usc_title), section_id: str = "") -> dict:
-    return _section_payload(title, section_id)
+def get_section(title: int = Depends(installed_usc_title), section_id: str = "",
+                unit: str | None = Query(None, max_length=40)) -> dict:
+    return _section_payload(title, section_id, unit)
+
+
+@usc_router.get("/{title}/citations/{section_id:path}")
+def get_citations(title: int = Depends(installed_usc_title), section_id: str = "") -> dict:
+    """What in the local library cites this section: other U.S.C. sections, CFR sections, and
+    CFR parts whose Authority line names it."""
+    data = usc_citations.cited_by(title, section_id)
+    if data is None:
+        raise HTTPException(404, f"{title} U.S.C. § {section_id} is not in the installed copy.")
+    return data
 
 
 class DownloadRequest(BaseModel):
@@ -135,21 +166,31 @@ def remove_title(title: int = Depends(installed_usc_title)) -> dict:
     return {"removed": title}
 
 
+# The standalone page links the SPA's own stylesheet and reuses its markup (.doc-kicker,
+# .doc-title, .reg-body/.reg-p, .usc-notes), so it shares the app's tokens, fonts and reader
+# typography instead of carrying a design of its own. Only the page frame is set here.
 _PAGE_CSS = """
-:root{color-scheme:dark;--bg:#070708;--fg:#E7E7EA;--fg-3:#8B8B93;--line:#232329;--accent:#E11D48}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 Georgia,'Times New Roman',serif}
-main{max-width:66ch;margin:0 auto;padding:32px 16px 64px}
-.kicker{font:12px/1.4 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3)}
-h1{font-size:1.5rem;line-height:1.3;margin:.25em 0 1em}
-a{color:#9DB7FF}
-.usc-level{margin-left:1.25em}.usc-num{font-weight:600}
-.usc-sourceCredit{color:var(--fg-3);font-size:.9em}
-blockquote{border-left:2px solid var(--line);margin:1em 0;padding-left:1em}
-.notes{border-top:1px solid var(--line);margin-top:2.5em;padding-top:1em}
-.notes h2{font:600 13px/1.4 system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
-table{border-collapse:collapse}td,th{border:1px solid var(--line);padding:4px 8px}
-.status{color:var(--accent)}
+body{min-height:100%;font-size:14px}
+.usc-page{max-width:calc(66ch + 48px);margin:0 auto;padding:40px 24px 72px;font-size:var(--reader-size)}
+.usc-page .doc-kicker{font-size:12px}
+.usc-page-nav{display:flex;justify-content:space-between;gap:12px;margin-top:40px;padding-top:16px;border-top:1px solid var(--line-soft);font:var(--w-medium) 13px/1.4 var(--sans)}
+.usc-page-nav a{color:var(--fg-3)}.usc-page-nav a:hover{color:var(--fg)}
+.usc-page .sep{margin:0 6px;color:var(--fg-4)}
 """
+
+
+def _page_notes_html(notes: list[dict]) -> str:
+    if not notes:
+        return ""
+    groups: dict[str, list[str]] = {}
+    for n in notes:
+        groups.setdefault(n["category"] or "editorial", []).append(n["html"])
+    blocks = "".join(
+        f'<div class="usc-note-group"><h3 class="usc-note-cat">{escape(cat.capitalize())} notes</h3>'
+        + "".join(f'<div class="usc-note-card">{h}</div>' for h in items) + "</div>"
+        for cat, items in groups.items())
+    return (f'<section class="usc-notes" aria-label="Statutory and editorial notes">'
+            f'<h2 class="usc-notes-head">Notes <span class="usc-notes-count">{len(notes)}</span></h2>{blocks}</section>')
 
 
 @usc_page_router.get("/usc/{title}/{section_id:path}", include_in_schema=False)
@@ -157,30 +198,33 @@ def section_page(title: int = Path(..., ge=1, le=54), section_id: str = "") -> H
     if title not in usc_store.installed_titles():
         raise HTTPException(404, f"U.S. Code Title {title} is not installed on this server.")
     d = _section_payload(title, section_id)
-    status = f' <span class="status">[{escape(d["status"])}]</span>' if d.get("status") else ""
-    crumbs = " › ".join(escape(f'{p["l"]} {p["d"]}'.strip()) for p in d["path"])
-    notes_html = ""
-    if d["notes"]:
-        groups: dict[str, list[str]] = {}
-        for n in d["notes"]:
-            groups.setdefault(n["category"], []).append(n["html"])
-        notes_html = "".join(
-            f'<section class="notes"><h2>{escape(cat.capitalize())} notes</h2>{"".join(items)}</section>'
-            for cat, items in groups.items())
+    sep = '<span class="sep" aria-hidden="true">·</span>'
+    crumbs = sep.join(escape(" — ".join(x for x in (p.get("l"), p.get("d")) if x).strip()) for p in d["path"])
+    meta = usc_store.title_summary(title) or {}
+    release = f'{sep}Release {escape(meta["release_point"])}' if meta.get("release_point") else ""
+    status = (f'<div class="reserved-note">This section is {escape(d["status"].lower())}.</div>'
+              if d.get("status") else "")
     nav = []
     if d["prev"]:
         nav.append(f'<a href="/usc/{title}/{escape(d["prev"]["id"], quote=True)}">‹ {escape(d["prev"]["label"])}</a>')
+    else:
+        nav.append("<span></span>")
     if d["next"]:
         nav.append(f'<a href="/usc/{title}/{escape(d["next"]["id"], quote=True)}">{escape(d["next"]["label"])} ›</a>')
-    meta = usc_store.title_summary(title) or {}
+    reader_href = f'/#/usc/{title}/section/{escape(d["id"], quote=True)}'
+    label = escape(d["label"].rstrip(". "))
     page = (
         f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
         f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f'<title>{escape(d["citation"])}</title><style>{_PAGE_CSS}</style></head><body><main>'
-        f'<div class="kicker">{title} U.S.C. · {crumbs} · release point {escape(meta.get("release_point") or "")}</div>'
-        f'<h1>{escape(d["label"])} {escape(d["heading"])}{status}</h1>'
-        f'<article class="usc-body">{d["html"]}</article>{notes_html}'
-        f'<nav class="kicker" style="display:flex;justify-content:space-between;margin-top:2em">{"".join(nav)}</nav>'
+        f'<meta name="color-scheme" content="dark">'
+        f'<title>{escape(d["citation"])}</title>'
+        f'<link rel="stylesheet" href="/static/dist/app.css"><style>{_PAGE_CSS}</style></head><body>'
+        f'<main class="usc-page">'
+        f'<div class="doc-kicker" data-ref-tier="usc"><span class="ref-badge">U.S. CODE</span>{sep}'
+        f'{title} U.S.C.{sep if crumbs else ""}{crumbs}{release}{sep}<a href="{reader_href}">Open in FRAMEWORK</a></div>'
+        f'<h1 class="doc-title">{label} {escape(d["heading"])}</h1>{status}'
+        f'<article class="reg-body usc-body">{d["html"]}</article>{_page_notes_html(d["notes"])}'
+        f'<nav class="usc-page-nav" aria-label="Neighbouring sections">{"".join(nav)}</nav>'
         f'</main></body></html>'
     )
     return HTMLResponse(page, headers={"Cache-Control": "no-store"})
