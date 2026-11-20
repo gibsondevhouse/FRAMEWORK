@@ -131,6 +131,16 @@ def get_section(title: int = Depends(installed_usc_title), section_id: str = "",
     return _section_payload(title, section_id, unit)
 
 
+@usc_router.get("/{title}/notes")
+def get_level_notes(title: int = Depends(installed_usc_title),
+                    node: str = Query("", max_length=200, pattern=r"^[0-9A-Za-z./_-]*$")) -> dict:
+    """Notes attached to the title (`node` empty) or to a chapter, subchapter, … given as its
+    path of tree ids (`ch21/schI`); FT-26. Each note is shaped like a section's notes."""
+    notes = usc_store.level_notes(title, [p for p in node.split("/") if p]) or []
+    return {"node": node, "notes": [{"category": n["category"], "topic": n["topic"], "heading": n["heading"],
+                                     "html": uslm_html.render_fragment(n["xml"]), "text": n["text"]} for n in notes]}
+
+
 @usc_router.get("/{title}/citations/{section_id:path}")
 def get_citations(title: int = Depends(installed_usc_title), section_id: str = "") -> dict:
     """What in the local library cites this section: other U.S.C. sections, CFR sections, and

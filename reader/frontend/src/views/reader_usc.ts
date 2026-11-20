@@ -1,5 +1,5 @@
-import { SectionOutlineItem, state, UscCitedBy, UscSectionData, UscTitleSummary, UscTreeNodeData } from '../state';
-import { fetchUscCitations, fetchUscMeta, fetchUscSection, fetchUscTree } from '../api/client';
+import { SectionOutlineItem, state, UscCitedBy, UscNoteItem, UscSectionData, UscTitleSummary, UscTreeNodeData } from '../state';
+import { fetchUscCitations, fetchUscLevelNotes, fetchUscMeta, fetchUscSection, fetchUscTree } from '../api/client';
 import { currentSectionRef, uscSectionRef } from '../core/projects_store';
 import { onView } from '../core/view_dispatch';
 import { corpusHashFor } from '../components/corpora';
@@ -36,6 +36,36 @@ function findNodeAndParent(
     if (hit) return hit;
   }
   return null;
+}
+
+/** Notes grouped by category (editorial / statutory / executive), as section pages and the
+ *  title and chapter pages show them (QUIRK-006). Empty string when there are none. */
+function uscNotesHtml(notes: UscNoteItem[], id: string, title: string): string {
+  if (!notes.length) return '';
+  const groups = new Map<string, UscNoteItem[]>();
+  for (const n of notes) {
+    const cat = (n.category || 'editorial').toLowerCase();
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat)!.push(n);
+  }
+  const blocks = [...groups.entries()].map(([cat, items]) => `
+      <div class="usc-note-group">
+        <h3 class="usc-note-cat">${escapeHtml(cat.charAt(0).toUpperCase() + cat.slice(1))} notes</h3>
+        ${items.map(n => `<div class="usc-note-card">${n.html}</div>`).join('')}
+      </div>
+    `).join('');
+  return `<section class="usc-notes" id="${escapeHtml(id)}" aria-label="Statutory and editorial notes">
+      <h2 class="usc-notes-head">${escapeHtml(title)} <span class="usc-notes-count">${notes.length}</span></h2>
+      ${blocks}
+    </section>`;
+}
+
+/** Fill the title or chapter page's notes slot (FT-26) once the page has painted; silent on failure. */
+async function fillUscLevelNotes(titleNum: number, path: string[], label: string, seq: number, signal?: AbortSignal): Promise<void> {
+  const data = await fetchUscLevelNotes(titleNum, path, { signal }).catch(() => null);
+  if (seq !== state.routeSeq) return;
+  const slot = document.getElementById('usc-level-notes');
+  if (slot && data?.notes?.length) slot.innerHTML = uscNotesHtml(data.notes, 'usc-notes', `Notes on ${label}`);
 }
 
 function nodeStats(n: UscTreeNodeData): { total: number; inactive: number; first: string | null } {
@@ -144,6 +174,7 @@ function renderUscTitleStart(titleNum: number, meta: UscTitleSummary | null, tre
       <div class="lib-list" id="usc-node-list">${rows || '<p class="lib-none">No contents found in this title.</p>'}</div>
       <div class="lib-none" id="usc-node-none" aria-live="polite" hidden>Nothing matches that filter.</div>
     </section>
+    <div id="usc-level-notes"></div>
   </div>`;
   enterView();
 }
@@ -213,6 +244,7 @@ function renderUscNode(
     </div>
     <div class="lib-list" id="usc-node-list">${rows || '<p class="lib-none">No sections in this division.</p>'}</div>
     <div class="lib-none" id="usc-node-none" aria-live="polite" hidden>Nothing matches that filter.</div>
+    <div id="usc-level-notes"></div>
   </div>`;
   enterView();
 }
@@ -259,25 +291,7 @@ function renderUscSection(titleNum: number, meta: UscTitleSummary | null, d: Usc
     : '';
 
   const notes = d.notes || [];
-  let notesHtml = '';
-  if (notes.length) {
-    const groups = new Map<string, typeof notes>();
-    for (const n of notes) {
-      const cat = (n.category || 'editorial').toLowerCase();
-      if (!groups.has(cat)) groups.set(cat, []);
-      groups.get(cat)!.push(n);
-    }
-    const blocks = [...groups.entries()].map(([cat, items]) => `
-      <div class="usc-note-group">
-        <h3 class="usc-note-cat">${escapeHtml(cat.charAt(0).toUpperCase() + cat.slice(1))} notes</h3>
-        ${items.map(n => `<div class="usc-note-card">${n.html}</div>`).join('')}
-      </div>
-    `).join('');
-    notesHtml = `<section class="usc-notes" id="usc-notes" aria-label="Statutory and editorial notes">
-      <h2 class="usc-notes-head">Notes <span class="usc-notes-count">${notes.length}</span></h2>
-      ${blocks}
-    </section>`;
-  }
+  const notesHtml = uscNotesHtml(notes, 'usc-notes', 'Notes');
 
   dom.view.innerHTML = `
     <div class="doc-kicker" data-ref-tier="usc">
@@ -515,10 +529,13 @@ export async function loadUscRoute(
 
   if (opts.nodeId) {
     renderUscNode(titleNum, meta, tree, opts.nodeId);
+    const hit = findNodeAndParent(tree, opts.nodeId);
+    if (hit) fillUscLevelNotes(titleNum, [...hit.ancestors.map(a => a.id), hit.node.id], nodeDisplayLabel(hit.node) || 'this division', seq, signal);
     return;
   }
 
   renderUscTitleStart(titleNum, meta, tree);
+  fillUscLevelNotes(titleNum, [], `Title ${uscTitleLabel(titleNum)}`, seq, signal);
 }
 
 // Cite / Clip on hover, exactly as in the CFR reader, citing "29 U.S.C. § 655(b)(1)".
