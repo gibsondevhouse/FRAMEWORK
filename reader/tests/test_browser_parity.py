@@ -744,6 +744,12 @@ class BehaviorTests(BrowserCase):
         self.assertTrue(page.evaluate(
             "document.querySelector('.main-stage').classList.contains('is-split-wide')"
         ))
+        # The Wide toggle animates grid-template-columns; hovering mid-animation can land the
+        # pointer on a paragraph that is still moving, so wait for the layout to settle.
+        page.wait_for_function(
+            "() => document.querySelector('.main-stage').getAnimations({subtree: true}).every(a => a.playState !== 'running')",
+            timeout=5000,
+        )
         split_para = page.locator("#split-pane .split-body .reg-p[id]").first
         split_para.hover()
         self.assertEqual(split_para.locator(".para-tools").count(), 1)
