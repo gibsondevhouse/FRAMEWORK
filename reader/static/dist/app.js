@@ -10499,11 +10499,11 @@ function statusLine(s) {
 }
 function keyHtml(s) {
 	const parts = [];
-	if (s.needs_key) parts.push(s.key_present ? `<p class="ds-key ok">${icon("key")} ${escapeHtml(s.key_label || "Key")} is set.</p>` : `<p class="ds-key">${icon("key")} Needs a free ${escapeHtml(s.key_label || "key")}. Ticked boxes wait until it's added.
+	if (s.needs_key) parts.push(s.key_present ? `<p class="ds-key ok">${icon("key")}<span class="ds-key-text">${escapeHtml(s.key_label || "Key")} is set.</span></p>` : `<p class="ds-key">${icon("key")}<span class="ds-key-text">Needs a free ${escapeHtml(s.key_label || "key")}. Ticked boxes wait until it's added.</span>
           ${s.get_key_url ? `<a href="${escapeHtml(s.get_key_url)}" target="_blank" rel="noopener">Get a key</a>` : ""}
           <button type="button" class="btn btn-sm" data-open-env="${escapeHtml((s.key_env || "").toLowerCase())}">Add key</button></p>`);
 	const ok = s.optional_key;
-	if (ok && !ok.key_present) parts.push(`<p class="ds-key opt">${icon("key")} Optional: ${escapeHtml(ok.key_label)}${ok.purpose ? ` — ${escapeHtml(ok.purpose)}` : ""}.
+	if (ok && !ok.key_present) parts.push(`<p class="ds-key opt">${icon("key")}<span class="ds-key-text">Optional: ${escapeHtml(ok.key_label)}${ok.purpose ? `. ${escapeHtml(ok.purpose.replace(/\.+$/, ""))}` : ""}.</span>
       <a href="${escapeHtml(ok.get_key_url)}" target="_blank" rel="noopener">Get a key</a>
       <button type="button" class="btn btn-sm" data-open-env="${escapeHtml(ok.key_env.toLowerCase())}">Add key</button></p>`);
 	return parts.join("");

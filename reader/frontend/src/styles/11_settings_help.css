@@ -257,6 +257,8 @@
 .ds-status { color: var(--fg-3); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .ds-err { color: var(--editorial-crimson); }
 .ds-key { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--editorial-gold); }
+.ds-key > svg { flex: none; }
+.ds-key-text { flex: 1 1 16rem; min-width: 0; }
 .ds-key.ok { color: var(--fg-3); }
 .ds-key.opt { color: var(--fg-3); }
 .ds-key a { color: var(--accent); }
