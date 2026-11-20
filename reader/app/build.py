@@ -444,10 +444,17 @@ def build(
     report("Installing")
     tmp_tree = target_tree.with_suffix(".json.tmp")
     tmp_tree.write_text(json.dumps(tree, separators=(",", ":")), encoding="utf-8")
-    _replace_with_retry(tmp_db, target_db, before_install)
-    _replace_with_retry(tmp_tree, target_tree, before_install)
-    if before_install is None:
+    # Without a job's swap hook (CLI and direct calls), still close this process's read
+    # connections before each replace: Windows refuses to replace a file that is open.
+    release = before_install
+    if release is None:
         from . import store
+
+        def release() -> None:
+            store.release_title(title)
+    _replace_with_retry(tmp_db, target_db, release)
+    _replace_with_retry(tmp_tree, target_tree, release)
+    if before_install is None:
         store.release_title(title)
 
     # Title 29 also keeps the legacy file names some older code paths look for.
@@ -458,7 +465,7 @@ def build(
                 legacy_tmp = legacy.with_suffix(legacy.suffix + ".tmp")
                 try:
                     shutil.copy2(src, legacy_tmp)
-                    _replace_with_retry(legacy_tmp, legacy, before_install)
+                    _replace_with_retry(legacy_tmp, legacy, release)
                 except OSError:
                     legacy_tmp.unlink(missing_ok=True)
 

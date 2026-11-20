@@ -219,6 +219,24 @@ class PartialBuildTests(HermeticTestCase):
             self.assertIsNone(library.part_view(14, "91")["installed"])
             store.release_title(14)
 
+    def test_rebuild_closes_open_reader_connections_before_replacing(self):
+        # Windows refuses to replace a file that is open; emulate that so the
+        # regression is caught on every platform.
+        build.build(99, force=True)
+        store.known_ids(99)  # leaves a read connection to title-99.sqlite3 open
+        self.assertTrue(any(t == 99 for t, _c, _l in store._registry))
+        real_replace = Path.replace
+
+        def windows_replace(src, dest):
+            if Path(dest).name == "title-99.sqlite3" and any(t == 99 for t, _c, _l in store._registry):
+                raise PermissionError("[WinError 5] Access is denied")
+            return real_replace(src, dest)
+
+        with mock.patch.object(Path, "replace", windows_replace), \
+             mock.patch.object(build.time, "sleep", lambda _s: None):
+            build.build(99, force=True)
+        self.assertTrue(store.known_ids(99))
+
     def test_invalid_partial_addition_does_not_corrupt_scope(self):
         build.build(99, force=True, scope={"parts": ["2"], "sections": []})
         with self.assertRaises(ValueError):
