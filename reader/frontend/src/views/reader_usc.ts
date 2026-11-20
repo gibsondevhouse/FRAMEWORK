@@ -1,14 +1,17 @@
-import { state, UscSectionData, UscTitleSummary, UscTreeNodeData } from '../state';
-import { fetchUscMeta, fetchUscSection, fetchUscTree } from '../api/client';
+import { SectionOutlineItem, state, UscCitedBy, UscSectionData, UscTitleSummary, UscTreeNodeData } from '../state';
+import { fetchUscCitations, fetchUscMeta, fetchUscSection, fetchUscTree } from '../api/client';
 import { currentSectionRef, uscSectionRef } from '../core/projects_store';
 import { onView } from '../core/view_dispatch';
 import { corpusHashFor } from '../components/corpora';
+import { citePop } from '../components/cfr_resolver';
 import { pinButtonHtml } from '../components/pin_pop';
+import { bindRail, railHtml, unitKind, unitName, unitShort, watchRail } from '../components/rail';
+import { collectSectionReferences, openRefsLedgerPopover } from '../components/refs_popovers';
 import { fmtSections, statPill } from '../components/ui';
 import { docStepBtn, setViewHead } from '../components/view_head';
 import { enterView, escapeHtml, icon, plural } from '../dom';
 import { dom } from '../state_init';
-import { createParaToolsController, highlightTarget, renderViewError } from './doc_utils';
+import { createParaToolsController, enhanceDomAnchors, highlightTarget, renderViewError } from './doc_utils';
 import { cfrChipsHtml, uscCite, uscLibHref, uscSectionHref } from './library_usc';
 
 export const uscTitleHref = (title: number): string => `#/usc/${title}/`;
@@ -211,15 +214,31 @@ function renderUscNode(
   enterView();
 }
 
-function renderUscSection(titleNum: number, meta: UscTitleSummary | null, d: UscSectionData): void {
-  const stepHtml = (d.prev || d.next)
-    ? `<div class="doc-step">${
-      d.prev ? docStepBtn('section', -1, uscSectionHref(titleNum, d.prev.id), d.prev.label, d.prev.heading || '') : '<span class="doc-step-spacer"></span>'
-    }<span class="doc-step-cur">${escapeHtml(d.label || `§ ${d.id}`)}</span>${
-      d.next ? docStepBtn('section', 1, uscSectionHref(titleNum, d.next.id), d.next.label, d.next.heading || '') : '<span class="doc-step-spacer"></span>'
-    }</div>`
+const uscUnitHref = (title: number, id: string, view: string): string => `${uscSectionHref(title, id)}/${encodeURIComponent(view)}`;
+
+/** The pinned header, as the CFR builds it: ‹ section | ‹ unit … unit › | section › in units mode. */
+function uscStepHtml(titleNum: number, d: UscSectionData, reading: string): string {
+  const secBtn = (s: UscSectionData['prev'], dir: number) => s
+    ? docStepBtn('section', dir, uscSectionHref(titleNum, s.id), s.label, s.heading || '')
     : '';
-  setViewHead(stepHtml);
+  const unitBtn = (u: SectionOutlineItem | null | undefined, dir: number) => u
+    ? docStepBtn(unitKind(u), dir, uscUnitHref(titleNum, d.id, u.key), unitShort(u), unitName(u))
+    : '';
+  const sep = '<span class="doc-step-sep" aria-hidden="true"></span>';
+  const units = reading === 'units';
+  const left = [secBtn(d.prev, -1), units ? unitBtn(d.unit_prev, -1) : ''].filter(Boolean).join(sep);
+  const right = [units ? unitBtn(d.unit_next, 1) : '', secBtn(d.next, 1)].filter(Boolean).join(sep);
+  if (!left && !right) return '';
+  return `<nav class="doc-step" aria-label="Previous and next">${left}<span class="spacer"></span>${right}</nav>`;
+}
+
+function renderUscSection(titleNum: number, meta: UscTitleSummary | null, d: UscSectionData, full: boolean): void {
+  const outline = d.outline || [];
+  const reading = d.mode === 'units' && d.unit ? 'units' : 'scroll';
+  const unitIdx = reading === 'units' ? outline.findIndex(u => u.key === d.unit) : -1;
+  const current = unitIdx >= 0 ? outline[unitIdx] : null;
+  setViewHead(uscStepHtml(titleNum, d, reading)
+    + railHtml({ id: d.id, outline, unit: d.unit || '' }, reading, key => uscUnitHref(titleNum, d.id, key)));
 
   // Like the CFR kicker ("29 CFR Part 1910"): the title, then the chapter holding the section.
   const chapter = [...(d.path || [])].reverse().find(p => p.t === 'chapter') || (d.path || [])[0] || null;
@@ -228,7 +247,13 @@ function renderUscSection(titleNum: number, meta: UscTitleSummary | null, d: Usc
     ? (chapter.id ? `<a href="${uscNodeHref(titleNum, chapter.id)}">${escapeHtml(chapterLabel)}</a>` : escapeHtml(chapterLabel))
     : '';
   const label = (d.label || `§ ${d.id}`).replace(/\.\s*$/, '');
-  document.title = `${titleNum} U.S.C. ${label} · FRAMEWORK`;
+  document.title = `${titleNum} U.S.C. ${label}${current ? ' ' + unitShort(current) : ''} · FRAMEWORK`;
+  const toggle = d.mode !== 'units' ? ''
+    : full ? `<a class="btn" href="${uscSectionHref(titleNum, d.id)}">${icon('stack')} Read in parts</a>`
+    : `<a class="btn" href="${uscUnitHref(titleNum, d.id, 'full')}">${icon('expand')} See full section</a>`;
+  const unitBanner = current
+    ? `<div class="unit-context"><span>${escapeHtml(current.label ? `Subdivision ${current.label}` : (current.title || ''))}</span><span class="sep" aria-hidden="true">·</span><span class="unit-pos">Unit ${unitIdx + 1} of ${outline.length}</span></div>`
+    : '';
 
   const notes = d.notes || [];
   let notesHtml = '';
@@ -259,9 +284,12 @@ function renderUscSection(titleNum: number, meta: UscTitleSummary | null, d: Usc
     <h1 class="doc-title">${escapeHtml(label)} ${escapeHtml(d.heading)}</h1>
 
     <div class="doc-actions">
+      ${toggle}
       ${chapter?.id ? `<a class="btn" href="${uscNodeHref(titleNum, chapter.id)}">${icon('list')} Chapter contents</a>` : ''}
       ${pinButtonHtml(uscSectionRef(titleNum, d))}
       ${notes.length ? `<button type="button" class="btn" id="usc-jump-notes">${icon('stack')} Notes (${notes.length})</button>` : ''}
+      <button type="button" class="btn" id="usc-btn-cited" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('link')} <span>Cited by</span></button>
+      <button type="button" class="btn" id="usc-btn-refs" aria-haspopup="dialog" aria-expanded="false" hidden>${icon('list')} <span>Refs</span></button>
       <div class="spacer"></div>
       <div class="doc-actions-util">
         <a class="btn" href="/usc/${titleNum}/${encodeURIComponent(d.id)}" target="_blank" rel="noopener" title="Open a printable standalone page">${icon('external')} Standalone</a>
@@ -274,9 +302,69 @@ function renderUscSection(titleNum: number, meta: UscTitleSummary | null, d: Usc
     </div>
 
     ${d.status ? `<div class="reserved-note">This section is ${escapeHtml(d.status.toLowerCase())}.</div>` : ''}
+    ${unitBanner}
     <div class="reg-body usc-body" id="reg-body">${d.html}</div>
     ${notesHtml}`;
+  enhanceDomAnchors(dom.view);
+  updateUscRefsButton();
   enterView();
+  bindRail();
+  if (reading === 'scroll') watchRail();
+}
+
+function updateUscRefsButton(): void {
+  const btn = document.getElementById('usc-btn-refs');
+  if (!btn) return;
+  const n = collectSectionReferences(dom.view).length;
+  const span = btn.querySelector('span');
+  if (span) span.textContent = n ? `Refs ${n}` : 'Refs';
+  btn.hidden = n === 0;
+}
+
+// --- Cited by: U.S. Code sections, CFR sections and CFR parts (Authority) that cite this section ---
+const citedCache = new Map<string, UscCitedBy>();
+
+async function fillUscCitedBy(titleNum: number, sectionId: string, seq: number, signal?: AbortSignal): Promise<void> {
+  const key = `${titleNum}|${sectionId}`;
+  let data = citedCache.get(key) || null;
+  if (!data) {
+    try { data = await fetchUscCitations(titleNum, sectionId, { signal }); } catch { return; }
+    if (data) citedCache.set(key, data);
+  }
+  if (!data || !data.count || seq !== state.routeSeq || state.currentUscSection?.id !== sectionId) return;
+  const btn = document.getElementById('usc-btn-cited');
+  if (!btn) return;
+  const span = btn.querySelector('span');
+  if (span) span.textContent = `Cited by ${data.count}`;
+  btn.hidden = false;
+}
+
+function citedRow(href: string, code: string, sub: string): string {
+  return `<div class="refs-ledger-row"><a class="refs-ledger-link" href="${href}"><span class="refs-ledger-code">${escapeHtml(code)}</span><span class="refs-ledger-sub">${escapeHtml(sub)}</span></a></div>`;
+}
+
+function openUscCitedBy(btn: Element, d: UscCitedBy): void {
+  const group = (tier: string, label: string, rows: string[]) => rows.length
+    ? `<div class="refs-ledger-group" data-ref-tier="${tier}"><div class="refs-ledger-head"><span class="tier-pip" aria-hidden="true"></span><span>${escapeHtml(label)}</span><span class="refs-ledger-count">${rows.length}</span></div>${rows.slice(0, 60).join('')}</div>`
+    : '';
+  const html = `<div class="refs-ledger-wrap">${[
+    group('cfr', 'Regulations written under it (Authority)', d.authority.map(a =>
+      citedRow(`#/title/${a.title}/part/${encodeURIComponent(a.part)}`, `${a.title} CFR Part ${a.part}`, 'Authority line cites this section'))),
+    group('cross', 'CFR sections citing it', d.cfr.map(c =>
+      citedRow(`#/title/${c.title}/section/${encodeURIComponent(c.id)}`, `${c.title} CFR ${c.label}`,
+        c.heading + (c.paragraphs.length ? ` · cites ${c.paragraphs.join(', ')}` : '')))),
+    group('usc', 'U.S. Code sections citing it', d.usc.map(u =>
+      citedRow(uscSectionHref(u.title, u.id), `${u.title} U.S.C. ${u.label}`, u.heading))),
+  ].join('')}</div>`;
+  citePop.open(btn, `
+    <div class="pop-head-row">
+      <div class="pop-kicker">Cited by ${plural(d.count, 'item')} in your library</div>
+      <span class="peek-badge">CITED BY</span>
+      <button type="button" class="icon-btn pop-close" data-pop-close aria-label="Close citing sections">${icon('close')}</button>
+    </div>
+    ${html}
+    <p class="peek-text">Only titles installed on this computer are searched.</p>
+  `, { interactive: true, returnFocus: btn, focusSelector: '.refs-ledger-link', refTier: 'usc' });
 }
 
 export function renderUscDrawerHtml(titleNum: number): string {
@@ -321,7 +409,7 @@ export function renderUscDrawerHtml(titleNum: number): string {
 
 export async function loadUscRoute(
   titleNum: number,
-  opts: { nodeId?: string | null; sectionId?: string | null; para?: string | null } = {},
+  opts: { nodeId?: string | null; sectionId?: string | null; view?: string | null; para?: string | null } = {},
 ): Promise<void> {
   const seq = state.routeSeq;
   const signal = state.routeAbort?.signal;
@@ -348,11 +436,24 @@ export async function loadUscRoute(
 
   if (opts.sectionId) {
     try {
-      const sec = await fetchUscSection(titleNum, opts.sectionId, { signal });
+      // Like the CFR: a long section opens its first unit, `/full` the whole text, `/{key}` one
+      // unit, and `?p=(b)(1)` the unit holding (b) (falling back to the whole section).
+      const full = opts.view === 'full';
+      const pTok = /^\(([0-9A-Za-z]{1,8})\)/.exec(opts.para || '');
+      const unit = full ? null : (opts.view || (pTok ? pTok[1].toLowerCase() : ''));
+      let sec: UscSectionData;
+      try {
+        sec = await fetchUscSection(titleNum, opts.sectionId, { signal }, unit);
+      } catch (err) {
+        if (!pTok || opts.view || (err as Error)?.name === 'AbortError') throw err;
+        sec = await fetchUscSection(titleNum, opts.sectionId, { signal }, null);
+      }
       if (seq !== state.routeSeq) return;
+      uscParaTools.hide();
       state.currentUscSection = sec;
-      renderUscSection(titleNum, meta, sec);
+      renderUscSection(titleNum, meta, sec, full);
       if (opts.para) highlightTarget(dom.view, opts.para);
+      fillUscCitedBy(titleNum, sec.id, seq, signal);
       if (drawerPanel) drawerPanel.innerHTML = renderUscDrawerHtml(titleNum);
     } catch (err) {
       if ((err as Error)?.name === 'AbortError' || seq !== state.routeSeq) return;
@@ -378,7 +479,7 @@ export async function loadUscRoute(
 const uscParaTools = createParaToolsController({
   root: dom.view,
   bodySelector: '.usc-body',
-  paraSelector: '.usc-body > .reg-p[id]',
+  paraSelector: '.usc-body .reg-p[id]',
   isActive: () => Boolean(state.currentUscSection && !state.currentSection),
   getSectionRef: currentSectionRef,
   citeTitle: 'Copy U.S. Code citation',
@@ -390,6 +491,14 @@ onView('click', async (e: Event) => {
   if (!t) return;
   if (t.closest('#usc-jump-notes')) {
     document.getElementById('usc-notes')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  const refsBtn = t.closest('#usc-btn-refs');
+  if (refsBtn && state.currentUscSection) { openRefsLedgerPopover(refsBtn, dom.view); return; }
+  const citedBtn = t.closest('#usc-btn-cited');
+  if (citedBtn && state.currentUscSection && state.currentUscTitle) {
+    const data = citedCache.get(`${state.currentUscTitle}|${state.currentUscSection.id}`);
+    if (data) openUscCitedBy(citedBtn, data);
   }
 });
 

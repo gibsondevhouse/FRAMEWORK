@@ -109,6 +109,7 @@ class _FlatBody:
         self.heading = ""
         self.carry = ""   # a bare number ("(5)" with no text) folds into its first child: "(5)(A)"
         self.lift = 0     # …and that paragraph keeps the outermost folded level's indent
+        self.unit_starts: list[tuple[int, str, str]] = []   # (index into out, mark, heading) per top-level number
 
     def flush(self, depth: int, extra: str = "") -> None:
         inner = "".join(self.run).strip()
@@ -119,6 +120,8 @@ class _FlatBody:
             depth -= self.lift
             cls = "reg-p" + (f" lvl-{min(depth, 6)}" if depth else "") + extra
             mark = f'<span class="pmark">{self.mark}</span> ' if self.mark else ""
+            if depth == 1 and self.mark:
+                self.unit_starts.append((len(self.out), self.mark, self.heading))
             self.out.append(f'<p class="{cls}" id="p{self.n}">{(mark + inner).rstrip()}</p>')
         self.run, self.mark, self.heading, self.lift = [], "", "", 0
 
@@ -178,11 +181,58 @@ class _FlatBody:
         self.flush(depth)
 
 
-def render_body(xml: str) -> str:
-    """A stored section's body (everything but its own num and heading) as flat CFR-style paragraphs."""
+_TAG_RE = re.compile(r"<[^>]+>")
+_TOKEN_RE = re.compile(r"\(([0-9A-Za-z]{1,8})\)")
+
+
+def _plain(html: str) -> str:
+    from html import unescape
+    return re.sub(r"\s+", " ", unescape(_TAG_RE.sub("", html))).strip()
+
+
+def render_units(xml: str) -> list[dict]:
+    """A section cut into reading units, the U.S.C. counterpart of the CFR's clauses.
+
+    Each top-level number — (a), (b) … or (1), (2) … — starts a unit; text before the first
+    joins it. Unit keys come from the number's first token ("(5)(A)" → "5"), de-duplicated.
+    Every unit: `key`, `label`, `title` (heading or opening words), `kind` "clause", `chars`, `html`.
+    """
     flat = _FlatBody()
     flat.level(ET.fromstring(xml), 0, root=True)
-    return "".join(flat.out)
+    marks_at = [st for st, _, _ in flat.unit_starts]
+    starts = flat.unit_starts or [(0, "", "")]
+    if starts[0][0] != 0:
+        starts[0] = (0, starts[0][1], starts[0][2])
+    units: list[dict] = []
+    seen: set[str] = set()
+    for i, (start, mark, heading) in enumerate(starts):
+        end = starts[i + 1][0] if i + 1 < len(starts) else len(flat.out)
+        html = "".join(flat.out[start:end])
+        tok = _TOKEN_RE.search(_plain(mark))
+        base = (tok.group(1) if tok else "text").lower()
+        key, n = base, 2
+        while key in seen:
+            key, n = f"{base}-{n}", n + 1
+        seen.add(key)
+        text = _plain(html)
+        title = _plain(heading).rstrip(".—-– ")
+        if not title:
+            first = _plain(flat.out[marks_at[i]]) if marks_at else text
+            body = first[len(_plain(mark)):].strip() if mark and first.startswith(_plain(mark)) else first
+            title = body if len(body) <= 60 else body[:57].rsplit(" ", 1)[0] + "…"
+        units.append({"key": key, "label": _plain(mark), "title": title, "kind": "clause",
+                      "chars": len(text), "html": html})
+    return units
+
+
+def wrap_unit(u: dict) -> str:
+    return f'<section class="reg-unit" id="u-{escape(u["key"], quote=True)}" data-unit="{escape(u["key"], quote=True)}">{u["html"]}</section>'
+
+
+def render_body(xml: str) -> str:
+    """A stored section's body (everything but its own num and heading) as flat CFR-style
+    paragraphs, each reading unit wrapped in `section.reg-unit#u-{key}` like the CFR's full view."""
+    return "".join(wrap_unit(u) for u in render_units(xml))
 
 
 def render_fragment(xml: str) -> str:

@@ -5,8 +5,8 @@ would be captured as a (non-integer) CFR title and 422.
 
 Reads are local. Two endpoints reach the OLRC: `GET /api/usc/release` (the current
 release point, cached 30 min) and the queued installs/updates. `/usc/{t}/{s}` is the
-target of U.S.C. citation links once a title is installed: a plain, self-contained page
-(the SPA has no U.S.C. reader yet), so a link opened from a CFR section works.
+href of U.S.C. citation links once a title is installed: a self-contained fallback page
+(inside the app, peek.ts opens the SPA reader at `#/usc/{t}/section/{s}` instead).
 """
 from __future__ import annotations
 
@@ -16,8 +16,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
-from .. import library, usc_build, usc_client, usc_store
+from .. import library, usc_build, usc_citations, usc_client, usc_store
 from ..render import uslm_html
+from ..render.units import UNIT_MODE_MIN_CHARS
 
 _SEC = r"^[0-9A-Za-z.~\-–]{1,40}$"
 
@@ -87,7 +88,11 @@ def title_tree(title: int = Depends(installed_usc_title)) -> FileResponse:
     return FileResponse(p, media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
-def _section_payload(title: int, section_id: str) -> dict:
+def _section_payload(title: int, section_id: str, unit: str | None = None) -> dict:
+    """The section as JSON, shaped like the CFR's `GET /api/{title}/section/{id}`: `mode` is
+    "units" for a long section (read one top-level subsection at a time) else "page";
+    `outline` lists every unit; `?unit=KEY` (`?unit=` = first) on a units-mode section
+    returns only that unit's `html` plus `unit`, `unit_prev`, `unit_next`."""
     sid = usc_store.normalize_section_id(section_id)
     d = usc_store.get_section(title, sid)
     if d is None:
@@ -96,14 +101,40 @@ def _section_payload(title: int, section_id: str) -> dict:
     for n in d.pop("notes"):
         notes.append({"category": n["category"], "topic": n["topic"], "heading": n["heading"],
                       "html": uslm_html.render_fragment(n["xml"]), "text": n["text"]})
-    xml = d.pop("xml")
-    return {**d, "title": title, "html": uslm_html.render_body(xml), "notes": notes,
-            "citation": f"{title} U.S.C. {sid}"}
+    units = uslm_html.render_units(d.pop("xml"))
+    outline = [{k: u[k] for k in ("key", "label", "title", "kind", "chars")}
+               | {"group": None, "group_label": None, "group_title": None} for u in units]
+    total = sum(u["chars"] for u in units)
+    mode = "units" if len(units) >= 2 and total > UNIT_MODE_MIN_CHARS else "page"
+    out = {**d, "title": title, "notes": notes, "citation": f"{title} U.S.C. {sid}",
+           "mode": mode, "outline": outline}
+    if unit is not None and mode == "units":
+        keys = [u["key"] for u in units]
+        i = keys.index(unit) if unit in keys else (0 if unit == "" else -1)
+        if i < 0:
+            raise HTTPException(404, f"{title} U.S.C. § {sid} has no unit {unit!r}.")
+        out.update(html=uslm_html.wrap_unit(units[i]), unit=keys[i],
+                   unit_prev=outline[i - 1] if i > 0 else None,
+                   unit_next=outline[i + 1] if i + 1 < len(units) else None)
+    else:
+        out["html"] = "".join(uslm_html.wrap_unit(u) for u in units)
+    return out
 
 
 @usc_router.get("/{title}/section/{section_id:path}")
-def get_section(title: int = Depends(installed_usc_title), section_id: str = "") -> dict:
-    return _section_payload(title, section_id)
+def get_section(title: int = Depends(installed_usc_title), section_id: str = "",
+                unit: str | None = Query(None, max_length=40)) -> dict:
+    return _section_payload(title, section_id, unit)
+
+
+@usc_router.get("/{title}/citations/{section_id:path}")
+def get_citations(title: int = Depends(installed_usc_title), section_id: str = "") -> dict:
+    """What in the local library cites this section: other U.S.C. sections, CFR sections, and
+    CFR parts whose Authority line names it."""
+    data = usc_citations.cited_by(title, section_id)
+    if data is None:
+        raise HTTPException(404, f"{title} U.S.C. § {section_id} is not in the installed copy.")
+    return data
 
 
 class DownloadRequest(BaseModel):

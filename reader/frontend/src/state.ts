@@ -497,6 +497,22 @@ export interface UscSectionData {
   notes: UscNoteItem[];
   prev?: { id: string; label: string; heading?: string } | null;
   next?: { id: string; label: string; heading?: string } | null;
+  /** "units" for a long section read one top-level subsection at a time, else "page". */
+  mode?: 'units' | 'page';
+  outline?: SectionOutlineItem[];
+  unit?: string | null;
+  unit_prev?: SectionOutlineItem | null;
+  unit_next?: SectionOutlineItem | null;
+}
+
+export interface UscCitedBy {
+  title: number;
+  section_id: string;
+  citation: string;
+  usc: Array<{ title: number; id: string; label: string; heading: string }>;
+  cfr: Array<{ title: number; id: string; part: string; label: string; heading: string; paragraphs: string[] }>;
+  authority: Array<{ title: number; part: string }>;
+  count: number;
 }
 
 export interface AppState {

@@ -333,6 +333,11 @@ Title summary, and the contents tree (`t/id/l/d/c`, sections carry `s` = status)
 ### `GET /api/usc/{title}/section/{section_id}`
 Accepts `655`, `§ 655` or `29 U.S.C. 655(b)`. Returns `id, identifier, label, heading, status` (`repealed`, `omitted`, `transferred`, … or `null`), `chapter, path, ord, text, source_credit, html` (allowlist-rendered body as the CFR reader's flat paragraphs — `<p class="reg-p lvl-N" id="pN">` with a `span.pmark` number; U.S.C. references link to the local copy when installed, else Cornell LII), `notes[{category: editorial | statutory | executive, topic, heading, html, text}]` (kept apart from the section text, QUIRK-006), `prev`, `next`, `citation`.
 
+Also `mode` (`units` for a long section, read one top-level subdivision at a time, else `page`) and `outline` (every unit: `key`, `label`, `title`, `kind`, `chars`); `?unit=KEY` (`?unit=` for the first) on a units-mode section returns only that unit's `html` plus `unit`, `unit_prev`, `unit_next` (404 for an unknown key), exactly like the CFR section endpoint.
+
+### `GET /api/usc/{title}/citations/{section_id}`
+What on this computer cites the section: `usc` (U.S. Code sections linking to it), `cfr` (CFR sections citing it, with the `paragraphs` they name), `authority` (CFR parts whose Authority line cites it), and `count`. Only installed titles are searched; 404 for an unknown section.
+
 ### `GET /api/usc/search`
 `q`, optional `title`, `limit`; `notes=true` (with `title`) also searches the notes. Exact section number first, then FTS5 (bm25 label 8 / heading 6 / text 1).
 

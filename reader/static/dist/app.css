@@ -3437,7 +3437,7 @@ mark { background: var(--mark); color: var(--fg); border-radius: 2px; padding: 0
    Section text renders as the CFR's own .reg-p / .lvl-N / .pmark paragraphs (render/uslm_html.py),
    so only what the CFR has no counterpart for lives here: quoted (amending) text, whose nested
    levels stay nested, the source credit, notes (QUIRK-006) and the chapter page's filter row. */
-.usc-body > .usc-quotedContent, .usc-body > .usc-sourceCredit, .usc-body > .table-wrap { max-width: 66ch; }
+.usc-body .usc-quotedContent, .usc-body .usc-sourceCredit { max-width: 66ch; }
 .usc-body .usc-quotedContent { margin: .25em 0 1em var(--indent-step); padding: 8px 14px; border-left: 2px solid var(--ref-usc, var(--line)); background: var(--card); border-radius: 0 var(--r-8) var(--r-8) 0; }
 .usc-quotedContent .usc-level, .usc-note-card .usc-level { margin: 6px 0 6px 1.25em; }
 .usc-quotedContent .usc-num, .usc-note-card .usc-num { color: var(--fg-3); font-weight: var(--w-medium); margin-right: .2em; }

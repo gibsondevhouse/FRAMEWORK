@@ -53,8 +53,8 @@ export async function handleRoute(): Promise<void> {
     const rest = (uscMatch[2] || '').replace(/^\/+/, '');
     const decodeUsc = (s: string): string => { try { return decodeURIComponent(s); } catch { return s; } };
     if (rest.startsWith('section/')) {
-      const secId = decodeUsc(rest.slice('section/'.length));
-      await loadUscRoute(uscTitle, { sectionId: secId, para: params.get('p') });
+      const [rawId, rawView] = rest.slice('section/'.length).split('/');
+      await loadUscRoute(uscTitle, { sectionId: decodeUsc(rawId), view: rawView ? decodeUsc(rawView) : null, para: params.get('p') });
     } else if (rest.startsWith('node/')) {
       const nodeId = decodeUsc(rest.slice('node/'.length));
       await loadUscRoute(uscTitle, { nodeId });

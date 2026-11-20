@@ -29,7 +29,12 @@ export function unitKind(u: SectionOutlineItem): 'clause' | 'part' | 'appendix' 
   return (u.kind && UNIT_KIND_MAP[u.kind]) || 'part';
 }
 
-export function railHtml(data: SectionDocData, mode: string): string {
+/** `hrefFor(key)` builds a unit link in units mode; the CFR's section route by default. */
+export function railHtml(
+  data: Pick<SectionDocData, 'id' | 'outline' | 'unit'>,
+  mode: string,
+  hrefFor: (key: string) => string = (key) => sectionHref(data.id, key),
+): string {
   const units = data.outline || [];
   if (units.length < 2 || (mode !== 'units' && units.length < 4)) return '';
   const maxChars = Math.max(1, ...units.map(u => Number(u.chars) || 0));
@@ -40,7 +45,7 @@ export function railHtml(data: SectionDocData, mode: string): string {
     if (i && u.group !== lastGroup) { html += '<span class="rail-gap" aria-hidden="true"></span>'; rows++; }
     lastGroup = u.group;
     const current = mode === 'units' && u.key === data.unit;
-    const href = mode === 'units' ? sectionHref(data.id, u.key) : `#u-${u.key}`;
+    const href = mode === 'units' ? hrefFor(u.key) : `#u-${u.key}`;
     const name = unitName(u);
     const ratio = Math.sqrt((Number(u.chars) || 0) / maxChars);
     const barPx = Math.round(7 + ratio * 7);
