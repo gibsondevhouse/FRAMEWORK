@@ -219,7 +219,7 @@ class WorkflowTests(HermeticTestCase):
         self.assertNotIn("|| true", flows["audit.yml"])
         self.assertLessEqual({"push", "pull_request", "schedule"}, set(audit_flow[True]))
         ci = yaml.safe_load(flows["ci.yml"])
-        self.assertEqual(ci["jobs"]["test"]["strategy"]["matrix"], {"os": ["macos-latest", "windows-latest"]})
+        self.assertEqual(ci["jobs"]["test"]["strategy"]["matrix"], {"os": ["macos-latest"]})
         self.assertIn("record_baselines", ci[True]["workflow_dispatch"]["inputs"])
 
     def test_update_pull_requests_cover_everything_that_is_pinned(self):

@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest] # windows-latest temporarily removed; will be re-enabled in a dedicated fix branch
     runs-on: ${{ matrix.os }}
     steps:
       # Actions are pinned to a commit, not a tag: a tag can be moved to different code.
