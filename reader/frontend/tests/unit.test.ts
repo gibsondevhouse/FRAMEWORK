@@ -317,7 +317,7 @@ test('constGroups orders the Preamble, articles and amendments', () => {
   assert.equal(g.amendments[0].name, 'Citizenship, due process and equal protection');
 });
 
-import { congressYears, lawCitation, lawShort, ordinal } from '../src/core/plaw';
+import { congressYears, lawCitation, lawShort, ordinal, plawCounts, plawPrivateCount, splitLawTypes } from '../src/core/plaw';
 import { isUscAppendix, uscCite, uscTitleLabel } from '../src/core/usc_label';
 
 test('Public Law names, citations and Congress years', () => {
@@ -329,6 +329,21 @@ test('Public Law names, citations and Congress years', () => {
   assert.equal(lawShort(law), 'Pub. L. 118-5');
   assert.equal(lawCitation(law), 'Pub. L. No. 118-5, 137 Stat. 50 (2023)');
   assert.equal(lawCitation({ ...law, law_type: 'private', statute: null, approved_date: null }), 'Priv. L. No. 118-5');
+});
+
+test('Private laws count with their Congress and list after the public ones (FT-25)', () => {
+  const st = { congresses: [
+    { congress: 118, law_type: 'public' as const, laws: 10 },
+    { congress: 118, law_type: 'private' as const, laws: 2 },
+    { congress: 117, law_type: 'public' as const, laws: 4 },
+  ] } as unknown as Parameters<typeof plawCounts>[0];
+  assert.deepEqual([...plawCounts(st)], [[118, 12], [117, 4]]);
+  assert.equal(plawPrivateCount(st), 2);
+  assert.equal(plawPrivateCount(null), 0);
+  const rows = [{ id: '118-5', law_type: 'public' as const }, { id: '118-pvt-1', law_type: 'private' as const }, { id: '118-4', law_type: 'public' as const }];
+  const split = splitLawTypes(rows);
+  assert.deepEqual(split.public.map(r => r.id), ['118-5', '118-4']);
+  assert.deepEqual(split.private.map(r => r.id), ['118-pvt-1']);
 });
 
 test('U.S. Code appendix titles are keyed 100 + N', () => {

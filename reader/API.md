@@ -322,7 +322,7 @@ Queue a full corpus build (`{titles?, years?}`; without `titles` the scope comes
 Installed U.S. Code titles, built from the OLRC's USLM XML (`python -m app.usc_build --title N`, or `POST /api/usc/download`) into `data/usc-{N}.sqlite3`. Responses are `Cache-Control: no-store`.
 
 ### `GET /api/usc/titles`
-Installed titles, local only: `{titles[{title, name, release_point, built_at, section_count, note_count, positive_law, xml_sha256, zip_sha256, source_url}]}`.
+Installed titles, local only: `{titles[{title, name, title_name, release_point, current_through, built_at, section_count, note_count, positive_law, xml_sha256, zip_sha256, source_url}]}`.
 
 ### `GET /api/usc/catalog`
 All 54 U.S. Code titles for the Library, offline (never calls the OLRC); pass `?appendix=true` to also include the appendix titles (`5a`, `11a`, `18a`, `28a`, and reserved `50a`): `{release: {release_point, current_through} | null, desks, titles[{title, name, reserved, positive_law, desk, cfr, installed: {release_point, built_at, section_count, note_count, bytes, stale} | null}]}`. Names, desks and implementing CFR titles (`cfr`) come from `app/usc_titles.json`; `release` and `stale` reflect the last release the server fetched (`null` until `GET /api/usc/release` has run).
@@ -331,7 +331,7 @@ All 54 U.S. Code titles for the Library, offline (never calls the OLRC); pass `?
 Asks the OLRC for the current release point (cached 30 min; `?refresh=true` bypasses): `{release_point, current_through, available_titles, titles[… + stale]}`. 503 when the OLRC doesn't answer.
 
 ### `GET /api/usc/{title}/meta` · `GET /api/usc/{title}/tree`
-Title summary, and the contents tree (`t/id/l/d/c`, sections carry `s` = status). 404 when not installed.
+Title summary (one row of `/api/usc/titles`; `title_name` repeats `name`, and `current_through` is the OLRC's "current through" date for the release point, or `null` when the build did not record one), and the contents tree (`t/id/l/d/c`, sections carry `s` = status). 404 when not installed.
 
 ### `GET /api/usc/{title}/section/{section_id}`
 Accepts `655`, `§ 655` or `29 U.S.C. 655(b)`. Returns `id, identifier, label, heading, status` (`repealed`, `omitted`, `transferred`, … or `null`), `chapter, path, ord, text, source_credit, html` (allowlist-rendered body as the CFR reader's flat paragraphs — `<p class="reg-p lvl-N" id="pN">` with a `span.pmark` number; U.S.C. references link to the local copy when installed, else Cornell LII), `notes[{category: editorial | statutory | executive, topic, heading, html, text}]` (kept apart from the section text, QUIRK-006), `prev`, `next`, `citation`.
